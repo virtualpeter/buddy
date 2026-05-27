@@ -1,7 +1,7 @@
 # bump-release.star — illustrative release bump (edit constants for your Jamf tenant)
 #
 # Usage:
-#   buddy run examples/bump-release.star -- 2.4.27
+#   buddy examples/bump-release.star -- 2.4.27
 #
 # Every buddy builtin returns {"ok": True, "value": ...} or {"ok": False, "error": "..."}.
 # Resource IDs first; optional cred= last.
@@ -20,7 +20,7 @@ VERSION_GROUP_ID = ""   # smart group ID string, or "" = skip group_set_version
 
 def main():
     if len(args) < 1:
-        error("Usage: buddy run examples/bump-release.star -- <version>")
+        error("Usage: buddy examples/bump-release.star -- <version>")
         exit(1)
 
     version = args[0]

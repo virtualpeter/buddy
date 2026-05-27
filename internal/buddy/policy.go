@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-
 )
 
 // Opts holds common options for buddy operations.
@@ -38,7 +37,7 @@ func PolicySS(credName string, opts Opts, policyID int, newVersion string, group
 		if len(groupIDs) > 0 {
 			msg += fmt.Sprintf("\nSet scope to computer groups: %v", groupIDs)
 		}
-		if !confirm(msg, logger) {
+		if !ConfirmPrompt(msg, logger) {
 			return nil
 		}
 	}
@@ -142,7 +141,7 @@ func PolicySSUpdate(credName string, opts Opts, policyID int, ssOpts PolicySSOpt
 		for _, c := range changes {
 			msg += "\n  " + c
 		}
-		if !confirm(msg, logger) {
+		if !ConfirmPrompt(msg, logger) {
 			return nil
 		}
 	}
@@ -169,7 +168,7 @@ func PolicyScope(credName string, opts Opts, policyID int, groupIDs []int, logge
 	}
 	payload := buildPolicyUpdatePayload(policy, policy.SelfService.SelfServiceDescription, groupIDs)
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nSet policy %q (ID %d) scope to computer groups: %v", policy.General.Name, policyID, groupIDs), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nSet policy %q (ID %d) scope to computer groups: %v", policy.General.Name, policyID, groupIDs), logger) {
 			return nil
 		}
 	}
@@ -195,7 +194,7 @@ func PolicyScopeAll(credName string, opts Opts, policyID int, logger *slog.Logge
 	payload.Scope.ComputerGroups = nil
 	payload.Scope.Computers = nil
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nSet policy %q (ID %d) scope to All Computers", policy.General.Name, policyID), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nSet policy %q (ID %d) scope to All Computers", policy.General.Name, policyID), logger) {
 			return nil
 		}
 	}
@@ -232,7 +231,7 @@ func PolicyEnable(credName string, opts Opts, policyID int, enabled bool, logger
 		if enabled {
 			to = "enabled"
 		}
-		if !confirm(fmt.Sprintf("\nPolicy %q (ID %d): %s -> %s", policy.General.Name, policyID, from, to), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nPolicy %q (ID %d): %s -> %s", policy.General.Name, policyID, from, to), logger) {
 			return nil
 		}
 	}
@@ -357,11 +356,13 @@ func PolicyTrigger(credName string, opts Opts, policyID int, newTrigger string, 
 		return nil
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nPolicy %q (ID %d): trigger %q -> %q", policy.General.Name, policyID, currentTrigger, newTrigger), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nPolicy %q (ID %d): trigger %q -> %q", policy.General.Name, policyID, currentTrigger, newTrigger), logger) {
 			return nil
 		}
 	}
-	payload := &policyTriggerPayload{General: struct{ TriggerOther string `xml:"trigger_other"` }{TriggerOther: newTrigger}}
+	payload := &policyTriggerPayload{General: struct {
+		TriggerOther string `xml:"trigger_other"`
+	}{TriggerOther: newTrigger}}
 	if opts.Verbose {
 		xmlPayload, _ := xml.MarshalIndent(payload, "", "  ")
 		fmt.Fprintf(os.Stderr, "\n--- PUT payload (JSSResource/policies/id/%d) ---\n%s\n--- end payload ---\n\n", policyID, xmlPayload)
@@ -385,7 +386,7 @@ func PolicySetName(credName string, opts Opts, policyID int, newName string, log
 		return nil
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nRename policy (ID %d): %q -> %q", policyID, currentName, newName), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nRename policy (ID %d): %q -> %q", policyID, currentName, newName), logger) {
 			return nil
 		}
 	}
@@ -415,7 +416,7 @@ func PolicySetFrequency(credName string, opts Opts, policyID int, frequency stri
 		return nil
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nSet policy %q (ID %d) frequency: %q -> %q", policy.General.Name, policyID, currentFreq, newFreq), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nSet policy %q (ID %d) frequency: %q -> %q", policy.General.Name, policyID, currentFreq, newFreq), logger) {
 			return nil
 		}
 	}
@@ -444,7 +445,7 @@ func PolicySetIcon(credName string, opts Opts, policyID int, filePath string, lo
 	}
 
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nUpload icon %q and set on policy %q (ID %d)", filePath, policy.General.Name, policyID), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nUpload icon %q and set on policy %q (ID %d)", filePath, policy.General.Name, policyID), logger) {
 			return nil
 		}
 	}
@@ -494,7 +495,7 @@ func PolicyInstall(credName string, opts Opts, policyID int, newVersion string, 
 
 	if !opts.SkipConfirm {
 		fmt.Printf("\n%s\n\n", action)
-		if !confirm("", logger) {
+		if !ConfirmPrompt("", logger) {
 			return nil
 		}
 	}
@@ -539,7 +540,7 @@ func PolicyClone(credName string, opts Opts, policyID int, appName, oldVersion, 
 			for i, a := range actions {
 				fmt.Printf("  %d. %s\n", i+1, a)
 			}
-			if !confirm("", logger) {
+			if !ConfirmPrompt("", logger) {
 				return nil
 			}
 		}
@@ -593,7 +594,7 @@ func PolicyClone(credName string, opts Opts, policyID int, appName, oldVersion, 
 		for i, a := range actions {
 			fmt.Printf("  %d. %s\n", i+1, a)
 		}
-		if !confirm("", logger) {
+		if !ConfirmPrompt("", logger) {
 			return nil
 		}
 	}
@@ -802,7 +803,7 @@ func PolicyPackage(credName string, opts Opts, appName, newVersion string, polic
 		for i, a := range actions {
 			fmt.Printf("  %d. %s\n", i+1, a)
 		}
-		if !confirm("", logger) {
+		if !ConfirmPrompt("", logger) {
 			return nil
 		}
 	}
@@ -864,7 +865,7 @@ func PolicySetXML(credName string, opts Opts, policyID int, r io.Reader, logger 
 	// Strip date_time_limitations to avoid propagating activation/expiration datetimes.
 	data = dateTimeLimitationsBlockRegex.ReplaceAll(data, []byte(dateTimeLimitationsEmptyXML))
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nPUT policy (ID %d) with XML from stdin", policyID), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nPUT policy (ID %d) with XML from stdin", policyID), logger) {
 			return nil
 		}
 	}
@@ -900,7 +901,7 @@ func PolicyPutXML(credName string, opts Opts, policyID int, xml []byte, logger *
 	}
 	data = dateTimeLimitationsBlockRegex.ReplaceAll(data, []byte(dateTimeLimitationsEmptyXML))
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nPUT policy (ID %d) with XML", policyID), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nPUT policy (ID %d) with XML", policyID), logger) {
 			return nil
 		}
 	}
@@ -945,7 +946,7 @@ func PolicyDelete(credName string, opts Opts, policyIDs []int, logger *slog.Logg
 		for _, p := range infos {
 			msg += fmt.Sprintf("\n  %q (ID %d)", p.name, p.id)
 		}
-		if !confirm(msg, logger) {
+		if !ConfirmPrompt(msg, logger) {
 			return nil
 		}
 	}
@@ -1043,7 +1044,8 @@ func PolicyFindByKeywords(credName string, opts Opts, keywords []string, exclude
 	return result, nil
 }
 
-func confirm(msg string, logger *slog.Logger) bool {
+// ConfirmPrompt prints msg (if non-empty), asks "Proceed? [y/N]" on stdin, and returns true for y/yes.
+func ConfirmPrompt(msg string, logger *slog.Logger) bool {
 	if msg != "" {
 		fmt.Printf("%s\n\n", msg)
 	}
@@ -1064,7 +1066,7 @@ func confirm(msg string, logger *slog.Logger) bool {
 }
 
 // confirmDangerous prompts for a dangerous action. For ERASE, requireType is "erase" and the user must type "erase".
-// For LOCK or other actions, requireType is empty and it behaves like confirm.
+// For LOCK or other actions, requireType is empty and it behaves like ConfirmPrompt.
 func confirmDangerous(msg, requireType string, logger *slog.Logger) bool {
 	if msg != "" {
 		fmt.Printf("%s\n\n", msg)
@@ -1178,16 +1180,16 @@ type policyUpdatePayload struct {
 			Name string `xml:"name"`
 		} `xml:"site"`
 	} `xml:"general"`
-	Scope policySubsetScope `xml:"scope"`
+	Scope       policySubsetScope `xml:"scope"`
 	SelfService struct {
 		UseForSelfService           bool   `xml:"use_for_self_service"`
-		SelfServiceDisplayName     string `xml:"self_service_display_name"`
+		SelfServiceDisplayName      string `xml:"self_service_display_name"`
 		InstallButtonText           string `xml:"install_button_text"`
-		ReinstallButtonText        string `xml:"reinstall_button_text"`
-		SelfServiceDescription     string `xml:"self_service_description"`
+		ReinstallButtonText         string `xml:"reinstall_button_text"`
+		SelfServiceDescription      string `xml:"self_service_description"`
 		ForceUsersToViewDescription bool   `xml:"force_users_to_view_description"`
-		FeatureOnMainPage          bool   `xml:"feature_on_main_page"`
-		SelfServiceIcon            *struct {
+		FeatureOnMainPage           bool   `xml:"feature_on_main_page"`
+		SelfServiceIcon             *struct {
 			ID int `xml:"id"`
 		} `xml:"self_service_icon,omitempty"`
 	} `xml:"self_service"`
@@ -1370,17 +1372,17 @@ func putPolicyGeneric(credName string, policyID int, payload interface{}, logger
 type policyInstallPayload struct {
 	XMLName xml.Name `xml:"policy"`
 	General struct {
-		Name                       string           `xml:"name"`
-		Enabled                    bool             `xml:"enabled"`
-		Trigger                    string           `xml:"trigger"`
-		TriggerCheckin             bool             `xml:"trigger_checkin"`
-		TriggerEnrollmentComplete  bool             `xml:"trigger_enrollment_complete"`
-		TriggerLogin               bool             `xml:"trigger_login"`
-		TriggerLogout              bool             `xml:"trigger_logout"`
-		TriggerNetworkStateChanged bool             `xml:"trigger_network_state_changed"`
-		TriggerStartup             bool             `xml:"trigger_startup"`
-		TriggerOther               string           `xml:"trigger_other"`
-		Frequency                  string           `xml:"frequency"`
+		Name                       string `xml:"name"`
+		Enabled                    bool   `xml:"enabled"`
+		Trigger                    string `xml:"trigger"`
+		TriggerCheckin             bool   `xml:"trigger_checkin"`
+		TriggerEnrollmentComplete  bool   `xml:"trigger_enrollment_complete"`
+		TriggerLogin               bool   `xml:"trigger_login"`
+		TriggerLogout              bool   `xml:"trigger_logout"`
+		TriggerNetworkStateChanged bool   `xml:"trigger_network_state_changed"`
+		TriggerStartup             bool   `xml:"trigger_startup"`
+		TriggerOther               string `xml:"trigger_other"`
+		Frequency                  string `xml:"frequency"`
 		Category                   *struct {
 			ID   int    `xml:"id,omitempty"`
 			Name string `xml:"name,omitempty"`
@@ -1391,7 +1393,7 @@ type policyInstallPayload struct {
 		} `xml:"site"`
 		DateTimeLimitations dateTimeLimitationsPayload `xml:"date_time_limitations"`
 	} `xml:"general"`
-	Scope policySubsetScope `xml:"scope"`
+	Scope   policySubsetScope `xml:"scope"`
 	Scripts struct {
 		Script []scriptPayload `xml:"script"`
 	} `xml:"scripts"`
@@ -1407,15 +1409,15 @@ type policyInstallPayload struct {
 }
 
 type scriptPayload struct {
-	ID         string `xml:"id"`
-	Name       string `xml:"name,omitempty"`
-	Priority   string `xml:"priority"`
-	Parameter4 string `xml:"parameter4,omitempty"`
-	Parameter5 string `xml:"parameter5,omitempty"`
-	Parameter6 string `xml:"parameter6,omitempty"`
-	Parameter7 string `xml:"parameter7,omitempty"`
-	Parameter8 string `xml:"parameter8,omitempty"`
-	Parameter9 string `xml:"parameter9,omitempty"`
+	ID          string `xml:"id"`
+	Name        string `xml:"name,omitempty"`
+	Priority    string `xml:"priority"`
+	Parameter4  string `xml:"parameter4,omitempty"`
+	Parameter5  string `xml:"parameter5,omitempty"`
+	Parameter6  string `xml:"parameter6,omitempty"`
+	Parameter7  string `xml:"parameter7,omitempty"`
+	Parameter8  string `xml:"parameter8,omitempty"`
+	Parameter9  string `xml:"parameter9,omitempty"`
 	Parameter10 string `xml:"parameter10,omitempty"`
 	Parameter11 string `xml:"parameter11,omitempty"`
 }
@@ -1613,7 +1615,7 @@ type policyPackagePayload struct {
 		} `xml:"site"`
 		DateTimeLimitations dateTimeLimitationsPayload `xml:"date_time_limitations"`
 	} `xml:"general"`
-	Scope policySubsetScope `xml:"scope"`
+	Scope                policySubsetScope `xml:"scope"`
 	PackageConfiguration struct {
 		Packages struct {
 			Package []struct {
@@ -1627,7 +1629,7 @@ type policyPackagePayload struct {
 		Script []scriptPayload `xml:"script"`
 	} `xml:"scripts,omitempty"`
 	FilesProcesses policySubsetFilesProcesses `xml:"files_processes,omitempty"`
-	Maintenance struct {
+	Maintenance    struct {
 		Recon bool `xml:"recon"`
 	} `xml:"maintenance"`
 }
@@ -2009,7 +2011,7 @@ func PolicyCreatePackage(credName string, opts Opts, appName, version string, ac
 	}
 	payload := buildPolicyPackagePayloadFromScratch(policyName, trigger, pkgID, pkgName, actionAPI, scopeAll, scopeGroupIDs, catID, catName)
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nCreate policy %q with trigger %q, package %s (ID %d)", policyName, trigger, pkgName, pkgID), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nCreate policy %q with trigger %q, package %s (ID %d)", policyName, trigger, pkgName, pkgID), logger) {
 			return nil
 		}
 	}
@@ -2064,8 +2066,8 @@ type policySelfServicePayload struct {
 	} `xml:"maintenance"`
 }
 
-// PolicyCreateSS creates a Self Service policy that runs script 51 with the
-// given trigger as parameter4.
+// PolicyCreateSS creates a Self Service policy using the given trigger as script parameter4
+// when scriptID > 0 (Jamf script numeric ID). scriptID 0 means no script payloads on the policy.
 //
 // If scopeGroupID > 0, the policy is scoped to that computer group ID.
 // Otherwise, it is scoped to all computers.
@@ -2132,7 +2134,7 @@ func PolicyCreateSS(credName string, opts Opts, trigger, displayName, category s
 		if scopeGroupID > 0 {
 			scopeMsg = fmt.Sprintf("computer group %d", scopeGroupID)
 		}
-		if !confirm(fmt.Sprintf("\nCreate Self Service policy %q (trigger param: %s, scope: %s)", policyName, trigger, scopeMsg), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nCreate Self Service policy %q (trigger param: %s, scope: %s)", policyName, trigger, scopeMsg), logger) {
 			return 0, nil
 		}
 	}
@@ -2462,7 +2464,7 @@ func PolicyCreateFromTemplate(credName string, opts Opts, tmpl PolicyTemplate, v
 	payload.Maintenance.Recon = tmpl.Recon
 
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nCreate policy %q with trigger %q", name, trigger), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nCreate policy %q with trigger %q", name, trigger), logger) {
 			return nil
 		}
 	}

@@ -3,7 +3,7 @@
 These `.star` files are [Starlark](https://github.com/google/starlark-go) scripts run with:
 
 ```sh
-buddy run path/to/script.star [-- arguments passed to the script]
+buddy path/to/script.star [-- arguments passed to the script]
 ```
 
 Arguments after `--` appear in the global `args` list inside the script.
@@ -17,8 +17,8 @@ Arguments after `--` appear in the global `args` list inside the script.
 ## Full documentation
 
 - [Reference manual](../docs/reference-manual.md) — configuration, CLI, scripting, and links to the API endpoint catalog.
-- Canonical **built-in function** list (always matches your installed binary): `buddy run help builtins`
-- Starlark language subset: `buddy run help starlark`
+- Canonical **built-in function** list (always matches your installed binary): `buddy help builtins`
+- Starlark language subset: `buddy help starlark`
 
 ## Advanced / integration testing
 

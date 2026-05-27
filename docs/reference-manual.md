@@ -13,7 +13,7 @@ This manual describes how the pieces fit together. For behavior that must stay i
 3. [Configuration and credentials](#configuration-and-credentials)
 4. [First-time API setup](#first-time-api-setup)
 5. [CLI overview](#cli-overview)
-6. [Starlark scripts (`buddy run`)](#starlark-scripts-buddy-run)
+6. [Starlark shell and scripts](#starlark-shell-and-scripts)
 7. [Built-in functions](#built-in-functions)
 8. [HTTP API usage](#http-api-usage)
 9. [Examples](#examples)
@@ -68,7 +68,7 @@ To create a Jamf API role with the privileges buddy needs and an API client scop
 
 ```sh
 buddy setup write-script              # writes setup_buddy_role.star (or pass a path)
-buddy run setup_buddy_role.star -y    # idempotent: reuses an existing "Buddy" role when present
+buddy setup_buddy_role.star -y    # idempotent: reuses an existing "Buddy" role when present
 buddy setup configure-oauth -y        # optional: store OAuth in config
 ```
 
@@ -129,27 +129,29 @@ Use these when unsure about positional arguments, flags, or subcommand names.
 
 ---
 
-## Starlark scripts (`buddy run`)
+## Starlark shell and scripts
 
 **Usage**
 
 ```sh
-buddy [global-flags] run [--trace] <script.star> [-- args...]
+buddy [global-flags]                              # interactive Starlark shell
+buddy [global-flags] [--trace] <script.star> [-- args...]
 ```
 
+- With no arguments, buddy starts an interactive Starlark REPL on stdin/stdout.
 - Scripts are **Starlark** (a deterministic Python-like language). See **Language** below.
 - `args` after `--` are available as the global list `args`.
 - The active credential name is available as `cred` (override per builtin with `cred=`).
-- The regex module is exposed as `re` (see `buddy run help starlark` for what Starlark provides globally).
+- The regex module is exposed as `re` (see `buddy help starlark` for what Starlark provides globally).
 - **`print()`** writes to stdout; buddy adds **`error(*args, ...)`** for stderr (same signature as `print`). Prefer **`error`** for progress, skips, and failures so stdout stays free for machine-readable output; reserve **`print`** for lines meant to be piped or captured as the script’s primary result.
-- **`--trace` on `run`** logs each builtin call (and optionally Starlark `print` tracing) to stderr. **HTTP tracing** uses the top-level `-t` / `--trace` on `buddy` before `run`: `buddy -t run script.star`.
+- **Positional `--trace` before `<script.star>`** or global **`--script-trace`** logs each builtin call (and optionally Starlark `print` tracing) to stderr. **HTTP tracing** uses the top-level `-t` / `--trace` on `buddy`: `buddy -t deploy.star`.
 
 ### Language
 
 Starlark quick-reference (types, control flow, string/list/dict methods, what is intentionally absent vs Python):
 
 ```sh
-buddy run help starlark
+buddy help starlark
 ```
 
 ### Result convention
@@ -172,7 +174,7 @@ Buddy registers many functions for policies, groups, profiles, packages, scripts
 **Canonical reference** (always matches your installed `buddy` binary):
 
 ```sh
-buddy run help builtins
+buddy help builtins
 ```
 
 That output lists every builtin with parameter names, types, and return shapes. **Treat it as the source of truth**; this manual only orients you.

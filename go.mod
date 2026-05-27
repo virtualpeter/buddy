@@ -11,6 +11,7 @@ require (
 )
 
 require (
+	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pkg/errors v0.8.1 // indirect

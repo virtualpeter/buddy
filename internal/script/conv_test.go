@@ -2,6 +2,7 @@ package script
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -209,6 +210,47 @@ func TestStarlarkValueToGo_Int(t *testing.T) {
 	}
 }
 
+func TestStarlarkValueToGo_IntPrefersInt64WhenFits(t *testing.T) {
+	got, err := StarlarkValueToGo(starlark.MakeUint64(42))
+	if err != nil {
+		t.Fatalf("StarlarkValueToGo(MakeUint64(42)): %v", err)
+	}
+	if i, ok := got.(int64); !ok || i != 42 {
+		t.Errorf("want int64(42), got %v (%T)", got, got)
+	}
+}
+
+func TestStarlarkValueToGo_IntFallbackUint64BeyondInt64(t *testing.T) {
+	const v uint64 = math.MaxUint64
+	got, err := StarlarkValueToGo(starlark.MakeUint64(v))
+	if err != nil {
+		t.Fatalf("StarlarkValueToGo(math.MaxUint64): %v", err)
+	}
+	if u, ok := got.(uint64); !ok || u != v {
+		t.Errorf("want uint64(%d), got %v (%T)", v, got, got)
+	}
+}
+
+func TestGoValueToStarlarkStarlarkValueToGo_LargeUint64RoundTrip(t *testing.T) {
+	n := uint64(math.MaxInt64) + 123
+	in := map[string]interface{}{"n": n}
+	toStarlark, err := GoValueToStarlark(in)
+	if err != nil {
+		t.Fatalf("GoValueToStarlark: %v", err)
+	}
+	back, err := StarlarkValueToGo(toStarlark)
+	if err != nil {
+		t.Fatalf("StarlarkValueToGo: %v", err)
+	}
+	m, ok := back.(map[string]interface{})
+	if !ok {
+		t.Fatalf("got %T, want map", back)
+	}
+	if u, ok := m["n"].(uint64); !ok || u != n {
+		t.Errorf(`m["n"] = %v (%T)`, m["n"], m["n"])
+	}
+}
+
 func TestStarlarkValueToGo_Float(t *testing.T) {
 	got, err := StarlarkValueToGo(starlark.Float(1.5))
 	if err != nil {
@@ -317,9 +359,15 @@ func TestStarlarkToJSON_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("JSONDecodeToStarlark: %v", err)
 	}
-	// Compare string representation
-	if back.String() != d.String() {
-		t.Errorf("round-trip: got %s, want %s", back.String(), d.String())
+	// Compare via canonical JSON — Dict.String reflects insertion order, but JSON
+	// unmarshaling into map loses key order, so decoding + GoValueToStarlark yields
+	// a dict whose repr may differ though the structure is identical.
+	gotJSON, err := StarlarkToJSON(back)
+	if err != nil {
+		t.Fatalf("StarlarkToJSON(back): %v", err)
+	}
+	if gotJSON != jsonStr {
+		t.Errorf("round-trip JSON: got %s, want %s", gotJSON, jsonStr)
 	}
 }
 

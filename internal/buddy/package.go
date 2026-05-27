@@ -169,7 +169,7 @@ func PackageDelete(credName string, opts Opts, ids []string, logger *slog.Logger
 		return fmt.Errorf("at least one package ID required")
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Delete %d package record(s): %s", len(ids), strings.Join(ids, ", ")), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Delete %d package record(s): %s", len(ids), strings.Join(ids, ", ")), logger) {
 			return nil
 		}
 	}
@@ -563,7 +563,7 @@ func PackagePutFields(credName string, opts Opts, id string, fields map[string]i
 	}
 
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nPUT package (ID %s) with updated fields", id), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nPUT package (ID %s) with updated fields", id), logger) {
 			return nil, nil
 		}
 	}
@@ -792,7 +792,7 @@ func PackageUpload(credName string, opts Opts, filePath string, nameOverride, ca
 		SuppressRegistration: false,
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nUpload package %q as %q (priority %d)?", filePath, packageName, priority), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nUpload package %q as %q (priority %d)?", filePath, packageName, priority), logger) {
 			return nil
 		}
 	}
@@ -826,7 +826,7 @@ func PackageSetName(credName, id string, opts Opts, value string, logger *slog.L
 		return err
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Set package %s name: %q → %q", id, pkg.PackageName, value), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Set package %s name: %q → %q", id, pkg.PackageName, value), logger) {
 			return nil
 		}
 	}
@@ -846,7 +846,7 @@ func PackageSetNotes(credName, id string, opts Opts, value string, logger *slog.
 		return err
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Set package %s (%s) notes", id, pkg.PackageName), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Set package %s (%s) notes", id, pkg.PackageName), logger) {
 			return nil
 		}
 	}
@@ -865,7 +865,7 @@ func PackageSetInfo(credName, id string, opts Opts, value string, logger *slog.L
 		return err
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Set package %s (%s) info", id, pkg.PackageName), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Set package %s (%s) info", id, pkg.PackageName), logger) {
 			return nil
 		}
 	}
@@ -887,7 +887,7 @@ func PackageSetPriority(credName, id string, opts Opts, priority int, logger *sl
 		return err
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Set package %s (%s) priority: %d → %d", id, pkg.PackageName, pkg.Priority, priority), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Set package %s (%s) priority: %d → %d", id, pkg.PackageName, pkg.Priority, priority), logger) {
 			return nil
 		}
 	}
@@ -908,7 +908,7 @@ func PackageSetCategory(credName, id string, opts Opts, categoryID string, logge
 		return err
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Set package %s (%s) category: %q → %q", id, pkg.PackageName, pkg.CategoryID, categoryID), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Set package %s (%s) category: %q → %q", id, pkg.PackageName, pkg.CategoryID, categoryID), logger) {
 			return nil
 		}
 	}
@@ -928,7 +928,7 @@ func PackageSetReboot(credName, id string, opts Opts, value bool, logger *slog.L
 		return err
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Set package %s (%s) rebootRequired: %v → %v", id, pkg.PackageName, pkg.RebootRequired, value), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Set package %s (%s) rebootRequired: %v → %v", id, pkg.PackageName, pkg.RebootRequired, value), logger) {
 			return nil
 		}
 	}

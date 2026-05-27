@@ -296,7 +296,7 @@ func ScriptCreate(credName string, opts Opts, name, file, category, priority, in
 		s.Notes = notes
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Create script %q from %q", name, file), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Create script %q from %q", name, file), logger) {
 			return nil
 		}
 	}
@@ -429,7 +429,7 @@ func ScriptPutFields(credName string, opts Opts, id string, fields map[string]in
 	}
 
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Update script %s (%s) via PUT", id, s.Name), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Update script %s (%s) via PUT", id, s.Name), logger) {
 			return nil, nil
 		}
 	}
@@ -447,7 +447,7 @@ func ScriptUpdate(credName string, opts Opts, id, file string, logger *slog.Logg
 		return err
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Update script %s (%s) contents from %q", id, s.Name, file), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Update script %s (%s) contents from %q", id, s.Name, file), logger) {
 			return nil
 		}
 	}
@@ -471,7 +471,7 @@ func ScriptDelete(credName string, opts Opts, ids []string, logger *slog.Logger)
 			return fmt.Errorf("fetch script %s: %w", id, err)
 		}
 		if !opts.SkipConfirm {
-			if !confirm(fmt.Sprintf("Delete script %s (%s)", id, s.Name), logger) {
+			if !ConfirmPrompt(fmt.Sprintf("Delete script %s (%s)", id, s.Name), logger) {
 				continue
 			}
 		}
@@ -512,7 +512,7 @@ func ScriptSetName(credName, id string, opts Opts, value string, logger *slog.Lo
 		return err
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Set script %s name: %q → %q", id, s.Name, value), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Set script %s name: %q → %q", id, s.Name, value), logger) {
 			return nil
 		}
 	}
@@ -533,7 +533,7 @@ func ScriptSetCategory(credName, id string, opts Opts, categoryID string, logger
 		return err
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Set script %s (%s) category: %q → %q", id, s.Name, s.CategoryID, categoryID), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Set script %s (%s) category: %q → %q", id, s.Name, s.CategoryID, categoryID), logger) {
 			return nil
 		}
 	}
@@ -561,7 +561,7 @@ func ScriptSetPriority(credName, id string, opts Opts, priority string, logger *
 		return err
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Set script %s (%s) priority: %s → %s", id, s.Name, s.Priority, priority), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Set script %s (%s) priority: %s → %s", id, s.Name, s.Priority, priority), logger) {
 			return nil
 		}
 	}
@@ -581,7 +581,7 @@ func ScriptSetInfo(credName, id string, opts Opts, value string, logger *slog.Lo
 		return err
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Set script %s (%s) info", id, s.Name), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Set script %s (%s) info", id, s.Name), logger) {
 			return nil
 		}
 	}
@@ -640,7 +640,7 @@ func ScriptSetNotes(credName, id string, opts Opts, value string, logger *slog.L
 		return err
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Set script %s (%s) notes", id, s.Name), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Set script %s (%s) notes", id, s.Name), logger) {
 			return nil
 		}
 	}

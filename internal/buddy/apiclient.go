@@ -151,7 +151,7 @@ func ClientCreateWithResult(credName string, opts Opts, displayName string, scop
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Create API client %q with scopes: %v", displayName, scopes), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Create API client %q with scopes: %v", displayName, scopes), logger) {
 			return nil, nil
 		}
 	}
@@ -214,7 +214,7 @@ func ClientUpdateWithResult(credName, id string, opts Opts, displayName string, 
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Update API client %s to name %q with scopes: %v", id, displayName, scopes), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Update API client %s to name %q with scopes: %v", id, displayName, scopes), logger) {
 			return nil, nil
 		}
 	}
@@ -279,7 +279,7 @@ func ClientPutFields(credName string, opts Opts, id string, fields map[string]in
 // ClientDelete deletes an API integration by ID.
 func ClientDelete(credName, id string, opts Opts, logger *slog.Logger) error {
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Delete API client %s", id), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Delete API client %s", id), logger) {
 			return nil
 		}
 	}
@@ -322,7 +322,7 @@ func ClientCredentials(credName, id string, opts Opts, logger *slog.Logger) erro
 // ClientCredentialsWithResult generates OAuth client credentials and returns them (caller must persist).
 func ClientCredentialsWithResult(credName, id string, opts Opts, logger *slog.Logger) (clientID, clientSecret string, err error) {
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Generate new client credentials for API client %s (existing secret will be invalidated)", id), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Generate new client credentials for API client %s (existing secret will be invalidated)", id), logger) {
 			return "", "", nil
 		}
 	}
@@ -359,7 +359,7 @@ func ClientSetTokenLifetime(credName, id string, opts Opts, seconds int, logger 
 		return fmt.Errorf("fetch existing client: %w", err)
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Set token lifetime for API client %s (%s): %ds → %ds",
+		if !ConfirmPrompt(fmt.Sprintf("Set token lifetime for API client %s (%s): %ds → %ds",
 			id, existing.DisplayName, existing.AccessTokenLifetimeSecs, seconds), logger) {
 			return nil
 		}

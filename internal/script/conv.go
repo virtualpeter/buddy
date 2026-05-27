@@ -53,8 +53,16 @@ func GoValueToStarlark(v interface{}) (starlark.Value, error) {
 		return starlark.Float(x), nil
 	case int:
 		return starlark.MakeInt(x), nil
+	case int32:
+		return starlark.MakeInt64(int64(x)), nil
 	case int64:
 		return starlark.MakeInt64(x), nil
+	case uint:
+		return starlark.MakeUint64(uint64(x)), nil
+	case uint32:
+		return starlark.MakeUint64(uint64(x)), nil
+	case uint64:
+		return starlark.MakeUint64(x), nil
 	case bool:
 		return starlark.Bool(x), nil
 	case []byte:
@@ -100,11 +108,15 @@ func StarlarkValueToGo(v starlark.Value) (interface{}, error) {
 	case starlark.String:
 		return string(x), nil
 	case starlark.Int:
-		i, ok := x.Int64()
-		if !ok {
-			return nil, fmt.Errorf("int out of range")
+		// Prefer int64 when it fits — matches JSON decoding and avoids surprising
+		// map values for typical positive integers decoded as plist uint64.
+		if i, ok := x.Int64(); ok {
+			return i, nil
 		}
-		return i, nil
+		if u, ok := x.Uint64(); ok {
+			return u, nil
+		}
+		return nil, fmt.Errorf("int out of range")
 	case starlark.Float:
 		return float64(x), nil
 	case starlark.Bool:

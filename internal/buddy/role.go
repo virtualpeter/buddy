@@ -152,7 +152,7 @@ func RoleCreateWithID(credName string, opts Opts, displayName string, privileges
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Create API role %q with %d privilege(s)", displayName, len(privileges)), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Create API role %q with %d privilege(s)", displayName, len(privileges)), logger) {
 			return nil, nil
 		}
 	}
@@ -208,7 +208,7 @@ func RoleUpdateWithResult(credName, id string, opts Opts, displayName string, pr
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Update API role %s to name %q with %d privilege(s)", id, displayName, len(privileges)), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Update API role %s to name %q with %d privilege(s)", id, displayName, len(privileges)), logger) {
 			return nil, nil
 		}
 	}
@@ -242,7 +242,7 @@ func RoleUpdateWithResult(credName, id string, opts Opts, displayName string, pr
 // RoleDelete deletes an API role by ID.
 func RoleDelete(credName, id string, opts Opts, logger *slog.Logger) error {
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("Delete API role %s", id), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("Delete API role %s", id), logger) {
 			return nil
 		}
 	}

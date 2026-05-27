@@ -352,7 +352,7 @@ func ComputerReboot(credName string, opts Opts, computerIDs []int, logger *slog.
 		return fmt.Errorf("at least one computer ID required")
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nReboot %d computer(s): %v", len(computerIDs), computerIDs), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nReboot %d computer(s): %v", len(computerIDs), computerIDs), logger) {
 			return nil
 		}
 	}
@@ -370,7 +370,7 @@ func ComputerShutdown(credName string, opts Opts, computerIDs []int, logger *slo
 		return fmt.Errorf("at least one computer ID required")
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nShutdown %d computer(s): %v", len(computerIDs), computerIDs), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nShutdown %d computer(s): %v", len(computerIDs), computerIDs), logger) {
 			return nil
 		}
 	}
@@ -414,7 +414,7 @@ func ComputerLogOut(credName string, opts Opts, computerIDs []int, logger *slog.
 		return fmt.Errorf("at least one computer ID required")
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nLog out user on %d computer(s): %v", len(computerIDs), computerIDs), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nLog out user on %d computer(s): %v", len(computerIDs), computerIDs), logger) {
 			return nil
 		}
 	}
@@ -545,7 +545,7 @@ func ComputerRedeploy(credName string, opts Opts, computerIDs []int, logger *slo
 		return fmt.Errorf("at least one computer ID required")
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nRedeploy Jamf Management Framework on %d computer(s): %v", len(computerIDs), computerIDs), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nRedeploy Jamf Management Framework on %d computer(s): %v", len(computerIDs), computerIDs), logger) {
 			return nil
 		}
 	}

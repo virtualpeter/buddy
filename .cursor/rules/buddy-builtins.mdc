@@ -31,6 +31,7 @@ Local filesystem helpers return `{"ok": bool, "value": ..., "error": str}` like 
 
 - Starlark `print()` is wired to **stdout** (`thread.Print` in `internal/script/script.go`).
 - Buddy adds **`error(*args, sep=...)`** — same behavior as `print` but writes to **stderr** (`errorBuiltin` in `builtins.go`).
+- **`confirm(msg?)`** — returns `bool` (`True`/`False`); prompts "Proceed? [y/N]" on stdin using the same UX as CLI confirms (`buddy.ConfirmPrompt`). If the process was started with global **`-y`**, returns `True` without reading stdin (`runnerOpts.SkipConfirm`).
 
 ## Action naming
 

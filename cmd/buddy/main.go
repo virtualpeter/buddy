@@ -17,12 +17,13 @@ var Version = "dev"
 
 func main() {
 	showVersion := flag.Bool("version", false, "Print version and exit")
-	skipConfirm := flag.Bool("y", false, "Skip confirmation prompt")
+	skipConfirm := flag.Bool("y", false, "Skip confirmation prompts (buddy CLI and confirm() in scripts)")
 	verbose := flag.Bool("v", false, "Verbose output")
 	verboseLong := flag.Bool("verbose", false, "Verbose output")
 	var httpTrace bool
 	flag.BoolVar(&httpTrace, "t", false, "Trace HTTP requests and responses (headers and bodies; Authorization/Cookie redacted)")
 	flag.BoolVar(&httpTrace, "trace", false, "Same as -t")
+	scriptTrace := flag.Bool("script-trace", false, "Trace Starlark builtin calls and print() in scripts and the interactive shell")
 	credOverride := flag.String("cred", "", "Override credential name from config")
 	flag.Parse()
 
@@ -48,15 +49,34 @@ func main() {
 	}
 
 	args := flag.Args()
-	if len(args) < 1 {
-		printUsage()
-		os.Exit(1)
-	}
 
 	buddy.InitLogger()
 	buddy.SetVerbose(*verbose || *verboseLong)
 	buddy.SetHTTPTrace(httpTrace)
 	logger := buddy.GetLogger()
+
+	if len(args) < 1 {
+		if err := script.REPL(credName, opts, logger, *scriptTrace); err != nil {
+			logger.Error("REPL failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if !isKnownCommand(args[0]) && isScriptPath(args[0]) {
+		trace := *scriptTrace
+		posTrace, scriptPath, scriptArgs := script.ParseScriptInvocation(args)
+		if posTrace {
+			trace = true
+		}
+		if err := script.Run(credName, opts, scriptPath, scriptArgs, logger, trace); err != nil {
+			logger.Error("Script failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	switch args[0] {
 	case "help":
@@ -75,12 +95,6 @@ func main() {
 	case "config":
 		if err := runConfig(cfg, opts, args[1:], logger); err != nil {
 			logger.Error("Config command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "run":
-		if err := runScript(credName, opts, args[1:], buddy.GetLogger()); err != nil {
-			logger.Error("Script failed", "error", err)
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
@@ -149,39 +163,6 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
-}
-
-func runScript(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
-		if len(args) >= 2 {
-			switch args[1] {
-			case "starlark":
-				fmt.Print(helpRunStarlark)
-				return nil
-			case "builtins":
-				fmt.Print(helpRunBuiltins)
-				return nil
-			}
-		}
-		fmt.Print(helpRun)
-		return nil
-	}
-	trace := false
-	filtered := args[:0]
-	for _, a := range args {
-		if a == "--trace" {
-			trace = true
-		} else {
-			filtered = append(filtered, a)
-		}
-	}
-	args = filtered
-	scriptPath := args[0]
-	scriptArgs := args[1:]
-	if len(args) > 1 && args[1] == "--" {
-		scriptArgs = args[2:]
-	}
-	return script.Run(credName, opts, scriptPath, scriptArgs, log, trace)
 }
 
 func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
@@ -1968,7 +1949,7 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 			return fmt.Errorf("write setup script: %w", err)
 		}
 		fmt.Printf("Wrote %s\n", path)
-		fmt.Println("Run with: buddy run", path, "-y")
+		fmt.Println("Run with: buddy", path, "-y")
 		return nil
 	case "configure-oauth":
 		credNameForAPI := credName
