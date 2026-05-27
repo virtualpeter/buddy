@@ -492,7 +492,7 @@ func runWorkflow(credName string, stepVals []starlark.Value, logger *slog.Logger
 	}
 	fmt.Println()
 
-	// Confirm unless the user passed -y to buddy run.
+	// Confirm unless the user passed -y to buddy.
 	if !runnerOpts.SkipConfirm {
 		fmt.Print("Proceed? [y/N]: ")
 		reader := bufio.NewReader(os.Stdin)

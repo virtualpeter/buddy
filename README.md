@@ -13,7 +13,7 @@ Includes a Starlark scripting engine for composing multi-step workflows.
 | [docs/api-endpoints.md](docs/api-endpoints.md) | Jamf HTTP endpoints used by buddy |
 | [examples/](examples/) | Runnable `.star` examples and index |
 
-Complete builtin signatures always match your installed binary: `buddy run help builtins`.
+Complete builtin signatures always match your installed binary: `buddy help builtins`.
 
 ## Prerequisites
 
@@ -66,7 +66,7 @@ To create a Jamf API role with the permissions buddy needs and an API client (in
 
 ```sh
 buddy setup write-script              # writes setup_buddy_role.star (or specify a path)
-buddy run setup_buddy_role.star -y     # create the role and client (idempotent: reuses existing "Buddy" role)
+buddy setup_buddy_role.star -y     # create the role and client (idempotent: reuses existing "Buddy" role)
 buddy setup configure-oauth -y        # add OAuth credential to config (e.g. buddy-oauth) so you can use buddy --cred buddy-oauth without storing the secret elsewhere
 ```
 
@@ -79,6 +79,8 @@ The role the script targets may include **destructive or high-impact privileges*
 ## Usage
 
 ```
+buddy [flags]                              # interactive Starlark shell
+buddy [flags] <script.star> [-- args...]   # run a script
 buddy [flags] <command> <subcommand> [args...]
 ```
 
@@ -89,6 +91,7 @@ buddy [flags] <command> <subcommand> [args...]
 | `-y`            | Skip confirmation prompts       |
 | `-v, --verbose` | Verbose output (show payloads)  |
 | `--cred <name>` | Override credential from config |
+| `--script-trace` | Trace Starlark builtin calls in scripts and the shell |
 
 ### Policy Commands
 
@@ -131,14 +134,15 @@ buddy group set version <group-id> <version>      # Update version criterion
 buddy embeds a [Starlark](https://github.com/google/starlark-go) interpreter with builtins for policies, groups, profiles, packages, scripts, computers, MDM, roles, clients, and more.
 
 ```sh
-buddy run <script.star> [-- args...]
+buddy                              # interactive Starlark shell
+buddy <script.star> [-- args...]
 ```
 
 **Built-in functions:** resource IDs and options first; optional `cred=` last. Every Jamf-related builtin returns `{"ok": true, "value": ...}` or `{"ok": false, "error": "..."}` unless documented otherwise.
 
 ```sh
-buddy run help starlark   # language subset
-buddy run help builtins   # full builtin reference (canonical)
+buddy help starlark   # language subset
+buddy help builtins   # full builtin reference (canonical)
 ```
 
 **Globals:** `cred` (active credential name), `args` (arguments after `--`), `re` (regex). Use **`error(...)`** for status and diagnostic lines (stderr); use **`print(...)`** only when you intentionally write script output to stdout (e.g. for piping).
@@ -149,7 +153,7 @@ Sample scripts: [examples/](examples/).
 
 ```python
 # Edit TRIGGER_PREFIX / APP_NAME for your policies; see examples/bump-release.star for a fuller sample.
-# Usage: buddy run release.star -- 2.4.27
+# Usage: buddy examples/bump-release.star -- 2.4.27
 
 TRIGGER_PREFIX = "install-exampleapp-"
 APP_NAME = "exampleapp"

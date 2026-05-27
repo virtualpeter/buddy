@@ -146,7 +146,7 @@ func GroupCreateSmartRaw(credName string, opts Opts, payload []byte, logger *slo
 		return nil, fmt.Errorf("payload is empty")
 	}
 	if !opts.SkipConfirm {
-		if !confirm("\nPOST smart group with JSON payload", logger) {
+		if !ConfirmPrompt("\nPOST smart group with JSON payload", logger) {
 			return nil, nil
 		}
 	}
@@ -163,7 +163,7 @@ func GroupPutSmartRaw(credName string, opts Opts, groupID string, payload []byte
 		return fmt.Errorf("payload is empty")
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nPUT smart group (ID %s) with JSON payload", groupID), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nPUT smart group (ID %s) with JSON payload", groupID), logger) {
 			return nil
 		}
 	}
@@ -271,7 +271,7 @@ func GroupVersion(credName string, opts Opts, groupID, newVersion string, logger
 	if !opts.SkipConfirm {
 		msg := fmt.Sprintf("\nUpdate smart group %q (ID %s):\n  %s %s -> %s",
 			group.Name, groupID, group.Criteria[idx].Name, oldVersion, newVersion)
-		if !confirm(msg, logger) {
+		if !ConfirmPrompt(msg, logger) {
 			return nil
 		}
 	}
@@ -305,7 +305,7 @@ func GroupDelete(credName string, opts Opts, groupID string, logger *slog.Logger
 		return fmt.Errorf("parse smart group %s: %w", groupID, err)
 	}
 	if !opts.SkipConfirm {
-		if !confirm(fmt.Sprintf("\nDelete smart group %q (ID %s)", group.Name, groupID), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nDelete smart group %q (ID %s)", group.Name, groupID), logger) {
 			return nil
 		}
 	}
@@ -532,7 +532,7 @@ func StaticGroupAddComputers(credName string, opts Opts, groupID string, compute
 	}
 	if !opts.SkipConfirm {
 		msg := fmt.Sprintf("\nAdd computers to static group ID %s (IDs: %v)", groupID, computerIDs)
-		if !confirm(msg, logger) {
+		if !ConfirmPrompt(msg, logger) {
 			return false, nil
 		}
 	}
@@ -555,7 +555,7 @@ func StaticGroupRemoveComputers(credName string, opts Opts, groupID string, comp
 	}
 	if !opts.SkipConfirm {
 		msg := fmt.Sprintf("\nRemove computers from static group ID %s (IDs: %v)", groupID, computerIDs)
-		if !confirm(msg, logger) {
+		if !ConfirmPrompt(msg, logger) {
 			return false, nil
 		}
 	}
@@ -570,7 +570,7 @@ func StaticGroupRemoveComputers(credName string, opts Opts, groupID string, comp
 func StaticGroupSetComputers(credName string, opts Opts, groupID string, computerIDs []string, logger *slog.Logger) (bool, error) {
 	if !opts.SkipConfirm {
 		msg := fmt.Sprintf("\nReplace static group ID %s membership with %d computer(s)", groupID, len(normalizeAssignmentIDs(computerIDs)))
-		if !confirm(msg, logger) {
+		if !ConfirmPrompt(msg, logger) {
 			return false, nil
 		}
 	}

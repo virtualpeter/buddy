@@ -41,11 +41,11 @@ var DefaultBuddyPrivileges = []string{
 // with privileges needed for buddy and an API client (integration) scoped to
 // that role. The script fetches the privilege list from your Jamf instance at
 // runtime so it always uses the correct privilege names for your version.
-// Run with: buddy run <path> -y
+// Run with: buddy <path> -y
 // Then run "buddy client credentials <id>" to get the client secret (shown once).
 func WriteSetupScript(path string) error {
 	script := `# Setup script: create a Jamf API role with buddy permissions and a client scoped to it.
-# Run with: buddy run ` + path + ` -y
+# Run with: buddy ` + path + ` -y
 # Then: buddy client credentials <client_id>  # to get the client secret (shown once).
 # Idempotent: reuses existing role "Buddy" if present.
 

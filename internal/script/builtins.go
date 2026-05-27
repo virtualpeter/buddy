@@ -99,6 +99,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 		"client_put":                         starlark.NewBuiltin("client_put", clientPut(credName, logger)),
 		"client_create":                      starlark.NewBuiltin("client_create", clientCreate(credName, logger)),
 		"error":                              starlark.NewBuiltin("error", errorBuiltin),
+		"confirm":                            starlark.NewBuiltin("confirm", confirmBuiltin(logger)),
 		"exit":                               starlark.NewBuiltin("exit", exitBuiltin(logger)),
 
 		// Shared: JSON/plist decode and encode (component primitives).
@@ -531,22 +532,24 @@ func policyClone(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 func policyCreateSS(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var trigger, displayName, category, cred starlark.String
-		var scopeGroupID starlark.Int
+		var scopeGroupID starlark.Int = starlark.MakeInt(0)
+		var scriptID starlark.Int = starlark.MakeInt(0)
 		if err := starlark.UnpackArgs("policy_create_ss", args, kwargs,
 			"trigger", &trigger, "display_name", &displayName,
 			"category?", &category,
 			"scope_group_id?", &scopeGroupID,
+			"script_id?", &scriptID,
 			"cred?", &cred,
 		); err != nil {
 			return nil, err
 		}
 		sgid, _ := scopeGroupID.Int64()
+		sid, _ := scriptID.Int64()
 		c := credName
 		if cred != "" {
 			c = string(cred)
 		}
-		// For scripts/tests, default to no script attachment unless explicitly requested.
-		policyID, err := buddy.PolicyCreateSS(getCred(thread, c), scriptOpts, string(trigger), string(displayName), string(category), int(sgid), 0, logger)
+		policyID, err := buddy.PolicyCreateSS(getCred(thread, c), scriptOpts, string(trigger), string(displayName), string(category), int(sgid), int(sid), logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -1996,6 +1999,22 @@ func appendPrintArg(buf *strings.Builder, v starlark.Value) {
 	}
 }
 
+func confirmBuiltin(logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var msg starlark.String
+		if err := starlark.UnpackArgs("confirm", args, kwargs, "msg?", &msg); err != nil {
+			return nil, err
+		}
+		if runnerOpts.SkipConfirm {
+			return starlark.True, nil
+		}
+		if buddy.ConfirmPrompt(string(msg), logger) {
+			return starlark.True, nil
+		}
+		return starlark.False, nil
+	}
+}
+
 func exitBuiltin(logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var code starlark.Int = starlark.MakeInt(1)
@@ -2003,6 +2022,9 @@ func exitBuiltin(logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, 
 			return nil, err
 		}
 		c, _ := code.Int64()
+		if inREPL {
+			os.Exit(int(c))
+		}
 		return nil, &ExitError{Code: int(c)}
 	}
 }

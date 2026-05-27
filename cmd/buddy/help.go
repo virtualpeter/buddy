@@ -9,13 +9,14 @@ import (
 const helpRoot = `buddy - Jamf Pro management CLI
 
 Usage:
+  buddy [global-flags]                              Interactive Starlark shell
+  buddy [global-flags] <script.star> [-- args...]   Run a Starlark script
   buddy [global-flags] <command> [subcommand] [args...]
   buddy help [command] [subcommand]
 
 Commands:
   auth     Test authentication for a credential
   config   Manage credentials in the config file
-  run      Run a Starlark automation script
   policy   Manage Jamf policies (get/set/clone/create/delete/find)
   group    Manage computer groups (smart version/delete; static membership)
   profile  Manage configuration profiles (list/get/set/clone/redeploy)
@@ -29,11 +30,13 @@ Commands:
 
 Global flags:
   --version           Print version and exit
-  -y                  Skip confirmation
+  -y                  Skip confirmation prompts (buddy CLI and confirm() in scripts)
   -v, --verbose       Verbose output
   -t, --trace         Trace HTTP requests and responses to stderr (headers and bodies; Authorization/Cookie redacted)
+  --script-trace      Trace Starlark builtin calls and print() in scripts and the interactive shell
   --cred <name>       Override credential from config (default: from ~/.config/buddy/config.yaml)
 
+Use 'buddy help starlark' or 'buddy help builtins' for Starlark scripting reference.
 Use 'buddy help <command>' or 'buddy <command> help' for command details.
 Use 'buddy <command> <subcommand> help' for subcommand details.
 `
@@ -89,32 +92,40 @@ Examples:
   buddy config default dev
 `
 
-const helpRun = `buddy run - Run a Starlark automation script
+const helpShell = `buddy - Starlark shell and scripts
 
 Usage:
-  buddy [global-flags] run [--trace] <script.star> [-- args...]
-  buddy run help starlark     Starlark language quick-reference
-  buddy run help builtins     buddy built-in functions reference
+  buddy [global-flags]                              Interactive Starlark shell
+  buddy [global-flags] [--trace] <script.star> [-- args...]
 
 Arguments:
   <script.star>   Path to a Starlark (.star) script file
-  [-- args...]    Optional arguments passed through to the script
+  [-- args...]    Optional arguments passed through to the script (available as args)
 
 Flags:
-  --trace         Log each buddy builtin call to stderr with its source
-                  position, arguments, and return value. Also logs a trace
-                  line to stderr for each Starlark print() (the message itself
+  --trace         Positional flag before <script.star>: log each buddy builtin call to
+                  stderr with its source position, arguments, and return value. Also logs
+                  a trace line to stderr for each Starlark print() (the message itself
                   goes to stdout). Buddy's error() writes to stderr only.
 
 Notes:
-  HTTP tracing (-t / --trace on the buddy command before "run") is separate:
-  use "buddy -t run script.star" to trace Jamf API traffic from builtins.
+  With no arguments, buddy starts an interactive Starlark REPL on stdin/stdout.
+
+  Global -y skips interactive confirmation for buddy CLI commands and makes confirm()
+  in scripts return True without reading stdin.
+
+  --script-trace enables the same builtin tracing as positional --trace (for scripts
+  and the REPL). HTTP tracing (-t / --trace) is separate: use "buddy -t deploy.star"
+  to trace Jamf API traffic from builtins.
+
+  Use 'buddy help starlark' and 'buddy help builtins' for language and API reference.
 
 Examples:
-  buddy run deploy.star
-  buddy run deploy.star -- --dry-run
-  buddy run --trace deploy.star
-  buddy -t run deploy.star
+  buddy
+  buddy deploy.star
+  buddy deploy.star -- --dry-run
+  buddy --script-trace deploy.star
+  buddy -t deploy.star
 `
 
 const helpRunStarlark = `Starlark language quick-reference
@@ -208,7 +219,7 @@ WHAT IS NOT IN STARLARK (vs Python)
   No:  set  frozenset  bytearray  file I/O  os/sys modules
   No:  is  is not  (use == != instead)
 
-Use 'buddy run help builtins' for buddy-specific functions.
+Use 'buddy help builtins' for buddy-specific functions.
 `
 
 const helpRunBuiltins = `buddy built-in functions for Starlark scripts
@@ -269,9 +280,9 @@ POLICY — write
   policy_clone(policy_id, version, cred?)
       → None
       Params: policy_id: int; version: str. cred?: credential name.
-  policy_create_ss(trigger, display_name, category?, scope_group_id?, cred?)
+  policy_create_ss(trigger, display_name, category?, scope_group_id?, script_id?, cred?)
       → value: int (new policy ID)
-      Params: trigger: str; display_name: str; category?: str; scope_group_id?: int (0 = all computers). cred?: credential name.
+      Params: trigger: str; display_name: str; category?: str; scope_group_id?: int (0 = all computers); script_id?: int (Jamf script ID, default 0 = no script attached; trigger is passed as parameter4 when script_id > 0). cred?: credential name.
   policy_delete(policy_ids, cred?)
       → None
       Params: policy_ids: list of int. cred?: credential name.
@@ -605,6 +616,12 @@ DECLARATIVE WORKFLOW (step constructors + executor)
       Params: steps: list of step dicts. Executes in order; stops on first failure.
 
 MISC
+  confirm(msg?)
+      → value: bool
+      Params: msg?: str — optional description printed before "Proceed? [y/N]" on stdin.
+      Returns True if the user enters y or yes, or False otherwise (buddy also prints "Aborted.").
+      If buddy was run with global -y, returns True without prompting (same SkipConfirm behavior as buddy CLI confirms).
+      To stop the script when the user declines, use: if not confirm("..."): exit(1).
   exit(code?)
       Does not return; exits the script immediately.
       Params: code?: int (exit code, default 0).
@@ -792,7 +809,7 @@ Usage:
     is setup_buddy_role.star.
 
     Run the generated script with:
-      buddy run <path> -y
+      buddy <path> -y
     Then add an OAuth credential to config (see configure-oauth below), or get
     the client secret (shown once) with:
       buddy client credentials <client-id>
@@ -1072,12 +1089,12 @@ Examples:
 func printCommandHelp(path []string) {
 	key := strings.Join(path, ".")
 	helpMap := map[string]string{
-		"auth":           helpAuth,
-		"config":         helpConfig,
-		"run":            helpRun,
-		"run.starlark":   helpRunStarlark,
-		"run.builtins":   helpRunBuiltins,
-		"policy":         helpPolicy,
+		"auth":          helpAuth,
+		"config":        helpConfig,
+		"shell":         helpShell,
+		"starlark":      helpRunStarlark,
+		"builtins":      helpRunBuiltins,
+		"policy":        helpPolicy,
 		"policy.get":    helpPolicyGet,
 		"policy.set":    helpPolicySet,
 		"policy.create": helpPolicyCreate,

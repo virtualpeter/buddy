@@ -313,7 +313,7 @@ func ProfileRedeploy(credName string, opts Opts, profileID int, logger *slog.Log
 	updatedXML := setRedeployAll(profileXML)
 	if !opts.SkipConfirm {
 		msg := fmt.Sprintf("\nRedeploy configuration profile (ID %d) to all assigned devices", profileID)
-		if !confirm(msg, logger) {
+		if !ConfirmPrompt(msg, logger) {
 			return nil
 		}
 	}
@@ -445,7 +445,7 @@ func ProfileSetXML(credName string, opts Opts, profileID int, r io.Reader, redep
 		if redeploy {
 			msg += " [redeploy_on_update=All]"
 		}
-		if !confirm(msg, logger) {
+		if !ConfirmPrompt(msg, logger) {
 			return nil
 		}
 	}
@@ -487,7 +487,7 @@ func ProfilePutXML(credName string, opts Opts, profileID int, xml []byte, redepl
 		if redeploy {
 			msg += " [redeploy_on_update=All]"
 		}
-		if !confirm(msg, logger) {
+		if !ConfirmPrompt(msg, logger) {
 			return nil
 		}
 	}
@@ -570,7 +570,7 @@ func ProfileSetPayload(credName string, opts Opts, profileID int, domain string,
 		if redeploy {
 			msg += " [redeploy_on_update=All]"
 		}
-		if !confirm(msg, logger) {
+		if !ConfirmPrompt(msg, logger) {
 			return nil
 		}
 	}
@@ -666,7 +666,7 @@ func ProfileClone(credName string, opts Opts, sourceProfileID int, newName strin
 
 	if !opts.SkipConfirm {
 		msg := fmt.Sprintf("\nClone configuration profile (ID %d) as %q with no scope?", sourceProfileID, newName)
-		if !confirm(msg, logger) {
+		if !ConfirmPrompt(msg, logger) {
 			return nil
 		}
 	}
