@@ -3,6 +3,7 @@ module buddy
 go 1.26
 
 require (
+	github.com/beevik/etree v1.6.0
 	github.com/google/uuid v1.6.0
 	github.com/qri-io/starlib v0.5.0
 	go.starlark.net v0.0.0-20260210143700-b62fd896b91b

@@ -474,15 +474,18 @@ PROFILE — component
   profile_put_xml(profile_id, xml_str, redeploy?, cred?)
       → None
       Params: profile_id: int; xml_str: str; redeploy?: bool. cred?: credential name.
-  profile_xml_extract_payloads(profile_id, cred?)
-      → value: str (payloads plist XML from <payloads> element)
-      Params: profile_id: int; cred?: credential name.
-  profile_xml_replace_payloads(profile_id, payloads_plist_str, cred?)
-      → None
-      Params: profile_id: int; payloads_plist_str: str (payloads plist XML); cred?: credential name.
-  profile_xml_set_redeploy_all(profile_id, cred?)
-      → None
-      Params: profile_id: int; cred?: credential name. Sets <redeploy_on_update>All</redeploy_on_update>.
+  profile_xml_extract_payloads(profile_xml_str)
+      → value: str (payloads plist XML from <payloads>; entities unescaped)
+      Params: profile_xml_str: str (offline transform; no API call).
+  profile_xml_replace_payloads(profile_xml_str, payloads_plist_str)
+      → value: str (updated profile XML)
+      Params: profile_xml_str: str; payloads_plist_str: str (offline transform).
+  profile_xml_set_redeploy_all(profile_xml_str)
+      → value: str (updated profile XML)
+      Params: profile_xml_str: str. Sets <redeploy_on_update>All</redeploy_on_update>.
+  profile_xml_patch_payload(profile_xml_str, domain, new_payload)
+      → value: str (updated profile XML)
+      Params: profile_xml_str: str; domain: str; new_payload: dict or plist/dict XML (PayloadContent or MCX).
   payloads_list_identifiers(payloads_plist_str)
       → value: list of str
       Params: payloads_plist_str: str (payloads plist XML).
@@ -491,10 +494,22 @@ PROFILE — component
       Params: payloads_plist_str: str; domain: str (PayloadIdentifier).
   payloads_replace_payload(payloads_plist_str, domain, new_payload)
       → value: str (payloads plist XML)
-      Params: payloads_plist_str: str; domain: str; new_payload: str (plist XML).
+      Params: payloads_plist_str: str; domain: str; new_payload: dict or plist XML.
   payloads_replace_mcx_dict(payloads_plist_str, domain, dict_xml_str)
       → value: str (payloads plist XML)
       Params: payloads_plist_str: str; domain: str; dict_xml_str: str.
+  payloads_set_content(content, payloads_plist_str?)
+      → value: str (payloads plist XML)
+      Params: content: list of payload dicts; payloads_plist_str?: str (omit/empty to start fresh).
+  payloads_add_payload(payloads_plist_str, domain, new_payload)
+      → value: str (payloads plist XML)
+      Params: payloads_plist_str: str (empty ok); domain: str; new_payload: dict or plist XML. Appends or replaces by PayloadIdentifier.
+  payloads_remove_payload(payloads_plist_str, domain)
+      → value: str (payloads plist XML)
+      Params: payloads_plist_str: str; domain: str.
+  plist_normalise_dict(data_str)
+      → value: str (bare <dict>…</dict>)
+      Params: data_str: str (bare dict fragment or full plist).
 
 SCRIPT (Jamf Pro scripts)
   script_list(filter?)
@@ -621,6 +636,67 @@ SERIALIZATION
   plist_encode(value)
       → value: str (plist XML)
       Params: value: Starlark dict, list, or primitive. Returns: plist XML string.
+  xml_escape(s)
+      → value: str
+      Params: s: str. Entity-encodes & < > for nesting text (XML/JSON/plist) inside an XML element.
+  xml_unescape(s)
+      → value: str
+      Params: s: str. Reverses XML/HTML character entities (&amp; &lt; &gt; &quot; &#39; and numeric).
+  xml_sort(xml_str, element?, key?, attr?, only?, order?, ignore_case?, numeric?, recursive?)
+      → value: str (sorted XML)
+      Params: xml_str: str; element?: str (parent tag or path; default document root);
+        key?: str (child tag text, or plist <key>/<string> pair); attr?: str (sort by attribute);
+        only?: str (only reorder children with this tag); order?: "asc"|"desc" (default asc);
+        ignore_case?: bool; numeric?: bool; recursive?: bool (all matching bare tags).
+
+RSQL (offline filter builders for Jamf list/find APIs)
+  rsql_escape(s)
+      → value: str
+      Params: s: str. Escapes \ and " for use inside an RSQL quoted value.
+  rsql_quote(s)
+      → value: str
+      Params: s: str. Escapes and wraps in double quotes.
+  rsql_eq(field, value)
+      → value: str (clause)
+      Params: field: str; value: str (quoted), int/float/bool (unquoted).
+  rsql_ne(field, value)
+      → value: str (clause)
+      Params: same as rsql_eq.
+  rsql_lt(field, value)
+      → value: str (clause)
+      Params: field: str; value: str/int/float (strings left unquoted — use for ISO datetimes).
+  rsql_gt(field, value)
+      → value: str (clause)
+      Params: same as rsql_lt.
+  rsql_le(field, value)
+      → value: str (clause)
+      Params: same as rsql_lt.
+  rsql_ge(field, value)
+      → value: str (clause)
+      Params: same as rsql_lt.
+  rsql_contains(field, substring)
+      → value: str (field=="*substring*")
+      Params: field: str; substring: str (quote-escaped; * remains a wildcard).
+  rsql_in(field, values)
+      → value: str (field=in=(...))
+      Params: field: str; values: list of str/int/float/bool.
+  rsql_and(clauses)
+      → value: str
+      Params: clauses: list of str (joined with ";").
+  rsql_or(clauses)
+      → value: str
+      Params: clauses: list of str (joined with ",").
+  rsql_datetime(year, month, day, hour?, minute?, second?)
+      → value: str (UTC ISO-8601, e.g. 2024-01-15T00:00:00Z)
+      Params: year/month/day: int; hour?/minute?/second?: int (default 0).
+  rsql_now()
+      → value: str (current UTC ISO-8601)
+  rsql_days_ago(days)
+      → value: str (UTC ISO-8601)
+      Params: days: int or float.
+  rsql_hours_ago(hours)
+      → value: str (UTC ISO-8601)
+      Params: hours: int or float.
 
 FILE I/O (local filesystem)
   file_read(path)
@@ -678,6 +754,9 @@ DECLARATIVE WORKFLOW (step constructors + executor)
       Params: steps: list of step dicts. Executes in order; stops on first failure.
 
 MISC
+  error(*args, sep?)
+      → None (writes to stderr like print, but does not return a result dict)
+      Params: *args: values to print; sep?: str (default " ").
   confirm(msg?)
       → value: bool
       Params: msg?: str — optional description printed before "Proceed? [y/N]" on stdin.

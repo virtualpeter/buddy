@@ -231,14 +231,6 @@ func packageDeleteMultiple(credName string, ids []string) error {
 	return nil
 }
 
-// escapeRSQLString escapes a string for use inside RSQL quoted value.
-// RSQL uses double quotes; backslash and double-quote must be escaped.
-func escapeRSQLString(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	return s
-}
-
 // PackageFindID finds a package by app name and version using the v1 API.
 // It filters server-side by app name and then picks the best version match in Go,
 // using the same heuristic as the legacy Classic API path in policy.go.
@@ -310,7 +302,7 @@ func packageFindByPattern(credName, appName, version, patternOverride string, lo
 	}
 	// Exact or template: substitute {version}
 	target := strings.ReplaceAll(patternOverride, "{version}", version)
-	escaped := escapeRSQLString(target)
+	escaped := EscapeRSQLString(target)
 	rsql := `packageName=="` + escaped + `"`
 	results, err := PackageSearch(credName, rsql, logger)
 	if err != nil {
@@ -625,7 +617,7 @@ func packageCreate(credName string, payload *packageCreatePayload) (string, erro
 // Returns the first match's ID if found, otherwise "" and nil.
 // Used to allow retrying uploads when the create step succeeded but upload failed.
 func packageFindByFileName(credName, fileName string, logger *slog.Logger) (id string, err error) {
-	escaped := escapeRSQLString(fileName)
+	escaped := EscapeRSQLString(fileName)
 	rsql := `fileName=="` + escaped + `"`
 	results, err := PackageSearch(credName, rsql, logger)
 	if err != nil {

@@ -185,91 +185,161 @@ Profile helpers work with Jamf macOS configuration profiles and their embedded
 payload plists. They compose with `plist_decode` / `plist_encode` to let you
 edit payload dicts in Starlark.
 
-- `profile_xml_extract_payloads(profile_id, cred?) → value: string`
+Offline XML/plist transforms take strings (no API call). Use `profile_fetch_xml` /
+`profile_put_xml` to load and save.
+
+- `profile_xml_extract_payloads(profile_xml_str) → value: string`
   - **Params**:
-    - `profile_id` (int).
-    - `cred?` (string, optional).
+    - `profile_xml_str` (string): Full profile XML.
   - **Returns**:
-    - `value`: payloads plist XML string extracted from the `<payloads>` element of the profile XML (XML entities unescaped).
+    - `value`: payloads plist XML string extracted from the `<payloads>` element (XML entities unescaped).
 
-- `profile_xml_replace_payloads(profile_id, payloads_plist_xml, cred?) → value: None`
+- `profile_xml_replace_payloads(profile_xml_str, payloads_plist_str) → value: string`
   - **Params**:
-    - `profile_id` (int).
-    - `payloads_plist_xml` (string): New payloads plist XML to embed under `<payloads>`.
-    - `cred?` (string, optional).
+    - `profile_xml_str` (string).
+    - `payloads_plist_str` (string): New payloads plist XML to embed under `<payloads>`.
+  - **Returns**:
+    - `value`: updated profile XML.
 
-- `profile_xml_set_redeploy_all(profile_id, cred?) → value: None`
+- `profile_xml_set_redeploy_all(profile_xml_str) → value: string`
   - **Params**:
-    - `profile_id` (int).
-    - `cred?` (string, optional).
-  - **Behavior**:
-    - Sets `<redeploy_on_update>All</redeploy_on_update>` in the profile XML so Jamf redeploys to all scoped devices.
+    - `profile_xml_str` (string).
+  - **Returns**:
+    - `value`: profile XML with `<redeploy_on_update>All</redeploy_on_update>`.
 
-- `payloads_list_identifiers(payloads_plist_xml) → value: list[string]`
+- `profile_xml_patch_payload(profile_xml_str, domain, new_payload) → value: string`
   - **Params**:
-    - `payloads_plist_xml` (string): Payloads plist XML from `profile_xml_extract_payloads`.
+    - `profile_xml_str` (string).
+    - `domain` (string): PayloadIdentifier or MCX domain key.
+    - `new_payload` (dict or string): Full payload dict / plist, or MCX settings dict / bare `<dict>` XML.
+  - **Returns**:
+    - `value`: updated profile XML (PayloadContent replace, else MCX `mcx_preference_settings`).
+
+- `payloads_list_identifiers(payloads_plist_str) → value: list[string]`
+  - **Params**:
+    - `payloads_plist_str` (string): Payloads plist XML from `profile_xml_extract_payloads`.
   - **Returns**:
     - `value`: list of `PayloadIdentifier` strings under `PayloadContent`, or `[]` if no `PayloadContent` array exists.
 
-- `payloads_get_payload(payloads_plist_xml, domain) → value: string`
+- `payloads_get_payload(payloads_plist_str, domain) → value: string`
   - **Params**:
-    - `payloads_plist_xml` (string).
+    - `payloads_plist_str` (string).
     - `domain` (string): PayloadIdentifier to select (e.g. `\"com.google.chrome\"`).
   - **Returns**:
     - `value`: plist `<dict>...</dict>` fragment for the payload with `PayloadIdentifier == domain`.
 
-- `payloads_replace_payload(payloads_plist_xml, domain, new_dict_xml) → value: string`
+- `payloads_replace_payload(payloads_plist_str, domain, new_payload) → value: string`
   - **Params**:
-    - `payloads_plist_xml` (string).
+    - `payloads_plist_str` (string).
     - `domain` (string).
-    - `new_dict_xml` (string): Replacement payload `<dict>...</dict>` plist fragment.
+    - `new_payload` (dict or string): Replacement payload dict or plist XML.
   - **Returns**:
     - `value`: updated payloads plist XML with the payload for `domain` replaced.
 
-- `payloads_replace_mcx_dict(payloads_plist_xml, domain, new_mcx_dict_xml) → value: string`
+- `payloads_replace_mcx_dict(payloads_plist_str, domain, dict_xml_str) → value: string`
   - **Params**:
-    - `payloads_plist_xml` (string).
+    - `payloads_plist_str` (string).
     - `domain` (string).
-    - `new_mcx_dict_xml` (string): Replacement MCX `<dict>...</dict>` fragment.
+    - `dict_xml_str` (string): Replacement MCX `<dict>...</dict>` fragment.
   - **Returns**:
     - `value`: updated payloads plist XML.
+
+- `payloads_set_content(content, payloads_plist_str?) → value: string`
+  - **Params**:
+    - `content` (list[dict]): Full `PayloadContent` array.
+    - `payloads_plist_str?` (string, optional): Existing payloads plist; omit or `\"\"` to start fresh.
+  - **Returns**:
+    - `value`: payloads plist XML with `PayloadContent` set to `content`.
+
+- `payloads_add_payload(payloads_plist_str, domain, new_payload) → value: string`
+  - **Params**:
+    - `payloads_plist_str` (string): Existing payloads plist, or `\"\"` to create one.
+    - `domain` (string): PayloadIdentifier.
+    - `new_payload` (dict or string): Payload to append (or replace if domain already present).
+  - **Returns**:
+    - `value`: updated payloads plist XML. Sets `PayloadIdentifier` to `domain` when missing.
+
+- `payloads_remove_payload(payloads_plist_str, domain) → value: string`
+  - **Params**:
+    - `payloads_plist_str` (string).
+    - `domain` (string).
+  - **Returns**:
+    - `value`: payloads plist XML with that domain removed. Fails if not found.
+
+- `plist_normalise_dict(data_str) → value: string`
+  - **Params**:
+    - `data_str` (string): Bare `<dict>` fragment or full plist XML.
+  - **Returns**:
+    - `value`: bare `<dict>...</dict>` fragment (same normalisation the CLI uses for payload files).
 
 **Recommended pattern for editing a payload:**
 
 ```python
-# 1. Extract payloads plist from profile
-r = profile_xml_extract_payloads(profile_id = 42)
+# Fetch profile XML, then offline-edit payloads
+r = profile_fetch_xml(profile_id = 42)
 if not r["ok"]:
     fail(r["error"])
-payloads = r["value"]
+xml = r["value"]
 
-# 2. Get the payload dict XML for a specific domain
+# One-shot patch (PayloadContent or MCX):
+chrome = {"PayloadIdentifier": "com.google.chrome", "PayloadType": "com.google.chrome", "SomeKey": "NewValue"}
+r2 = profile_xml_patch_payload(xml, "com.google.chrome", chrome)
+if not r2["ok"]:
+    fail(r2["error"])
+profile_put_xml(profile_id = 42, xml_str = r2["value"])
+
+# Or assemble PayloadContent from a list:
+r3 = payloads_set_content(content = [chrome, other_payload])
+if not r3["ok"]:
+    fail(r3["error"])
+xml2 = profile_xml_replace_payloads(xml, r3["value"])["value"]
+profile_put_xml(profile_id = 42, xml_str = xml2)
+```
+
+**Longer extract / decode / replace pattern:**
+
+```python
+r = profile_fetch_xml(profile_id = 42)
+if not r["ok"]:
+    fail(r["error"])
+xml = r["value"]
+payloads = profile_xml_extract_payloads(xml)["value"]
+
 r2 = payloads_get_payload(payloads, "com.google.chrome")
 if not r2["ok"]:
     fail(r2["error"])
-chrome_dict_xml = r2["value"]
-
-# 3. Decode dict XML to a Starlark dict
-r3 = plist_decode(chrome_dict_xml)
-if not r3["ok"]:
-    fail(r3["error"])
-chrome = r3["value"]
-
-# 4. Modify keys / values on the dict
+chrome = plist_decode(r2["value"])["value"]
 chrome["SomeKey"] = "NewValue"
 
-# 5. Encode back to plist XML and replace in payloads
-r4 = plist_encode(chrome)
-if not r4["ok"]:
-    fail(r4["error"])
-new_chrome_dict_xml = r4["value"]
-r5 = payloads_replace_payload(payloads, "com.google.chrome", new_chrome_dict_xml)
-if not r5["ok"]:
-    fail(r5["error"])
-new_payloads = r5["value"]
-
-# 6. Write updated payloads plist back into the profile
-r6 = profile_xml_replace_payloads(profile_id = 42, payloads_plist_xml = new_payloads)
-if not r6["ok"]:
-    fail(r6["error"])
+r3 = payloads_replace_payload(payloads, "com.google.chrome", chrome)
+if not r3["ok"]:
+    fail(r3["error"])
+xml = profile_xml_replace_payloads(xml, r3["value"])["value"]
+profile_put_xml(profile_id = 42, xml_str = xml)
 ```
+
+## XML helpers (offline)
+
+- `xml_escape(s) → value: string` — entity-encode `&` `<` `>` for nesting text inside XML element content.
+- `xml_unescape(s) → value: string` — reverse XML/HTML character entities.
+- `xml_sort(xml_str, element?, key?, attr?, only?, order?, ignore_case?, numeric?, recursive?) → value: string`
+  - **Params**:
+    - `xml_str` (string): XML document or fragment.
+    - `element?` (string): Parent tag or etree path whose children are sorted; default document root.
+    - `key?` (string): Child tag text, or plist `<key>/<string>` pair name.
+    - `attr?` (string): Attribute on each child (wins over `key`).
+    - `only?` (string): Only reorder children with this tag.
+    - `order?` (string): `"asc"` (default) or `"desc"`.
+    - `ignore_case?` / `numeric?` / `recursive?` (bool).
+
+## RSQL helpers (offline)
+
+Build Jamf `filter=` strings for package/computer/mdm/group list APIs. All return `{"ok", "value": str, "error"}`.
+
+- `rsql_escape(s)` / `rsql_quote(s)`
+- `rsql_eq` / `rsql_ne` — strings quoted; numbers/bools unquoted
+- `rsql_lt` / `rsql_gt` / `rsql_le` / `rsql_ge` — strings left unquoted (ISO datetimes)
+- `rsql_contains(field, substring)` — `field=="*substring*"`
+- `rsql_in(field, values)` / `rsql_and(clauses)` / `rsql_or(clauses)`
+- `rsql_datetime(year, month, day, hour?, minute?, second?)` — UTC `YYYY-MM-DDTHH:MM:SSZ`
+- `rsql_now()` / `rsql_days_ago(days)` / `rsql_hours_ago(hours)`

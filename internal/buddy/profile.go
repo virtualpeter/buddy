@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
-	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -81,7 +80,7 @@ func extractPayloadsFromProfileXML(profileXML []byte) (string, error) {
 	}
 	contentStart := openIdx + len(openTag)
 	contentEnd := closeIdx
-	return html.UnescapeString(s[contentStart:contentEnd]), nil
+	return XMLUnescape(s[contentStart:contentEnd]), nil
 }
 
 // PlistPayloadIdentifiers parses the payloads plist and returns PayloadIdentifier values from PayloadContent array.
@@ -169,41 +168,13 @@ func PlistReplacePayloadByDomain(payloadsRaw, domain string, newPayload interfac
 }
 
 func plistReplacePayloadByDomain(payloadsRaw, domain string, newPayload interface{}) (string, error) {
-	var root interface{}
-	dec := plist.NewDecoder(strings.NewReader(payloadsRaw))
-	if err := dec.Decode(&root); err != nil {
-		return "", fmt.Errorf("decode payloads plist: %w", err)
+	m, arr, err := decodePayloadContent(payloadsRaw)
+	if err != nil {
+		return "", err
 	}
-	m, ok := root.(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("payloads root is not a dict")
-	}
-	content, ok := m["PayloadContent"]
-	if !ok {
-		return "", fmt.Errorf("payloads plist has no PayloadContent array")
-	}
-	arr, ok := content.([]interface{})
-	if !ok {
-		return "", fmt.Errorf("PayloadContent is not an array")
-	}
-	var newDict map[string]interface{}
-	switch v := newPayload.(type) {
-	case map[string]interface{}:
-		newDict = v
-	default:
-		var decoded interface{}
-		// Re-encode and decode to get map[string]interface{}
-		var buf bytes.Buffer
-		if err := plist.NewEncoder(&buf).Encode(newPayload); err != nil {
-			return "", fmt.Errorf("encode new payload: %w", err)
-		}
-		if err := plist.NewDecoder(bytes.NewReader(buf.Bytes())).Decode(&decoded); err != nil {
-			return "", fmt.Errorf("decode new payload: %w", err)
-		}
-		newDict, ok = decoded.(map[string]interface{})
-		if !ok {
-			return "", fmt.Errorf("new payload is not a dict")
-		}
+	newDict, err := coercePayloadDict(newPayload)
+	if err != nil {
+		return "", err
 	}
 	found := false
 	for i, item := range arr {
@@ -220,11 +191,211 @@ func plistReplacePayloadByDomain(payloadsRaw, domain string, newPayload interfac
 	if !found {
 		return "", fmt.Errorf("payload with PayloadIdentifier %q not found", domain)
 	}
+	m["PayloadContent"] = arr
+	return encodePayloadsRoot(m)
+}
+
+// PlistSetPayloadContent sets the PayloadContent array on a payloads plist (or creates a new plist).
+// payloadsRaw may be empty to start from scratch. content is a list of payload dicts
+// (each typically including PayloadIdentifier).
+func PlistSetPayloadContent(payloadsRaw string, content []interface{}) (string, error) {
+	return plistSetPayloadContent(payloadsRaw, content)
+}
+
+func plistSetPayloadContent(payloadsRaw string, content []interface{}) (string, error) {
+	var root map[string]interface{}
+	if strings.TrimSpace(payloadsRaw) == "" {
+		root = map[string]interface{}{}
+	} else {
+		var decoded interface{}
+		if err := plist.NewDecoder(strings.NewReader(payloadsRaw)).Decode(&decoded); err != nil {
+			return "", fmt.Errorf("decode payloads plist: %w", err)
+		}
+		m, ok := decoded.(map[string]interface{})
+		if !ok {
+			return "", fmt.Errorf("payloads root is not a dict")
+		}
+		root = m
+	}
+	normalized := make([]interface{}, 0, len(content))
+	for i, item := range content {
+		dict, err := coercePayloadDict(item)
+		if err != nil {
+			return "", fmt.Errorf("content[%d]: %w", i, err)
+		}
+		normalized = append(normalized, dict)
+	}
+	if normalized == nil {
+		normalized = []interface{}{}
+	}
+	root["PayloadContent"] = normalized
+	return encodePayloadsRoot(root)
+}
+
+// PlistAddPayload appends (or replaces) a payload dict keyed by PayloadIdentifier == domain.
+// If payloadsRaw is empty, creates a new payloads plist with a single PayloadContent entry.
+func PlistAddPayload(payloadsRaw, domain string, newPayload interface{}) (string, error) {
+	return plistAddPayload(payloadsRaw, domain, newPayload)
+}
+
+func plistAddPayload(payloadsRaw, domain string, newPayload interface{}) (string, error) {
+	domain = strings.TrimSpace(domain)
+	if domain == "" {
+		return "", fmt.Errorf("domain is required")
+	}
+	newDict, err := coercePayloadDict(newPayload)
+	if err != nil {
+		return "", err
+	}
+	if id, _ := newDict["PayloadIdentifier"].(string); id == "" {
+		newDict["PayloadIdentifier"] = domain
+	} else if id != domain {
+		return "", fmt.Errorf("new payload PayloadIdentifier %q does not match domain %q", id, domain)
+	}
+
+	if strings.TrimSpace(payloadsRaw) == "" {
+		return plistSetPayloadContent("", []interface{}{newDict})
+	}
+
+	m, arr, err := decodePayloadContentOrEmpty(payloadsRaw)
+	if err != nil {
+		return "", err
+	}
+	found := false
+	for i, item := range arr {
+		dict, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if id, _ := dict["PayloadIdentifier"].(string); id == domain {
+			arr[i] = newDict
+			found = true
+			break
+		}
+	}
+	if !found {
+		arr = append(arr, newDict)
+	}
+	m["PayloadContent"] = arr
+	return encodePayloadsRoot(m)
+}
+
+// PlistRemovePayload removes the payload with PayloadIdentifier == domain from PayloadContent.
+func PlistRemovePayload(payloadsRaw, domain string) (string, error) {
+	return plistRemovePayload(payloadsRaw, domain)
+}
+
+func plistRemovePayload(payloadsRaw, domain string) (string, error) {
+	domain = strings.TrimSpace(domain)
+	if domain == "" {
+		return "", fmt.Errorf("domain is required")
+	}
+	m, arr, err := decodePayloadContent(payloadsRaw)
+	if err != nil {
+		return "", err
+	}
+	out := make([]interface{}, 0, len(arr))
+	found := false
+	for _, item := range arr {
+		dict, ok := item.(map[string]interface{})
+		if !ok {
+			out = append(out, item)
+			continue
+		}
+		if id, _ := dict["PayloadIdentifier"].(string); id == domain {
+			found = true
+			continue
+		}
+		out = append(out, item)
+	}
+	if !found {
+		return "", fmt.Errorf("payload with PayloadIdentifier %q not found", domain)
+	}
+	m["PayloadContent"] = out
+	return encodePayloadsRoot(m)
+}
+
+func decodePayloadContent(payloadsRaw string) (map[string]interface{}, []interface{}, error) {
+	var root interface{}
+	if err := plist.NewDecoder(strings.NewReader(payloadsRaw)).Decode(&root); err != nil {
+		return nil, nil, fmt.Errorf("decode payloads plist: %w", err)
+	}
+	m, ok := root.(map[string]interface{})
+	if !ok {
+		return nil, nil, fmt.Errorf("payloads root is not a dict")
+	}
+	content, ok := m["PayloadContent"]
+	if !ok {
+		return nil, nil, fmt.Errorf("payloads plist has no PayloadContent array")
+	}
+	arr, ok := content.([]interface{})
+	if !ok {
+		return nil, nil, fmt.Errorf("PayloadContent is not an array")
+	}
+	return m, arr, nil
+}
+
+func decodePayloadContentOrEmpty(payloadsRaw string) (map[string]interface{}, []interface{}, error) {
+	var root interface{}
+	if err := plist.NewDecoder(strings.NewReader(payloadsRaw)).Decode(&root); err != nil {
+		return nil, nil, fmt.Errorf("decode payloads plist: %w", err)
+	}
+	m, ok := root.(map[string]interface{})
+	if !ok {
+		return nil, nil, fmt.Errorf("payloads root is not a dict")
+	}
+	content, ok := m["PayloadContent"]
+	if !ok {
+		return m, []interface{}{}, nil
+	}
+	arr, ok := content.([]interface{})
+	if !ok {
+		return nil, nil, fmt.Errorf("PayloadContent is not an array")
+	}
+	return m, arr, nil
+}
+
+func coercePayloadDict(newPayload interface{}) (map[string]interface{}, error) {
+	switch v := newPayload.(type) {
+	case map[string]interface{}:
+		return v, nil
+	case nil:
+		return nil, fmt.Errorf("payload is nil")
+	default:
+		var buf bytes.Buffer
+		if err := plist.NewEncoder(&buf).Encode(newPayload); err != nil {
+			return nil, fmt.Errorf("encode payload: %w", err)
+		}
+		var decoded interface{}
+		if err := plist.NewDecoder(bytes.NewReader(buf.Bytes())).Decode(&decoded); err != nil {
+			return nil, fmt.Errorf("decode payload: %w", err)
+		}
+		m, ok := decoded.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("payload is not a dict")
+		}
+		return m, nil
+	}
+}
+
+func encodePayloadsRoot(root map[string]interface{}) (string, error) {
 	var out bytes.Buffer
 	if err := plist.NewEncoder(&out).Encode(root); err != nil {
 		return "", fmt.Errorf("encode payloads plist: %w", err)
 	}
 	return out.String(), nil
+}
+
+// NormaliseDictXML accepts a bare <dict>…</dict> fragment or a full plist and returns the dict fragment.
+func NormaliseDictXML(data []byte) (string, error) {
+	return normaliseDictFile(data)
+}
+
+// PatchProfilePayload patches one payload domain inside a profile's <payloads> plist
+// (PayloadContent by PayloadIdentifier, or MCX mcx_preference_settings fallback).
+// newDictXML may be a bare <dict> fragment or a full plist.
+func PatchProfilePayload(profileXML []byte, domain, newDictXML string) ([]byte, error) {
+	return patchProfilePayload(profileXML, domain, newDictXML)
 }
 
 // ProfileSearch fetches all configuration profiles and returns records matching the optional name filter.
@@ -819,27 +990,16 @@ func patchProfilePayload(profileXML []byte, domain, newDictXML string) ([]byte, 
 	}
 
 	// Fall back to MCX-style replace (domain key + mcx_preference_settings dict).
-	updatedPlist, err := replaceMCXDict(payloadsRaw, domain, newDictXML)
+	mcxDict := newDictXML
+	if normalized, normErr := normaliseDictFile([]byte(newDictXML)); normErr == nil {
+		mcxDict = normalized
+	}
+	updatedPlist, err := replaceMCXDict(payloadsRaw, domain, mcxDict)
 	if err != nil {
 		return nil, err
 	}
 
-	const openTag = "<payloads>"
-	const closeTag = "</payloads>"
-	s := string(profileXML)
-	openIdx := strings.Index(s, openTag)
-	closeIdx := strings.Index(s, closeTag)
-	if openIdx < 0 || closeIdx < 0 || closeIdx < openIdx {
-		return nil, fmt.Errorf("could not find <payloads> element in profile XML")
-	}
-	contentStart := openIdx + len(openTag)
-	contentEnd := closeIdx
-	reEncoded := xmlEncodePayload(updatedPlist)
-	var buf strings.Builder
-	buf.WriteString(s[:contentStart])
-	buf.WriteString(reEncoded)
-	buf.WriteString(s[contentEnd:])
-	return []byte(buf.String()), nil
+	return replacePayloadsContent(profileXML, updatedPlist), nil
 }
 
 // ReplaceMCXDict navigates the decoded plist XML to find the mcx_preference_settings
@@ -911,15 +1071,6 @@ func findMatchingCloseDict(s string, openPos int) int {
 		}
 	}
 	return -1
-}
-
-// xmlEncodePayload escapes a string for embedding as XML element content.
-// & must be replaced before < and > to avoid double-encoding.
-func xmlEncodePayload(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	return s
 }
 
 func truncate(s string, n int) string {

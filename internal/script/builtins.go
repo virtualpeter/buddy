@@ -109,6 +109,27 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 		"json_encode":  starlark.NewBuiltin("json_encode", jsonEncodeBuiltin),
 		"plist_decode": starlark.NewBuiltin("plist_decode", plistDecodeBuiltin),
 		"plist_encode": starlark.NewBuiltin("plist_encode", plistEncodeBuiltin),
+		"xml_escape":   starlark.NewBuiltin("xml_escape", xmlEscapeBuiltin),
+		"xml_unescape": starlark.NewBuiltin("xml_unescape", xmlUnescapeBuiltin),
+		"xml_sort":     starlark.NewBuiltin("xml_sort", xmlSortBuiltin),
+
+		// RSQL filter builders (offline; for package/computer/mdm/group filters).
+		"rsql_escape":    starlark.NewBuiltin("rsql_escape", rsqlEscapeBuiltin),
+		"rsql_quote":     starlark.NewBuiltin("rsql_quote", rsqlQuoteBuiltin),
+		"rsql_eq":        starlark.NewBuiltin("rsql_eq", rsqlEqBuiltin),
+		"rsql_ne":        starlark.NewBuiltin("rsql_ne", rsqlNeBuiltin),
+		"rsql_lt":        starlark.NewBuiltin("rsql_lt", rsqlLtBuiltin),
+		"rsql_gt":        starlark.NewBuiltin("rsql_gt", rsqlGtBuiltin),
+		"rsql_le":        starlark.NewBuiltin("rsql_le", rsqlLeBuiltin),
+		"rsql_ge":        starlark.NewBuiltin("rsql_ge", rsqlGeBuiltin),
+		"rsql_contains":  starlark.NewBuiltin("rsql_contains", rsqlContainsBuiltin),
+		"rsql_in":        starlark.NewBuiltin("rsql_in", rsqlInBuiltin),
+		"rsql_and":       starlark.NewBuiltin("rsql_and", rsqlAndBuiltin),
+		"rsql_or":        starlark.NewBuiltin("rsql_or", rsqlOrBuiltin),
+		"rsql_datetime":  starlark.NewBuiltin("rsql_datetime", rsqlDatetimeBuiltin),
+		"rsql_now":       starlark.NewBuiltin("rsql_now", rsqlNowBuiltin),
+		"rsql_days_ago":  starlark.NewBuiltin("rsql_days_ago", rsqlDaysAgoBuiltin),
+		"rsql_hours_ago": starlark.NewBuiltin("rsql_hours_ago", rsqlHoursAgoBuiltin),
 
 		"file_read":       starlark.NewBuiltin("file_read", fileReadBuiltin),
 		"file_read_bytes": starlark.NewBuiltin("file_read_bytes", fileReadBytesBuiltin),
@@ -157,10 +178,15 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 		"profile_xml_extract_payloads": starlark.NewBuiltin("profile_xml_extract_payloads", profileXMLExtractPayloadsBuiltin),
 		"profile_xml_replace_payloads": starlark.NewBuiltin("profile_xml_replace_payloads", profileXMLReplacePayloadsBuiltin),
 		"profile_xml_set_redeploy_all": starlark.NewBuiltin("profile_xml_set_redeploy_all", profileXMLSetRedeployAllBuiltin),
+		"profile_xml_patch_payload":    starlark.NewBuiltin("profile_xml_patch_payload", profileXMLPatchPayloadBuiltin),
 		"payloads_list_identifiers":    starlark.NewBuiltin("payloads_list_identifiers", payloadsListIdentifiersBuiltin),
 		"payloads_get_payload":         starlark.NewBuiltin("payloads_get_payload", payloadsGetPayloadBuiltin),
 		"payloads_replace_payload":     starlark.NewBuiltin("payloads_replace_payload", payloadsReplacePayload(logger)),
 		"payloads_replace_mcx_dict":    starlark.NewBuiltin("payloads_replace_mcx_dict", payloadsReplaceMCXDictBuiltin),
+		"payloads_set_content":         starlark.NewBuiltin("payloads_set_content", payloadsSetContentBuiltin),
+		"payloads_add_payload":         starlark.NewBuiltin("payloads_add_payload", payloadsAddPayloadBuiltin),
+		"payloads_remove_payload":      starlark.NewBuiltin("payloads_remove_payload", payloadsRemovePayloadBuiltin),
+		"plist_normalise_dict":         starlark.NewBuiltin("plist_normalise_dict", plistNormaliseDictBuiltin),
 
 		// Profile: declarative step constructors.
 		"step_set_profile_payload": starlark.NewBuiltin("step_set_profile_payload", stepSetProfilePayloadBuiltin),
@@ -2171,6 +2197,270 @@ func plistEncodeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	return resultOK(starlark.String(s)), nil
 }
 
+// xml_escape(s) → {ok, value: str} — entity-encode for nesting inside XML element text.
+func xmlEscapeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var s starlark.String
+	if err := starlark.UnpackArgs("xml_escape", args, kwargs, "s", &s); err != nil {
+		return nil, err
+	}
+	return resultOK(starlark.String(buddy.XMLEscape(string(s)))), nil
+}
+
+// xml_unescape(s) → {ok, value: str} — reverse XML/HTML character entities.
+func xmlUnescapeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var s starlark.String
+	if err := starlark.UnpackArgs("xml_unescape", args, kwargs, "s", &s); err != nil {
+		return nil, err
+	}
+	return resultOK(starlark.String(buddy.XMLUnescape(string(s)))), nil
+}
+
+// xml_sort(xml_str, element?, key?, attr?, only?, order?, ignore_case?, numeric?, recursive?)
+// → {ok, value: str}
+func xmlSortBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var xmlStr, element, key, attr, only, order starlark.String
+	ignoreCase := starlark.Bool(false)
+	numeric := starlark.Bool(false)
+	recursive := starlark.Bool(false)
+	if err := starlark.UnpackArgs("xml_sort", args, kwargs,
+		"xml_str", &xmlStr,
+		"element?", &element,
+		"key?", &key,
+		"attr?", &attr,
+		"only?", &only,
+		"order?", &order,
+		"ignore_case?", &ignoreCase,
+		"numeric?", &numeric,
+		"recursive?", &recursive,
+	); err != nil {
+		return nil, err
+	}
+	out, err := buddy.XMLSort(string(xmlStr), buddy.XMLSortOpts{
+		Element:    string(element),
+		Key:        string(key),
+		Attr:       string(attr),
+		Only:       string(only),
+		Order:      string(order),
+		IgnoreCase: bool(ignoreCase),
+		Numeric:    bool(numeric),
+		Recursive:  bool(recursive),
+	})
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(out)), nil
+}
+
+// ---------------------------------------------------------------------------
+// RSQL helpers (offline filter builders)
+// ---------------------------------------------------------------------------
+
+func rsqlEscapeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var s starlark.String
+	if err := starlark.UnpackArgs("rsql_escape", args, kwargs, "s", &s); err != nil {
+		return nil, err
+	}
+	return resultOK(starlark.String(buddy.EscapeRSQLString(string(s)))), nil
+}
+
+func rsqlQuoteBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var s starlark.String
+	if err := starlark.UnpackArgs("rsql_quote", args, kwargs, "s", &s); err != nil {
+		return nil, err
+	}
+	return resultOK(starlark.String(buddy.QuoteRSQLString(string(s)))), nil
+}
+
+func rsqlEqBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	return rsqlCompareBuiltin("rsql_eq", args, kwargs, buddy.RSQLEq)
+}
+
+func rsqlNeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	return rsqlCompareBuiltin("rsql_ne", args, kwargs, buddy.RSQLNe)
+}
+
+func rsqlLtBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	return rsqlCompareBuiltin("rsql_lt", args, kwargs, buddy.RSQLLt)
+}
+
+func rsqlGtBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	return rsqlCompareBuiltin("rsql_gt", args, kwargs, buddy.RSQLGt)
+}
+
+func rsqlLeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	return rsqlCompareBuiltin("rsql_le", args, kwargs, buddy.RSQLLe)
+}
+
+func rsqlGeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	return rsqlCompareBuiltin("rsql_ge", args, kwargs, buddy.RSQLGe)
+}
+
+func rsqlCompareBuiltin(name string, args starlark.Tuple, kwargs []starlark.Tuple, fn func(string, interface{}) (string, error)) (starlark.Value, error) {
+	var field starlark.String
+	var value starlark.Value
+	if err := starlark.UnpackArgs(name, args, kwargs, "field", &field, "value", &value); err != nil {
+		return nil, err
+	}
+	gv, err := rsqlStarlarkValue(value)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	out, err := fn(string(field), gv)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(out)), nil
+}
+
+func rsqlContainsBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var field, substring starlark.String
+	if err := starlark.UnpackArgs("rsql_contains", args, kwargs, "field", &field, "substring", &substring); err != nil {
+		return nil, err
+	}
+	out, err := buddy.RSQLContains(string(field), string(substring))
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(out)), nil
+}
+
+func rsqlInBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var field starlark.String
+	var values *starlark.List
+	if err := starlark.UnpackArgs("rsql_in", args, kwargs, "field", &field, "values", &values); err != nil {
+		return nil, err
+	}
+	items := make([]interface{}, 0, values.Len())
+	for i := 0; i < values.Len(); i++ {
+		gv, err := rsqlStarlarkValue(values.Index(i))
+		if err != nil {
+			return resultErr(fmt.Sprintf("values[%d]: %v", i, err)), nil
+		}
+		items = append(items, gv)
+	}
+	out, err := buddy.RSQLIn(string(field), items)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(out)), nil
+}
+
+func rsqlAndBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	return rsqlJoinBuiltin("rsql_and", args, kwargs, buddy.RSQLAnd)
+}
+
+func rsqlOrBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	return rsqlJoinBuiltin("rsql_or", args, kwargs, buddy.RSQLOr)
+}
+
+func rsqlJoinBuiltin(name string, args starlark.Tuple, kwargs []starlark.Tuple, fn func([]string) (string, error)) (starlark.Value, error) {
+	var clauses *starlark.List
+	if err := starlark.UnpackArgs(name, args, kwargs, "clauses", &clauses); err != nil {
+		return nil, err
+	}
+	parts := make([]string, 0, clauses.Len())
+	for i := 0; i < clauses.Len(); i++ {
+		s, ok := clauses.Index(i).(starlark.String)
+		if !ok {
+			return resultErr(fmt.Sprintf("clauses[%d]: must be a string", i)), nil
+		}
+		parts = append(parts, string(s))
+	}
+	out, err := fn(parts)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(out)), nil
+}
+
+func rsqlDatetimeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var year, month, day starlark.Int
+	hour, minute, second := starlark.MakeInt(0), starlark.MakeInt(0), starlark.MakeInt(0)
+	if err := starlark.UnpackArgs("rsql_datetime", args, kwargs,
+		"year", &year, "month", &month, "day", &day,
+		"hour?", &hour, "minute?", &minute, "second?", &second); err != nil {
+		return nil, err
+	}
+	y, _ := year.Int64()
+	mo, _ := month.Int64()
+	d, _ := day.Int64()
+	h, _ := hour.Int64()
+	mi, _ := minute.Int64()
+	s, _ := second.Int64()
+	out, err := buddy.RSQLDateTime(int(y), int(mo), int(d), int(h), int(mi), int(s))
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(out)), nil
+}
+
+func rsqlNowBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	if err := starlark.UnpackArgs("rsql_now", args, kwargs); err != nil {
+		return nil, err
+	}
+	return resultOK(starlark.String(buddy.RSQLNow())), nil
+}
+
+func rsqlDaysAgoBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var days starlark.Value
+	if err := starlark.UnpackArgs("rsql_days_ago", args, kwargs, "days", &days); err != nil {
+		return nil, err
+	}
+	n, err := rsqlNumber(days)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(buddy.RSQLDaysAgo(n))), nil
+}
+
+func rsqlHoursAgoBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var hours starlark.Value
+	if err := starlark.UnpackArgs("rsql_hours_ago", args, kwargs, "hours", &hours); err != nil {
+		return nil, err
+	}
+	n, err := rsqlNumber(hours)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(buddy.RSQLHoursAgo(n))), nil
+}
+
+func rsqlStarlarkValue(v starlark.Value) (interface{}, error) {
+	switch x := v.(type) {
+	case starlark.String:
+		return string(x), nil
+	case starlark.Bool:
+		return bool(x), nil
+	case starlark.Int:
+		n, ok := x.Int64()
+		if !ok {
+			return nil, fmt.Errorf("integer out of range")
+		}
+		return n, nil
+	case starlark.Float:
+		return float64(x), nil
+	case starlark.NoneType:
+		return nil, fmt.Errorf("value is None")
+	default:
+		return nil, fmt.Errorf("unsupported value type %s (want str, int, float, or bool)", v.Type())
+	}
+}
+
+func rsqlNumber(v starlark.Value) (float64, error) {
+	switch x := v.(type) {
+	case starlark.Int:
+		n, ok := x.Int64()
+		if !ok {
+			return 0, fmt.Errorf("integer out of range")
+		}
+		return float64(n), nil
+	case starlark.Float:
+		return float64(x), nil
+	default:
+		return 0, fmt.Errorf("want int or float, got %s", v.Type())
+	}
+}
+
 // file_read(path) → {ok, value: str} — UTF-8 text only; use file_read_bytes for binary.
 func fileReadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path starlark.String
@@ -2744,6 +3034,39 @@ func profileXMLSetRedeployAllBuiltin(_ *starlark.Thread, _ *starlark.Builtin, ar
 	return resultOK(starlark.String(string(out))), nil
 }
 
+// profile_xml_patch_payload(profile_xml_str, domain, new_payload) → {ok, value: str}
+// new_payload is a Starlark dict or plist/dict XML string (PayloadContent or MCX settings).
+func profileXMLPatchPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var xmlStr, domain starlark.String
+	var newPayload starlark.Value
+	if err := starlark.UnpackArgs("profile_xml_patch_payload", args, kwargs,
+		"profile_xml_str", &xmlStr, "domain", &domain, "new_payload", &newPayload); err != nil {
+		return nil, err
+	}
+	dictXML, err := payloadValueToDictXML(newPayload)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	updated, err := buddy.PatchProfilePayload([]byte(string(xmlStr)), string(domain), dictXML)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(string(updated))), nil
+}
+
+// plist_normalise_dict(data_str) → {ok, value: str}  (bare <dict>…</dict>)
+func plistNormaliseDictBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var data starlark.String
+	if err := starlark.UnpackArgs("plist_normalise_dict", args, kwargs, "data_str", &data); err != nil {
+		return nil, err
+	}
+	out, err := buddy.NormaliseDictXML([]byte(string(data)))
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(out)), nil
+}
+
 // payloads_list_identifiers(payloads_plist_str) → {ok, value: list of str}
 func payloadsListIdentifiersBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var plistStr starlark.String
@@ -2828,6 +3151,116 @@ func payloadsReplaceMCXDictBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args
 		return resultErr(err.Error()), nil
 	}
 	return resultOK(starlark.String(updated)), nil
+}
+
+// payloads_set_content(content, payloads_plist_str?) → {ok, value: str}
+// content is a list of payload dicts. Empty/omitted payloads_plist_str starts a new plist.
+func payloadsSetContentBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var content *starlark.List
+	var plistStr starlark.String
+	if err := starlark.UnpackArgs("payloads_set_content", args, kwargs,
+		"content", &content, "payloads_plist_str?", &plistStr); err != nil {
+		return nil, err
+	}
+	items := make([]interface{}, 0, content.Len())
+	for i := 0; i < content.Len(); i++ {
+		g, err := StarlarkValueToGo(content.Index(i))
+		if err != nil {
+			return resultErr(fmt.Sprintf("content[%d]: %v", i, err)), nil
+		}
+		items = append(items, g)
+	}
+	updated, err := buddy.PlistSetPayloadContent(string(plistStr), items)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(updated)), nil
+}
+
+// payloads_add_payload(payloads_plist_str, domain, new_payload) → {ok, value: str}
+// Appends or replaces by PayloadIdentifier. Empty payloads_plist_str creates a new plist.
+func payloadsAddPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var plistStr, domain starlark.String
+	var newPayload starlark.Value
+	if err := starlark.UnpackArgs("payloads_add_payload", args, kwargs,
+		"payloads_plist_str", &plistStr, "domain", &domain, "new_payload", &newPayload); err != nil {
+		return nil, err
+	}
+	payloadMap, err := payloadValueToGoMap(newPayload)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	updated, err := buddy.PlistAddPayload(string(plistStr), string(domain), payloadMap)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(updated)), nil
+}
+
+// payloads_remove_payload(payloads_plist_str, domain) → {ok, value: str}
+func payloadsRemovePayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var plistStr, domain starlark.String
+	if err := starlark.UnpackArgs("payloads_remove_payload", args, kwargs,
+		"payloads_plist_str", &plistStr, "domain", &domain); err != nil {
+		return nil, err
+	}
+	updated, err := buddy.PlistRemovePayload(string(plistStr), string(domain))
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(updated)), nil
+}
+
+// payloadValueToGoMap accepts a Starlark dict or plist XML string and returns a Go map.
+func payloadValueToGoMap(newPayload starlark.Value) (map[string]interface{}, error) {
+	switch v := newPayload.(type) {
+	case *starlark.Dict:
+		g, err := StarlarkValueToGo(v)
+		if err != nil {
+			return nil, err
+		}
+		m, ok := g.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("new_payload dict did not convert to a map")
+		}
+		return m, nil
+	case starlark.String:
+		decoded, err := PlistDecodeToStarlark(string(v))
+		if err != nil {
+			return nil, err
+		}
+		d, ok := decoded.(*starlark.Dict)
+		if !ok {
+			return nil, fmt.Errorf("new_payload plist string must decode to a dict")
+		}
+		g, err := StarlarkValueToGo(d)
+		if err != nil {
+			return nil, err
+		}
+		m, ok := g.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("new_payload dict did not convert to a map")
+		}
+		return m, nil
+	default:
+		return nil, fmt.Errorf("new_payload must be dict or plist XML string")
+	}
+}
+
+// payloadValueToDictXML encodes a Starlark dict or normalises a plist/dict XML string to a bare <dict> fragment.
+func payloadValueToDictXML(newPayload starlark.Value) (string, error) {
+	switch v := newPayload.(type) {
+	case *starlark.Dict:
+		encoded, err := StarlarkToPlist(v)
+		if err != nil {
+			return "", err
+		}
+		return buddy.NormaliseDictXML([]byte(encoded))
+	case starlark.String:
+		return buddy.NormaliseDictXML([]byte(string(v)))
+	default:
+		return "", fmt.Errorf("new_payload must be dict or plist/dict XML string")
+	}
 }
 
 func stepSetProfilePayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {

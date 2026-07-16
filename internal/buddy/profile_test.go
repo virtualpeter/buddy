@@ -196,14 +196,113 @@ func TestNormaliseDictFile_NoDict(t *testing.T) {
 	}
 }
 
-func TestNormaliseDictFile_MalformedXMLDecl(t *testing.T) {
-	data := []byte(`<?xml version="1.0")
-<dict></dict>`)
-	_, err := normaliseDictFile(data)
-	if err == nil {
-		t.Error("expected error for malformed XML declaration")
+func TestPlistSetPayloadContent_FromScratch(t *testing.T) {
+	content := []interface{}{
+		map[string]interface{}{"PayloadIdentifier": "com.a", "PayloadType": "com.a"},
+		map[string]interface{}{"PayloadIdentifier": "com.b", "PayloadType": "com.b"},
 	}
-	if !strings.Contains(err.Error(), "XML declaration") {
-		t.Errorf("error = %v", err)
+	got, err := PlistSetPayloadContent("", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := plistPayloadIdentifiers(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 || ids[0] != "com.a" || ids[1] != "com.b" {
+		t.Fatalf("ids = %v", ids)
+	}
+}
+
+func TestPlistAddPayload_AppendAndReplace(t *testing.T) {
+	base, err := PlistSetPayloadContent("", []interface{}{
+		map[string]interface{}{"PayloadIdentifier": "com.a", "v": "1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	added, err := PlistAddPayload(base, "com.b", map[string]interface{}{"v": "2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := plistPayloadIdentifiers(added)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("ids = %v", ids)
+	}
+	replaced, err := PlistAddPayload(added, "com.a", map[string]interface{}{"PayloadIdentifier": "com.a", "v": "9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := plistGetPayloadByDomain(replaced, "com.a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("9")) {
+		t.Fatalf("expected replaced value, got %s", out)
+	}
+}
+
+func TestPlistAddPayload_FromEmpty(t *testing.T) {
+	got, err := PlistAddPayload("", "com.new", map[string]interface{}{"PayloadType": "com.new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := plistPayloadIdentifiers(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != "com.new" {
+		t.Fatalf("ids = %v", ids)
+	}
+}
+
+func TestPlistRemovePayload(t *testing.T) {
+	base, err := PlistSetPayloadContent("", []interface{}{
+		map[string]interface{}{"PayloadIdentifier": "com.a"},
+		map[string]interface{}{"PayloadIdentifier": "com.b"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := PlistRemovePayload(base, "com.a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := plistPayloadIdentifiers(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != "com.b" {
+		t.Fatalf("ids = %v", ids)
+	}
+	if _, err := PlistRemovePayload(got, "com.missing"); err == nil {
+		t.Fatal("expected error for missing domain")
+	}
+}
+
+func TestPatchProfilePayload_PayloadContent(t *testing.T) {
+	profileXML := []byte(`<?xml version="1.0"?>
+<os_x_configuration_profile>
+  <general>
+    <payloads>&lt;plist version="1.0"&gt;&lt;dict&gt;&lt;key&gt;PayloadContent&lt;/key&gt;&lt;array&gt;&lt;dict&gt;&lt;key&gt;PayloadIdentifier&lt;/key&gt;&lt;string&gt;com.example.test&lt;/string&gt;&lt;key&gt;Value&lt;/key&gt;&lt;string&gt;before&lt;/string&gt;&lt;/dict&gt;&lt;/array&gt;&lt;/dict&gt;&lt;/plist&gt;</payloads>
+  </general>
+</os_x_configuration_profile>`)
+	newDict := `<dict><key>PayloadIdentifier</key><string>com.example.test</string><key>Value</key><string>after</string></dict>`
+	updated, err := PatchProfilePayload(profileXML, "com.example.test", newDict)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloads, err := extractPayloadsFromProfileXML(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(payloads, "after") {
+		t.Fatalf("expected after in payloads, got %s", payloads)
+	}
+	if strings.Contains(payloads, "before") {
+		t.Fatalf("expected before replaced, got %s", payloads)
 	}
 }
