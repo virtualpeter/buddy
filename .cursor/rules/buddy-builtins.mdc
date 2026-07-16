@@ -63,6 +63,15 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
   - **Returns**:
     - `value`: dict representing the full smart group JSON document (keys follow Jamf’s schema, e.g. `name`, `description`, `criteria`, `siteId`).
 
+- `smart_group_create(body, cred?) → value: dict`
+  - **Params**:
+    - `body` (dict): Smart group JSON (`name` required; `criteria` optional; `id: -1` optional create convention).
+    - `cred?` (string, optional).
+  - **Returns**:
+    - `value`: dict `{"id": str, "href"?: str}` from Jamf’s create response.
+  - **Behavior**:
+    - `POST`s `body` to `/api/v2/computer-groups/smart-groups`.
+
 - `smart_group_put(group_id, body, cred?) → value: None`
   - **Params**:
     - `group_id` (string): Smart group ID.
@@ -140,6 +149,15 @@ array. They return `{"ok": bool, "value": ..., "error": str}`.
     - `cred?` (string, optional).
   - **Returns**:
     - `value`: list of dicts `{id, name, serial}`. `name` may be empty when the API returns only assignment IDs.
+
+- `static_group_create(body, cred?) → value: dict`
+  - **Params**:
+    - `body` (dict): Static group JSON (`name` required; `assignments` optional list of computer id strings; `description`/`siteId` optional).
+    - `cred?` (string, optional).
+  - **Returns**:
+    - `value`: dict `{"id": str, "href"?: str}` from Jamf’s create response.
+  - **Behavior**:
+    - `POST`s `body` to `/api/v2/computer-groups/static-groups`.
 
 - `static_group_add_computers(group_id, computer_ids, cred?) → value: None`
   - **Params**:

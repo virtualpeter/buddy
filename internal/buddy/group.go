@@ -139,8 +139,25 @@ func GroupFetchSmartRaw(credName, groupID string) ([]byte, error) {
 	return jamfGET(credName, fmt.Sprintf("%s/%s", uriSmartGroups, groupID))
 }
 
+// GroupCreateResult is the Jamf HrefResponse returned when creating a computer group.
+type GroupCreateResult struct {
+	ID   string `json:"id"`
+	Href string `json:"href,omitempty"`
+}
+
+func parseGroupCreateResult(body []byte) (*GroupCreateResult, error) {
+	var out GroupCreateResult
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("parse create response: %w", err)
+	}
+	if strings.TrimSpace(out.ID) == "" {
+		return nil, fmt.Errorf("create response missing id: %s", string(body))
+	}
+	return &out, nil
+}
+
 // GroupCreateSmartRaw creates a smart group using the v2 API and returns the raw JSON response.
-// Jamf expects the JSON body to include id: -1.
+// Callers typically include id: -1 in the JSON body (Jamf create convention).
 func GroupCreateSmartRaw(credName string, opts Opts, payload []byte, logger *slog.Logger) ([]byte, error) {
 	if len(payload) == 0 {
 		return nil, fmt.Errorf("payload is empty")
@@ -155,6 +172,113 @@ func GroupCreateSmartRaw(credName string, opts Opts, payload []byte, logger *slo
 		return nil, fmt.Errorf("create smart group: %w", err)
 	}
 	return out, nil
+}
+
+// GroupCreateSmart creates a smart computer group and returns the created id/href.
+func GroupCreateSmart(credName string, opts Opts, payload []byte, logger *slog.Logger) (*GroupCreateResult, error) {
+	out, err := GroupCreateSmartRaw(credName, opts, payload, logger)
+	if err != nil {
+		return nil, err
+	}
+	if out == nil {
+		return nil, nil // cancelled
+	}
+	return parseGroupCreateResult(out)
+}
+
+// GroupCreateStaticRaw creates a static group using the v2 API and returns the raw JSON response.
+func GroupCreateStaticRaw(credName string, opts Opts, payload []byte, logger *slog.Logger) ([]byte, error) {
+	if len(payload) == 0 {
+		return nil, fmt.Errorf("payload is empty")
+	}
+	if !opts.SkipConfirm {
+		if !ConfirmPrompt("\nPOST static group with JSON payload", logger) {
+			return nil, nil
+		}
+	}
+	out, err := jamfPOST(credName, uriStaticGroups, payload, "application/json")
+	if err != nil {
+		return nil, fmt.Errorf("create static group: %w", err)
+	}
+	return out, nil
+}
+
+// GroupCreateStatic creates a static computer group and returns the created id/href.
+func GroupCreateStatic(credName string, opts Opts, payload []byte, logger *slog.Logger) (*GroupCreateResult, error) {
+	out, err := GroupCreateStaticRaw(credName, opts, payload, logger)
+	if err != nil {
+		return nil, err
+	}
+	if out == nil {
+		return nil, nil // cancelled
+	}
+	return parseGroupCreateResult(out)
+}
+
+// GroupCreateSmartNamed creates a smart group from name, optional description, and criteria JSON array.
+// criteriaJSON may be empty or "[]"; when non-empty it must be a JSON array of criterion objects.
+func GroupCreateSmartNamed(credName string, opts Opts, name, description string, criteriaJSON []byte, logger *slog.Logger) (*GroupCreateResult, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	var criteria []smartGroupCriteria
+	if len(criteriaJSON) > 0 && strings.TrimSpace(string(criteriaJSON)) != "" {
+		if err := json.Unmarshal(criteriaJSON, &criteria); err != nil {
+			return nil, fmt.Errorf("parse criteria JSON: %w", err)
+		}
+	}
+	if criteria == nil {
+		criteria = []smartGroupCriteria{}
+	}
+	body := map[string]interface{}{
+		"id":       -1,
+		"name":     name,
+		"criteria": criteria,
+	}
+	if d := strings.TrimSpace(description); d != "" {
+		body["description"] = d
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal smart group: %w", err)
+	}
+	if !opts.SkipConfirm {
+		msg := fmt.Sprintf("\nCreate smart group %q (%d criterion/criteria)", name, len(criteria))
+		if !ConfirmPrompt(msg, logger) {
+			return nil, nil
+		}
+	}
+	opts.SkipConfirm = true
+	return GroupCreateSmart(credName, opts, payload, logger)
+}
+
+// GroupCreateStaticNamed creates a static group from name, optional description, and computer IDs.
+func GroupCreateStaticNamed(credName string, opts Opts, name, description string, computerIDs []string, logger *slog.Logger) (*GroupCreateResult, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	assignments := normalizeAssignmentIDs(computerIDs)
+	body := map[string]interface{}{
+		"name":        name,
+		"assignments": assignments,
+	}
+	if d := strings.TrimSpace(description); d != "" {
+		body["description"] = d
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal static group: %w", err)
+	}
+	if !opts.SkipConfirm {
+		msg := fmt.Sprintf("\nCreate static group %q (%d computer(s))", name, len(assignments))
+		if !ConfirmPrompt(msg, logger) {
+			return nil, nil
+		}
+	}
+	opts.SkipConfirm = true
+	return GroupCreateStatic(credName, opts, payload, logger)
 }
 
 // GroupPutSmartRaw updates a smart group by ID using the provided raw JSON payload (for script/component use).

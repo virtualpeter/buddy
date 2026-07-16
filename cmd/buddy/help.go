@@ -18,7 +18,7 @@ Commands:
   auth     Test authentication for a credential
   cred     Manage credentials in the config file
   policy   Manage Jamf policies (get/set/clone/create/delete/find)
-  group    Manage computer groups (smart version/delete; static membership)
+  group    Manage computer groups (list/get/set/create/delete; static membership)
   profile  Manage configuration profiles (list/get/set/clone/redeploy)
   package  Manage package records (list/get/upload/delete/set/history)
   computer Manage computers and MDM commands (find/get/reboot/lock/erase/...)
@@ -377,12 +377,15 @@ GROUP
       → value: dict (full smart-group JSON)
       Params: group_id: str. cred?: credential name.
   group_put(group_id, dict, cred?)
-      → None
+      → None (use group_id="-1" to create; prefer smart_group_create)
       Params: group_id: str; dict: Starlark dict (group body). cred?: credential name.
 
   smart_group_fetch(group_id, cred?)
       → value: dict (full smart-group JSON from /api/v2/computer-groups/smart-groups/{id})
       Params: group_id: str; cred?: credential name.
+  smart_group_create(body, cred?)
+      → value: dict {"id": str, "href"?: str}
+      Params: body: dict (smart group JSON; typically name + criteria; id: -1 optional). cred?: credential name.
   smart_group_put(group_id, body, cred?)
       → None
       Params: group_id: str; body: dict/list tree (full smart group JSON); cred?: credential name.
@@ -402,6 +405,9 @@ GROUP
   static_group_list_computers(group_id, filter?, cred?)
       → value: list of dicts with id, name, serial (name/serial may be empty if API returns IDs only)
       Params: group_id: str; filter?: str (client-side substring on id, name, serial). cred?: credential name.
+  static_group_create(body, cred?)
+      → value: dict {"id": str, "href"?: str}
+      Params: body: dict (static group JSON; name required; assignments?: list of computer id str). cred?: credential name.
   static_group_add_computers(group_id, computer_ids, cred?)
       → None
       Params: group_id: str; computer_ids: list of int or str. cred?: credential name.
@@ -898,13 +904,18 @@ Usage:
 const helpGroup = `buddy group - Manage Jamf computer groups
 
 Usage:
-  buddy [global-flags] group <list|get|set|delete|static> [args...]
+  buddy [global-flags] group <list|get|set|create|delete|static> [args...]
 
 Subcommands:
   list smart [--filter=<rsql>]           List smart computer groups
   list static [--filter=<rsql>]          List static computer groups
   get version <group-id>                 Show current version criterion (smart group)
   set version <group-id> <version>       Update version criterion (smart group)
+  create smart <name> [--description=<text>] [--file=<json>]
+                                         Create a smart computer group
+  create smart --file=<json>             Create from full smart-group JSON body
+  create static <name> [--description=<text>] [--computer-ids=<id>[,<id>...]]
+                                         Create a static computer group
   delete <group-id>                      Delete smart group
   static members <group-id> [--filter=<substring>]   List computers in a static group (client-side filter)
   static add <group-id> --computer-ids=<id>[,<id>...]   Add computers to a static group
@@ -912,6 +923,16 @@ Subcommands:
 
 Flags for 'list':
   --filter=<rsql>   Plain name substring or RSQL expression (e.g. 'name=="*Chrome*"')
+
+Flags for 'create smart':
+  --description=<text>   Optional description
+  --file=<json>          Criteria JSON array, or full smart-group body (object). With <name>,
+                         a body object may omit name (positional is used). Without <name>,
+                         --file must be a full body including name.
+
+Flags for 'create static':
+  --description=<text>              Optional description
+  --computer-ids=<id>[,<id>...]     Optional initial membership
 
 Flags for 'static members':
   --filter=<substring>   Client-side substring match on computer id, name, or serial
@@ -932,6 +953,8 @@ Examples:
   buddy group list smart --filter='name=="*Chrome*"'
   buddy group get version 10
   buddy group set version 10 121.0
+  buddy group create smart "Chrome installed" --file=criteria.json
+  buddy group create static "Lab Macs" --computer-ids=101,102
   buddy group delete 10
   buddy group static members 42 --filter=lab
   buddy group static add 42 --computer-ids=101,102

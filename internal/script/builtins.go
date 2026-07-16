@@ -76,6 +76,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 		"group_get_version":                  starlark.NewBuiltin("group_get_version", groupGetVersion(credName, logger)),
 		"group_set_version":                  starlark.NewBuiltin("group_set_version", groupSetVersion(credName, logger)),
 		"smart_group_fetch":                  starlark.NewBuiltin("smart_group_fetch", smartGroupFetch(credName, logger)),
+		"smart_group_create":                 starlark.NewBuiltin("smart_group_create", smartGroupCreate(credName, logger)),
 		"smart_group_put":                    starlark.NewBuiltin("smart_group_put", smartGroupPut(credName, logger)),
 		"smart_group_get_criteria":           starlark.NewBuiltin("smart_group_get_criteria", smartGroupGetCriteria(credName, logger)),
 		"smart_group_set_criteria":           starlark.NewBuiltin("smart_group_set_criteria", smartGroupSetCriteria(credName, logger)),
@@ -83,6 +84,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 		"smart_group_update_criterion_value": starlark.NewBuiltin("smart_group_update_criterion_value", smartGroupUpdateCriterionValue(credName, logger)),
 		"group_delete":                       starlark.NewBuiltin("group_delete", groupDelete(credName, logger)),
 		"static_group_list_computers":        starlark.NewBuiltin("static_group_list_computers", staticGroupListComputers(credName, logger)),
+		"static_group_create":                starlark.NewBuiltin("static_group_create", staticGroupCreate(credName, logger)),
 		"static_group_add_computers":         starlark.NewBuiltin("static_group_add_computers", staticGroupAddComputers(credName, logger)),
 		"static_group_remove_computers":      starlark.NewBuiltin("static_group_remove_computers", staticGroupRemoveComputers(credName, logger)),
 		"static_group_set_computers":         starlark.NewBuiltin("static_group_set_computers", staticGroupSetComputers(credName, logger)),
@@ -829,6 +831,76 @@ func smartGroupFetch(credName string, logger *slog.Logger) func(*starlark.Thread
 		}
 		return resultOK(val), nil
 	}
+}
+
+// smart_group_create(body, cred?) → {ok, value: dict {"id", "href"?}}
+func smartGroupCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var body starlark.Value
+		var cred starlark.String
+		if err := starlark.UnpackArgs("smart_group_create", args, kwargs, "body", &body, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		c := credName
+		if cred != "" {
+			c = string(cred)
+		}
+		jsonStr, err := StarlarkToJSON(body)
+		if err != nil {
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+		}
+		opts := scriptOpts
+		opts.SkipConfirm = true
+		created, err := buddy.GroupCreateSmart(getCred(thread, c), opts, []byte(jsonStr), logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		if created == nil {
+			return resultErr("smart_group_create: cancelled"), nil
+		}
+		return groupCreateResultValue(created)
+	}
+}
+
+// static_group_create(body, cred?) → {ok, value: dict {"id", "href"?}}
+func staticGroupCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var body starlark.Value
+		var cred starlark.String
+		if err := starlark.UnpackArgs("static_group_create", args, kwargs, "body", &body, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		c := credName
+		if cred != "" {
+			c = string(cred)
+		}
+		jsonStr, err := StarlarkToJSON(body)
+		if err != nil {
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+		}
+		opts := scriptOpts
+		opts.SkipConfirm = true
+		created, err := buddy.GroupCreateStatic(getCred(thread, c), opts, []byte(jsonStr), logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		if created == nil {
+			return resultErr("static_group_create: cancelled"), nil
+		}
+		return groupCreateResultValue(created)
+	}
+}
+
+func groupCreateResultValue(created *buddy.GroupCreateResult) (starlark.Value, error) {
+	b, err := json.Marshal(created)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	val, err := JSONDecodeToStarlark(string(b))
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(val), nil
 }
 
 // smart_group_put(group_id, body, cred?) → {ok, value: None}

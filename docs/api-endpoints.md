@@ -187,8 +187,12 @@ Base path: `/api/v2/computer-groups`
 | `GET` | `/api/v2/computer-groups/smart-groups` | `GroupSearchSmart`, `GroupListSmart`, `GroupFindID` | List smart groups (paginated, RSQL filter on `id`, `name`, `siteId`) |
 | `GET` | `/api/v2/computer-groups/static-groups` | `GroupSearchStatic`, `GroupListStatic` | List static groups (paginated, RSQL filter on `id`, `name`, `siteId`) |
 | `GET` | `/api/v2/computer-groups/smart-groups/{id}` | `GroupGetVersion`, `GroupVersion`, `GroupDelete` | Fetch smart group detail (name, criteria) |
+| `POST` | `/api/v2/computer-groups/smart-groups` | `GroupCreateSmart`, `GroupCreateSmartNamed` | Create a smart computer group |
 | `PUT` | `/api/v2/computer-groups/smart-groups/{id}` | `GroupVersion` | Update smart group criteria (version value) |
 | `DELETE` | `/api/v2/computer-groups/smart-groups/{id}` | `GroupDelete` | Delete a smart computer group |
+| `POST` | `/api/v2/computer-groups/static-groups` | `GroupCreateStatic`, `GroupCreateStaticNamed` | Create a static computer group |
+| `GET` | `/api/v2/computer-groups/static-groups/{id}` | `StaticGroupFetchMembers`, `StaticGroupPutAssignments` | Fetch static group (including assignments when present) |
+| `PUT` | `/api/v2/computer-groups/static-groups/{id}` | `StaticGroupPutAssignments` | Update static group membership |
 
 ### Notes
 

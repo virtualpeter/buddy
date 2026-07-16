@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -681,6 +683,8 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 		}
 		groupID := strings.TrimSpace(args[0])
 		return buddy.GroupDelete(credName, opts, groupID, log)
+	case "create":
+		return runGroupCreate(credName, opts, args, log)
 	case "static":
 		if len(args) == 0 {
 			return fmt.Errorf("usage: buddy group static <members|add|remove> ...; run 'buddy group help' for usage")
@@ -759,7 +763,132 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 			return fmt.Errorf("unknown group static subcommand %q (use: members, add, remove)", sub)
 		}
 	default:
-		return fmt.Errorf("group requires 'list', 'get', 'set', 'delete', or 'static', got %q", mode)
+		return fmt.Errorf("group requires 'list', 'get', 'set', 'create', 'delete', or 'static', got %q", mode)
+	}
+}
+
+func runGroupCreate(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: buddy group create smart|static ...; run 'buddy group help' for usage")
+	}
+	kind := args[0]
+	args = args[1:]
+	switch kind {
+	case "smart":
+		var description, filePath string
+		fs := flag.NewFlagSet("group create smart", flag.ContinueOnError)
+		fs.StringVar(&description, "description", "", "optional group description")
+		fs.StringVar(&filePath, "file", "", "JSON file: full body, or criteria array")
+		flagArgs, positionals := staticGroupSplitFlags(args)
+		if err := fs.Parse(flagArgs); err != nil {
+			return err
+		}
+		if filePath != "" && len(positionals) == 0 {
+			// Full body from file (must include name).
+			data, err := os.ReadFile(filePath)
+			if err != nil {
+				return fmt.Errorf("read --file: %w", err)
+			}
+			created, err := buddy.GroupCreateSmart(credName, opts, data, log)
+			if err != nil {
+				return err
+			}
+			if created == nil {
+				return nil
+			}
+			fmt.Printf("Created smart group (ID %s)\n", created.ID)
+			return nil
+		}
+		if len(positionals) < 1 {
+			return fmt.Errorf("missing <name>; run 'buddy group help' for usage")
+		}
+		name := strings.TrimSpace(positionals[0])
+		var criteriaJSON []byte
+		if filePath != "" {
+			data, err := os.ReadFile(filePath)
+			if err != nil {
+				return fmt.Errorf("read --file: %w", err)
+			}
+			trimmed := bytes.TrimSpace(data)
+			if len(trimmed) > 0 && trimmed[0] == '{' {
+				// Full body with name override from positional if body lacks name.
+				var raw map[string]json.RawMessage
+				if err := json.Unmarshal(data, &raw); err != nil {
+					return fmt.Errorf("parse --file: %w", err)
+				}
+				if _, ok := raw["name"]; !ok {
+					nameJSON, err := json.Marshal(name)
+					if err != nil {
+						return err
+					}
+					raw["name"] = nameJSON
+				}
+				if description != "" {
+					descJSON, err := json.Marshal(description)
+					if err != nil {
+						return err
+					}
+					raw["description"] = descJSON
+				}
+				if _, ok := raw["id"]; !ok {
+					raw["id"] = json.RawMessage("-1")
+				}
+				payload, err := json.Marshal(raw)
+				if err != nil {
+					return err
+				}
+				created, err := buddy.GroupCreateSmart(credName, opts, payload, log)
+				if err != nil {
+					return err
+				}
+				if created == nil {
+					return nil
+				}
+				fmt.Printf("Created smart group %q (ID %s)\n", name, created.ID)
+				return nil
+			}
+			criteriaJSON = data
+		}
+		created, err := buddy.GroupCreateSmartNamed(credName, opts, name, description, criteriaJSON, log)
+		if err != nil {
+			return err
+		}
+		if created == nil {
+			return nil
+		}
+		fmt.Printf("Created smart group %q (ID %s)\n", name, created.ID)
+		return nil
+	case "static":
+		var description, computerIDsFlag string
+		fs := flag.NewFlagSet("group create static", flag.ContinueOnError)
+		fs.StringVar(&description, "description", "", "optional group description")
+		fs.StringVar(&computerIDsFlag, "computer-ids", "", "comma-separated computer IDs (optional)")
+		flagArgs, positionals := staticGroupSplitFlags(args)
+		if err := fs.Parse(flagArgs); err != nil {
+			return err
+		}
+		if len(positionals) < 1 {
+			return fmt.Errorf("missing <name>; run 'buddy group help' for usage")
+		}
+		name := strings.TrimSpace(positionals[0])
+		var ids []string
+		if computerIDsFlag != "" {
+			ids = parseCommaSeparatedIDs(computerIDsFlag)
+			if len(ids) == 0 {
+				return fmt.Errorf("no computer IDs in --computer-ids")
+			}
+		}
+		created, err := buddy.GroupCreateStaticNamed(credName, opts, name, description, ids, log)
+		if err != nil {
+			return err
+		}
+		if created == nil {
+			return nil
+		}
+		fmt.Printf("Created static group %q (ID %s)\n", name, created.ID)
+		return nil
+	default:
+		return fmt.Errorf("group create requires 'smart' or 'static', got %q", kind)
 	}
 }
 
