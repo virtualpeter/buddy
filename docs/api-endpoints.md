@@ -7,7 +7,7 @@ Buddy communicates with Jamf Pro through two API surfaces using direct HTTP requ
 - **Classic API** — XML-based, path prefix `/JSSResource/`
 - **Jamf Pro API** — JSON-based, path prefix `/api/v1/` or `/api/v2/`
 
-Authentication is config-driven per credential (command, basic, or OAuth). See `buddy auth help` and `buddy config help`. For **basic** (username/password), buddy obtains a Bearer token via `POST /api/v1/auth/token` with Basic auth, then uses that token for all API requests.
+Authentication is config-driven per credential (command, basic, or OAuth). See `buddy auth help` and `buddy cred help`. For **basic** (username/password), buddy obtains a Bearer token via `POST /api/v1/auth/token` with Basic auth, then uses that token for all API requests.
 
 ---
 
@@ -549,4 +549,4 @@ buddy mdm find --filter='dateCompleted=ge=2024-01-01T00:00:00Z;status==Acknowled
 
 Base URLs are configured per credential in `~/.config/buddy/config.yaml`. Each named credential specifies its own `url` field. There is no hardcoded URL logic.
 
-See `buddy config help` for how to add or update credentials.
+See `buddy cred help` for how to add or update credentials.

@@ -15,26 +15,35 @@ import (
 // Version is set at build time via -ldflags "-X main.Version=..."
 var Version = "dev"
 
-func main() {
-	showVersion := flag.Bool("version", false, "Print version and exit")
-	skipConfirm := flag.Bool("y", false, "Skip confirmation prompts (buddy CLI and confirm() in scripts)")
-	verbose := flag.Bool("v", false, "Verbose output")
-	verboseLong := flag.Bool("verbose", false, "Verbose output")
-	var httpTrace bool
-	flag.BoolVar(&httpTrace, "t", false, "Trace HTTP requests and responses (headers and bodies; Authorization/Cookie redacted)")
-	flag.BoolVar(&httpTrace, "trace", false, "Same as -t")
-	scriptTrace := flag.Bool("script-trace", false, "Trace Starlark builtin calls and print() in scripts and the interactive shell")
-	credOverride := flag.String("cred", "", "Override credential name from config")
-	flag.Parse()
+// globalCLI holds flags that may appear anywhere on the command line.
+type globalCLI struct {
+	showVersion bool
+	skipConfirm bool
+	verbose     bool
+	trace       bool
+	scriptTrace bool
+	user        string
+	cred        string
+	usedCred    bool
+}
 
-	if *showVersion {
+func main() {
+	globals, filtered := extractGlobalFlags(os.Args)
+	os.Args = filtered
+
+	if globals.usedCred {
+		fmt.Fprintln(os.Stderr, "note: '--cred' is deprecated; use '--user'")
+	}
+
+	if globals.showVersion {
 		fmt.Println(Version)
 		os.Exit(0)
 	}
 
 	opts := buddy.Opts{
-		SkipConfirm: *skipConfirm,
-		Verbose:     *verbose || *verboseLong,
+		SkipConfirm: globals.skipConfirm,
+		Verbose:     globals.verbose,
+		Trace:       globals.trace,
 	}
 
 	cfg, err := buddy.LoadConfig()
@@ -44,19 +53,21 @@ func main() {
 	}
 	buddy.SetActiveConfig(cfg)
 	credName := cfg.Cred
-	if *credOverride != "" {
-		credName = *credOverride
+	if globals.user != "" {
+		credName = globals.user
+	} else if globals.cred != "" {
+		credName = globals.cred
 	}
 
-	args := flag.Args()
+	args := os.Args[1:]
 
 	buddy.InitLogger()
-	buddy.SetVerbose(*verbose || *verboseLong)
-	buddy.SetHTTPTrace(httpTrace)
+	buddy.SetVerbose(globals.verbose || globals.trace)
+	buddy.SetHTTPTrace(globals.trace)
 	logger := buddy.GetLogger()
 
 	if len(args) < 1 {
-		if err := script.REPL(credName, opts, logger, *scriptTrace); err != nil {
+		if err := script.REPL(credName, opts, logger, globals.scriptTrace); err != nil {
 			logger.Error("REPL failed", "error", err)
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
@@ -65,7 +76,7 @@ func main() {
 	}
 
 	if !isKnownCommand(args[0]) && isScriptPath(args[0]) {
-		trace := *scriptTrace
+		trace := globals.scriptTrace
 		posTrace, scriptPath, scriptArgs := script.ParseScriptInvocation(args)
 		if posTrace {
 			trace = true
@@ -92,9 +103,16 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
+	case "cred":
+		if err := runCred(cfg, opts, args[1:], logger); err != nil {
+			logger.Error("Cred command failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
 	case "config":
-		if err := runConfig(cfg, opts, args[1:], logger); err != nil {
-			logger.Error("Config command failed", "error", err)
+		fmt.Fprintln(os.Stderr, "note: 'config' is deprecated; use 'cred'")
+		if err := runCred(cfg, opts, args[1:], logger); err != nil {
+			logger.Error("Cred command failed", "error", err)
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
@@ -1702,6 +1720,49 @@ func runJamfScriptSet(credName string, opts buddy.Opts, args []string, log *slog
 	}
 }
 
+// extractGlobalFlags removes buddy global flags from argv (any position) and returns the rest.
+func extractGlobalFlags(argv []string) (globalCLI, []string) {
+	var g globalCLI
+	if len(argv) == 0 {
+		return g, argv
+	}
+	out := []string{argv[0]}
+	for i := 1; i < len(argv); i++ {
+		a := argv[i]
+		switch {
+		case a == "--version":
+			g.showVersion = true
+		case a == "-y":
+			g.skipConfirm = true
+		case a == "-v", a == "--verbose":
+			g.verbose = true
+		case a == "-t", a == "--trace":
+			g.trace = true
+		case a == "--script-trace":
+			g.scriptTrace = true
+		case strings.HasPrefix(a, "--user="):
+			g.user = strings.TrimPrefix(a, "--user=")
+		case a == "--user":
+			if i+1 < len(argv) {
+				i++
+				g.user = argv[i]
+			}
+		case strings.HasPrefix(a, "--cred="):
+			g.cred = strings.TrimPrefix(a, "--cred=")
+			g.usedCred = true
+		case a == "--cred":
+			g.usedCred = true
+			if i+1 < len(argv) {
+				i++
+				g.cred = argv[i]
+			}
+		default:
+			out = append(out, a)
+		}
+	}
+	return g, out
+}
+
 func printUsage() {
 	fmt.Fprint(os.Stderr, helpRoot)
 }
@@ -1715,15 +1776,89 @@ func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 	case "test":
 		return buddy.AuthTest(credName, log)
 	case "token":
-		return buddy.GetToken(credName)
+		if len(args) > 1 && args[1] == "help" {
+			fmt.Print(helpAuth)
+			return nil
+		}
+		return runAuthToken(credName, args[1:], log)
+	case "refresh":
+		if len(args) > 1 && args[1] == "help" {
+			fmt.Print(helpAuth)
+			return nil
+		}
+		return runAuthRefresh(credName, args[1:], log)
 	default:
 		return fmt.Errorf("unknown auth subcommand: %q; run 'buddy auth help' for usage", args[0])
 	}
 }
 
-func runConfig(cfg *buddy.Config, opts buddy.Opts, args []string, log *slog.Logger) error {
+func runAuthToken(credName string, args []string, log *slog.Logger) error {
+	fs := flag.NewFlagSet("auth token", flag.ContinueOnError)
+	raw := fs.Bool("raw", false, "Print bearer token only (no \"Bearer \" prefix)")
+	baseURL := fs.String("url", "", "Jamf Pro base URL (direct auth, no config credential)")
+	username := fs.String("username", "", "Username for basic auth")
+	password := fs.String("password", "", "Password for basic auth")
+	clientID := fs.String("client-id", "", "OAuth2 client ID")
+	clientSecret := fs.String("client-secret", "", "OAuth2 client secret")
+	oauth2CredsFile := fs.String("oauth2-creds-file", "", "Path to OAuth2 credentials JSON file")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	direct := buddy.DirectAuthOpts{
+		BaseURL:         *baseURL,
+		Username:        *username,
+		Password:        *password,
+		ClientID:        *clientID,
+		ClientSecret:    *clientSecret,
+		OAuth2CredsFile: *oauth2CredsFile,
+	}
+
+	if *raw || direct.UsesDirectAuth() {
+		return buddy.PrintRawToken(credName, direct, log)
+	}
+
+	return buddy.GetToken(credName)
+}
+
+func runAuthRefresh(credName string, args []string, log *slog.Logger) error {
+	fs := flag.NewFlagSet("auth refresh", flag.ContinueOnError)
+	baseURL := fs.String("url", "", "Jamf Pro base URL (defaults to --user credential URL)")
+	tokenFlag := fs.String("token", "", "Bearer token to refresh via keep-alive")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	tokenValue := strings.TrimSpace(*tokenFlag)
+	if tokenValue == "" && fs.NArg() > 0 {
+		tokenValue = strings.TrimSpace(fs.Arg(0))
+	}
+	if tokenValue == "" {
+		return fmt.Errorf("token is required; run 'buddy auth refresh help' for usage")
+	}
+
+	urlValue := strings.TrimSpace(*baseURL)
+	if urlValue == "" {
+		var err error
+		urlValue, err = buddy.GetBaseURL(credName)
+		if err != nil {
+			return fmt.Errorf("Jamf Pro URL is required (use --url or configure --user): %w", err)
+		}
+	}
+
+	refreshed, err := buddy.RefreshRawToken(urlValue, tokenValue, log)
+	if err != nil {
+		return err
+	}
+	fmt.Println(refreshed)
+	return nil
+}
+
+func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) error {
 	if len(args) == 0 || args[0] == "help" {
-		fmt.Print(helpConfig)
+		fmt.Print(helpCred)
 		return nil
 	}
 	switch args[0] {
@@ -1731,14 +1866,14 @@ func runConfig(cfg *buddy.Config, opts buddy.Opts, args []string, log *slog.Logg
 		return runConfigList(cfg)
 	case "get":
 		if len(args) < 2 {
-			return fmt.Errorf("missing credential name; run 'buddy config help' for usage")
+			return fmt.Errorf("missing credential name; run 'buddy cred help' for usage")
 		}
 		return runConfigGet(cfg, args[1])
 	case "add":
 		return runConfigAdd(cfg, opts, args[1:])
 	case "delete":
 		if len(args) < 2 {
-			return fmt.Errorf("missing credential name; run 'buddy config help' for usage")
+			return fmt.Errorf("missing credential name; run 'buddy cred help' for usage")
 		}
 		return runConfigDelete(cfg, opts, args[1])
 	case "default":
@@ -1747,14 +1882,16 @@ func runConfig(cfg *buddy.Config, opts buddy.Opts, args []string, log *slog.Logg
 			return nil
 		}
 		return runConfigSetDefault(cfg, args[1])
+	case "secret":
+		return runConfigSecret(cfg, args[1:])
 	default:
-		return fmt.Errorf("unknown config subcommand: %q; run 'buddy config help' for usage", args[0])
+		return fmt.Errorf("unknown cred subcommand: %q; run 'buddy cred help' for usage", args[0])
 	}
 }
 
 func runConfigList(cfg *buddy.Config) error {
 	if len(cfg.Credentials) == 0 {
-		fmt.Println("No credentials configured. Use 'buddy config add' to add one.")
+		fmt.Println("No credentials configured. Use 'buddy cred add' to add one.")
 		return nil
 	}
 	fmt.Printf("%-20s  %-45s  %s\n", "NAME", "URL", "TYPE")
@@ -1787,10 +1924,22 @@ func runConfigGet(cfg *buddy.Config, name string) error {
 		fmt.Printf("command:  %s\n", cred.Auth.RunCommand)
 	case "basic":
 		fmt.Printf("username: %s\n", cred.Auth.Username)
-		fmt.Printf("password: %s\n", redact(cred.Auth.Password))
+		if cred.Auth.Password != "" {
+			fmt.Printf("password: %s (inline in config)\n", redact(cred.Auth.Password))
+		} else if ok, _ := buddy.HasCredentialSecret(name, buddy.SecretKindPassword); ok {
+			fmt.Printf("password: (platform store)\n")
+		} else {
+			fmt.Printf("password: (not set)\n")
+		}
 	case "oauth":
 		fmt.Printf("clientId:     %s\n", cred.Auth.ClientID)
-		fmt.Printf("clientSecret: %s\n", redact(cred.Auth.ClientSecret))
+		if cred.Auth.ClientSecret != "" {
+			fmt.Printf("clientSecret: %s (inline in config)\n", redact(cred.Auth.ClientSecret))
+		} else if ok, _ := buddy.HasCredentialSecret(name, buddy.SecretKindClientSecret); ok {
+			fmt.Printf("clientSecret: (platform store)\n")
+		} else {
+			fmt.Printf("clientSecret: (not set)\n")
+		}
 	}
 	fmt.Printf("default:  %s\n", isDefault)
 	return nil
@@ -1836,13 +1985,13 @@ func runConfigAdd(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 		}
 	}
 	if len(positional) < 2 {
-		return fmt.Errorf("usage: buddy config add <name> <url> --type=<type> [flags]; run 'buddy config help' for details")
+		return fmt.Errorf("usage: buddy cred add <name> <url> --type=<type> [flags]; run 'buddy cred help' for details")
 	}
 	credName := positional[0]
 	credURL := positional[1]
 
 	if authType == "" {
-		return fmt.Errorf("--type is required (command, basic, or oauth); run 'buddy config help' for details")
+		return fmt.Errorf("--type is required (command, basic, or oauth); run 'buddy cred help' for details")
 	}
 
 	auth := buddy.AuthConfig{Type: authType}
@@ -1859,8 +2008,8 @@ func runConfigAdd(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 		auth.Username = username
 		auth.Password = password
 	case "oauth":
-		if clientID == "" || clientSecret == "" {
-			return fmt.Errorf("--client-id and --client-secret are required for auth type 'oauth'")
+		if clientID == "" {
+			return fmt.Errorf("--client-id is required for auth type 'oauth'")
 		}
 		auth.ClientID = clientID
 		auth.ClientSecret = clientSecret
@@ -1892,6 +2041,12 @@ func runConfigAdd(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	} else {
 		fmt.Printf("Added credential %q\n", credName)
 	}
+	if authType == "basic" && password == "" {
+		fmt.Fprintf(os.Stderr, "Note: no password in config — store one with: buddy cred secret set %s --password\n", credName)
+	}
+	if authType == "oauth" && clientSecret == "" {
+		fmt.Fprintf(os.Stderr, "Note: no client secret in config — store one with: buddy cred secret set %s --client-secret\n", credName)
+	}
 	return nil
 }
 
@@ -1922,13 +2077,138 @@ func runConfigDelete(cfg *buddy.Config, opts buddy.Opts, name string) error {
 
 func runConfigSetDefault(cfg *buddy.Config, name string) error {
 	if _, ok := cfg.Credentials[name]; !ok {
-		return fmt.Errorf("credential %q not found; run 'buddy config list' to see available credentials", name)
+		return fmt.Errorf("credential %q not found; run 'buddy cred list' to see available credentials", name)
 	}
 	cfg.Cred = name
 	if err := buddy.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
 	fmt.Printf("Default credential set to %q\n", name)
+	return nil
+}
+
+func runConfigSecret(cfg *buddy.Config, args []string) error {
+	if len(args) == 0 || args[0] == "help" {
+		fmt.Print(helpCredSecret)
+		return nil
+	}
+	switch args[0] {
+	case "set":
+		if len(args) < 2 {
+			return fmt.Errorf("missing credential name; run 'buddy cred secret help' for usage")
+		}
+		return runConfigSecretSet(cfg, args[1], args[2:])
+	case "get":
+		if len(args) < 2 {
+			return fmt.Errorf("missing credential name; run 'buddy cred secret help' for usage")
+		}
+		return buddy.PrintCredentialSecretStatus(cfg, args[1], os.Stdout)
+	case "delete":
+		if len(args) < 2 {
+			return fmt.Errorf("missing credential name; run 'buddy cred secret help' for usage")
+		}
+		return runConfigSecretDelete(args[1], args[2:])
+	case "path":
+		return runConfigSecretPath()
+	default:
+		return fmt.Errorf("unknown cred secret subcommand: %q; run 'buddy cred secret help' for usage", args[0])
+	}
+}
+
+func runConfigSecretSet(cfg *buddy.Config, credName string, args []string) error {
+	if _, err := cfg.ResolveCredential(credName); err != nil {
+		return err
+	}
+	var password, clientSecret string
+	wantPassword := false
+	wantClientSecret := false
+	secretFromStdin := false
+	for _, a := range args {
+		switch {
+		case a == "--secret-from-stdin":
+			secretFromStdin = true
+		case strings.HasPrefix(a, "--password="):
+			wantPassword = true
+			password = strings.TrimPrefix(a, "--password=")
+		case a == "--password":
+			wantPassword = true
+		case strings.HasPrefix(a, "--client-secret="):
+			wantClientSecret = true
+			clientSecret = strings.TrimPrefix(a, "--client-secret=")
+		case a == "--client-secret":
+			wantClientSecret = true
+		default:
+			return fmt.Errorf("unknown flag %q; run 'buddy cred secret help' for usage", a)
+		}
+	}
+	if !wantPassword && !wantClientSecret {
+		wantPassword = true
+		wantClientSecret = true
+	}
+	if secretFromStdin {
+		val, err := buddy.ReadSecretFromStdin()
+		if err != nil {
+			return err
+		}
+		if wantPassword && password == "" {
+			password = val
+		}
+		if wantClientSecret && clientSecret == "" {
+			clientSecret = val
+		}
+	}
+	if wantPassword && password == "" {
+		var err error
+		password, err = buddy.PromptSecretLine("Password")
+		if err != nil {
+			return err
+		}
+	}
+	if wantClientSecret && clientSecret == "" {
+		var err error
+		clientSecret, err = buddy.PromptSecretLine("Client secret")
+		if err != nil {
+			return err
+		}
+	}
+	if err := buddy.SetCredentialSecrets(credName, password, clientSecret); err != nil {
+		return err
+	}
+	fmt.Printf("Stored secret(s) for credential %q\n", credName)
+	return nil
+}
+
+func runConfigSecretDelete(credName string, args []string) error {
+	deletePassword := false
+	deleteClientSecret := false
+	for _, a := range args {
+		switch a {
+		case "--password":
+			deletePassword = true
+		case "--client-secret":
+			deleteClientSecret = true
+		default:
+			return fmt.Errorf("unknown flag %q; run 'buddy cred secret help' for usage", a)
+		}
+	}
+	if !deletePassword && !deleteClientSecret {
+		deletePassword = true
+		deleteClientSecret = true
+	}
+	if err := buddy.DeleteCredentialSecrets(credName, deletePassword, deleteClientSecret); err != nil {
+		return err
+	}
+	fmt.Printf("Deleted secret(s) for credential %q from platform store\n", credName)
+	return nil
+}
+
+func runConfigSecretPath() error {
+	kind, detail, err := buddy.SecretStoreInfo()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("store: %s\n", kind)
+	fmt.Printf("path:  %s\n", detail)
 	return nil
 }
 
@@ -1956,10 +2236,14 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		clientDisplayName := "buddy-cli"
 		newCredName := "buddy-oauth"
 		configureOpts := opts
+		usedSetupCred := false
 		for _, a := range args {
 			switch {
+			case strings.HasPrefix(a, "--user="):
+				credNameForAPI = strings.TrimPrefix(a, "--user=")
 			case strings.HasPrefix(a, "--cred="):
 				credNameForAPI = strings.TrimPrefix(a, "--cred=")
+				usedSetupCred = true
 			case strings.HasPrefix(a, "--client-name="):
 				clientDisplayName = strings.TrimPrefix(a, "--client-name=")
 			case strings.HasPrefix(a, "--name="):
@@ -1967,6 +2251,9 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 			case a == "-y":
 				configureOpts.SkipConfirm = true
 			}
+		}
+		if usedSetupCred {
+			fmt.Fprintln(os.Stderr, "note: '--cred' is deprecated; use '--user'")
 		}
 		finalCredName, err := buddy.SetupConfigureOAuth(cfg, credNameForAPI, clientDisplayName, newCredName, configureOpts, log)
 		if err != nil {
@@ -1976,9 +2263,9 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 			return nil // user declined
 		}
 		if finalCredName == newCredName {
-			fmt.Printf("Added credential %q. Use: buddy --cred %s ...\n", finalCredName, finalCredName)
+			fmt.Printf("Added credential %q. Use: buddy --user %s ...\n", finalCredName, finalCredName)
 		} else {
-			fmt.Printf("Added credential %q (name %q in use). Use: buddy --cred %s ...\n", finalCredName, newCredName, finalCredName)
+			fmt.Printf("Added credential %q (name %q in use). Use: buddy --user %s ...\n", finalCredName, newCredName, finalCredName)
 		}
 		return nil
 	default:

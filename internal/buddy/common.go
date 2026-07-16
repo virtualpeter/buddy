@@ -2,20 +2,18 @@ package buddy
 
 import (
 	"bytes"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
+
+	"buddy/internal/buddy/tokenauth"
 )
 
 var logger *slog.Logger
@@ -97,12 +95,10 @@ func resolveAuthHeader(credName string) (string, error) {
 	switch cred.Auth.Type {
 	case "command":
 		return resolveCommandToken(credName, cred.Auth)
-	case "basic":
-		return resolveBasicAuthToken(credName, cred)
-	case "oauth":
-		return resolveOAuthToken(cred.URL, cred.Auth)
+	case "basic", "oauth":
+		return resolveCachedBearerToken(credName, cred)
 	case "":
-		return "", fmt.Errorf("credential %q has no auth type configured (use 'buddy config get %s' to inspect)", credName, credName)
+		return "", fmt.Errorf("credential %q has no auth type configured (use 'buddy cred get %s' to inspect)", credName, credName)
 	default:
 		return "", fmt.Errorf("credential %q has unknown auth type %q (supported: command, basic, oauth)", credName, cred.Auth.Type)
 	}
@@ -130,121 +126,67 @@ func resolveCommandToken(_ string, auth AuthConfig) (string, error) {
 	return "Bearer " + token, nil
 }
 
-// resolveBasicHeader returns a Basic auth header value from username/password.
-// Used only for the token exchange request; API calls use Bearer from resolveBasicAuthToken.
-func resolveBasicHeader(auth AuthConfig) (string, error) {
-	if auth.Username == "" {
-		return "", fmt.Errorf("auth type is 'basic' but username is not set")
-	}
-	encoded := base64.StdEncoding.EncodeToString([]byte(auth.Username + ":" + auth.Password))
-	return "Basic " + encoded, nil
-}
-
-// basicTokenCache caches Bearer tokens obtained via POST /api/v1/auth/token with Basic auth,
-// so we don't exchange on every request (Jamf Pro API expects Bearer, not Basic, on API calls).
-var basicTokenCache struct {
+var credAuthCache struct {
 	mu     sync.Mutex
-	byCred map[string]struct {
-		token  string
-		expiry time.Time
-	}
+	byCred map[string]*tokenauth.Authenticator
 }
 
 func init() {
-	basicTokenCache.byCred = make(map[string]struct {
-		token  string
-		expiry time.Time
-	})
+	credAuthCache.byCred = make(map[string]*tokenauth.Authenticator)
 }
 
-// resolveBasicAuthToken exchanges username/password for a Bearer token via POST /api/v1/auth/token
-// caches it, and returns "Bearer <token>". Jamf Pro API does not accept
-// Basic auth on API endpoints; it requires this token exchange first.
-func resolveBasicAuthToken(credName string, cred CredentialConfig) (string, error) {
+func cachedAuthenticator(credName string, cred CredentialConfig) (*tokenauth.Authenticator, error) {
+	credAuthCache.mu.Lock()
+	defer credAuthCache.mu.Unlock()
+	if a, ok := credAuthCache.byCred[credName]; ok {
+		return a, nil
+	}
+	resolved, err := cred.ResolveAuthWithSecrets(credName)
+	if err != nil {
+		return nil, err
+	}
 	baseURL := strings.TrimRight(cred.URL, "/")
-	if cred.Auth.Username == "" {
-		return "", fmt.Errorf("auth type is 'basic' but username is not set")
+	cfg := tokenauth.Config{
+		BaseURL: baseURL,
+		Logger:  GetLogger(),
 	}
-
-	basicTokenCache.mu.Lock()
-	entry, ok := basicTokenCache.byCred[credName]
-	basicTokenCache.mu.Unlock()
-	if ok && time.Now().Before(entry.expiry) {
-		return "Bearer " + entry.token, nil
+	switch resolved.Type {
+	case "basic":
+		cfg.Username = resolved.Username
+		cfg.Password = resolved.Password
+	case "oauth":
+		cfg.ClientId = resolved.ClientID
+		cfg.ClientSecret = resolved.ClientSecret
+	default:
+		return nil, fmt.Errorf("internal: cachedAuthenticator for auth type %q", resolved.Type)
 	}
-
-	tokenURL := baseURL + "/api/v1/auth/token"
-	req, err := http.NewRequest(http.MethodPost, tokenURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("create token request: %w", err)
-	}
-	req.SetBasicAuth(cred.Auth.Username, cred.Auth.Password)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("token request to %s failed: %w", tokenURL, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("token request returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	var tokenResp struct {
-		Token string `json:"token"`
-	}
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		return "", fmt.Errorf("parse token response: %w", err)
-	}
-	if tokenResp.Token == "" {
-		return "", fmt.Errorf("token response contained no token")
-	}
-
-	expiry := time.Now().Add(15 * time.Minute)
-	basicTokenCache.mu.Lock()
-	basicTokenCache.byCred[credName] = struct {
-		token  string
-		expiry time.Time
-	}{token: tokenResp.Token, expiry: expiry}
-	basicTokenCache.mu.Unlock()
-
-	return "Bearer " + tokenResp.Token, nil
+	a := tokenauth.NewAuthenticator(cfg)
+	credAuthCache.byCred[credName] = a
+	return a, nil
 }
 
-// resolveOAuthToken performs a client_credentials grant against the Jamf OAuth endpoint
-// and returns a Bearer token.
-func resolveOAuthToken(baseURL string, auth AuthConfig) (string, error) {
-	if auth.ClientID == "" {
-		return "", fmt.Errorf("auth type is 'oauth' but clientId is not set")
-	}
-	if auth.ClientSecret == "" {
-		return "", fmt.Errorf("auth type is 'oauth' but clientSecret is not set")
-	}
-	tokenURL := strings.TrimRight(baseURL, "/") + "/api/oauth/token"
-	form := url.Values{}
-	form.Set("grant_type", "client_credentials")
-	form.Set("client_id", auth.ClientID)
-	form.Set("client_secret", auth.ClientSecret)
-
-	resp, err := http.PostForm(tokenURL, form) //nolint:gosec
+func resolveCachedBearerToken(credName string, cred CredentialConfig) (string, error) {
+	a, err := cachedAuthenticator(credName, cred)
 	if err != nil {
-		return "", fmt.Errorf("oauth token request to %s failed: %w", tokenURL, err)
+		return "", err
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("oauth token request returned %d: %s", resp.StatusCode, string(body))
+	token, err := a.GetToken()
+	if err != nil {
+		return "", err
 	}
-	var result struct {
-		AccessToken string `json:"access_token"`
+	return "Bearer " + token, nil
+}
+
+func resolveRawToken(credName string) (string, error) {
+	header, err := resolveAuthHeader(credName)
+	if err != nil {
+		return "", err
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("parse oauth token response: %w", err)
+	const prefix = "Bearer "
+	if !strings.HasPrefix(header, prefix) {
+		return "", fmt.Errorf("credential %q did not resolve to a bearer token", credName)
 	}
-	if result.AccessToken == "" {
-		return "", fmt.Errorf("oauth token response contained no access_token")
-	}
-	return "Bearer " + result.AccessToken, nil
+	return strings.TrimPrefix(header, prefix), nil
 }
 
 // PerformRequest makes an authenticated HTTP request using the credential resolved from credName.

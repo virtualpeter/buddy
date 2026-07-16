@@ -50,13 +50,14 @@ Default config path: `~/.config/buddy/config.yaml` (override config root with `X
 
 A minimal file defines a default credential name and one or more named credentials (each with a Jamf Pro base URL and auth: `command`, `basic`, or `oauth`). Use:
 
-- `buddy config help` — add, list, delete credentials; set the default name
+- `buddy cred help` — add, list, delete credentials; set the default name
+- `buddy cred secret help` — store password/client secret in Keychain, file, or pass
 - `buddy auth test` — verify the active credential
-- `buddy --cred <name> ...` — override the default credential for one invocation
+- `buddy --user <name> ...` — override the default credential for one invocation (`--cred` is deprecated)
 
 For `basic` auth, buddy exchanges username/password for a Bearer token via Jamf’s `POST /api/v1/auth/token`.
 
-**Security:** Storing **passwords, OAuth client secrets, or tokens as plain text inside the YAML file** is practical for **development and test tenants**, but it is **not** a good pattern for production or high-value Jamf environments. For those, use **`command` authentication**: buddy runs an external command whose stdout is the Bearer token—point that command at a credential helper or store (for example **jamftoken**, the macOS keychain, or a team vault script) so secrets are not persisted in `config.yaml`. Regardless of method, keep the config file off shared disks where possible, use restrictive file permissions, and never commit credentials to source control.
+**Security:** Omit secrets from YAML and use `buddy cred secret set`. macOS defaults to Keychain; Linux defaults to `~/.config/buddy/secrets/`. Override with `BUDDY_SECRET_STORE=file|pass|keychain`. Inline secrets in config remain supported for dev/test. Never commit credentials to source control.
 
 Full YAML shape and field descriptions are in the [README](../README.md#configuration).
 
@@ -95,14 +96,14 @@ buddy help [command] [subcommand]
 | `-y` | Skip confirmation prompts (destructive MDM actions still use extra checks where required) |
 | `-v`, `--verbose` | Verbose output |
 | `-t`, `--trace` | Trace HTTP to stderr (headers and bodies; secrets redacted) |
-| `--cred <name>` | Use a named credential from config |
+| `--user <name>` | Use a named credential from config (`--cred` deprecated) |
 
 **Commands** (high level)
 
 | Command | Role |
 |---------|------|
 | `auth` | Test auth; print token material |
-| `config` | Manage `config.yaml` credentials |
+| `cred` | Manage `config.yaml` credentials and platform secrets |
 | `run` | Execute a `.star` script |
 | `policy` | Policies (get/set/clone/create/delete/find) |
 | `group` | Smart/static computer groups |

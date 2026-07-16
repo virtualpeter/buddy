@@ -5,7 +5,8 @@ import "os"
 var knownCommands = map[string]struct{}{
 	"help":    {},
 	"auth":    {},
-	"config":  {},
+	"cred":    {},
+	"config":  {}, // deprecated alias for cred
 	"policy":  {},
 	"group":   {},
 	"profile": {},

@@ -16,7 +16,7 @@ Usage:
 
 Commands:
   auth     Test authentication for a credential
-  config   Manage credentials in the config file
+  cred     Manage credentials in the config file
   policy   Manage Jamf policies (get/set/clone/create/delete/find)
   group    Manage computer groups (smart version/delete; static membership)
   profile  Manage configuration profiles (list/get/set/clone/redeploy)
@@ -34,32 +34,50 @@ Global flags:
   -v, --verbose       Verbose output
   -t, --trace         Trace HTTP requests and responses to stderr (headers and bodies; Authorization/Cookie redacted)
   --script-trace      Trace Starlark builtin calls and print() in scripts and the interactive shell
-  --cred <name>       Override credential from config (default: from ~/.config/buddy/config.yaml)
+  --user <name>       Credential/user name from config (default: from ~/.config/buddy/config.yaml)
 
 Use 'buddy help starlark' or 'buddy help builtins' for Starlark scripting reference.
 Use 'buddy help <command>' or 'buddy <command> help' for command details.
 Use 'buddy <command> <subcommand> help' for subcommand details.
 `
 
-const helpAuth = `buddy auth - Test authentication for a credential
+const helpAuth = `buddy auth - Obtain and test API authentication
 
 Usage:
   buddy [global-flags] auth <subcommand> [args...]
 
 Subcommands:
-  test    GET /api/v1/auth and pretty-print the response
-  token   Print the Authorization header value for the active credential
+  test                         GET /api/v1/auth and pretty-print the response
+  token [flags]                Print Authorization header or raw bearer token
+  refresh [flags] [<token>]    Refresh a bearer token via keep-alive
+
+Flags for 'token':
+  --raw                        Print bearer token only (for scripts and token_command)
+  --url=<url>                  Jamf Pro base URL (direct auth, no config credential)
+  --username=<u>                 Username (direct basic auth)
+  --password=<p>                 Password (direct basic auth)
+  --client-id=<id>               OAuth2 client ID (direct auth)
+  --client-secret=<s>            OAuth2 client secret (direct auth)
+  --oauth2-creds-file=<path>     JSON file with client_id and client_secret
+
+Flags for 'refresh':
+  --url=<url>                    Jamf Pro base URL (defaults to --user credential URL)
+  --token=<token>                Bearer token to refresh (or pass as positional arg)
 
 Examples:
   buddy auth test
   buddy auth token
-  buddy --cred dev auth token
+  buddy auth token --raw
+  buddy --user dev auth token --raw
+  buddy auth token --raw --url=https://example.jamfcloud.com --username=admin --password=secret
+  buddy auth refresh eyJhbGciOiJIUzI1NiJ9...
+  buddy --user dev auth refresh --token=eyJhbGciOiJIUzI1NiJ9...
 `
 
-const helpConfig = `buddy config - Manage credentials in the config file
+const helpCred = `buddy cred - Manage credentials in the config file
 
 Usage:
-  buddy config <subcommand> [args...]
+  buddy cred <subcommand> [args...]
 
 Subcommands:
   list                          List all credentials (name, URL, auth type)
@@ -67,29 +85,67 @@ Subcommands:
   add <name> <url> [flags]      Add or replace a credential (upsert)
   delete <name>                 Remove a credential
   default [name]                Show current default, or set a new one
+  secret <subcommand>           Manage secrets in the platform store (see 'buddy cred secret help')
 
 Flags for 'add':
   --type=command|basic|oauth    Auth type (required)
   --run=<cmd>                   Command to run; stdout is used as the Bearer token (type: command)
   --username=<u>                Username (type: basic)
-  --password=<p>                Password (type: basic)
+  --password=<p>                Password inline in config (type: basic; dev/test)
   --client-id=<id>              OAuth client ID (type: oauth)
-  --client-secret=<s>           OAuth client secret (type: oauth)
+  --client-secret=<s>           OAuth client secret inline in config (type: oauth; dev/test)
 
 Notes:
-  Plaintext passwords and OAuth client secrets in config.yaml are mainly for dev/test.
-  For production Jamf instances, prefer --type=command with a helper (e.g. jamftoken)
-  that reads from secure storage and prints a Bearer token on stdout. Never commit secrets.
+  For production, omit --password and --client-secret from 'add' and store secrets with
+  'buddy cred secret set'. macOS uses Keychain; Linux uses ~/.config/buddy/secrets/
+  (override with BUDDY_SECRET_STORE=file|pass|keychain).
+  Inline secrets in config.yaml still work for dev/test. Never commit secrets.
 
 Examples:
-  buddy config list
-  buddy config get default
-  buddy config add default https://example-prod.jamfcloud.com --type=command --run="jamftoken get default"
-  buddy config add staging https://example-staging.jamfcloud.com --type=basic --username=admin --password=secret
-  buddy config add sandbox https://example-sandbox.jamfcloud.com --type=oauth --client-id=abc --client-secret=xyz
-  buddy config delete staging
-  buddy config default
-  buddy config default dev
+  buddy cred list
+  buddy cred get default
+  buddy cred add sandbox https://example-sandbox.jamfcloud.com --type=oauth --client-id=abc
+  buddy cred secret set sandbox --client-secret
+  buddy cred secret path
+  buddy cred add staging https://example-staging.jamfcloud.com --type=basic --username=admin
+  buddy cred secret set staging --password
+  buddy cred delete staging
+  buddy cred default
+  buddy cred default dev
+`
+
+const helpCredSecret = `buddy cred secret - Manage credential secrets outside config.yaml
+
+Usage:
+  buddy cred secret <subcommand> [args...]
+
+Subcommands:
+  set <name> [flags]            Store password and/or client secret in the platform store
+  get <name>                    Show where secrets are stored (values not shown)
+  delete <name> [flags]         Remove secrets from the platform store
+  path                          Show active secret backend and location
+
+Flags for 'set':
+  --password[=value]              Store basic-auth password (prompt if omitted)
+  --client-secret[=value]       Store OAuth client secret (prompt if omitted)
+  --secret-from-stdin           Read secret value from stdin (with --password or --client-secret)
+
+Flags for 'delete':
+  --password                    Delete stored password only
+  --client-secret               Delete stored client secret only
+
+Notes:
+  Default store: macOS Keychain; Linux file at ~/.config/buddy/secrets/<name>.json.
+  Set BUDDY_SECRET_STORE=pass to use pass(1) instead (Linux).
+  Config keeps url, auth type, username, and clientId; secrets load by credential name.
+
+Examples:
+  buddy cred secret path
+  buddy cred secret set sandbox --client-secret
+  buddy cred secret set staging --password=secret
+  echo 'my-secret' | buddy cred secret set sandbox --client-secret --secret-from-stdin
+  buddy cred secret get sandbox
+  buddy cred secret delete sandbox --client-secret
 `
 
 const helpShell = `buddy - Starlark shell and scripts
@@ -801,7 +857,7 @@ const helpSetup = `buddy setup - Write scripts and configure OAuth for buddy
 
 Usage:
   buddy setup write-script [path]
-  buddy setup configure-oauth [--cred=<name>] [--client-name=buddy-cli] [--name=buddy-oauth] [-y]
+  buddy setup configure-oauth [--user=<name>] [--client-name=buddy-cli] [--name=buddy-oauth] [-y]
 
   write-script [path]
     Writes a Starlark script that creates a Jamf API role with privileges needed
@@ -829,14 +885,14 @@ Usage:
     storing the secret elsewhere.
 
     Flags for 'configure-oauth':
-      --cred=<name>         Credential to use for API calls (default: current/--cred)
+      --user=<name>         Credential to use for API calls (default: current/--user)
       --client-name=<name>  API integration display name to find (default: buddy-cli)
       --name=<name>         Name for the new config credential (default: buddy-oauth)
       -y                    Skip confirmation (recommended in scripts)
 
     Example:
       buddy setup configure-oauth -y
-      buddy --cred buddy-oauth auth test
+      buddy --user buddy-oauth auth test
 `
 
 const helpGroup = `buddy group - Manage Jamf computer groups
@@ -1090,7 +1146,10 @@ func printCommandHelp(path []string) {
 	key := strings.Join(path, ".")
 	helpMap := map[string]string{
 		"auth":          helpAuth,
-		"config":        helpConfig,
+		"cred":          helpCred,
+		"cred.secret":   helpCredSecret,
+		"config":        helpCred, // deprecated alias
+		"config.secret": helpCredSecret,
 		"shell":         helpShell,
 		"starlark":      helpRunStarlark,
 		"builtins":      helpRunBuiltins,

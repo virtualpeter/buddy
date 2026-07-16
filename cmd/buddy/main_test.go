@@ -201,6 +201,47 @@ func TestParsePolicySSArgs_InvalidPolicyID(t *testing.T) {
 	}
 }
 
+func TestExtractGlobalFlags(t *testing.T) {
+	argv := []string{"buddy", "cred", "secret", "path", "-v", "-t"}
+	g, rest := extractGlobalFlags(argv)
+	if !g.verbose || !g.trace {
+		t.Fatalf("verbose=%v trace=%v, want both true", g.verbose, g.trace)
+	}
+	want := []string{"buddy", "cred", "secret", "path"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "auth", "token", "--raw", "--cred=default"}
+	g, rest = extractGlobalFlags(argv)
+	if !g.usedCred || g.cred != "default" {
+		t.Fatalf("cred = %q usedCred=%v", g.cred, g.usedCred)
+	}
+	want = []string{"buddy", "auth", "token", "--raw"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "--user", "dev", "auth", "test"}
+	g, rest = extractGlobalFlags(argv)
+	if g.user != "dev" {
+		t.Fatalf("user = %q, want dev", g.user)
+	}
+}
+
+func TestRunAuthRefreshHelp(t *testing.T) {
+	// runAuth treats "auth refresh help" via subcommand help check in token/refresh branches.
+	argv := []string{"buddy", "auth", "refresh", "help"}
+	g, rest := extractGlobalFlags(argv)
+	if g.showVersion {
+		t.Fatal("unexpected version flag")
+	}
+	want := []string{"buddy", "auth", "refresh", "help"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+}
+
 func TestStaticGroupSplitFlags(t *testing.T) {
 	tests := []struct {
 		name      string

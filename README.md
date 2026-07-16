@@ -8,6 +8,7 @@ Includes a Starlark scripting engine for composing multi-step workflows.
 
 | Resource | Description |
 |----------|-------------|
+| [AGENTS.md](AGENTS.md) | Agent/contributor context: auth, secrets, token caching, meliorate integration |
 | [docs/index.md](docs/index.md) | Short index of the docs in this folder |
 | [docs/reference-manual.md](docs/reference-manual.md) | Full reference: config, CLI, scripting, builtins overview, API doc link |
 | [docs/api-endpoints.md](docs/api-endpoints.md) | Jamf HTTP endpoints used by buddy |
@@ -18,7 +19,7 @@ Complete builtin signatures always match your installed binary: `buddy help buil
 ## Prerequisites
 
 - Go 1.26+
-- Optional: a small helper that prints a Bearer token on stdout when using `command` auth (many teams use an internal `jamftoken`-style CLI)
+- Optional: `pass` on Linux when using `BUDDY_SECRET_STORE=pass`
 
 ## Build
 
@@ -44,21 +45,34 @@ credentials:
   default:
     url: https://your-instance.jamfcloud.com
     auth:
-      type: basic
-      username: admin
-      password: password
+      type: oauth
+      clientId: your_client_id
+      # clientSecret stored via: buddy cred secret set default --client-secret
 ```
 
-**Credential storage:** Putting passwords, OAuth client secrets, or other tokens **directly in `config.yaml` as plain text** is appropriate mainly for **local development and test Jamf instances**. For production or other sensitive environments, prefer auth modes that **do not persist secrets in the file**, for example `auth.type: command` with a helper that reads from a credential store or vault and prints a Bearer token on stdout (many teams use a tool such as **jamftoken** for this). Treat machine-readable config like any other secret-bearing file: restrict filesystem permissions and avoid committing it to version control.
+**Credential storage:** Config holds URL, auth type, username, and client ID. Passwords and OAuth client secrets can stay inline for **dev/test**, or be stored outside the file:
+
+| Platform | Default store | Override |
+|----------|---------------|----------|
+| macOS | Keychain (service `buddy`) | `BUDDY_SECRET_STORE=keychain` |
+| Linux | `~/.config/buddy/secrets/<name>.json` (mode 0600) | `BUDDY_SECRET_STORE=file` or `pass` |
+
+```sh
+buddy cred add sandbox https://example.jamfcloud.com --type=oauth --client-id=abc
+buddy cred secret set sandbox --client-secret
+buddy cred secret path
+```
+
+Inline `password` / `clientSecret` in YAML still works. `buddy setup configure-oauth` stores the client secret in the platform store automatically. Set `BUDDY_SECRET_STORE=pass` on Linux to use [pass](https://www.passwordstore.org/) (`buddy/<cred>/password`, `buddy/<cred>/client-secret`).
 
 | Field         | Description                              | Default     |
 |---------------|------------------------------------------|-------------|
 | `cred`        | Active credential name                   | `default`   |
 | `credentials` | Map of named credentials (url + auth)    | —           |
 
-Override the active credential per-invocation with `--cred <name>`.
+Override the active credential per-invocation with `--user <name>` (`--cred` is a deprecated alias).
 
-Each credential specifies its own URL and authentication method (`command`, `basic`, or `oauth`). Use `buddy config help` to manage credentials, and `buddy auth test` to verify a credential works. For `basic` (username/password), buddy exchanges credentials for a Bearer token via Jamf's `/api/v1/auth/token` so API calls succeed.
+Each credential specifies its own URL and authentication method (`command`, `basic`, or `oauth`). Use `buddy cred help` to manage credentials, and `buddy auth test` to verify a credential works. For `basic` (username/password), buddy exchanges credentials for a Bearer token via Jamf's `/api/v1/auth/token` so API calls succeed.
 
 ### Setting up a role and client for buddy
 
@@ -67,7 +81,7 @@ To create a Jamf API role with the permissions buddy needs and an API client (in
 ```sh
 buddy setup write-script              # writes setup_buddy_role.star (or specify a path)
 buddy setup_buddy_role.star -y     # create the role and client (idempotent: reuses existing "Buddy" role)
-buddy setup configure-oauth -y        # add OAuth credential to config (e.g. buddy-oauth) so you can use buddy --cred buddy-oauth without storing the secret elsewhere
+buddy setup configure-oauth -y        # stores clientId in config and client secret in platform store
 ```
 
 Alternatively, after step 2 you can run `buddy client credentials <id>` to get the client secret (shown once) and add it to config manually.
@@ -90,7 +104,7 @@ buddy [flags] <command> <subcommand> [args...]
 |-----------------|---------------------------------|
 | `-y`            | Skip confirmation prompts       |
 | `-v, --verbose` | Verbose output (show payloads)  |
-| `--cred <name>` | Override credential from config |
+| `--user <name>` | Credential/user name from config (`--cred` deprecated) |
 | `--script-trace` | Trace Starlark builtin calls in scripts and the shell |
 
 ### Policy Commands

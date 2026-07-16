@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultCred is the default credential name used when --cred is not specified.
+// DefaultCred is the default credential name used when --user is not specified.
 const DefaultCred = "default"
 
 // AuthConfig holds the authentication method configuration for a credential.
@@ -38,13 +38,13 @@ type Config struct {
 func (cfg *Config) ResolveCredential(credName string) (CredentialConfig, error) {
 	if cfg.Credentials == nil {
 		return CredentialConfig{}, fmt.Errorf(
-			"no credentials configured — run 'buddy config add' to add one, or see 'buddy config help'",
+			"no credentials configured — run 'buddy cred add' to add one, or see 'buddy cred help'",
 		)
 	}
 	cred, ok := cfg.Credentials[credName]
 	if !ok {
 		return CredentialConfig{}, fmt.Errorf(
-			"credential %q not found in config — run 'buddy config list' to see available credentials",
+			"credential %q not found in config — run 'buddy cred list' to see available credentials",
 			credName,
 		)
 	}

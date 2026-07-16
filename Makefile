@@ -16,7 +16,7 @@ BUDDY_GO_FILES := $(shell find cmd/buddy internal -name "*.go" 2>/dev/null)
 $(BUILDTARGET): $(BUDDY_GO_FILES)
 	@echo "Building buddy (version $(BUDDY_VERSION))..."
 	$(GO) build $(GOFLAGS) -ldflags "-X main.Version=$(BUDDY_VERSION)" -o $(BUILDTARGET) ./cmd/buddy
-	@! which santactl >/dev/null|| santactl fileinfo buddy|grep Rule|egrep '(Allowed|None)' >/dev/null|| rm buddy
+	@! santactl status>/dev/null|| santactl fileinfo buddy|grep Rule|egrep '(Allowed|None)' >/dev/null|| rm buddy
 	@ls -l $(BUILDTARGET)
 
 install: $(BUILDTARGET)
@@ -28,7 +28,7 @@ test:
 	$(GO) test -v ./...
 .PHONY: test
 
-# Run integration tests (requires Jamf test environment in config or --cred override)
+# Run integration tests (requires Jamf test environment in config or --user override)
 integration-test: $(BUILDTARGET)
 	./$(BUILDTARGET) run scripts/integration_test.star
 .PHONY: integration-test

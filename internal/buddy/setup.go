@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+
+	"buddy/internal/buddy/secrets"
 )
 
 // DefaultBuddyPrivileges is a curated list of Jamf Pro API role privilege strings
@@ -122,8 +124,14 @@ func SetupConfigureOAuth(cfg *Config, credNameForAPI, clientDisplayName, newCred
 		cfg.Credentials = make(map[string]CredentialConfig)
 	}
 	cfg.Credentials[finalCredName] = CredentialConfig{
-		URL:  baseURL,
-		Auth: AuthConfig{Type: "oauth", ClientID: clientID, ClientSecret: clientSecret},
+		URL: baseURL,
+		Auth: AuthConfig{
+			Type:     "oauth",
+			ClientID: clientID,
+		},
+	}
+	if err := SetCredentialSecret(finalCredName, secrets.KindClientSecret, clientSecret); err != nil {
+		return "", fmt.Errorf("store client secret: %w", err)
 	}
 	if err := SaveConfig(cfg); err != nil {
 		return "", fmt.Errorf("save config: %w", err)

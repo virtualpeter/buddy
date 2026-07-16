@@ -23,6 +23,7 @@ import (
 type Opts struct {
 	SkipConfirm bool
 	Verbose     bool
+	Trace       bool // -t/--trace: HTTP request/response tracing
 }
 
 // PolicySS updates policy self_service_description and optionally scope.
