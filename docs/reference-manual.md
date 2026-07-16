@@ -106,7 +106,7 @@ buddy help [command] [subcommand]
 | `cred` | Manage `config.yaml` credentials and platform secrets |
 | `run` | Execute a `.star` script |
 | `policy` | Policies (get/set/clone/create/delete/find) |
-| `group` | Smart/static computer groups |
+| `group` | Smart/static computer groups (list/get/set/create/delete; static membership) |
 | `profile` | macOS configuration profiles |
 | `package` | Package records (upload, metadata, history) |
 | `computer` | Computer inventory and MDM actions |
@@ -170,7 +170,7 @@ Always check `ok` before using `value`. Helpers like `fail()` (if exposed) or ex
 
 ## Built-in functions
 
-Buddy registers many functions for policies, groups, profiles, packages, scripts, computers, MDM, roles, clients, JSON/plist, local file I/O, and a **declarative workflow** layer (`step_*` + `run_workflow`).
+Buddy registers many functions for policies, groups, profiles, packages, scripts, computers, MDM, roles, clients, JSON/plist/XML transforms (`xml_escape` / `xml_unescape` / `xml_sort`, payload builders), RSQL filter builders (`rsql_*`), local file I/O, and a **declarative workflow** layer (`step_*` + `run_workflow`).
 
 **Canonical reference** (always matches your installed `buddy` binary):
 

@@ -330,6 +330,12 @@ buddy group delete <group-id>
   └─ GET /api/v2/computer-groups/smart-groups/{id}
   └─ DELETE /api/v2/computer-groups/smart-groups/{id}
 
+buddy group create smart …
+  └─ POST /api/v2/computer-groups/smart-groups
+
+buddy group create static …
+  └─ POST /api/v2/computer-groups/static-groups
+
 step_create_policy (template-based)
   └─ GET /api/v1/categories                 (only if category field is set)
   └─ POST /JSSResource/policies/id/0
@@ -528,6 +534,17 @@ buddy mdm find --filter='clientManagementId==00000000-0000-4000-8000-00000000000
 
 # MDM commands completed after a date (date fields require range operators)
 buddy mdm find --filter='dateCompleted=ge=2024-01-01T00:00:00Z;status==Acknowledged'
+```
+
+In Starlark scripts, prefer the `rsql_*` builders (see `buddy help builtins`) so dates and quoting stay correct:
+
+```python
+since = rsql_days_ago(7)["value"]
+filt = rsql_and([
+    rsql_ge("dateCompleted", since)["value"],
+    rsql_eq("status", "Acknowledged")["value"],
+])["value"]
+mdm_command_find(filter=filt)
 ```
 
 ### Filterable Fields by Resource

@@ -145,7 +145,7 @@ buddy group set version <group-id> <version>      # Update version criterion
 
 ### Scripting
 
-buddy embeds a [Starlark](https://github.com/google/starlark-go) interpreter with builtins for policies, groups, profiles, packages, scripts, computers, MDM, roles, clients, and more.
+buddy embeds a [Starlark](https://github.com/google/starlark-go) interpreter with builtins for policies, groups, profiles, packages, scripts, computers, MDM, roles, clients, JSON/plist/XML helpers, RSQL filter builders, and more.
 
 ```sh
 buddy                              # interactive Starlark shell
