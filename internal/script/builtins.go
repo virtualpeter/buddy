@@ -176,6 +176,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "client_create", clientCreate(credName, logger))
 	putBuiltin(dict, "error", errorBuiltin)
 	putBuiltin(dict, "confirm", confirmBuiltin(logger))
+	putBuiltin(dict, "auth", authBuiltin(credName, logger))
 	putBuiltin(dict, "exit", exitBuiltin(logger))
 
 	putBuiltin(dict, "json_decode", jsonDecodeBuiltin)
@@ -2201,6 +2202,27 @@ func confirmBuiltin(logger *slog.Logger) func(*starlark.Thread, *starlark.Builti
 			return starlark.True, nil
 		}
 		return starlark.False, nil
+	}
+}
+
+// auth(renew?=False, cred?) → value: dict with current credential/session summary.
+// renew=True forces a fresh token before querying Jamf.
+func authBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var renew starlark.Bool
+		var cred starlark.String
+		if err := starlark.UnpackArgs("auth", args, kwargs, "renew?", &renew, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		info, err := buddy.AuthInfo(resolveCred(thread, credName, cred), bool(renew), logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		val, err := GoValueToStarlark(info)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(val), nil
 	}
 }
 

@@ -106,6 +106,18 @@ func (a *Authenticator) GetToken() (string, error) {
 	return a.token, nil
 }
 
+// ForceRenew discards any cached token (memory and disk) and obtains a new one.
+func (a *Authenticator) ForceRenew() error {
+	a.clearMemoryToken()
+	a.InvalidateDiskCache()
+	return a.ensureValidToken()
+}
+
+// TokenExpiry returns the current in-memory token expiry, or zero if none is held.
+func (a *Authenticator) TokenExpiry() time.Time {
+	return a.tokenExpiry
+}
+
 const proactiveRefreshWindow = 3 * time.Minute
 
 // setToken stores token+expiry in memory and persists to disk when CacheKey is set.

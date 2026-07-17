@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"buddy/internal/buddy/tokenauth"
 )
@@ -166,6 +167,82 @@ func PrintRawToken(credName string, direct DirectAuthOpts, log *slog.Logger) err
 	}
 	fmt.Println(token)
 	return nil
+}
+
+// AuthInfo returns compact info about the current credential's Jamf session.
+// With renew=true, discards any cached token and obtains a fresh one first.
+// Does not include the raw bearer token.
+func AuthInfo(credName string, renew bool, log *slog.Logger) (map[string]interface{}, error) {
+	if activeConfig == nil {
+		return nil, fmt.Errorf("internal error: config not loaded (SetActiveConfig not called)")
+	}
+	cred, err := activeConfig.ResolveCredential(credName)
+	if err != nil {
+		return nil, err
+	}
+	if renew {
+		switch cred.Auth.Type {
+		case "basic", "oauth":
+			a, err := cachedAuthenticator(credName, cred)
+			if err != nil {
+				return nil, err
+			}
+			if err := a.ForceRenew(); err != nil {
+				return nil, fmt.Errorf("renew token: %w", err)
+			}
+		case "command":
+			// command auth is not disk-cached; AuthTestValue re-runs the command
+		case "":
+			return nil, fmt.Errorf("credential %q has no auth type configured", credName)
+		default:
+			return nil, fmt.Errorf("credential %q has unknown auth type %q", credName, cred.Auth.Type)
+		}
+	}
+
+	raw, err := AuthTestValue(credName, log)
+	if err != nil {
+		return nil, err
+	}
+	out := CompactAuthInfo(raw)
+	out["cred"] = credName
+	out["url"] = strings.TrimRight(cred.URL, "/")
+	out["authType"] = cred.Auth.Type
+	out["renewed"] = renew
+	if cred.Auth.Type == "basic" || cred.Auth.Type == "oauth" {
+		if a, err := cachedAuthenticator(credName, cred); err == nil {
+			if exp := a.TokenExpiry(); !exp.IsZero() {
+				out["expiresAt"] = exp.UTC().Format(time.RFC3339)
+			}
+		}
+	}
+	return out, nil
+}
+
+// CompactAuthInfo reduces a GET /api/v1/auth payload to a small summary dict.
+func CompactAuthInfo(info map[string]interface{}) map[string]interface{} {
+	out := map[string]interface{}{}
+	if at, ok := info["authenticationType"]; ok {
+		out["authenticationType"] = at
+	}
+	acct, _ := info["account"].(map[string]interface{})
+	if acct != nil {
+		out["username"] = acct["username"]
+		out["accessLevel"] = acct["accessLevel"]
+		out["privilegeSet"] = acct["privilegeSet"]
+		if bySite, ok := acct["privilegesBySite"].(map[string]interface{}); ok {
+			n := 0
+			for _, v := range bySite {
+				if list, ok := v.([]interface{}); ok {
+					n += len(list)
+				}
+			}
+			out["privilegeCount"] = n
+		}
+	}
+	if sites, ok := info["sites"]; ok {
+		out["sites"] = sites
+	}
+	return out
 }
 
 // AuthTestValue tests authentication against /api/v1/auth and returns the JSON object.

@@ -64,7 +64,7 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		if in.Verbose {
 			return toolOK(info, nil)
 		}
-		return toolOK(summarizeAuth(info), nil)
+		return toolOK(buddy.CompactAuthInfo(info), nil)
 	})
 
 	type filterIn struct {
@@ -205,32 +205,6 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		}
 		return toolOK(out, nil)
 	})
-}
-
-func summarizeAuth(info map[string]interface{}) map[string]any {
-	out := map[string]any{}
-	if at, ok := info["authenticationType"]; ok {
-		out["authenticationType"] = at
-	}
-	acct, _ := info["account"].(map[string]interface{})
-	if acct != nil {
-		out["username"] = acct["username"]
-		out["accessLevel"] = acct["accessLevel"]
-		out["privilegeSet"] = acct["privilegeSet"]
-		if bySite, ok := acct["privilegesBySite"].(map[string]interface{}); ok {
-			n := 0
-			for _, v := range bySite {
-				if list, ok := v.([]interface{}); ok {
-					n += len(list)
-				}
-			}
-			out["privilegeCount"] = n
-		}
-	}
-	if sites, ok := info["sites"]; ok {
-		out["sites"] = sites
-	}
-	return out
 }
 
 func toolOK(value any, count *int) (*mcpsdk.CallToolResult, any, error) {

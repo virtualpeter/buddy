@@ -53,3 +53,25 @@ func TestLoadOAuth2CredsFile(t *testing.T) {
 		t.Fatalf("got %+v", creds)
 	}
 }
+
+func TestCompactAuthInfo(t *testing.T) {
+	info := map[string]interface{}{
+		"authenticationType": "CLIENT_CREDENTIALS",
+		"account": map[string]interface{}{
+			"username":     "buddy-cli",
+			"accessLevel":  "FullAccess",
+			"privilegeSet": "CUSTOM",
+			"privilegesBySite": map[string]interface{}{
+				"-1": []interface{}{"Read Computers", "Update Policies"},
+			},
+		},
+		"sites": []interface{}{map[string]interface{}{"id": "-1", "name": "NONE"}},
+	}
+	s := CompactAuthInfo(info)
+	if s["username"] != "buddy-cli" || s["privilegeCount"] != 2 {
+		t.Fatalf("%v", s)
+	}
+	if _, ok := s["account"]; ok {
+		t.Fatal("compact form should not include full account")
+	}
+}

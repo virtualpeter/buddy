@@ -481,6 +481,11 @@ DECLARATIVE WORKFLOW (step constructors + executor)
       Params: steps: list of step dicts. Executes in order; stops on first failure.
 
 MISC
+  auth(renew?=False, cred?)
+      → value: dict {cred, url, authType, authenticationType, username, accessLevel,
+        privilegeSet, privilegeCount, sites, expiresAt?, renewed}
+      Params: renew?: bool — if True, discard cached token and obtain a fresh one first.
+        cred?: str. Uses GET /api/v1/auth; does not return the raw bearer token.
   error(*args, sep?)
       → None (writes to stderr like print, but does not return a result dict)
       Params: *args: values to print; sep?: str (default " ").
