@@ -15,7 +15,7 @@ APP_NAME = "exampleapp"
 # If yours differ, set these to the other policies' numeric IDs and the guards below will run them.
 INSTALL_POLICY_ID = 0   # 0 = skip policy_set_install
 SELF_SERVICE_POLICY_ID = 0  # 0 = skip policy_set_ss
-VERSION_GROUP_ID = ""   # smart group ID string, or "" = skip group_set_version
+VERSION_GROUP_ID = ""   # smart group ID string, or "" = skip smart_group_set_version
 
 
 def main():
@@ -25,12 +25,12 @@ def main():
 
     version = args[0]
 
-    r = policy_get_id(trigger=TRIGGER_PREFIX + version, force_refresh=True)
+    r = policy(trigger=TRIGGER_PREFIX + version, force_refresh=True)
     if not r["ok"]:
-        error("policy_get_id:", r["error"])
+        error("policy:", r["error"])
         exit(1)
 
-    policy_id = r["value"]
+    policy_id = r["value"]["id"]
 
     policy_set_package(app=APP_NAME, version=version, policy_id=policy_id)
 
@@ -41,9 +41,6 @@ def main():
     policy_set_ss(policy_id=ss_id, version=version)
 
     if VERSION_GROUP_ID:
-        group_set_version(group_id=VERSION_GROUP_ID, version=version)
+        smart_group_set_version(group_id=VERSION_GROUP_ID, version=version)
 
     error("Done. Bumped to", version)
-
-
-main()

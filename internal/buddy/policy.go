@@ -995,10 +995,16 @@ func PolicyFind(credName string, opts Opts, trigger string, forceRefresh bool, l
 	return id, nil
 }
 
-// PolicyFindByKeywords returns policy IDs whose name contains all keywords (case-insensitive).
+// PolicySummary is a short policy list entry (id + name).
+type PolicySummary struct {
+	ID   int
+	Name string
+}
+
+// PolicyFindSummariesByKeywords returns policies whose name contains all keywords (case-insensitive).
 // ExcludeIDs are not included in the result.
 // If forceRefresh is true, the policy list cache is bypassed to avoid stale IDs (e.g. deleted policies).
-func PolicyFindByKeywords(credName string, opts Opts, keywords []string, excludeIDs []int, forceRefresh bool, logger *slog.Logger) ([]int, error) {
+func PolicyFindSummariesByKeywords(credName string, opts Opts, keywords []string, excludeIDs []int, forceRefresh bool, logger *slog.Logger) ([]PolicySummary, error) {
 	var policies []policyListItem
 	if !forceRefresh {
 		if ent, ok := loadPolicyCache(credName, logger); ok {
@@ -1019,7 +1025,7 @@ func PolicyFindByKeywords(credName string, opts Opts, keywords []string, exclude
 		excludeSet[id] = true
 	}
 
-	var result []int
+	var result []PolicySummary
 	for _, p := range policies {
 		if excludeSet[p.ID] {
 			continue
@@ -1039,10 +1045,23 @@ func PolicyFindByKeywords(credName string, opts Opts, keywords []string, exclude
 			}
 		}
 		if matches && sawNonEmpty {
-			result = append(result, p.ID)
+			result = append(result, PolicySummary{ID: p.ID, Name: p.Name})
 		}
 	}
 	return result, nil
+}
+
+// PolicyFindByKeywords returns policy IDs whose name contains all keywords (case-insensitive).
+func PolicyFindByKeywords(credName string, opts Opts, keywords []string, excludeIDs []int, forceRefresh bool, logger *slog.Logger) ([]int, error) {
+	summaries, err := PolicyFindSummariesByKeywords(credName, opts, keywords, excludeIDs, forceRefresh, logger)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int, len(summaries))
+	for i, s := range summaries {
+		ids[i] = s.ID
+	}
+	return ids, nil
 }
 
 // ConfirmPrompt prints msg (if non-empty), asks "Proceed? [y/N]" on stdin, and returns true for y/yes.

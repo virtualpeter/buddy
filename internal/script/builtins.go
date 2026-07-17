@@ -69,179 +69,204 @@ func formatTraceArgs(args starlark.Tuple, kwargs []starlark.Tuple) string {
 	return strings.Join(parts, ", ")
 }
 
+type builtinFn func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error)
+
+func putBuiltin(dict starlark.StringDict, name string, fn builtinFn) {
+	dict[name] = starlark.NewBuiltin(name, fn)
+}
+
+func putDeprecated(dict starlark.StringDict, oldName, newName string, fn builtinFn) {
+	dict[oldName] = starlark.NewBuiltin(oldName, deprecate(oldName, newName, fn))
+}
+
 func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.StringDict {
-	dict := starlark.StringDict{
-		// Imperative builtins (backward-compatible).
-		"policy_get_id":                      starlark.NewBuiltin("policy_get_id", policyGetID(credName, logger)),
-		"policy_get_enable":                  starlark.NewBuiltin("policy_get_enable", policyGetEnable(credName, logger)),
-		"policy_get_details":                 starlark.NewBuiltin("policy_get_details", policyGetDetails(credName, logger)),
-		"policy_set_ss":                      starlark.NewBuiltin("policy_set_ss", policySetSS(credName, logger)),
-		"policy_set_enable":                  starlark.NewBuiltin("policy_set_enable", policySetEnable(credName, logger)),
-		"policy_set_disable":                 starlark.NewBuiltin("policy_set_disable", policySetDisable(credName, logger)),
-		"policy_set_trigger":                 starlark.NewBuiltin("policy_set_trigger", policySetTrigger(credName, logger)),
-		"policy_set_name":                    starlark.NewBuiltin("policy_set_name", policySetName(credName, logger)),
-		"policy_set_frequency":               starlark.NewBuiltin("policy_set_frequency", policySetFrequency(credName, logger)),
-		"policy_set_install":                 starlark.NewBuiltin("policy_set_install", policySetInstall(credName, logger)),
-		"policy_clone":                       starlark.NewBuiltin("policy_clone", policyClone(credName, logger)),
-		"policy_create_ss":                   starlark.NewBuiltin("policy_create_ss", policyCreateSS(credName, logger)),
-		"policy_set_package":                 starlark.NewBuiltin("policy_set_package", policySetPackage(credName, logger)),
-		"policy_set_scope_all":               starlark.NewBuiltin("policy_set_scope_all", policySetScopeAll(credName, logger)),
-		"policy_delete":                      starlark.NewBuiltin("policy_delete", policyDelete(credName, logger)),
-		"policy_find_ids":                    starlark.NewBuiltin("policy_find_ids", policyFindIDs(credName, logger)),
-		"policy_fetch_xml":                   starlark.NewBuiltin("policy_fetch_xml", policyFetchXML(credName, logger)),
-		"policy_put_xml":                     starlark.NewBuiltin("policy_put_xml", policyPutXML(credName, logger)),
-		"group_list_smart":                   starlark.NewBuiltin("group_list_smart", groupListSmart(credName, logger)),
-		"group_list_static":                  starlark.NewBuiltin("group_list_static", groupListStatic(credName, logger)),
-		"group_find_id":                      starlark.NewBuiltin("group_find_id", groupFindID(credName, logger)),
-		"group_get_version":                  starlark.NewBuiltin("group_get_version", groupGetVersion(credName, logger)),
-		"group_set_version":                  starlark.NewBuiltin("group_set_version", groupSetVersion(credName, logger)),
-		"smart_group_fetch":                  starlark.NewBuiltin("smart_group_fetch", smartGroupFetch(credName, logger)),
-		"smart_group_create":                 starlark.NewBuiltin("smart_group_create", smartGroupCreate(credName, logger)),
-		"smart_group_put":                    starlark.NewBuiltin("smart_group_put", smartGroupPut(credName, logger)),
-		"smart_group_get_criteria":           starlark.NewBuiltin("smart_group_get_criteria", smartGroupGetCriteria(credName, logger)),
-		"smart_group_set_criteria":           starlark.NewBuiltin("smart_group_set_criteria", smartGroupSetCriteria(credName, logger)),
-		"smart_group_find_criteria":          starlark.NewBuiltin("smart_group_find_criteria", smartGroupFindCriteria(credName, logger)),
-		"smart_group_update_criterion_value": starlark.NewBuiltin("smart_group_update_criterion_value", smartGroupUpdateCriterionValue(credName, logger)),
-		"group_delete":                       starlark.NewBuiltin("group_delete", groupDelete(credName, logger)),
-		"static_group_list_computers":        starlark.NewBuiltin("static_group_list_computers", staticGroupListComputers(credName, logger)),
-		"static_group_create":                starlark.NewBuiltin("static_group_create", staticGroupCreate(credName, logger)),
-		"static_group_add_computers":         starlark.NewBuiltin("static_group_add_computers", staticGroupAddComputers(credName, logger)),
-		"static_group_remove_computers":      starlark.NewBuiltin("static_group_remove_computers", staticGroupRemoveComputers(credName, logger)),
-		"static_group_set_computers":         starlark.NewBuiltin("static_group_set_computers", staticGroupSetComputers(credName, logger)),
-		"group_fetch":                        starlark.NewBuiltin("group_fetch", groupFetch(credName, logger)),
-		"group_put":                          starlark.NewBuiltin("group_put", groupPut(credName, logger)),
-		"role_privileges_list":               starlark.NewBuiltin("role_privileges_list", rolePrivilegesList(credName, logger)),
-		"role_list":                          starlark.NewBuiltin("role_list", roleList(credName, logger)),
-		"role_fetch_list":                    starlark.NewBuiltin("role_fetch_list", roleFetchList(credName, logger)),
-		"role_fetch":                         starlark.NewBuiltin("role_fetch", roleFetch(credName, logger)),
-		"role_put":                           starlark.NewBuiltin("role_put", rolePut(credName, logger)),
-		"role_create":                        starlark.NewBuiltin("role_create", roleCreate(credName, logger)),
-		"client_fetch_list":                  starlark.NewBuiltin("client_fetch_list", clientFetchList(credName, logger)),
-		"client_fetch":                       starlark.NewBuiltin("client_fetch", clientFetch(credName, logger)),
-		"client_put":                         starlark.NewBuiltin("client_put", clientPut(credName, logger)),
-		"client_create":                      starlark.NewBuiltin("client_create", clientCreate(credName, logger)),
-		"error":                              starlark.NewBuiltin("error", errorBuiltin),
-		"confirm":                            starlark.NewBuiltin("confirm", confirmBuiltin(logger)),
-		"exit":                               starlark.NewBuiltin("exit", exitBuiltin(logger)),
+	dict := starlark.StringDict{}
 
-		// Shared: JSON/plist decode and encode (component primitives).
-		"json_decode":  starlark.NewBuiltin("json_decode", jsonDecodeBuiltin),
-		"json_encode":  starlark.NewBuiltin("json_encode", jsonEncodeBuiltin),
-		"plist_decode": starlark.NewBuiltin("plist_decode", plistDecodeBuiltin),
-		"plist_encode": starlark.NewBuiltin("plist_encode", plistEncodeBuiltin),
-		"xml_escape":   starlark.NewBuiltin("xml_escape", xmlEscapeBuiltin),
-		"xml_unescape": starlark.NewBuiltin("xml_unescape", xmlUnescapeBuiltin),
-		"xml_sort":     starlark.NewBuiltin("xml_sort", xmlSortBuiltin),
+	// v3 primary API (plural / singular).
+	putBuiltin(dict, "policies", policiesBuiltin(credName, logger))
+	putBuiltin(dict, "policy", policyBuiltin(credName, logger))
+	putBuiltin(dict, "policy_xml", policyXMLBuiltin(credName, logger))
+	putBuiltin(dict, "policy_set", policySetBuiltin(credName, logger))
+	putBuiltin(dict, "packages", packagesBuiltin(credName, logger))
+	putBuiltin(dict, "package", packageBuiltin(credName, logger))
+	putBuiltin(dict, "scripts", scriptsBuiltin(credName, logger))
+	putBuiltin(dict, "script", scriptBuiltin(credName, logger))
+	putBuiltin(dict, "computers", computersBuiltin(credName, logger))
+	putBuiltin(dict, "computer", computerBuiltin(credName, logger))
+	putBuiltin(dict, "mdm_commands", mdmCommandsBuiltin(credName, logger))
+	putBuiltin(dict, "profiles", profilesBuiltin(credName, logger))
+	putBuiltin(dict, "profile", profileBuiltin(credName, logger))
+	putBuiltin(dict, "profile_xml", profileXMLBuiltin(credName, logger))
+	putBuiltin(dict, "smart_groups", smartGroupsBuiltin(credName, logger))
+	putBuiltin(dict, "static_groups", staticGroupsBuiltin(credName, logger))
+	putBuiltin(dict, "smart_group", smartGroupBuiltin(credName, logger))
+	putBuiltin(dict, "static_group", staticGroupBuiltin(credName, logger))
+	putBuiltin(dict, "roles", rolesBuiltin(credName, logger))
+	putBuiltin(dict, "role", roleBuiltin(credName, logger))
+	putBuiltin(dict, "role_privileges", rolePrivilegesBuiltin(credName, logger))
+	putBuiltin(dict, "clients", clientsBuiltin(credName, logger))
+	putBuiltin(dict, "client", clientBuiltin(credName, logger))
+	putBuiltin(dict, "smart_group_get_version", smartGroupGetVersionNamed(credName, logger))
+	putBuiltin(dict, "smart_group_set_version", smartGroupSetVersionNamed(credName, logger))
 
-		// RSQL filter builders (offline; for package/computer/mdm/group filters).
-		"rsql_escape":    starlark.NewBuiltin("rsql_escape", rsqlEscapeBuiltin),
-		"rsql_quote":     starlark.NewBuiltin("rsql_quote", rsqlQuoteBuiltin),
-		"rsql_eq":        starlark.NewBuiltin("rsql_eq", rsqlEqBuiltin),
-		"rsql_ne":        starlark.NewBuiltin("rsql_ne", rsqlNeBuiltin),
-		"rsql_lt":        starlark.NewBuiltin("rsql_lt", rsqlLtBuiltin),
-		"rsql_gt":        starlark.NewBuiltin("rsql_gt", rsqlGtBuiltin),
-		"rsql_le":        starlark.NewBuiltin("rsql_le", rsqlLeBuiltin),
-		"rsql_ge":        starlark.NewBuiltin("rsql_ge", rsqlGeBuiltin),
-		"rsql_contains":  starlark.NewBuiltin("rsql_contains", rsqlContainsBuiltin),
-		"rsql_in":        starlark.NewBuiltin("rsql_in", rsqlInBuiltin),
-		"rsql_and":       starlark.NewBuiltin("rsql_and", rsqlAndBuiltin),
-		"rsql_or":        starlark.NewBuiltin("rsql_or", rsqlOrBuiltin),
-		"rsql_datetime":  starlark.NewBuiltin("rsql_datetime", rsqlDatetimeBuiltin),
-		"rsql_now":       starlark.NewBuiltin("rsql_now", rsqlNowBuiltin),
-		"rsql_days_ago":  starlark.NewBuiltin("rsql_days_ago", rsqlDaysAgoBuiltin),
-		"rsql_hours_ago": starlark.NewBuiltin("rsql_hours_ago", rsqlHoursAgoBuiltin),
+	// Deprecated aliases (warn once, then call legacy or shared impl).
+	putDeprecated(dict, "policy_find_ids", "policies(..., ids=True)", policyFindIDs(credName, logger))
+	putDeprecated(dict, "policy_get_id", "policy(trigger=...)", policyGetID(credName, logger))
+	putDeprecated(dict, "policy_get_enable", "policy(id=...)[\"value\"][\"enabled\"]", policyGetEnable(credName, logger))
+	putDeprecated(dict, "policy_get_details", "policy(id=...)", policyGetDetails(credName, logger))
+	putDeprecated(dict, "policy_fetch_xml", "policy_xml", policyFetchXML(credName, logger))
+	putDeprecated(dict, "policy_set_enable", "policy_set(..., enable=True)", policySetEnable(credName, logger))
+	putDeprecated(dict, "policy_set_disable", "policy_set(..., enable=False)", policySetDisable(credName, logger))
+	putDeprecated(dict, "policy_set_trigger", "policy_set(..., trigger=...)", policySetTrigger(credName, logger))
+	putDeprecated(dict, "policy_set_name", "policy_set(..., name=...)", policySetName(credName, logger))
+	putDeprecated(dict, "policy_set_frequency", "policy_set(..., frequency=...)", policySetFrequency(credName, logger))
+	putDeprecated(dict, "package_list", "packages", packagesBuiltin(credName, logger))
+	putDeprecated(dict, "package_find_id", "package(app=..., version=...)", packageFindID(credName, logger))
+	putDeprecated(dict, "package_fetch", "package(id=...)", packageFetch(credName, logger))
+	putDeprecated(dict, "script_list", "scripts", scriptsBuiltin(credName, logger))
+	putDeprecated(dict, "script_get_id", "script(name=...)", scriptGetID(credName, logger))
+	putDeprecated(dict, "script_fetch", "script(id=...)", scriptFetch(credName, logger))
+	putDeprecated(dict, "computer_find_ids", "computers(..., ids=True)", computerFindIDs(credName, logger))
+	putDeprecated(dict, "computer_get", "computer", computerGet(credName, logger))
+	putDeprecated(dict, "computer_fetch", "computer", computerGet(credName, logger))
+	putDeprecated(dict, "mdm_command_find", "mdm_commands", mdmCommandsBuiltin(credName, logger))
+	putDeprecated(dict, "mdm_fetch_commands", "mdm_commands", mdmCommandsBuiltin(credName, logger))
+	putDeprecated(dict, "profile_list", "profiles", profilesBuiltin(credName, logger))
+	putDeprecated(dict, "profile_find_id", "profile(name=...)", profileFindID(credName, logger))
+	putDeprecated(dict, "profile_fetch_xml", "profile_xml / profile(id=...)", profileFetchXML(credName, logger))
+	putDeprecated(dict, "group_list_smart", "smart_groups", smartGroupsBuiltin(credName, logger))
+	putDeprecated(dict, "group_list_static", "static_groups", staticGroupsBuiltin(credName, logger))
+	putDeprecated(dict, "group_find_id", "smart_group(name=...)", groupFindID(credName, logger))
+	putDeprecated(dict, "group_fetch", "smart_group(id=...)", groupFetch(credName, logger))
+	putDeprecated(dict, "smart_group_fetch", "smart_group(id=...)", smartGroupFetch(credName, logger))
+	putDeprecated(dict, "group_get_version", "smart_group_get_version", groupGetVersion(credName, logger))
+	putDeprecated(dict, "group_set_version", "smart_group_set_version", groupSetVersion(credName, logger))
+	putDeprecated(dict, "group_put", "smart_group_put", groupPut(credName, logger))
+	putDeprecated(dict, "role_list", "roles", roleList(credName, logger))
+	putDeprecated(dict, "role_fetch_list", "roles(full=True)", roleFetchList(credName, logger))
+	putDeprecated(dict, "role_fetch", "role", roleFetch(credName, logger))
+	putDeprecated(dict, "role_privileges_list", "role_privileges", rolePrivilegesList(credName, logger))
+	putDeprecated(dict, "client_fetch_list", "clients", clientsBuiltin(credName, logger))
+	putDeprecated(dict, "client_fetch", "client", clientFetch(credName, logger))
 
-		"file_read":       starlark.NewBuiltin("file_read", fileReadBuiltin),
-		"file_read_bytes": starlark.NewBuiltin("file_read_bytes", fileReadBytesBuiltin),
-		"file_write":      starlark.NewBuiltin("file_write", fileWriteBuiltin),
+	// Unchanged / fat helpers.
+	putBuiltin(dict, "policy_set_ss", policySetSS(credName, logger))
+	putBuiltin(dict, "policy_set_install", policySetInstall(credName, logger))
+	putBuiltin(dict, "policy_clone", policyClone(credName, logger))
+	putBuiltin(dict, "policy_create_ss", policyCreateSS(credName, logger))
+	putBuiltin(dict, "policy_set_package", policySetPackage(credName, logger))
+	putBuiltin(dict, "policy_set_scope_all", policySetScopeAll(credName, logger))
+	putBuiltin(dict, "policy_delete", policyDelete(credName, logger))
+	putBuiltin(dict, "policy_put_xml", policyPutXML(credName, logger))
+	putBuiltin(dict, "smart_group_create", smartGroupCreate(credName, logger))
+	putBuiltin(dict, "smart_group_put", smartGroupPut(credName, logger))
+	putBuiltin(dict, "smart_group_get_criteria", smartGroupGetCriteria(credName, logger))
+	putBuiltin(dict, "smart_group_set_criteria", smartGroupSetCriteria(credName, logger))
+	putBuiltin(dict, "smart_group_find_criteria", smartGroupFindCriteria(credName, logger))
+	putBuiltin(dict, "smart_group_update_criterion_value", smartGroupUpdateCriterionValue(credName, logger))
+	putBuiltin(dict, "group_delete", groupDelete(credName, logger))
+	putBuiltin(dict, "static_group_list_computers", staticGroupListComputers(credName, logger))
+	putBuiltin(dict, "static_group_create", staticGroupCreate(credName, logger))
+	putBuiltin(dict, "static_group_add_computers", staticGroupAddComputers(credName, logger))
+	putBuiltin(dict, "static_group_remove_computers", staticGroupRemoveComputers(credName, logger))
+	putBuiltin(dict, "static_group_set_computers", staticGroupSetComputers(credName, logger))
+	putBuiltin(dict, "role_put", rolePut(credName, logger))
+	putBuiltin(dict, "role_create", roleCreate(credName, logger))
+	putBuiltin(dict, "client_put", clientPut(credName, logger))
+	putBuiltin(dict, "client_create", clientCreate(credName, logger))
+	putBuiltin(dict, "error", errorBuiltin)
+	putBuiltin(dict, "confirm", confirmBuiltin(logger))
+	putBuiltin(dict, "exit", exitBuiltin(logger))
 
-		// Declarative workflow: step constructors.
-		"step_set_package":       starlark.NewBuiltin("step_set_package", stepSetPackageBuiltin),
-		"step_clone_policy":      starlark.NewBuiltin("step_clone_policy", stepClonePolicyBuiltin),
-		"step_set_ss":            starlark.NewBuiltin("step_set_ss", stepSetSSBuiltin),
-		"step_set_group_version": starlark.NewBuiltin("step_set_group_version", stepSetGroupVersionBuiltin),
-		"step_set_install":       starlark.NewBuiltin("step_set_install", stepSetInstallBuiltin),
-		"step_enable_policy":     starlark.NewBuiltin("step_enable_policy", stepEnablePolicyBuiltin),
-		"step_disable_policy":    starlark.NewBuiltin("step_disable_policy", stepDisablePolicyBuiltin),
-		"step_set_trigger":       starlark.NewBuiltin("step_set_trigger", stepSetTriggerBuiltin),
-		"step_set_scope":         starlark.NewBuiltin("step_set_scope", stepSetScopeBuiltin),
-		"step_set_scope_all":     starlark.NewBuiltin("step_set_scope_all", stepSetScopeAllBuiltin),
-		"step_delete_policy":     starlark.NewBuiltin("step_delete_policy", stepDeletePolicyBuiltin),
-		"policy_template":        starlark.NewBuiltin("policy_template", policyTemplateBuiltin),
-		"step_create_policy":     starlark.NewBuiltin("step_create_policy", stepCreatePolicyBuiltin),
+	putBuiltin(dict, "json_decode", jsonDecodeBuiltin)
+	putBuiltin(dict, "json_encode", jsonEncodeBuiltin)
+	putBuiltin(dict, "plist_decode", plistDecodeBuiltin)
+	putBuiltin(dict, "plist_encode", plistEncodeBuiltin)
+	putBuiltin(dict, "xml_escape", xmlEscapeBuiltin)
+	putBuiltin(dict, "xml_unescape", xmlUnescapeBuiltin)
+	putBuiltin(dict, "xml_sort", xmlSortBuiltin)
 
-		// Declarative workflow: executor.
-		"run_workflow": starlark.NewBuiltin("run_workflow", runWorkflowBuiltin(credName, logger)),
+	putBuiltin(dict, "rsql_escape", rsqlEscapeBuiltin)
+	putBuiltin(dict, "rsql_quote", rsqlQuoteBuiltin)
+	putBuiltin(dict, "rsql_eq", rsqlEqBuiltin)
+	putBuiltin(dict, "rsql_ne", rsqlNeBuiltin)
+	putBuiltin(dict, "rsql_lt", rsqlLtBuiltin)
+	putBuiltin(dict, "rsql_gt", rsqlGtBuiltin)
+	putBuiltin(dict, "rsql_le", rsqlLeBuiltin)
+	putBuiltin(dict, "rsql_ge", rsqlGeBuiltin)
+	putBuiltin(dict, "rsql_contains", rsqlContainsBuiltin)
+	putBuiltin(dict, "rsql_in", rsqlInBuiltin)
+	putBuiltin(dict, "rsql_and", rsqlAndBuiltin)
+	putBuiltin(dict, "rsql_or", rsqlOrBuiltin)
+	putBuiltin(dict, "rsql_datetime", rsqlDatetimeBuiltin)
+	putBuiltin(dict, "rsql_now", rsqlNowBuiltin)
+	putBuiltin(dict, "rsql_days_ago", rsqlDaysAgoBuiltin)
+	putBuiltin(dict, "rsql_hours_ago", rsqlHoursAgoBuiltin)
 
-		// Package: imperative builtins.
-		"package_list":    starlark.NewBuiltin("package_list", packageList(credName, logger)),
-		"package_find_id": starlark.NewBuiltin("package_find_id", packageFindID(credName, logger)),
-		"package_upload":  starlark.NewBuiltin("package_upload", packageUpload(credName, logger)),
-		"package_delete":  starlark.NewBuiltin("package_delete", packageDelete(credName, logger)),
-		"package_fetch":   starlark.NewBuiltin("package_fetch", packageFetch(credName, logger)),
-		"package_put":     starlark.NewBuiltin("package_put", packagePut(credName, logger)),
+	putBuiltin(dict, "file_read", fileReadBuiltin)
+	putBuiltin(dict, "file_read_bytes", fileReadBytesBuiltin)
+	putBuiltin(dict, "file_write", fileWriteBuiltin)
 
-		// Profile: imperative builtins.
-		"profile_list":          starlark.NewBuiltin("profile_list", profileList(credName, logger)),
-		"profile_find_id":       starlark.NewBuiltin("profile_find_id", profileFindID(credName, logger)),
-		"profile_clone":         starlark.NewBuiltin("profile_clone", profileClone(credName, logger)),
-		"profile_redeploy":      starlark.NewBuiltin("profile_redeploy", profileRedeploy(credName, logger)),
-		"profile_get_payloads":  starlark.NewBuiltin("profile_get_payloads", profileGetPayloads(credName, logger)),
-		"profile_get_payload":   starlark.NewBuiltin("profile_get_payload", profileGetPayload(credName, logger)),
-		"profile_list_payloads": starlark.NewBuiltin("profile_list_payloads", profileListPayloads(credName, logger)),
-		"profile_set_payload":   starlark.NewBuiltin("profile_set_payload", profileSetPayload(logger)),
-		"profile_set_xml":       starlark.NewBuiltin("profile_set_xml", profileSetXML(logger)),
+	putBuiltin(dict, "step_set_package", stepSetPackageBuiltin)
+	putBuiltin(dict, "step_clone_policy", stepClonePolicyBuiltin)
+	putBuiltin(dict, "step_set_ss", stepSetSSBuiltin)
+	putBuiltin(dict, "step_set_group_version", stepSetGroupVersionBuiltin)
+	putBuiltin(dict, "step_set_install", stepSetInstallBuiltin)
+	putBuiltin(dict, "step_enable_policy", stepEnablePolicyBuiltin)
+	putBuiltin(dict, "step_disable_policy", stepDisablePolicyBuiltin)
+	putBuiltin(dict, "step_set_trigger", stepSetTriggerBuiltin)
+	putBuiltin(dict, "step_set_scope", stepSetScopeBuiltin)
+	putBuiltin(dict, "step_set_scope_all", stepSetScopeAllBuiltin)
+	putBuiltin(dict, "step_delete_policy", stepDeletePolicyBuiltin)
+	putBuiltin(dict, "policy_template", policyTemplateBuiltin)
+	putBuiltin(dict, "step_create_policy", stepCreatePolicyBuiltin)
+	putBuiltin(dict, "run_workflow", runWorkflowBuiltin(credName, logger))
 
-		// Profile: component builtins (fetch/put, XML and payloads primitives).
-		"profile_fetch_xml":            starlark.NewBuiltin("profile_fetch_xml", profileFetchXML(credName, logger)),
-		"profile_put_xml":              starlark.NewBuiltin("profile_put_xml", profilePutXML(credName, logger)),
-		"profile_xml_extract_payloads": starlark.NewBuiltin("profile_xml_extract_payloads", profileXMLExtractPayloadsBuiltin),
-		"profile_xml_replace_payloads": starlark.NewBuiltin("profile_xml_replace_payloads", profileXMLReplacePayloadsBuiltin),
-		"profile_xml_set_redeploy_all": starlark.NewBuiltin("profile_xml_set_redeploy_all", profileXMLSetRedeployAllBuiltin),
-		"profile_xml_patch_payload":    starlark.NewBuiltin("profile_xml_patch_payload", profileXMLPatchPayloadBuiltin),
-		"payloads_list_identifiers":    starlark.NewBuiltin("payloads_list_identifiers", payloadsListIdentifiersBuiltin),
-		"payloads_get_payload":         starlark.NewBuiltin("payloads_get_payload", payloadsGetPayloadBuiltin),
-		"payloads_replace_payload":     starlark.NewBuiltin("payloads_replace_payload", payloadsReplacePayload(logger)),
-		"payloads_replace_mcx_dict":    starlark.NewBuiltin("payloads_replace_mcx_dict", payloadsReplaceMCXDictBuiltin),
-		"payloads_set_content":         starlark.NewBuiltin("payloads_set_content", payloadsSetContentBuiltin),
-		"payloads_add_payload":         starlark.NewBuiltin("payloads_add_payload", payloadsAddPayloadBuiltin),
-		"payloads_remove_payload":      starlark.NewBuiltin("payloads_remove_payload", payloadsRemovePayloadBuiltin),
-		"plist_normalise_dict":         starlark.NewBuiltin("plist_normalise_dict", plistNormaliseDictBuiltin),
+	putBuiltin(dict, "package_upload", packageUpload(credName, logger))
+	putBuiltin(dict, "package_delete", packageDelete(credName, logger))
+	putBuiltin(dict, "package_put", packagePut(credName, logger))
 
-		// Profile: declarative step constructors.
-		"step_set_profile_payload": starlark.NewBuiltin("step_set_profile_payload", stepSetProfilePayloadBuiltin),
-		"step_set_profile_xml":     starlark.NewBuiltin("step_set_profile_xml", stepSetProfileXMLBuiltin),
+	putBuiltin(dict, "profile_clone", profileClone(credName, logger))
+	putBuiltin(dict, "profile_redeploy", profileRedeploy(credName, logger))
+	putBuiltin(dict, "profile_get_payloads", profileGetPayloads(credName, logger))
+	putBuiltin(dict, "profile_get_payload", profileGetPayload(credName, logger))
+	putBuiltin(dict, "profile_list_payloads", profileListPayloads(credName, logger))
+	putBuiltin(dict, "profile_set_payload", profileSetPayload(logger))
+	putBuiltin(dict, "profile_set_xml", profileSetXML(logger))
+	putBuiltin(dict, "profile_put_xml", profilePutXML(credName, logger))
+	putBuiltin(dict, "profile_xml_extract_payloads", profileXMLExtractPayloadsBuiltin)
+	putBuiltin(dict, "profile_xml_replace_payloads", profileXMLReplacePayloadsBuiltin)
+	putBuiltin(dict, "profile_xml_set_redeploy_all", profileXMLSetRedeployAllBuiltin)
+	putBuiltin(dict, "profile_xml_patch_payload", profileXMLPatchPayloadBuiltin)
+	putBuiltin(dict, "payloads_list_identifiers", payloadsListIdentifiersBuiltin)
+	putBuiltin(dict, "payloads_get_payload", payloadsGetPayloadBuiltin)
+	putBuiltin(dict, "payloads_replace_payload", payloadsReplacePayload(logger))
+	putBuiltin(dict, "payloads_replace_mcx_dict", payloadsReplaceMCXDictBuiltin)
+	putBuiltin(dict, "payloads_set_content", payloadsSetContentBuiltin)
+	putBuiltin(dict, "payloads_add_payload", payloadsAddPayloadBuiltin)
+	putBuiltin(dict, "payloads_remove_payload", payloadsRemovePayloadBuiltin)
+	putBuiltin(dict, "plist_normalise_dict", plistNormaliseDictBuiltin)
+	putBuiltin(dict, "step_set_profile_payload", stepSetProfilePayloadBuiltin)
+	putBuiltin(dict, "step_set_profile_xml", stepSetProfileXMLBuiltin)
 
-		// Script (Jamf Pro scripts): imperative builtins.
-		"script_list":         starlark.NewBuiltin("script_list", scriptList(credName, logger)),
-		"script_get_id":       starlark.NewBuiltin("script_get_id", scriptGetID(credName, logger)),
-		"script_get_contents": starlark.NewBuiltin("script_get_contents", scriptGetContents(credName, logger)),
-		"script_update":       starlark.NewBuiltin("script_update", scriptUpdate(credName, logger)),
-		"script_fetch":        starlark.NewBuiltin("script_fetch", scriptFetch(credName, logger)),
-		"script_put":          starlark.NewBuiltin("script_put", scriptPutBuiltin(credName, logger)),
+	putBuiltin(dict, "script_get_contents", scriptGetContents(credName, logger))
+	putBuiltin(dict, "script_update", scriptUpdate(credName, logger))
+	putBuiltin(dict, "script_put", scriptPutBuiltin(credName, logger))
 
-		// Computer: imperative builtins.
-		"computer_find_ids":         starlark.NewBuiltin("computer_find_ids", computerFindIDs(credName, logger)),
-		"computer_get":              starlark.NewBuiltin("computer_get", computerGet(credName, logger)),
-		"computer_fetch":            starlark.NewBuiltin("computer_fetch", computerGet(credName, logger)),
-		"computer_send_mdm_command": starlark.NewBuiltin("computer_send_mdm_command", computerSendMDMCommand(credName, logger)),
-		"computer_reboot":           starlark.NewBuiltin("computer_reboot", computerReboot(credName, logger)),
-		"computer_redeploy":         starlark.NewBuiltin("computer_redeploy", computerRedeploy(credName, logger)),
-		"computer_shutdown":         starlark.NewBuiltin("computer_shutdown", computerShutdown(credName, logger)),
-		"computer_lock":             starlark.NewBuiltin("computer_lock", computerLock(credName, logger)),
-		"computer_logout":           starlark.NewBuiltin("computer_logout", computerLogout(credName, logger)),
-		"computer_erase":            starlark.NewBuiltin("computer_erase", computerErase(credName, logger)),
-		"computer_device_info":      starlark.NewBuiltin("computer_device_info", computerDeviceInfo(credName, logger)),
-		"computer_device_location":  starlark.NewBuiltin("computer_device_location", computerDeviceLocation(credName, logger)),
-		"computer_security_info":    starlark.NewBuiltin("computer_security_info", computerSecurityInfo(credName, logger)),
-		"computer_installed_apps":   starlark.NewBuiltin("computer_installed_apps", computerInstalledApps(credName, logger)),
-		"computer_managed_apps":     starlark.NewBuiltin("computer_managed_apps", computerManagedApps(credName, logger)),
-		"computer_certificates":     starlark.NewBuiltin("computer_certificates", computerCertificates(credName, logger)),
+	putBuiltin(dict, "computer_send_mdm_command", computerSendMDMCommand(credName, logger))
+	putBuiltin(dict, "computer_reboot", computerReboot(credName, logger))
+	putBuiltin(dict, "computer_redeploy", computerRedeploy(credName, logger))
+	putBuiltin(dict, "computer_shutdown", computerShutdown(credName, logger))
+	putBuiltin(dict, "computer_lock", computerLock(credName, logger))
+	putBuiltin(dict, "computer_logout", computerLogout(credName, logger))
+	putBuiltin(dict, "computer_erase", computerErase(credName, logger))
+	putBuiltin(dict, "computer_device_info", computerDeviceInfo(credName, logger))
+	putBuiltin(dict, "computer_device_location", computerDeviceLocation(credName, logger))
+	putBuiltin(dict, "computer_security_info", computerSecurityInfo(credName, logger))
+	putBuiltin(dict, "computer_installed_apps", computerInstalledApps(credName, logger))
+	putBuiltin(dict, "computer_managed_apps", computerManagedApps(credName, logger))
+	putBuiltin(dict, "computer_certificates", computerCertificates(credName, logger))
 
-		// MDM: general command query (distinct from computer-specific senders).
-		"mdm_command_find":   starlark.NewBuiltin("mdm_command_find", mdmCommandFind(credName, logger)),
-		"mdm_fetch_commands": starlark.NewBuiltin("mdm_fetch_commands", mdmFetchCommands(credName, logger)),
-	}
 	if trace {
 		for name, val := range dict {
 			b, ok := val.(*starlark.Builtin)
@@ -306,6 +331,52 @@ func policyGetEnable(credName string, logger *slog.Logger) func(*starlark.Thread
 	}
 }
 
+func policyDetailsToStarlark(d *buddy.PolicyDetails) *starlark.Dict {
+	if d == nil {
+		return new(starlark.Dict)
+	}
+	out := new(starlark.Dict)
+	_ = out.SetKey(starlark.String("id"), starlark.MakeInt(d.ID))
+	_ = out.SetKey(starlark.String("name"), starlark.String(d.Name))
+	_ = out.SetKey(starlark.String("enabled"), starlark.Bool(d.Enabled))
+	_ = out.SetKey(starlark.String("trigger"), starlark.String(d.Trigger))
+	_ = out.SetKey(starlark.String("trigger_other"), starlark.String(d.TriggerOther))
+	_ = out.SetKey(starlark.String("frequency"), starlark.String(d.Frequency))
+	scopeDict := new(starlark.Dict)
+	_ = scopeDict.SetKey(starlark.String("all_computers"), starlark.Bool(d.Scope.AllComputers))
+	_ = scopeDict.SetKey(starlark.String("all_jss_users"), starlark.Bool(d.Scope.AllJSSUsers))
+	scopeGroupList := starlark.NewList(nil)
+	for _, gid := range d.Scope.ComputerGroupIDs {
+		_ = scopeGroupList.Append(starlark.MakeInt(gid))
+	}
+	_ = scopeDict.SetKey(starlark.String("computer_group_ids"), scopeGroupList)
+	_ = out.SetKey(starlark.String("scope"), scopeDict)
+	pkgList := starlark.NewList(nil)
+	for _, p := range d.Packages {
+		pd := new(starlark.Dict)
+		_ = pd.SetKey(starlark.String("id"), starlark.MakeInt(p.ID))
+		_ = pd.SetKey(starlark.String("name"), starlark.String(p.Name))
+		_ = pd.SetKey(starlark.String("action"), starlark.String(p.Action))
+		_ = pkgList.Append(pd)
+	}
+	_ = out.SetKey(starlark.String("packages"), pkgList)
+	scriptList := starlark.NewList(nil)
+	for _, s := range d.Scripts {
+		sd := new(starlark.Dict)
+		_ = sd.SetKey(starlark.String("id"), starlark.String(s.ID))
+		_ = sd.SetKey(starlark.String("name"), starlark.String(s.Name))
+		_ = sd.SetKey(starlark.String("priority"), starlark.String(s.Priority))
+		paramsDict := new(starlark.Dict)
+		for k, v := range s.Params {
+			_ = paramsDict.SetKey(starlark.String(k), starlark.String(v))
+		}
+		_ = sd.SetKey(starlark.String("params"), paramsDict)
+		_ = scriptList.Append(sd)
+	}
+	_ = out.SetKey(starlark.String("scripts"), scriptList)
+	return out
+}
+
 func policyGetDetails(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var policyID starlark.Int
@@ -322,47 +393,7 @@ func policyGetDetails(credName string, logger *slog.Logger) func(*starlark.Threa
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
-		// Build starlark dict from PolicyDetails
-		out := new(starlark.Dict)
-		_ = out.SetKey(starlark.String("id"), starlark.MakeInt(d.ID))
-		_ = out.SetKey(starlark.String("name"), starlark.String(d.Name))
-		_ = out.SetKey(starlark.String("enabled"), starlark.Bool(d.Enabled))
-		_ = out.SetKey(starlark.String("trigger"), starlark.String(d.Trigger))
-		_ = out.SetKey(starlark.String("trigger_other"), starlark.String(d.TriggerOther))
-		_ = out.SetKey(starlark.String("frequency"), starlark.String(d.Frequency))
-		scopeDict := new(starlark.Dict)
-		_ = scopeDict.SetKey(starlark.String("all_computers"), starlark.Bool(d.Scope.AllComputers))
-		_ = scopeDict.SetKey(starlark.String("all_jss_users"), starlark.Bool(d.Scope.AllJSSUsers))
-		scopeGroupList := starlark.NewList(nil)
-		for _, gid := range d.Scope.ComputerGroupIDs {
-			_ = scopeGroupList.Append(starlark.MakeInt(gid))
-		}
-		_ = scopeDict.SetKey(starlark.String("computer_group_ids"), scopeGroupList)
-		_ = out.SetKey(starlark.String("scope"), scopeDict)
-		pkgList := starlark.NewList(nil)
-		for _, p := range d.Packages {
-			pd := new(starlark.Dict)
-			_ = pd.SetKey(starlark.String("id"), starlark.MakeInt(p.ID))
-			_ = pd.SetKey(starlark.String("name"), starlark.String(p.Name))
-			_ = pd.SetKey(starlark.String("action"), starlark.String(p.Action))
-			_ = pkgList.Append(pd)
-		}
-		_ = out.SetKey(starlark.String("packages"), pkgList)
-		scriptList := starlark.NewList(nil)
-		for _, s := range d.Scripts {
-			sd := new(starlark.Dict)
-			_ = sd.SetKey(starlark.String("id"), starlark.String(s.ID))
-			_ = sd.SetKey(starlark.String("name"), starlark.String(s.Name))
-			_ = sd.SetKey(starlark.String("priority"), starlark.String(s.Priority))
-			paramsDict := new(starlark.Dict)
-			for k, v := range s.Params {
-				_ = paramsDict.SetKey(starlark.String(k), starlark.String(v))
-			}
-			_ = sd.SetKey(starlark.String("params"), paramsDict)
-			_ = scriptList.Append(sd)
-		}
-		_ = out.SetKey(starlark.String("scripts"), scriptList)
-		return resultOK(out), nil
+		return resultOK(policyDetailsToStarlark(d)), nil
 	}
 }
 

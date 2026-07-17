@@ -11,10 +11,15 @@ Includes a Starlark scripting engine for composing multi-step workflows.
 | [AGENTS.md](AGENTS.md) | Agent/contributor context: auth, secrets, token caching, meliorate integration |
 | [docs/index.md](docs/index.md) | Short index of the docs in this folder |
 | [docs/reference-manual.md](docs/reference-manual.md) | Full reference: config, CLI, scripting, builtins overview, API doc link |
+| [docs/builtins-v3.md](docs/builtins-v3.md) | Starlark v3 plural/singular rename map (breaking) |
 | [docs/api-endpoints.md](docs/api-endpoints.md) | Jamf HTTP endpoints used by buddy |
 | [examples/](examples/) | Runnable `.star` examples and index |
 
 Complete builtin signatures always match your installed binary: `buddy help builtins`.
+
+## Breaking change: Starlark builtins v3
+
+Jamf-related Starlark builtins use a **plural / singular** grammar (`policies` / `policy` / `policy_set`). Old names remain as temporary deprecated aliases (one stderr warning per process). Full map: [docs/builtins-v3.md](docs/builtins-v3.md).
 
 ## Prerequisites
 
@@ -152,7 +157,7 @@ buddy                              # interactive Starlark shell
 buddy <script.star> [-- args...]
 ```
 
-**Built-in functions:** resource IDs and options first; optional `cred=` last. Every Jamf-related builtin returns `{"ok": true, "value": ...}` or `{"ok": false, "error": "..."}` unless documented otherwise.
+**Built-in functions (v3):** plural nouns enumerate (`policies`, `packages`, …); singular nouns load one resource (`policy(id=…)` / `policy(trigger=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). Optional `cred=` last. Every Jamf-related builtin returns `{"ok": true, "value": ...}` or `{"ok": false, "error": "..."}` unless documented otherwise. See [docs/builtins-v3.md](docs/builtins-v3.md) for the old→new rename map (deprecated aliases warn once on stderr).
 
 ```sh
 buddy help starlark   # language subset
@@ -161,7 +166,7 @@ make docs-serve       # local docs + Starlark notebook (buddy serve --open)
 buddy mcp             # MCP stdio server (see docs/mcp.md)
 ```
 
-**Globals:** `cred` (active credential name), `args` (arguments after `--`), `re` (regex). Use **`error(...)`** for status and diagnostic lines (stderr); use **`print(...)`** only when you intentionally write script output to stdout (e.g. for piping).
+**Globals:** `cred` (active credential name), `args` (arguments after `--`), `re` (regex). Use **`error(...)`** for status and diagnostic lines (stderr); use **`print(...)`** only when you intentionally write script output to stdout (e.g. for piping). If the script defines `main`, buddy calls it after loading—do **not** add a trailing `main()` (that would run it twice).
 
 Sample scripts: [examples/](examples/).
 
@@ -177,17 +182,15 @@ APP_NAME = "exampleapp"
 def main():
     version = args[0]
 
-    r = policy_get_id(trigger=TRIGGER_PREFIX + version, force_refresh=True)
+    r = policy(trigger=TRIGGER_PREFIX + version, force_refresh=True)
     if not r["ok"]:
         error("Policy not found:", r["error"])
         exit(1)
 
-    policy_id = r["value"]
+    policy_id = r["value"]["id"]
     policy_set_package(app=APP_NAME, version=version, policy_id=policy_id)
     # If install params or self-service live on other policies, add policy_set_install / policy_set_ss
-    # with those policy IDs. To bump a smart-group version criterion: group_set_version(group_id="...", version=version).
-
-main()
+    # with those policy IDs. To bump a smart-group version criterion: smart_group_set_version(group_id="...", version=version).
 ```
 
 A runnable file with the same ideas (and optional steps you can uncomment) lives at [examples/bump-release.star](examples/bump-release.star).

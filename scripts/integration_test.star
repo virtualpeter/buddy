@@ -19,8 +19,8 @@ def require_ok(res, ctx):
 def test_policy(cred, created):
     name = TEST_PREFIX + "policy"
     # Cleanup any leftover test policies (previous runs may have exited early).
-    res = policy_find_ids(keywords=[TEST_PREFIX], force_refresh=True, cred=cred)
-    require_ok(res, "policy_find_ids")
+    res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, cred=cred)
+    require_ok(res, "policies")
     leftovers = res["value"]
     if leftovers:
         dres = policy_delete(policy_ids=leftovers, cred=cred)
@@ -33,26 +33,21 @@ def test_policy(cred, created):
     policy_id = res["value"]
     created["policies"].append(policy_id)
 
-    # policy_get_enable: should be "true"/"false"
-    res = policy_get_enable(policy_id=policy_id)
-    require_ok(res, "policy_get_enable")
-    enabled = res["value"]
-    if enabled not in ["true", "false"]:
-        fail("policy_get_enable unexpected value: %r" % enabled)
-
-    # Read back details.
-    res = policy_get_details(policy_id=policy_id, cred=cred)
-    require_ok(res, "policy_get_details")
+    # Read back details (includes enabled).
+    res = policy(id=policy_id, cred=cred)
+    require_ok(res, "policy")
     details = res["value"]
+    if details["enabled"] not in [True, False]:
+        fail("policy enabled unexpected value: %r" % details["enabled"])
     expected_name = name + " [SS]"
     if details["name"] != expected_name:
         fail("policy name mismatch: %r" % details["name"])
 
-    # policy_fetch_xml + policy_put_xml: set an initial custom trigger so policy_set_trigger can be exercised.
-    res = policy_fetch_xml(policy_id=policy_id, cred=cred)
-    require_ok(res, "policy_fetch_xml")
+    # policy_xml + policy_put_xml: set an initial custom trigger so policy_set(trigger=) can be exercised.
+    res = policy_xml(id=policy_id, cred=cred)
+    require_ok(res, "policy_xml")
     xml = res["value"]
-    # IMPORTANT: policy_get_id uses heuristics that only consider candidate policies
+    # IMPORTANT: policy(trigger=) uses heuristics that only consider candidate policies
     # whose *name* contains the "app" part derived from the trigger. Use an
     # install-* trigger whose app substring matches the policy name.
     initial_trigger = "install-" + TEST_PREFIX + "policy-%d" % policy_id
@@ -67,52 +62,52 @@ def test_policy(cred, created):
     if xml2:
         res = policy_put_xml(policy_id=policy_id, xml_str=xml2, cred=cred)
         require_ok(res, "policy_put_xml (set trigger_other)")
-        res = policy_fetch_xml(policy_id=policy_id, cred=cred)
-        require_ok(res, "policy_fetch_xml (post put)")
+        res = policy_xml(id=policy_id, cred=cred)
+        require_ok(res, "policy_xml (post put)")
         if initial_trigger not in res["value"]:
             fail("policy_put_xml did not persist trigger_other")
 
-        # policy_set_trigger + policy_get_id
+        # policy_set + policy(trigger=)
         new_trigger = "install-" + TEST_PREFIX + "policy-%d" % policy_id
-        require_ok(policy_set_trigger(policy_id=policy_id, trigger=new_trigger, cred=cred), "policy_set_trigger")
-        # policy_get_id is best-effort: it relies on the classic policy list endpoint.
+        require_ok(policy_set(policy_id=policy_id, trigger=new_trigger, cred=cred), "policy_set(trigger)")
+        # policy(trigger=) is best-effort: it relies on the classic policy list endpoint.
         # Some Jamf roles can create/read by ID but cannot list all policies.
-        res = policy_get_id(trigger=new_trigger, force_refresh=True)
+        res = policy(trigger=new_trigger, force_refresh=True)
         if not res["ok"]:
-            error("policy_get_id skipped:", res["error"])
+            error("policy(trigger=) skipped:", res["error"])
         else:
-            if res["value"] != policy_id:
-                fail("policy_get_id mismatch: got %r want %r" % (res["value"], policy_id))
+            if res["value"]["id"] != policy_id:
+                fail("policy(trigger=) mismatch: got %r want %r" % (res["value"]["id"], policy_id))
 
-        # Verify trigger_other via details regardless of policy_get_id availability.
-        res = policy_get_details(policy_id=policy_id, cred=cred)
-        require_ok(res, "policy_get_details (post set_trigger)")
+        # Verify trigger_other via details regardless of trigger lookup availability.
+        res = policy(id=policy_id, cred=cred)
+        require_ok(res, "policy (post set_trigger)")
         if res["value"]["trigger_other"] != new_trigger:
-            fail("policy_set_trigger did not persist trigger_other: %r" % res["value"]["trigger_other"])
+            fail("policy_set did not persist trigger_other: %r" % res["value"]["trigger_other"])
     else:
         error("policy_put_xml trigger_other setup skipped (no trigger_other element found)")
 
-    # policy_set_frequency
-    require_ok(policy_set_frequency(policy_id=policy_id, frequency="Ongoing", cred=cred), "policy_set_frequency")
-    res = policy_get_details(policy_id=policy_id, cred=cred)
-    require_ok(res, "policy_get_details (post frequency)")
+    # policy_set frequency
+    require_ok(policy_set(policy_id=policy_id, frequency="Ongoing", cred=cred), "policy_set(frequency)")
+    res = policy(id=policy_id, cred=cred)
+    require_ok(res, "policy (post frequency)")
     if res["value"]["frequency"] != "Ongoing":
-        fail("policy_set_frequency did not persist")
+        fail("policy_set frequency did not persist")
 
     # policy_set_scope_all
     require_ok(policy_set_scope_all(policy_id=policy_id, cred=cred), "policy_set_scope_all")
-    res = policy_get_details(policy_id=policy_id, cred=cred)
-    require_ok(res, "policy_get_details (post scope_all)")
+    res = policy(id=policy_id, cred=cred)
+    require_ok(res, "policy (post scope_all)")
     if not res["value"]["scope"]["all_computers"]:
         fail("policy_set_scope_all did not persist")
 
-    # policy_set_name
+    # policy_set name
     new_name = TEST_PREFIX + "policy-renamed-%d" % policy_id
-    require_ok(policy_set_name(policy_id=policy_id, new_name=new_name, cred=cred), "policy_set_name")
-    res = policy_get_details(policy_id=policy_id, cred=cred)
-    require_ok(res, "policy_get_details (post set_name)")
+    require_ok(policy_set(policy_id=policy_id, name=new_name, cred=cred), "policy_set(name)")
+    res = policy(id=policy_id, cred=cred)
+    require_ok(res, "policy (post set_name)")
     if res["value"]["name"] != new_name:
-        fail("policy_set_name did not persist: %r" % res["value"]["name"])
+        fail("policy_set name did not persist: %r" % res["value"]["name"])
 
     # policy_set_ss (best-effort verify via XML)
     ss_desc = "Buddy integration test (policy_id=%d)" % policy_id
@@ -126,36 +121,36 @@ def test_policy(cred, created):
         ),
         "policy_set_ss",
     )
-    res = policy_fetch_xml(policy_id=policy_id, cred=cred)
-    require_ok(res, "policy_fetch_xml (post set_ss)")
+    res = policy_xml(id=policy_id, cred=cred)
+    require_ok(res, "policy_xml (post set_ss)")
     if ss_desc not in res["value"]:
         error("policy_set_ss verify skipped (description not found in XML)")
 
     # Toggle enable/disable.
-    require_ok(policy_set_enable(policy_id=policy_id, cred=cred), "policy_set_enable")
-    res = policy_get_enable(policy_id=policy_id)
-    require_ok(res, "policy_get_enable (post enable)")
-    if res["value"] != "true":
-        error("policy_get_enable expected true after enable, got:", res["value"])
+    require_ok(policy_set(policy_id=policy_id, enable=True, cred=cred), "policy_set(enable=True)")
+    res = policy(id=policy_id, cred=cred)
+    require_ok(res, "policy (post enable)")
+    if not res["value"]["enabled"]:
+        error("policy expected enabled=True after enable")
 
-    require_ok(policy_set_disable(policy_id=policy_id, cred=cred), "policy_set_disable")
-    res = policy_get_enable(policy_id=policy_id)
-    require_ok(res, "policy_get_enable (post disable)")
-    if res["value"] != "false":
-        error("policy_get_enable expected false after disable, got:", res["value"])
+    require_ok(policy_set(policy_id=policy_id, enable=False, cred=cred), "policy_set(enable=False)")
+    res = policy(id=policy_id, cred=cred)
+    require_ok(res, "policy (post disable)")
+    if res["value"]["enabled"]:
+        error("policy expected enabled=False after disable")
 
     # policy_clone (best-effort): diff before/after TEST_PREFIX policy IDs to discover clone.
     before = leftovers
-    res = policy_find_ids(keywords=[TEST_PREFIX], force_refresh=True, cred=cred)
-    require_ok(res, "policy_find_ids (pre clone)")
+    res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, cred=cred)
+    require_ok(res, "policies (pre clone)")
     before = res["value"]
     clone_version = "9.9.9"
     cres = policy_clone(policy_id=policy_id, version=clone_version, cred=cred)
     if not cres["ok"]:
         error("policy_clone skipped:", cres["error"])
     else:
-        res = policy_find_ids(keywords=[TEST_PREFIX], force_refresh=True, cred=cred)
-        require_ok(res, "policy_find_ids (post clone)")
+        res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, cred=cred)
+        require_ok(res, "policies (post clone)")
         after = res["value"]
         # Find new IDs not in before.
         for pid in after:
@@ -195,8 +190,8 @@ def cleanup_policy(cred, created):
 
 def test_smart_group(cred, created):
     # Remove any leftover test smart groups from previous runs.
-    res = group_list_smart(filter=TEST_PREFIX, cred=cred)
-    require_ok(res, "group_list_smart")
+    res = smart_groups(filter=TEST_PREFIX, cred=cred)
+    require_ok(res, "smart_groups")
     for g in res["value"]:
         gid = g["id"]
         dres = group_delete(group_id=gid, cred=cred)
@@ -224,10 +219,10 @@ def test_smart_group(cred, created):
         fail("group_put: %s" % res["error"])
 
     # Find the created group by name.
-    res = group_find_id(name=group_name, cred=cred)
-    require_ok(res, "group_find_id")
+    res = smart_group(name=group_name, cred=cred)
+    require_ok(res, "smart_group")
     ginfo = res["value"]
-    group_id = ginfo["id"]
+    group_id = str(ginfo["id"])
     created["groups"].append(group_id)
 
     # Inspect and then update criteria.
@@ -269,9 +264,9 @@ def test_static_group_list(cred):
 def test_profile(cred, created):
     # 1. Find a base profile to clone.
     base_name = TEST_PREFIX + "source-profile"
-    res = profile_find_id(name=base_name)
+    res = profile(name=base_name)
     if not res["ok"]:
-        error("profile_find_id skipped (no source profile named %r): %s" % (base_name, res["error"]))
+        error("profile skipped (no source profile named %r): %s" % (base_name, res["error"]))
         return
     base = res["value"]
     source_id = base["id"]
@@ -332,30 +327,30 @@ def cleanup_profile(cred, created):
 
 def test_package_and_script(cred):
     # Packages: list and fetch one
-    res = package_list(filter="")
-    require_ok(res, "package_list")
+    res = packages(filter="")
+    require_ok(res, "packages")
     pkgs = res["value"]
     if pkgs:
         first = pkgs[0]
         pkg_id = first["id"] if type(first) == "dict" else first
-        res2 = package_fetch(package_id=pkg_id, cred=cred)
-        require_ok(res2, "package_fetch")
+        res2 = package(id=pkg_id, cred=cred)
+        require_ok(res2, "package")
         pkg = res2["value"]
         if "packageName" not in pkg:
-            fail("package_fetch: missing packageName in package %r" % pkg)
+            fail("package: missing packageName in package %r" % pkg)
 
     # Scripts: list and fetch one
-    res = script_list(cred=cred)
-    require_ok(res, "script_list")
+    res = scripts(cred=cred)
+    require_ok(res, "scripts")
     scripts = res["value"]
     if scripts:
         first = scripts[0]
         script_id = first["id"] if type(first) == "dict" else first
-        res2 = script_fetch(script_id=script_id, cred=cred)
-        require_ok(res2, "script_fetch")
+        res2 = script(id=script_id, cred=cred)
+        require_ok(res2, "script")
         body = res2["value"]
         if not body:
-            fail("script_fetch returned empty body for script_id=%r" % script_id)
+            fail("script returned empty body for script_id=%r" % script_id)
 
 
 def cleanup_all(cred, created):

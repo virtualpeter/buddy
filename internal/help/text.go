@@ -175,198 +175,97 @@ All functions return a result dict: {"ok": True, "value": ...}
                                  or {"ok": False, "error": "..."}
 Check ok before using value.
 
-Conventions: Resource IDs come first (e.g. policy_id, group_id, script_id,
-computer_id); payload/options next; cred? is always last and optional.
-Use cred= to override the active credential for that call.
+Conventions (v3): plural nouns enumerate (policies, packages, computers);
+singular nouns load one resource (policy, package, computer); singular_verb
+mutates (policy_set, policy_put_xml, computer_reboot). Pass either id= or a
+natural key (trigger=/name=/app=+version=), not both. Resource IDs first;
+payload/options next; cred? always last. See docs/builtins-v3.md for the
+full old→new rename map. Deprecated aliases warn once on stderr.
+
 Paginated list builtins accept page? (0-based) and page_size? (default 200).
 Omit page to fetch every page and return the full result set.
+Plural list value is usually a list of summary dicts {id, name, ...};
+use ids=True on policies/computers for a bare ID list.
 
 Each builtin lists its signature, then → value (or None). Indented "Params:"
 lines describe arguments; "Returns:" states the value shape when ok.
 
-POLICY — read
-  policy_get_id(trigger, force_refresh?)
-      → value: int policy ID
-      Params: trigger: str (policy trigger name). force_refresh?: bool (bypass cache). Returns: policy ID.
-  policy_get_enable(policy_id)
-      → value: "true" or "false"
-      Params: policy_id: int. Returns: enabled state string.
-  policy_get_details(policy_id, cred?)
-      → value: dict with keys name, enabled, trigger, frequency, scope, ...
-      Params: policy_id: int. cred?: credential name. Returns: dict of policy details.
-
-POLICY — write
+POLICY
+  policies(keywords, exclude_ids?, force_refresh?, ids?=False, cred?)
+      → value: list of {id, name} (or list of int if ids=True)
+      Params: keywords: str or list of str; exclude_ids?: list of int; force_refresh?: bool; ids?: bool.
+  policy(id=?) | policy(trigger=?, force_refresh?=, cred?)
+      → value: details dict (id, name, enabled, trigger, frequency, scope, packages, scripts)
+      Params: pass either id= (int/str) or trigger= (str), not both.
+  policy_xml(id, cred?)
+      → value: str (raw policy XML)
+  policy_set(policy_id, enable?=, name?=, trigger?=, frequency?=, cred?)
+      → None
+      Params: at least one of enable/name/trigger/frequency.
+  policy_put_xml(policy_id, xml_str, cred?)
+      → None
   policy_set_ss(policy_id, version?, group_ids?, display_name?,
                 description?, install_text?, reinstall_text?,
                 force_view?, feature?, self_service?, cred?)
       → None
-      Params: policy_id: int; version?: str; group_ids?: list of int; display_name?, description?, install_text?, reinstall_text?: str; force_view?, feature?, self_service?: bool; cred?: credential name.
-  policy_set_enable(policy_id, cred?)
-      → None
-      Params: policy_id: int. cred?: credential name.
-  policy_set_disable(policy_id, cred?)
-      → None
-      Params: policy_id: int. cred?: credential name.
-  policy_set_trigger(policy_id, trigger, cred?)
-      → None
-      Params: policy_id: int; trigger: str. cred?: credential name.
-  policy_set_name(policy_id, new_name, cred?)
-      → None
-      Params: policy_id: int; new_name: str. cred?: credential name.
-  policy_set_frequency(policy_id, frequency, cred?)
-      → None
-      Params: policy_id: int; frequency: str (e.g. "Once per computer", "Ongoing"). cred?: credential name.
-  policy_set_install(policy_id, version, cred?)
-      → None
-      Params: policy_id: int; version: str. cred?: credential name.
-  policy_set_package(app, version, policy_id?, trigger?,
-                     package_pattern?, cred?)
-      → None
-      Params: app: str (e.g. "chrome"); version: str; policy_id?: int; trigger?: str; package_pattern?: str; cred?: credential name.
-  policy_set_scope_all(policy_id, cred?)
-      → None
-      Params: policy_id: int. cred?: credential name.
-  policy_clone(policy_id, version, cred?)
-      → None
-      Params: policy_id: int; version: str. cred?: credential name.
+  policy_set_install(policy_id, version, cred?) → None
+  policy_set_package(app, version, policy_id?, trigger?, package_pattern?, cred?) → None
+  policy_set_scope_all(policy_id, cred?) → None
+  policy_clone(policy_id, version, cred?) → None
   policy_create_ss(trigger, display_name, category?, scope_group_id?, script_id?, cred?)
       → value: int (new policy ID)
-      Params: trigger: str; display_name: str; category?: str; scope_group_id?: int (0 = all computers); script_id?: int (Jamf script ID, default 0 = no script attached; trigger is passed as parameter4 when script_id > 0). cred?: credential name.
-  policy_delete(policy_ids, cred?)
-      → None
-      Params: policy_ids: list of int. cred?: credential name.
-  policy_find_ids(keywords, exclude_ids?, force_refresh?, cred?)
-      → value: list of int policy IDs
-      Params: keywords: str or list; exclude_ids?: list of int; force_refresh?: bool. cred?: credential name.
-
-POLICY — component
-  policy_fetch_xml(policy_id, cred?)
-      → value: str (raw policy XML)
-      Params: policy_id: int. cred?: credential name.
-  policy_put_xml(policy_id, xml_str, cred?)
-      → None
-      Params: policy_id: int; xml_str: str (full policy XML body). cred?: credential name.
+  policy_delete(policy_ids, cred?) → None
 
 GROUP
-  group_list_smart(filter?, page?, page_size?, cred?)
-      → value: list of dicts with id, name, description
-      Params: filter?: str (name substring or RSQL). page?: int (0-based; omit = all pages). page_size?: int (default 200). cred?: credential name.
-  group_list_static(filter?, page?, page_size?, cred?)
-      → value: list of dicts with id, name, description
-      Params: filter?: str. page?, page_size?: as above. cred?: credential name.
-  group_find_id(name, cred?)
-      → value: dict {"id": str, "name": str} (searches smart groups)
-      Params: name: str. cred?: credential name.
-  group_get_version(group_id, cred?)
-      → value: str (version criterion)
-      Params: group_id: str. cred?: credential name.
-  group_set_version(group_id, version, cred?)
-      → None
-      Params: group_id: str; version: str. cred?: credential name.
-  group_delete(group_id, cred?)
-      → None
-      Params: group_id: str. cred?: credential name.
-  group_fetch(group_id, cred?)
+  smart_groups(filter?, page?, page_size?, cred?)
+      → value: list of {id, name, description}
+  static_groups(filter?, page?, page_size?, cred?)
+      → value: list of {id, name, description}
+  smart_group(id=?) | smart_group(name=?, cred?)
       → value: dict (full smart-group JSON)
-      Params: group_id: str. cred?: credential name.
-  group_put(group_id, dict, cred?)
-      → None (use group_id="-1" to create; prefer smart_group_create)
-      Params: group_id: str; dict: Starlark dict (group body). cred?: credential name.
-
-  smart_group_fetch(group_id, cred?)
-      → value: dict (full smart-group JSON from /api/v2/computer-groups/smart-groups/{id})
-      Params: group_id: str; cred?: credential name.
-  smart_group_create(body, cred?)
-      → value: dict {"id": str, "href"?: str}
-      Params: body: dict (smart group JSON; typically name + criteria; id: -1 optional). cred?: credential name.
-  smart_group_put(group_id, body, cred?)
-      → None
-      Params: group_id: str; body: dict/list tree (full smart group JSON); cred?: credential name.
-  smart_group_get_criteria(group_id, cred?)
-      → value: list[dict] (criteria array)
-      Params: group_id: str; cred?: credential name. Each criterion: {name: str, priority: int, andOr: str, searchType: str, value: str, openingParen?: bool, closingParen?: bool}.
-  smart_group_set_criteria(group_id, criteria, cred?)
-      → None
-      Params: group_id: str; criteria: list[dict] as above; cred?: credential name.
-  smart_group_find_criteria(group_id, name_substring, cred?)
-      → value: list[dict] (criteria whose name contains name_substring, case-insensitive)
-      Params: group_id: str; name_substring: str; cred?: credential name.
-  smart_group_update_criterion_value(group_id, name_substring, new_value, cred?)
-      → None
-      Params: group_id: str; name_substring: str; new_value: str; cred?: credential name.
-
+  static_group(id, cred?)
+      → value: dict {id, name, description}
+  smart_group_get_version(group_id, cred?) → value: str
+  smart_group_set_version(group_id, version, cred?) → None
+  group_delete(group_id, cred?) → None
+  smart_group_create(body, cred?) → value: dict {"id", "href"?}
+  smart_group_put(group_id, body, cred?) → None
+  smart_group_get_criteria(group_id, cred?) → value: list[dict]
+  smart_group_set_criteria(group_id, criteria, cred?) → None
+  smart_group_find_criteria(group_id, name_substring, cred?) → value: list[dict]
+  smart_group_update_criterion_value(group_id, name_substring, new_value, cred?) → None
   static_group_list_computers(group_id, filter?, cred?)
-      → value: list of dicts with id, name, serial (name/serial may be empty if API returns IDs only)
-      Params: group_id: str; filter?: str (client-side substring on id, name, serial). cred?: credential name.
-  static_group_create(body, cred?)
-      → value: dict {"id": str, "href"?: str}
-      Params: body: dict (static group JSON; name required; assignments?: list of computer id str). cred?: credential name.
-  static_group_add_computers(group_id, computer_ids, cred?)
-      → None
-      Params: group_id: str; computer_ids: list of int or str. cred?: credential name.
-  static_group_remove_computers(group_id, computer_ids, cred?)
-      → None
-      Params: group_id: str; computer_ids: list of int or str. cred?: credential name.
-  static_group_set_computers(group_id, computer_ids, cred?)
-      → None
-      Params: group_id: str; computer_ids: list of int or str (replaces full membership). cred?: credential name.
+      → value: list of {id, name, serial}
+  static_group_create(body, cred?) → value: dict {"id", "href"?}
+  static_group_add_computers(group_id, computer_ids, cred?) → None
+  static_group_remove_computers(group_id, computer_ids, cred?) → None
+  static_group_set_computers(group_id, computer_ids, cred?) → None
 
 PACKAGE
-  package_list(filter?, page?, page_size?, cred?)
-      → value: list of dicts
-      Params: filter?: str (RSQL). page?: int (omit = all pages). page_size?: int (default 200). cred?: credential name.
-  package_find_id(app, version, pattern?)
-      → value: dict {"id": str, "name": str}
-      Params: app: str; version: str; pattern?: str. Returns: match dict.
-  package_upload(file, name?, category_id?, priority?, cred?)
-      → value: dict (created package)
-      Params: file: str (path); name?, category_id?, priority?: optional. cred?: credential name.
-  package_delete(ids)
-      → None
-      Params: ids: list of str (package IDs). Returns: None.
-  package_fetch(package_id, cred?)
-      → value: dict (full package JSON)
-      Params: package_id: str. cred?: credential name.
-  package_put(package_id, dict, cred?)
-      → value: dict (updated package JSON)
-      Params: package_id: str; dict: Starlark dict (fields to update). cred?: credential name.
+  packages(filter?, page?, page_size?, cred?)
+      → value: list of {id, packageName, fileName}
+  package(id=?) | package(app=, version=, pattern?=, cred?)
+      → value: full package dict (id=) or {id, name} (app+version)
+  package_upload(file, name?, category_id?, priority?, cred?) → value: dict
+  package_delete(ids) → None
+  package_put(package_id, dict, cred?) → value: dict
 
 PROFILE
-  profile_list(filter?)
-      → value: list of dicts
-      Params: filter?: str (name substring). Returns: list of profile records.
-  profile_find_id(name)
-      → value: dict {"id": int, "name": str}
-      Params: name: str.
-  profile_clone(profile_id, name, cred?)
-      → value: dict (new profile)
-      Params: profile_id: int; name: str (new name). cred?: credential name.
-  profile_redeploy(profile_id)
-      → None
-      Params: profile_id: int.
-  profile_get_payloads(profile_id)
-      → value: str (payloads plist XML)
-      Params: profile_id: int.
-  profile_get_payload(profile_id, domain)
-      → value: str (single payload plist)
-      Params: profile_id: int; domain: str (PayloadIdentifier).
-  profile_list_payloads(profile_id)
-      → value: list of str (PayloadIdentifiers)
-      Params: profile_id: int.
-  profile_set_payload(profile_id, domain, dict_file, redeploy?)
-      → None
-      Params: profile_id: int; domain: str; dict_file: str (path to plist XML); redeploy?: bool.
-  profile_set_xml(profile_id, xml_file, redeploy?)
-      → None
-      Params: profile_id: int; xml_file: str (path); redeploy?: bool.
+  profiles(filter?)
+      → value: list of {id, name}
+  profile(id=?) | profile(name=?, cred?)
+      → value: XML str (id=) or {id, name} (name=)
+  profile_xml(id, cred?) → value: str (raw profile XML)
+  profile_clone(profile_id, name, cred?) → value: dict
+  profile_redeploy(profile_id) → None
+  profile_get_payloads(profile_id) → value: str
+  profile_get_payload(profile_id, domain) → value: str
+  profile_list_payloads(profile_id) → value: list of str
+  profile_set_payload(profile_id, domain, dict_file, redeploy?) → None
+  profile_set_xml(profile_id, xml_file, redeploy?) → None
 
 PROFILE — component
-  profile_fetch_xml(profile_id, cred?)
-      → value: str (raw profile XML)
-      Params: profile_id: int. cred?: credential name.
-  profile_put_xml(profile_id, xml_str, redeploy?, cred?)
-      → None
-      Params: profile_id: int; xml_str: str; redeploy?: bool. cred?: credential name.
+  profile_put_xml(profile_id, xml_str, redeploy?, cred?) → None
   profile_xml_extract_payloads(profile_xml_str)
       → value: str (payloads plist XML from <payloads>; entities unescaped)
       Params: profile_xml_str: str (offline transform; no API call).
@@ -405,116 +304,51 @@ PROFILE — component
       Params: data_str: str (bare dict fragment or full plist).
 
 SCRIPT (Jamf Pro scripts)
-  script_list(filter?, page?, page_size?, cred?)
-      → value: list of dicts
-      Params: filter?: str (name substring or RSQL). page?: int (omit = all pages). page_size?: int (default 200). cred?: credential name.
-  script_get_id(name)
-      → value: str script ID
-      Params: name: str.
-  script_get_contents(script_id, cred?)
-      → value: str (script body)
-      Params: script_id: str. cred?: credential name.
-  script_update(script_id, file, cred?)
-      → None
-      Params: script_id: str; file: str (path to script file). cred?: credential name.
-  script_fetch(script_id, cred?)
-      → value: dict (full script JSON)
-      Params: script_id: str. cred?: credential name.
-  script_put(script_id, dict, cred?)
-      → value: dict (updated script JSON)
-      Params: script_id: str; dict: Starlark dict (fields to update). cred?: credential name.
+  scripts(filter?, page?, page_size?, cred?)
+      → value: list of {id, name, categoryId, categoryName}
+  script(id=?) | script(name=?, cred?)
+      → value: full script dict (id=) or id string (name=)
+  script_get_contents(script_id, cred?) → value: str
+  script_update(script_id, file, cred?) → None
+  script_put(script_id, dict, cred?) → value: dict
 
 COMPUTER
-  computer_find_ids(filter?, page?, page_size?, cred?)
-      → value: list of int IDs
-      Params: filter?: str (RSQL). page?: int (omit = all pages). page_size?: int (default 200). cred?: credential name.
-  computer_get(computer_id, cred?)
+  computers(filter?, ids?=False, page?, page_size?, cred?)
+      → value: list of summary dicts (or list of int if ids=True)
+  computer(id, cred?)
       → value: dict (id, name, serialNumber, udid, managementId, ...)
-      Params: computer_id: int or str. cred?: credential name.
-  computer_fetch(computer_id, cred?)
-      → value: dict (alias of computer_get)
-      Params: computer_id: int or str. cred?: credential name.
-  computer_send_mdm_command(computer_ids, command_type, command_data?, cred?)
-      → None
-      Params: computer_ids: list of int; command_type: str (e.g. "Reboot", "Erase"); command_data?: dict. cred?: credential name.
-  computer_reboot(computer_ids, cred?)
-      → None
-      Params: computer_ids: list of int. cred?: credential name.
-  computer_redeploy(computer_ids, cred?)
-      → None
-      Params: computer_ids: list of int. cred?: credential name.
-  computer_shutdown(computer_ids, cred?)
-      → None
-      Params: computer_ids: list of int. cred?: credential name.
-  computer_lock(computer_ids, message?, phone?, pin?, cred?)
-      → None
-      Params: computer_ids: list of int; message?, phone?, pin?: optional str. cred?: credential name.
-  computer_logout(computer_ids, cred?)
-      → None
-      Params: computer_ids: list of int. cred?: credential name.
-  computer_erase(computer_ids, pin?, obliteration?, cred?)
-      → None
-      Params: computer_ids: list of int; pin?: str; obliteration?: str. cred?: credential name.
-  computer_device_info(computer_ids, queries?, cred?)
-      → value: dict or list (queued command result)
-      Params: computer_ids: list of int; queries?: list of str. cred?: credential name.
-  computer_device_location(computer_ids, cred?)
-      → value: dict or list (queued command result)
-      Params: computer_ids: list of int. cred?: credential name.
-  computer_security_info(computer_ids, cred?)
-      → value: dict or list (queued command result)
-      Params: computer_ids: list of int. cred?: credential name.
-  computer_installed_apps(computer_ids, identifiers?, cred?)
-      → value: dict or list (queued command result)
-      Params: computer_ids: list of int; identifiers?: list. cred?: credential name.
-  computer_managed_apps(computer_ids, identifiers?, cred?)
-      → value: dict or list (queued command result)
-      Params: computer_ids: list of int; identifiers?: list. cred?: credential name.
-  computer_certificates(computer_ids, cred?)
-      → value: dict or list (queued command result)
-      Params: computer_ids: list of int. cred?: credential name.
+  computer_send_mdm_command(computer_ids, command_type, command_data?, cred?) → None
+  computer_reboot(computer_ids, cred?) → None
+  computer_redeploy(computer_ids, cred?) → None
+  computer_shutdown(computer_ids, cred?) → None
+  computer_lock(computer_ids, message?, phone?, pin?, cred?) → None
+  computer_logout(computer_ids, cred?) → None
+  computer_erase(computer_ids, pin?, obliteration?, cred?) → None
+  computer_device_info(computer_ids, queries?, cred?) → value: dict or list
+  computer_device_location(computer_ids, cred?) → value: dict or list
+  computer_security_info(computer_ids, cred?) → value: dict or list
+  computer_installed_apps(computer_ids, identifiers?, cred?) → value: dict or list
+  computer_managed_apps(computer_ids, identifiers?, cred?) → value: dict or list
+  computer_certificates(computer_ids, cred?) → value: dict or list
 
 MDM
-  mdm_command_find(filter, sort?, page?, page_size?, limit?, cred?)
-      → value: list of dicts (MDM command records)
-      Params: filter: str (RSQL, required); sort?: str; page?: int (omit = all pages); page_size?: int; limit?: int (cap when page omitted; 0 = no cap). cred?: credential name.
-  mdm_fetch_commands(filter, sort?, page?, page_size?, limit?, cred?)
-      → value: list of dicts (MDM command records)
-      Params: same as mdm_command_find.
+  mdm_commands(filter, sort?, page?, page_size?, limit?, cred?)
+      → value: list of MDM command dicts
+      Params: filter: str (RSQL, required); sort?: str; page?: int (omit = all); page_size?; limit?: int.
 
 ROLE
-  role_privileges_list(cred?)
-      → value: list of str (privilege names)
-      Params: cred?: credential name.
-  role_list(page?, page_size?, cred?)
-      → value: list of dicts with id, display_name
-      Params: page?: int (omit = all pages). page_size?: int (default 200). cred?: credential name.
-  role_fetch_list(page?, page_size?, cred?)
-      → value: list of dicts (full roles JSON)
-      Params: page?, page_size?: as above. cred?: credential name.
-  role_fetch(role_id, cred?)
-      → value: dict (full role JSON)
-      Params: role_id: str. cred?: credential name.
-  role_put(role_id, dict, cred?)
-      → value: dict (updated role JSON)
-      Params: role_id: str; dict: Starlark dict (role body). cred?: credential name.
-  role_create(display_name, privileges, cred?)
-      → value: str (role ID). Also accepts dict form.
-      Params: display_name: str; privileges: list of str; cred?: credential name.
+  role_privileges(cred?) → value: list of str
+  roles(full?=False, page?, page_size?, cred?)
+      → value: list of {id, display_name} (or full JSON list if full=True)
+  role(id, cred?) → value: dict
+  role_put(role_id, dict, cred?) → value: dict
+  role_create(display_name, privileges, cred?) → value: str (role ID)
 
 CLIENT
-  client_fetch_list(page?, page_size?, cred?)
-      → value: list of dicts (full clients JSON)
-      Params: page?: int (omit = all pages). page_size?: int (default 200). cred?: credential name.
-  client_fetch(client_id, cred?)
-      → value: dict (full client JSON)
-      Params: client_id: str or int. cred?: credential name.
-  client_put(client_id, dict, cred?)
-      → value: dict (updated client JSON)
-      Params: client_id: str or int; dict: Starlark dict. cred?: credential name.
-  client_create(display_name, scopes, cred?)
-      → value: dict {id, client_id}. Also accepts dict form.
-      Params: display_name: str; scopes: list of str; cred?: credential name.
+  clients(page?, page_size?, cred?) → value: list of dicts
+  client(id, cred?) → value: dict
+  client_put(client_id, dict, cred?) → value: dict
+  client_create(display_name, scopes, cred?) → value: dict {id, client_id}
 
 SERIALIZATION
   json_decode(json_str)
@@ -661,11 +495,11 @@ MISC
       Params: code?: int (exit code, default 0).
 
 EXAMPLE — imperative style
-  id_result = policy_get_id(trigger="install-chrome")
-  if not id_result["ok"]:
-      print("not found:", id_result["error"])
+  r = policy(trigger="install-chrome")
+  if not r["ok"]:
+      error("not found:", r["error"])
       exit(1)
-  policy_id = id_result["value"]
+  policy_id = r["value"]["id"]
   policy_set_install(policy_id=policy_id, version="130.0", cred="default")
 
 EXAMPLE — declarative workflow

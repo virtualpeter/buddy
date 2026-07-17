@@ -167,7 +167,7 @@ Speaks [Model Context Protocol](https://modelcontextprotocol.io/) over **stdio**
 
 **Response shape:** every tool returns a JSON **object** `{ok, value, error?, count?}`—never a bare array—so hosts that require object `structuredContent` (e.g. Cursor) accept list results. `auth_test` defaults to a compact summary (`verbose: true` for full privileges).
 
-Curated tools: `auth_test`, `group_list_smart`, `group_list_static`, `computer_find_ids`, `script_list`, `package_list`, `policy_get_id`, `starlark_eval`. Resources under `buddy://docs/...`.
+Curated tools: `auth_test`, `smart_groups`, `static_groups`, `computers`, `scripts`, `packages`, `policy`, `starlark_eval`. Resources under `buddy://docs/...`.
 
 Uses the active credential (`--user` to override). MCP inherits that credential’s Jamf privileges—treat it like the CLI.
 
@@ -187,6 +187,7 @@ buddy [global-flags] [--trace] <script.star> [-- args...]
 - `args` after `--` are available as the global list `args`.
 - The active credential name is available as `cred` (override per builtin with `cred=`).
 - The regex module is exposed as `re` (see `buddy help starlark` for what Starlark provides globally).
+- If the script defines `main`, buddy invokes it after load (same as MCP `starlark_eval`). Do not call `main()` yourself at top level.
 - **`print()`** writes to stdout; buddy adds **`error(*args, ...)`** for stderr (same signature as `print`). Prefer **`error`** for progress, skips, and failures so stdout stays free for machine-readable output; reserve **`print`** for lines meant to be piped or captured as the script’s primary result.
 - **Positional `--trace` before `<script.star>`** or global **`--script-trace`** logs each builtin call (and optionally Starlark `print` tracing) to stderr. **HTTP tracing** uses the top-level `-t` / `--trace` on `buddy`: `buddy -t deploy.star`.
 
@@ -225,9 +226,11 @@ That output lists every builtin with parameter names, types, and return shapes. 
 
 **Conventions** (from the builtins help header):
 
-- Resource IDs come first (`policy_id`, `group_id`, …), then options, then optional `cred?` last.
+- **v3 grammar:** plural nouns enumerate (`policies`, `smart_groups`, `computers`); singular nouns load one (`policy(id=…)` or `policy(trigger=…)`, `smart_group(name=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). See [builtins-v3.md](builtins-v3.md).
+- Resource IDs come first on mutate helpers (`policy_id`, `group_id`, …); singular loaders use `id=` or a natural key; then options; optional `cred?` last.
 - Use `cred="name"` to override the active credential for a single call.
 - Paginated list builtins take `page?` (0-based) and `page_size?` (default 200). **Omit `page`** to walk every page and return the full list.
+- Plural lists return summary dicts `{id, name, …}`; use `ids=True` on `policies` / `computers` when you need bare ID lists.
 
 ---
 
@@ -245,7 +248,8 @@ Use it when correlating buddy behavior with Jamf’s API or troubleshooting perm
 
 Runnable Star scripts and a short index live under [**examples/**](../examples/README.md):
 
-- [`examples/bump-release.star`](../examples/bump-release.star) — minimal pattern: `policy_get_id`, then updates (edit triggers/IDs for your tenant).
+- [`examples/bump-release.star`](../examples/bump-release.star) — minimal pattern: `policy(trigger=…)`, then updates (edit triggers/IDs for your tenant).
+- [`docs/builtins-v3.md`](builtins-v3.md) — Starlark plural/singular rename map (v3).
 - For broad integration testing against a non-production Jamf instance, see [`scripts/integration_test.star`](../scripts/integration_test.star) (creates and tears down test resources; read before running).
 
 ---

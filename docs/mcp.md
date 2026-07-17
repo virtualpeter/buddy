@@ -58,7 +58,7 @@ A minimal example also lives at [`examples/mcp.json`](../examples/mcp.json) (use
 
 ### 3. Reload MCP in Cursor
 
-Open **Cursor Settings → MCP**, enable **buddy**, and refresh (or restart Cursor). The server should show as ready with tools such as `auth_test`, `group_list_smart`, `starlark_eval`.
+Open **Cursor Settings → MCP**, enable **buddy**, and refresh (or restart Cursor). The server should show as ready with tools such as `auth_test`, `smart_groups`, `starlark_eval`.
 
 ### 4. Use it in chat
 
@@ -75,15 +75,17 @@ Optional tool argument `cred` selects a named credential from config.
 
 ## Tools
 
+Tool names follow the Starlark v3 plural/singular grammar (see [builtins-v3.md](builtins-v3.md)).
+
 | Tool | Returns `value` | Notes |
 |------|-----------------|-------|
 | `auth_test` | Compact auth summary | Set `verbose: true` for full privileges payload (large) |
-| `group_list_smart` | List of `{id,name,description}` | `filter`, `page`, `page_size`; omit `page` = all pages |
-| `group_list_static` | Same shape | Same paging |
-| `computer_find_ids` | List of int IDs | RSQL `filter` |
-| `script_list` | Script summaries | Name substring or RSQL |
-| `package_list` | Package summaries | RSQL `filter` |
-| `policy_get_id` | `{id, trigger}` | |
+| `smart_groups` | List of `{id,name,description}` | `filter`, `page`, `page_size`; omit `page` = all pages |
+| `static_groups` | Same shape | Same paging |
+| `computers` | Summary dicts (or IDs if `ids=true`) | RSQL `filter` |
+| `scripts` | Script summaries | Name substring or RSQL |
+| `packages` | Package summaries | RSQL `filter` |
+| `policy` | `{id, trigger}` | Resolve by trigger name |
 | `starlark_eval` | `{stdout, stderr, result, error}` | Fresh session; see below |
 
 ### Resources
@@ -151,7 +153,7 @@ Example:
 
 ```python
 def main():
-    r = group_list_smart()
+    r = smart_groups()
     if not r["ok"]:
         return r
     return {"count": len(r["value"]), "names": [g["name"] for g in r["value"]]}

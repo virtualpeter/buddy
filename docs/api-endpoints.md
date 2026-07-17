@@ -82,7 +82,7 @@ Base path: `/api/v1/packages`
 ### Notes
 
 - `PackageGet` makes two API calls: one for the record and one for `history?sort=date:desc&page-size=1` to inject `lastChanged` / `lastChangedBy` into the output.
-- `PackageFindID` is shared between the CLI (`policy set package`) and DSL (`package_find_id` builtin). List/search walks all pages unless a single `page` is requested from Starlark.
+- `PackageFindID` is shared between the CLI (`policy set package`) and DSL (`package(app=..., version=...)` builtin). List/search walks all pages unless a single `page` is requested from Starlark.
 - The `delete-multiple` body is `{"ids": ["1","2",...]}`.
 
 ---
@@ -554,7 +554,7 @@ filt = rsql_and([
     rsql_ge("dateCompleted", since)["value"],
     rsql_eq("status", "Acknowledged")["value"],
 ])["value"]
-mdm_command_find(filter=filt)
+mdm_commands(filter=filt)
 ```
 
 ### Filterable Fields by Resource

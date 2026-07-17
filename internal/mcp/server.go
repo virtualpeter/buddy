@@ -85,7 +85,7 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	}
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "group_list_smart",
+		Name:        "smart_groups",
 		Description: "List Jamf smart computer groups. Returns {ok, value: [{id,name,description},...], count}. Omit page to fetch all pages.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
 		groups, err := buddy.GroupSearchSmart(credFromFilter(in), in.Filter, pageOpts(in), logger)
@@ -97,7 +97,7 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	})
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "group_list_static",
+		Name:        "static_groups",
 		Description: "List Jamf static computer groups. Returns {ok, value: [{id,name,description},...], count}. Omit page to fetch all pages.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
 		groups, err := buddy.GroupSearchStatic(credFromFilter(in), in.Filter, pageOpts(in), logger)
@@ -108,24 +108,39 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		return toolOK(groups, &n)
 	})
 
+	type computersIn struct {
+		Filter   string `json:"filter,omitempty" jsonschema:"name substring or RSQL filter"`
+		IDs      bool   `json:"ids,omitempty" jsonschema:"if true, return list of int IDs instead of summary dicts"`
+		Page     *int   `json:"page,omitempty" jsonschema:"0-based page; omit to fetch all pages"`
+		PageSize int    `json:"page_size,omitempty" jsonschema:"page size (default 200)"`
+		Cred     string `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "computer_find_ids",
-		Description: "Find computer IDs via RSQL filter. Returns {ok, value: [id,...], count}. Omit page to fetch all pages.",
-	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
-		recs, err := buddy.ComputerSearch(credFromFilter(in), in.Filter, pageOpts(in), logger)
+		Name:        "computers",
+		Description: "List computers via inventory search. Returns {ok, value: [{id,name,serial,...},...], count}, or IDs if ids=true. Omit page to fetch all pages.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in computersIn) (*mcpsdk.CallToolResult, any, error) {
+		o := buddy.PageOpts{Page: buddy.PageAll, PageSize: in.PageSize}
+		if in.Page != nil {
+			o.Page = *in.Page
+		}
+		recs, err := buddy.ComputerSearch(resolve(credIn{Cred: in.Cred}), in.Filter, o, logger)
 		if err != nil {
 			return toolErr(err)
 		}
-		ids := make([]int, 0, len(recs))
-		for _, r := range recs {
-			ids = append(ids, r.ID)
+		if in.IDs {
+			ids := make([]int, 0, len(recs))
+			for _, r := range recs {
+				ids = append(ids, r.ID)
+			}
+			n := len(ids)
+			return toolOK(ids, &n)
 		}
-		n := len(ids)
-		return toolOK(ids, &n)
+		n := len(recs)
+		return toolOK(recs, &n)
 	})
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "script_list",
+		Name:        "scripts",
 		Description: "List Jamf Pro scripts. Returns {ok, value: [...], count}. Omit page to fetch all pages.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
 		scripts, err := buddy.ScriptSearch(credFromFilter(in), in.Filter, pageOpts(in), logger)
@@ -137,7 +152,7 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	})
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "package_list",
+		Name:        "packages",
 		Description: "List Jamf packages. Returns {ok, value: [...], count}. Omit page to fetch all pages.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
 		pkgs, err := buddy.PackageSearch(credFromFilter(in), in.Filter, pageOpts(in), logger)
@@ -153,8 +168,8 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		Cred    string `json:"cred,omitempty"`
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "policy_get_id",
-		Description: "Resolve a Jamf policy ID from its trigger name. Returns {ok, value: {id, trigger}}.",
+		Name:        "policy",
+		Description: "Load a Jamf policy by trigger name. Returns {ok, value: {id, trigger}} (ID resolution; use starlark_eval for full details).",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in policyIn) (*mcpsdk.CallToolResult, any, error) {
 		id, err := buddy.PolicyFind(resolve(credIn{Cred: in.Cred}), opts, in.Trigger, false, logger)
 		if err != nil {

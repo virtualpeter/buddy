@@ -19,7 +19,7 @@ func TestNewThreadPredeclared(t *testing.T) {
 		t.Fatal("expected non-nil thread")
 	}
 
-	for _, key := range []string{"cred", "args", "re", "policy_get_id", "confirm", "exit"} {
+	for _, key := range []string{"cred", "args", "re", "policy", "policies", "confirm", "exit"} {
 		if _, ok := globals[key]; !ok {
 			t.Errorf("missing predeclared %q", key)
 		}

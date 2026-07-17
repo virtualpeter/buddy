@@ -52,7 +52,7 @@ func TestResolveDocsRoot(t *testing.T) {
 		t.Fatal("missing builtins")
 	}
 	builtins := pageByID(pages, "builtins")
-	if !strings.Contains(builtins.Markdown, "### `policy_get_id`") {
+	if !strings.Contains(builtins.Markdown, "### `policy`") {
 		t.Fatal("builtins page not structured")
 	}
 }

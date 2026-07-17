@@ -18,6 +18,7 @@ Arguments after `--` appear in the global `args` list inside the script.
 ## Full documentation
 
 - [Reference manual](../docs/reference-manual.md) — configuration, CLI, scripting, and links to the API endpoint catalog.
+- [Starlark builtins v3 rename map](../docs/builtins-v3.md) — plural/singular grammar and old→new names.
 - Canonical **built-in function** list (always matches your installed binary): `buddy help builtins`
 - Starlark language subset: `buddy help starlark`
 

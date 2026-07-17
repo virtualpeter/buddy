@@ -118,7 +118,7 @@ buddy resolves secrets from the platform store at runtime, so meliorate config d
 ## Conventions (follow existing rules)
 
 - **CLI help**: see `.cursor/rules/buddy-cli.mdc` — usage lines, subcommand naming, placeholders.
-- **Starlark builtins**: see `.cursor/rules/buddy-builtins.mdc` — resource ID first, `cred?` last.
+- **Starlark builtins**: see `.cursor/rules/buddy-builtins.mdc` and `docs/builtins-v3.md` — v3 plural/singular grammar (`policies` / `policy` / `policy_set`), resource IDs first on mutate helpers, `cred?` last. Deprecated aliases warn once on stderr.
 - **User docs**: `README.md`, `docs/reference-manual.md` — keep in sync when adding commands or secret behavior.
 - **Scope**: minimal diffs; match existing patterns; no over-engineering.
 

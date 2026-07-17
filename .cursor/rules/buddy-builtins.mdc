@@ -5,15 +5,28 @@ alwaysApply: true
 
 # Buddy Starlark builtin conventions
 
-When adding or changing builtins in `internal/script/builtins.go`, follow these rules.
+When adding or changing builtins in `internal/script/builtins.go` / `builtins_v3.go`, follow these rules.
+
+## Plural / singular grammar (v3)
+
+| Form | Role | Example |
+|------|------|---------|
+| **plural noun** | enumerate / search | `policies(...)`, `packages(...)`, `computers(...)` |
+| **singular noun** | load one resource | `policy(id=…)` / `policy(trigger=…)`, `package(id=…)` |
+| **singular + verb** | mutate or specialized action | `policy_set(...)`, `policy_put_xml(...)`, `computer_reboot(...)` |
+| **offline helpers** | unchanged | `rsql_*`, `plist_*`, `payloads_*`, `file_*` |
+
+- Plural `value` is a **list of summary dicts** `{id, name, ...}` unless `ids=True` (policies/computers).
+- Singular load accepts **either** `id=` **or** a natural key (`trigger=`, `name=`, `app=`+`version=`), not both.
+- Full rename map: [`docs/builtins-v3.md`](../../docs/builtins-v3.md). Deprecated aliases warn once on stderr.
 
 ## Argument order
 
 - **Resource identifiers first**, then payload/options, then **cred? last**.
 - `cred` is always optional (`cred?`). No builtin takes required `cred` as the first positional.
 
-**Good:** `policy_set_enable(policy_id, cred?)`, `group_set_version(group_id, version, cred?)`, `script_fetch(script_id, cred?)`  
-**Avoid:** `policy_set_enable(cred, policy_id)`, `script_fetch(id, cred?)` (use `script_id`)
+**Good:** `policy_set(policy_id, enable=True, cred?)`, `smart_group_set_version(group_id, version, cred?)`, `script(id=script_id, cred?)`  
+**Avoid:** `policy_set(cred, policy_id, …)`, `script(id)` with bare `id` when a mutate helper takes `script_id` (use the named param)
 
 ## Pagination (list builtins)
 
@@ -27,7 +40,9 @@ Go side: `buddy.PageOpts` + `fetchJamfPaged` in `internal/buddy/pagination.go` (
 
 ## Parameter names
 
-Use `{resource}_id` for the resource being operated on: `policy_id`, `group_id`, `profile_id`, `package_id`, `script_id`, `computer_id`, `role_id`, `client_id`. For lists of IDs use e.g. `policy_ids`, `computer_ids`. Do not use bare `id` when the resource is clear from the builtin name (e.g. use `script_id` in script_* builtins, `computer_id` in computer_* builtins).
+Use `{resource}_id` for mutate/action builtins: `policy_id`, `group_id`, `profile_id`, `package_id`, `script_id`, `computer_id`, `role_id`, `client_id`. For lists of IDs use e.g. `policy_ids`, `computer_ids`.
+
+Singular **load** builtins use kwargs `id=` (or a natural key like `trigger=` / `name=` / `app=`+`version=`), not `policy_id` / `script_id` as the primary selector—see grammar above.
 
 ## File I/O
 
@@ -43,14 +58,16 @@ Local filesystem helpers return `{"ok": bool, "value": ..., "error": str}` like 
 - Buddy adds **`error(*args, sep=...)`** — same behavior as `print` but writes to **stderr** (`errorBuiltin` in `builtins.go`).
 - **`confirm(msg?)`** — returns `bool` (`True`/`False`); prompts "Proceed? [y/N]" on stdin using the same UX as CLI confirms (`buddy.ConfirmPrompt`). If the process was started with global **`-y`**, returns `True` without reading stdin (`runnerOpts.SkipConfirm`).
 
-## Action naming
+## Action naming (v3)
 
-- **fetch** — return full resource (XML string or JSON-as-dict).
-- **get_*** — return one attribute or sub-resource.
-- **list_*** — return list of items.
-- **put** — replace resource from body (dict/XML); signature `(resource_id, body, optional_flags?, cred?)`.
-- **set_*** — set one attribute.
-- **create** / **delete** — unchanged.
+Prefer plural/singular nouns over `*_list` / `*_find_ids` / `*_fetch` / `*_get_id`.
+
+- **plural** — enumerate (summary list).
+- **singular** — load one resource (full or summary depending on kwargs).
+- **singular_verb** — mutate (`policy_set`, `smart_group_put`, `computer_reboot`).
+- Keep fat multi-step helpers (`policy_set_ss`, `policy_set_package`, …).
+
+Legacy `fetch` / `get_*` / `list_*` names remain as temporary deprecated aliases.
 
 ## Help text
 
@@ -66,9 +83,9 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
 (`/api/v2/computer-groups/smart-groups`). They always return a result dict
 `{"ok": bool, "value": ..., "error": str}`.
 
-- `smart_group_fetch(group_id, cred?) → value: dict`
+- `smart_group(id=?)` | `smart_group(name=?, cred?)` → value: dict
   - **Params**:
-    - `group_id` (string): Smart group ID.
+    - Pass either `id` (string) or `name` (string), not both.
     - `cred?` (string, optional): Credential name; defaults to the active config cred.
   - **Returns**:
     - `value`: dict representing the full smart group JSON document (keys follow Jamf’s schema, e.g. `name`, `description`, `criteria`, `siteId`).
@@ -85,7 +102,7 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
 - `smart_group_put(group_id, body, cred?) → value: None`
   - **Params**:
     - `group_id` (string): Smart group ID.
-    - `body` (dict/list tree): Full smart group JSON, as returned by `smart_group_fetch` or `group_fetch`.
+    - `body` (dict/list tree): Full smart group JSON, as returned by `smart_group(id=…)`.
     - `cred?` (string, optional).
   - **Behavior**:
     - Encodes `body` to JSON and `PUT`s it to `/api/v2/computer-groups/smart-groups/{group_id}` using script opts with `SkipConfirm=true`.
@@ -195,8 +212,8 @@ Profile helpers work with Jamf macOS configuration profiles and their embedded
 payload plists. They compose with `plist_decode` / `plist_encode` to let you
 edit payload dicts in Starlark.
 
-Offline XML/plist transforms take strings (no API call). Use `profile_fetch_xml` /
-`profile_put_xml` to load and save.
+Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…)` /
+`profile(id=…)` (same XML) and `profile_put_xml` to load and save.
 
 - `profile_xml_extract_payloads(profile_xml_str) → value: string`
   - **Params**:
@@ -286,7 +303,7 @@ Offline XML/plist transforms take strings (no API call). Use `profile_fetch_xml`
 
 ```python
 # Fetch profile XML, then offline-edit payloads
-r = profile_fetch_xml(profile_id = 42)
+r = profile_xml(id = 42)
 if not r["ok"]:
     fail(r["error"])
 xml = r["value"]
@@ -309,7 +326,7 @@ profile_put_xml(profile_id = 42, xml_str = xml2)
 **Longer extract / decode / replace pattern:**
 
 ```python
-r = profile_fetch_xml(profile_id = 42)
+r = profile_xml(id = 42)
 if not r["ok"]:
     fail(r["error"])
 xml = r["value"]

@@ -53,20 +53,20 @@ func WriteSetupScript(path string) error {
 
 def main():
     role_name = "Buddy"
-    rl = role_list(cred)
+    rl = roles(cred=cred)
     if not rl["ok"]:
-        error("role_list failed:", rl["error"])
+        error("roles failed:", rl["error"])
         exit(1)
-    roles = rl["value"]
+    role_rows = rl["value"]
     role_id = None
-    for i in range(len(roles)):
-        if roles[i]["display_name"] == role_name:
-            role_id = roles[i]["id"]
+    for i in range(len(role_rows)):
+        if role_rows[i]["display_name"] == role_name:
+            role_id = role_rows[i]["id"]
             break
     if role_id == None:
-        pl = role_privileges_list(cred)
+        pl = role_privileges(cred=cred)
         if not pl["ok"]:
-            error("role_privileges_list failed:", pl["error"])
+            error("role_privileges failed:", pl["error"])
             exit(1)
         r = role_create(cred, role_name, pl["value"])
         if not r["ok"]:
@@ -88,8 +88,6 @@ def main():
     error("")
     error("Next: run the following to get the client secret (shown once):")
     error("  buddy client credentials %s" % client_id)
-
-main()
 `
 	return os.WriteFile(path, []byte(script), 0644)
 }
