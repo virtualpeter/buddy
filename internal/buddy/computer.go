@@ -89,62 +89,50 @@ type mdmClientData struct {
 	ClientType   string `json:"clientType"`
 }
 
-// ComputerSearch fetches computers matching the filter and returns records (or prints table).
-// If filter is empty, returns all computers (paginated).
-func ComputerSearch(credName, filter string, logger *slog.Logger) ([]ComputerRecord, error) {
-	baseURL, err := GetBaseURL(credName)
+// ComputerSearch fetches computers matching the filter and returns records.
+// When opts.Page is PageAll, all pages are fetched.
+func ComputerSearch(credName, filter string, opts PageOpts, logger *slog.Logger) ([]ComputerRecord, error) {
+	extra := url.Values{}
+	if filter != "" {
+		extra.Set("filter", filter)
+	}
+	var all []ComputerRecord
+	err := fetchJamfPaged(credName, "/api/v3/computers-inventory", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+		var page []computerListItemV3
+		if err := json.Unmarshal(resultsJSON, &page); err != nil {
+			return 0, fmt.Errorf("parse response: %w", err)
+		}
+		for _, r := range page {
+			id, err := parseComputerID(r.ID)
+			if err != nil {
+				return 0, err
+			}
+			rec := ComputerRecord{ID: id}
+			if r.General != nil {
+				rec.Name = r.General.Name
+				rec.MacAddress = r.General.MacAddress
+				rec.Username = r.General.Username
+				rec.ManagementID = r.General.ManagementID
+			}
+			if r.SerialNumber != "" {
+				rec.SerialNumber = r.SerialNumber
+			} else if r.Hardware != nil && r.Hardware.SerialNumber != "" {
+				rec.SerialNumber = r.Hardware.SerialNumber
+			}
+			rec.UDID = r.UDID
+			all = append(all, rec)
+		}
+		return len(page), nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	endpoint := baseURL + "/api/v3/computers-inventory?page-size=200"
-	if filter != "" {
-		endpoint += "&filter=" + url.QueryEscape(filter)
-	}
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return nil, fmt.Errorf("search computers: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("search computers status %d: %s", resp.StatusCode, string(body))
-	}
-	var result computerInventoryListResponseV3
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	records := make([]ComputerRecord, 0, len(result.Results))
-	for _, r := range result.Results {
-		id, err := parseComputerID(r.ID)
-		if err != nil {
-			return nil, err
-		}
-		rec := ComputerRecord{ID: id}
-		if r.General != nil {
-			rec.Name = r.General.Name
-			rec.MacAddress = r.General.MacAddress
-			rec.Username = r.General.Username
-			rec.ManagementID = r.General.ManagementID
-		}
-		if r.SerialNumber != "" {
-			rec.SerialNumber = r.SerialNumber
-		} else if r.Hardware != nil && r.Hardware.SerialNumber != "" {
-			rec.SerialNumber = r.Hardware.SerialNumber
-		}
-		rec.UDID = r.UDID
-		records = append(records, rec)
-	}
-	return records, nil
+	return all, nil
 }
 
 // ComputerSearchPrint prints a table of computers matching the filter.
 func ComputerSearchPrint(credName, filter string, logger *slog.Logger) error {
-	records, err := ComputerSearch(credName, filter, logger)
+	records, err := ComputerSearch(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
 	}

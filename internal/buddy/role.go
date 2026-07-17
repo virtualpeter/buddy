@@ -31,7 +31,7 @@ type ApiRolePrivileges struct {
 
 // RoleList fetches and prints all API roles.
 func RoleList(credName string, logger *slog.Logger) error {
-	roles, err := RoleListValues(credName, logger)
+	roles, err := RoleListValues(credName, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
 	}
@@ -41,32 +41,22 @@ func RoleList(credName string, logger *slog.Logger) error {
 	return nil
 }
 
-// RoleListValues fetches all API roles and returns them (for script use).
-func RoleListValues(credName string, logger *slog.Logger) ([]ApiRole, error) {
-	baseURL, err := GetBaseURL(credName)
+// RoleListValues fetches API roles and returns them (for script use).
+// When opts.Page is PageAll, all pages are fetched.
+func RoleListValues(credName string, opts PageOpts, logger *slog.Logger) ([]ApiRole, error) {
+	var all []ApiRole
+	err := fetchJamfPaged(credName, "/api/v1/api-roles", nil, opts, func(resultsJSON []byte, _ int) (int, error) {
+		var page []ApiRole
+		if err := json.Unmarshal(resultsJSON, &page); err != nil {
+			return 0, fmt.Errorf("parse response: %w", err)
+		}
+		all = append(all, page...)
+		return len(page), nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	url := baseURL + "/api/v1/api-roles"
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return nil, fmt.Errorf("list roles: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list roles status %d: %s", resp.StatusCode, string(body))
-	}
-	var result ApiRoleResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return result.Results, nil
+	return all, nil
 }
 
 // RoleGet fetches and prints a single API role by ID.

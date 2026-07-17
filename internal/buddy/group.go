@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"os"
 	"sort"
@@ -35,8 +33,6 @@ type smartGroupV2 struct {
 const uriSmartGroups = "/api/v2/computer-groups/smart-groups"
 const uriStaticGroups = "/api/v2/computer-groups/static-groups"
 const uriClassicComputerGroup = "/JSSResource/computergroups/id"
-
-const groupPageSize = 200
 
 // StaticComputerMember is one computer in a static group (from v2 assignments or Classic XML).
 type StaticComputerMember struct {
@@ -69,47 +65,26 @@ type GroupSummary struct {
 	Description string `json:"description"`
 }
 
-type groupPageResult struct {
-	TotalCount int            `json:"totalCount"`
-	Results    []GroupSummary `json:"results"`
-}
-
-// groupSearchPaged fetches all groups from a paginated v2 endpoint, applying an
+// groupSearchPaged fetches groups from a paginated v2 endpoint, applying an
 // optional RSQL filter server-side or a plain substring filter client-side.
-func groupSearchPaged(credName, apiPath, filter string) ([]GroupSummary, error) {
+// When opts.Page is PageAll, all pages are fetched; otherwise a single page.
+func groupSearchPaged(credName, apiPath, filter string, opts PageOpts) ([]GroupSummary, error) {
 	rsql := filter != "" && isRSQLFilter(filter)
+	extra := url.Values{}
+	if rsql {
+		extra.Set("filter", filter)
+	}
 	var all []GroupSummary
-	baseURL, err := GetBaseURL(credName)
+	err := fetchJamfPaged(credName, apiPath, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+		var page []GroupSummary
+		if err := json.Unmarshal(resultsJSON, &page); err != nil {
+			return 0, fmt.Errorf("parse response: %w", err)
+		}
+		all = append(all, page...)
+		return len(page), nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	for page := 0; ; page++ {
-		endpoint := fmt.Sprintf("%s%s?page=%d&page-size=%d", baseURL, apiPath, page, groupPageSize)
-		if rsql {
-			endpoint += "&filter=" + url.QueryEscape(filter)
-		}
-		req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-		if err != nil {
-			return nil, fmt.Errorf("create request: %w", err)
-		}
-		req.Header.Set("Accept", "application/json")
-		resp, err := PerformRequest(nil, req, credName)
-		if err != nil {
-			return nil, fmt.Errorf("list groups (page %d): %w", page, err)
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("list groups status %d: %s", resp.StatusCode, string(body))
-		}
-		var result groupPageResult
-		if err := json.Unmarshal(body, &result); err != nil {
-			return nil, fmt.Errorf("parse response: %w", err)
-		}
-		all = append(all, result.Results...)
-		if len(all) >= result.TotalCount || len(result.Results) == 0 {
-			break
-		}
 	}
 	if filter != "" && !rsql {
 		filterLower := strings.ToLower(strings.TrimSpace(filter))
@@ -125,13 +100,13 @@ func groupSearchPaged(credName, apiPath, filter string) ([]GroupSummary, error) 
 }
 
 // GroupSearchSmart fetches smart computer groups from the v2 API.
-func GroupSearchSmart(credName, filter string, _ *slog.Logger) ([]GroupSummary, error) {
-	return groupSearchPaged(credName, uriSmartGroups, filter)
+func GroupSearchSmart(credName, filter string, opts PageOpts, _ *slog.Logger) ([]GroupSummary, error) {
+	return groupSearchPaged(credName, uriSmartGroups, filter, opts)
 }
 
 // GroupSearchStatic fetches static computer groups from the v2 API.
-func GroupSearchStatic(credName, filter string, _ *slog.Logger) ([]GroupSummary, error) {
-	return groupSearchPaged(credName, uriStaticGroups, filter)
+func GroupSearchStatic(credName, filter string, opts PageOpts, _ *slog.Logger) ([]GroupSummary, error) {
+	return groupSearchPaged(credName, uriStaticGroups, filter, opts)
 }
 
 // GroupFetchSmartRaw fetches a smart group by ID and returns the raw JSON bytes (for script/component use).
@@ -308,7 +283,7 @@ func printGroupTable(groups []GroupSummary) {
 
 // GroupListSmart fetches and prints smart computer groups.
 func GroupListSmart(credName, filter string, logger *slog.Logger) error {
-	groups, err := GroupSearchSmart(credName, filter, logger)
+	groups, err := GroupSearchSmart(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
 	}
@@ -318,7 +293,7 @@ func GroupListSmart(credName, filter string, logger *slog.Logger) error {
 
 // GroupListStatic fetches and prints static computer groups.
 func GroupListStatic(credName, filter string, logger *slog.Logger) error {
-	groups, err := GroupSearchStatic(credName, filter, logger)
+	groups, err := GroupSearchStatic(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
 	}
@@ -330,7 +305,7 @@ func GroupListStatic(credName, filter string, logger *slog.Logger) error {
 // Prefers an exact case-insensitive match; falls back to substring match.
 // Returns empty id and name if no match is found.
 func GroupFindID(credName string, name string, logger *slog.Logger) (id string, groupName string, err error) {
-	records, err := GroupSearchSmart(credName, name, logger)
+	records, err := GroupSearchSmart(credName, name, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return "", "", err
 	}

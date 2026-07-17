@@ -184,6 +184,7 @@ That output lists every builtin with parameter names, types, and return shapes. 
 
 - Resource IDs come first (`policy_id`, `group_id`, …), then options, then optional `cred?` last.
 - Use `cred="name"` to override the active credential for a single call.
+- Paginated list builtins take `page?` (0-based) and `page_size?` (default 200). **Omit `page`** to walk every page and return the full list.
 
 ---
 

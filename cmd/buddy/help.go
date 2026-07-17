@@ -287,6 +287,8 @@ Check ok before using value.
 Conventions: Resource IDs come first (e.g. policy_id, group_id, script_id,
 computer_id); payload/options next; cred? is always last and optional.
 Use cred= to override the active credential for that call.
+Paginated list builtins accept page? (0-based) and page_size? (default 200).
+Omit page to fetch every page and return the full result set.
 
 Each builtin lists its signature, then → value (or None). Indented "Params:"
 lines describe arguments; "Returns:" states the value shape when ok.
@@ -355,12 +357,12 @@ POLICY — component
       Params: policy_id: int; xml_str: str (full policy XML body). cred?: credential name.
 
 GROUP
-  group_list_smart(filter?, cred?)
+  group_list_smart(filter?, page?, page_size?, cred?)
       → value: list of dicts with id, name, description
-      Params: filter?: str (name substring or RSQL). cred?: credential name.
-  group_list_static(filter?, cred?)
+      Params: filter?: str (name substring or RSQL). page?: int (0-based; omit = all pages). page_size?: int (default 200). cred?: credential name.
+  group_list_static(filter?, page?, page_size?, cred?)
       → value: list of dicts with id, name, description
-      Params: filter?: str. cred?: credential name.
+      Params: filter?: str. page?, page_size?: as above. cred?: credential name.
   group_find_id(name, cred?)
       → value: dict {"id": str, "name": str} (searches smart groups)
       Params: name: str. cred?: credential name.
@@ -419,9 +421,9 @@ GROUP
       Params: group_id: str; computer_ids: list of int or str (replaces full membership). cred?: credential name.
 
 PACKAGE
-  package_list(filter?)
+  package_list(filter?, page?, page_size?, cred?)
       → value: list of dicts
-      Params: filter?: str (RSQL). Returns: list of package records.
+      Params: filter?: str (RSQL). page?: int (omit = all pages). page_size?: int (default 200). cred?: credential name.
   package_find_id(app, version, pattern?)
       → value: dict {"id": str, "name": str}
       Params: app: str; version: str; pattern?: str. Returns: match dict.
@@ -512,9 +514,9 @@ PROFILE — component
       Params: data_str: str (bare dict fragment or full plist).
 
 SCRIPT (Jamf Pro scripts)
-  script_list(filter?)
+  script_list(filter?, page?, page_size?, cred?)
       → value: list of dicts
-      Params: filter?: str (name substring). Returns: list of script records.
+      Params: filter?: str (name substring or RSQL). page?: int (omit = all pages). page_size?: int (default 200). cred?: credential name.
   script_get_id(name)
       → value: str script ID
       Params: name: str.
@@ -532,9 +534,9 @@ SCRIPT (Jamf Pro scripts)
       Params: script_id: str; dict: Starlark dict (fields to update). cred?: credential name.
 
 COMPUTER
-  computer_find_ids(filter?, cred?)
+  computer_find_ids(filter?, page?, page_size?, cred?)
       → value: list of int IDs
-      Params: filter?: str (RSQL). cred?: credential name.
+      Params: filter?: str (RSQL). page?: int (omit = all pages). page_size?: int (default 200). cred?: credential name.
   computer_get(computer_id, cred?)
       → value: dict (id, name, serialNumber, udid, managementId, ...)
       Params: computer_id: int or str. cred?: credential name.
@@ -582,23 +584,23 @@ COMPUTER
       Params: computer_ids: list of int. cred?: credential name.
 
 MDM
-  mdm_command_find(filter, sort?, page_size?, limit?, cred?)
+  mdm_command_find(filter, sort?, page?, page_size?, limit?, cred?)
       → value: list of dicts (MDM command records)
-      Params: filter: str (RSQL, required); sort?, page_size?, limit?: optional. cred?: credential name.
-  mdm_fetch_commands(filter, sort?, page_size?, limit?, cred?)
+      Params: filter: str (RSQL, required); sort?: str; page?: int (omit = all pages); page_size?: int; limit?: int (cap when page omitted; 0 = no cap). cred?: credential name.
+  mdm_fetch_commands(filter, sort?, page?, page_size?, limit?, cred?)
       → value: list of dicts (MDM command records)
-      Params: filter?: str (RSQL); sort?, page_size?, limit?: optional. cred?: credential name.
+      Params: same as mdm_command_find.
 
 ROLE
   role_privileges_list(cred?)
       → value: list of str (privilege names)
       Params: cred?: credential name.
-  role_list(cred?)
+  role_list(page?, page_size?, cred?)
       → value: list of dicts with id, display_name
-      Params: cred?: credential name.
-  role_fetch_list(cred?)
+      Params: page?: int (omit = all pages). page_size?: int (default 200). cred?: credential name.
+  role_fetch_list(page?, page_size?, cred?)
       → value: list of dicts (full roles JSON)
-      Params: cred?: credential name.
+      Params: page?, page_size?: as above. cred?: credential name.
   role_fetch(role_id, cred?)
       → value: dict (full role JSON)
       Params: role_id: str. cred?: credential name.
@@ -610,9 +612,9 @@ ROLE
       Params: display_name: str; privileges: list of str; cred?: credential name.
 
 CLIENT
-  client_fetch_list(cred?)
+  client_fetch_list(page?, page_size?, cred?)
       → value: list of dicts (full clients JSON)
-      Params: cred?: credential name.
+      Params: page?: int (omit = all pages). page_size?: int (default 200). cred?: credential name.
   client_fetch(client_id, cred?)
       → value: dict (full client JSON)
       Params: client_id: str or int. cred?: credential name.

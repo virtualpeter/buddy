@@ -56,73 +56,40 @@ type packageDeleteRequest struct {
 // PackageList fetches and prints packages, with an optional RSQL filter.
 // Example filter: packageName=="*Chrome*"
 func PackageList(credName, filter string, logger *slog.Logger) error {
-	baseURL, err := GetBaseURL(credName)
+	results, err := PackageSearch(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
 	}
-	endpoint := baseURL + "/api/v1/packages"
-	if filter != "" {
-		endpoint += "?filter=" + url.QueryEscape(filter) + "&page-size=200"
-	} else {
-		endpoint += "?page-size=200"
-	}
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return fmt.Errorf("list packages: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("list packages status %d: %s", resp.StatusCode, string(body))
-	}
-	var result PackagesSearchResults
-	if err := json.Unmarshal(body, &result); err != nil {
-		return fmt.Errorf("parse response: %w", err)
-	}
 	fmt.Printf("%-8s  %-40s  %s\n", "ID", "Package Name", "File Name")
 	fmt.Printf("%-8s  %-40s  %s\n", "--------", "----------------------------------------", "--------------------")
-	for _, p := range result.Results {
+	for _, p := range results {
 		fmt.Printf("%-8s  %-40s  %s\n", p.ID, truncatePkg(p.PackageName, 40), p.FileName)
 	}
-	fmt.Printf("\n%d of %d package(s)\n", len(result.Results), result.TotalCount)
+	fmt.Printf("\n%d package(s)\n", len(results))
 	return nil
 }
 
 // PackageSearch returns package records matching the optional RSQL filter without printing.
 // Used by DSL builtins that need structured data rather than human-readable output.
-func PackageSearch(credName, filter string, logger *slog.Logger) ([]PackageRecord, error) {
-	baseURL, err := GetBaseURL(credName)
+// When opts.Page is PageAll, all pages are fetched.
+func PackageSearch(credName, filter string, opts PageOpts, logger *slog.Logger) ([]PackageRecord, error) {
+	extra := url.Values{}
+	if filter != "" {
+		extra.Set("filter", filter)
+	}
+	var all []PackageRecord
+	err := fetchJamfPaged(credName, "/api/v1/packages", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+		var page []PackageRecord
+		if err := json.Unmarshal(resultsJSON, &page); err != nil {
+			return 0, fmt.Errorf("parse response: %w", err)
+		}
+		all = append(all, page...)
+		return len(page), nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	endpoint := baseURL + "/api/v1/packages?page-size=200"
-	if filter != "" {
-		endpoint += "&filter=" + url.QueryEscape(filter)
-	}
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return nil, fmt.Errorf("search packages: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("search packages status %d: %s", resp.StatusCode, string(body))
-	}
-	var result PackagesSearchResults
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return result.Results, nil
+	return all, nil
 }
 
 // PackageGet fetches and pretty-prints a single package record by ID.
@@ -250,34 +217,15 @@ func PackageFindID(credName, appName, version, patternOverride string, logger *s
 func packageFindByAppVersion(credName, appName, version string, logger *slog.Logger) (id, name string, err error) {
 	// Build RSQL: packageName=="*appName*"
 	rsql := `packageName=="*` + appName + `*"`
-	appBase, err := GetBaseURL(credName)
+	results, err := PackageSearch(credName, rsql, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return "", "", err
-	}
-	endpoint := appBase + "/api/v1/packages?page-size=200&filter=" + url.QueryEscape(rsql)
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return "", "", fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return "", "", fmt.Errorf("search packages: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("search packages status %d: %s", resp.StatusCode, string(body))
-	}
-	var result PackagesSearchResults
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", "", fmt.Errorf("parse response: %w", err)
 	}
 
 	appLower := strings.ToLower(appName)
 	versionLower := strings.ToLower(version)
 	var candidates []PackageRecord
-	for _, p := range result.Results {
+	for _, p := range results {
 		n := strings.ToLower(p.PackageName)
 		if strings.Contains(n, appLower) && strings.Contains(n, versionLower) {
 			candidates = append(candidates, p)
@@ -304,7 +252,7 @@ func packageFindByPattern(credName, appName, version, patternOverride string, lo
 	target := strings.ReplaceAll(patternOverride, "{version}", version)
 	escaped := EscapeRSQLString(target)
 	rsql := `packageName=="` + escaped + `"`
-	results, err := PackageSearch(credName, rsql, logger)
+	results, err := PackageSearch(credName, rsql, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return "", "", err
 	}
@@ -325,9 +273,9 @@ func packageFindByRegex(credName, version, rePattern string, logger *slog.Logger
 	var results []PackageRecord
 	if rsqlHint != "" {
 		rsql := `packageName=="*` + rsqlHint + `*"`
-		results, err = PackageSearch(credName, rsql, logger)
+		results, err = PackageSearch(credName, rsql, PageOpts{Page: PageAll}, logger)
 	} else {
-		results, err = PackageSearch(credName, "", logger)
+		results, err = PackageSearch(credName, "", PageOpts{Page: PageAll}, logger)
 	}
 	if err != nil {
 		return "", "", err
@@ -619,7 +567,7 @@ func packageCreate(credName string, payload *packageCreatePayload) (string, erro
 func packageFindByFileName(credName, fileName string, logger *slog.Logger) (id string, err error) {
 	escaped := EscapeRSQLString(fileName)
 	rsql := `fileName=="` + escaped + `"`
-	results, err := PackageSearch(credName, rsql, logger)
+	results, err := PackageSearch(credName, rsql, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return "", err
 	}

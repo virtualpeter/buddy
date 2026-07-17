@@ -38,7 +38,7 @@ type OAuthClientCredentials struct {
 
 // ClientList fetches and prints all API integrations.
 func ClientList(credName string, logger *slog.Logger) error {
-	clients, err := ClientListValues(credName, logger)
+	clients, err := ClientListValues(credName, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
 	}
@@ -48,37 +48,27 @@ func ClientList(credName string, logger *slog.Logger) error {
 	return nil
 }
 
-// ClientListValues fetches all API integrations and returns them (for script/setup use).
-func ClientListValues(credName string, logger *slog.Logger) ([]ApiIntegrationResponse, error) {
-	baseURL, err := GetBaseURL(credName)
+// ClientListValues fetches API integrations and returns them (for script/setup use).
+// When opts.Page is PageAll, all pages are fetched.
+func ClientListValues(credName string, opts PageOpts, logger *slog.Logger) ([]ApiIntegrationResponse, error) {
+	var all []ApiIntegrationResponse
+	err := fetchJamfPaged(credName, "/api/v1/api-integrations", nil, opts, func(resultsJSON []byte, _ int) (int, error) {
+		var page []ApiIntegrationResponse
+		if err := json.Unmarshal(resultsJSON, &page); err != nil {
+			return 0, fmt.Errorf("parse response: %w", err)
+		}
+		all = append(all, page...)
+		return len(page), nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	url := baseURL + "/api/v1/api-integrations"
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return nil, fmt.Errorf("list clients: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list clients status %d: %s", resp.StatusCode, string(body))
-	}
-	var result ApiIntegrationSearchResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return result.Results, nil
+	return all, nil
 }
 
 // ClientFindByDisplayName returns the first API integration whose display name matches.
 func ClientFindByDisplayName(credName, displayName string, logger *slog.Logger) (*ApiIntegrationResponse, error) {
-	clients, err := ClientListValues(credName, logger)
+	clients, err := ClientListValues(credName, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return nil, err
 	}

@@ -2427,15 +2427,16 @@ func runMdm(credName string, _ buddy.Opts, args []string, log *slog.Logger) erro
 		if filter == "" {
 			return fmt.Errorf("--filter is required; run 'buddy mdm help' for usage")
 		}
+		pageOpts := buddy.PageOpts{Page: buddy.PageAll, PageSize: pageSize}
 		if count {
-			records, err := buddy.MdmCommandFind(credName, filter, sort, pageSize, limit, log)
+			records, err := buddy.MdmCommandFind(credName, filter, sort, pageOpts, limit, log)
 			if err != nil {
 				return err
 			}
 			fmt.Printf("%d\n", len(records))
 			return nil
 		}
-		return buddy.MdmCommandFindPrint(credName, filter, sort, pageSize, limit, log)
+		return buddy.MdmCommandFindPrint(credName, filter, sort, pageOpts, limit, log)
 	default:
 		return fmt.Errorf("unknown mdm subcommand: %q (use: find); run 'buddy mdm help' for usage", subcommand)
 	}

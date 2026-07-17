@@ -72,49 +72,30 @@ func isRSQLFilter(s string) bool {
 	return false
 }
 
-const scriptPageSize = 200
-
-// ScriptSearch fetches all scripts via paginated requests and returns records
-// matching the optional filter. Two filter modes are supported:
-//   - Plain string (e.g. "install"): fetches all pages, then filters client-side
+// ScriptSearch fetches scripts via paginated requests and returns records
+// matching the optional filter. When opts.Page is PageAll, all pages are fetched.
+// Two filter modes are supported:
+//   - Plain string (e.g. "install"): fetches pages per opts, then filters client-side
 //     by case-insensitive name substring.
 //   - RSQL expression (e.g. `name=="*Jamf*"`): passes &filter= to the API on
-//     each page request so the server filters and pagination walks only matching records.
-func ScriptSearch(credName, filter string, logger *slog.Logger) ([]ScriptDetail, error) {
+//     each page request so the server filters.
+func ScriptSearch(credName, filter string, opts PageOpts, logger *slog.Logger) ([]ScriptDetail, error) {
 	rsql := filter != "" && isRSQLFilter(filter)
+	extra := url.Values{}
+	if rsql {
+		extra.Set("filter", filter)
+	}
 	var all []ScriptDetail
-	baseURL, err := GetBaseURL(credName)
+	err := fetchJamfPaged(credName, "/api/v1/scripts", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+		var page []ScriptDetail
+		if err := json.Unmarshal(resultsJSON, &page); err != nil {
+			return 0, fmt.Errorf("parse response: %w", err)
+		}
+		all = append(all, page...)
+		return len(page), nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	for page := 0; ; page++ {
-		endpoint := fmt.Sprintf("%s/api/v1/scripts?page=%d&page-size=%d",
-			baseURL, page, scriptPageSize)
-		if rsql {
-			endpoint += "&filter=" + url.QueryEscape(filter)
-		}
-		req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-		if err != nil {
-			return nil, fmt.Errorf("create request: %w", err)
-		}
-		req.Header.Set("Accept", "application/json")
-		resp, err := PerformRequest(nil, req, credName)
-		if err != nil {
-			return nil, fmt.Errorf("list scripts (page %d): %w", page, err)
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("list scripts status %d: %s", resp.StatusCode, string(body))
-		}
-		var result scriptSearchResults
-		if err := json.Unmarshal(body, &result); err != nil {
-			return nil, fmt.Errorf("parse response: %w", err)
-		}
-		all = append(all, result.Results...)
-		if len(all) >= result.TotalCount || len(result.Results) == 0 {
-			break
-		}
 	}
 	if filter != "" && !rsql {
 		filterLower := strings.ToLower(strings.TrimSpace(filter))
@@ -131,7 +112,7 @@ func ScriptSearch(credName, filter string, logger *slog.Logger) ([]ScriptDetail,
 
 // ScriptList fetches and prints scripts in a tabular format, with an optional name filter.
 func ScriptList(credName, filter string, logger *slog.Logger) error {
-	scripts, err := ScriptSearch(credName, filter, logger)
+	scripts, err := ScriptSearch(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
 	}
@@ -214,7 +195,7 @@ func ScriptGetContentsStr(credName, id string) (string, error) {
 
 // ScriptGetID resolves a script name to its string ID (exact match, case-insensitive).
 func ScriptGetID(credName, name string, logger *slog.Logger) (string, error) {
-	scripts, err := ScriptSearch(credName, "", logger)
+	scripts, err := ScriptSearch(credName, "", PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return "", err
 	}

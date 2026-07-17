@@ -37,6 +37,26 @@ func resultErr(msg string) *starlark.Dict {
 	return d
 }
 
+// pageOptsFromArgs builds buddy.PageOpts from optional Starlark page / page_size.
+// Omit page (None) → fetch all pages. page is 0-based when set.
+func pageOptsFromArgs(page starlark.Value, pageSize starlark.Int) (buddy.PageOpts, error) {
+	opts := buddy.PageOpts{Page: buddy.PageAll}
+	if ps, ok := pageSize.Int64(); ok && ps > 0 {
+		opts.PageSize = int(ps)
+	}
+	if page != nil && page != starlark.None {
+		n, err := starlark.AsInt32(page)
+		if err != nil {
+			return opts, fmt.Errorf("page must be an int: %w", err)
+		}
+		if n < 0 {
+			return opts, fmt.Errorf("page must be >= 0; omit page to fetch all")
+		}
+		opts.Page = n
+	}
+	return opts, nil
+}
+
 // formatTraceArgs renders positional and keyword arguments as a compact string.
 func formatTraceArgs(args starlark.Tuple, kwargs []starlark.Tuple) string {
 	var parts []string
@@ -613,29 +633,35 @@ func policySetPackage(credName string, logger *slog.Logger) func(*starlark.Threa
 	}
 }
 
-// group_list_smart(filter?, cred?) → {ok, value: [{id, name, description}, ...]}
+// group_list_smart(filter?, page?, page_size?, cred?) → {ok, value: [{id, name, description}, ...]}
 func groupListSmart(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return groupListBuiltin("group_list_smart", buddy.GroupSearchSmart, credName, logger)
 }
 
-// group_list_static(filter?, cred?) → {ok, value: [{id, name, description}, ...]}
+// group_list_static(filter?, page?, page_size?, cred?) → {ok, value: [{id, name, description}, ...]}
 func groupListStatic(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return groupListBuiltin("group_list_static", buddy.GroupSearchStatic, credName, logger)
 }
 
-type groupSearchFunc func(credName, filter string, logger *slog.Logger) ([]buddy.GroupSummary, error)
+type groupSearchFunc func(credName, filter string, opts buddy.PageOpts, logger *slog.Logger) ([]buddy.GroupSummary, error)
 
 func groupListBuiltin(name string, search groupSearchFunc, credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var filter, cred starlark.String
-		if err := starlark.UnpackArgs(name, args, kwargs, "filter?", &filter, "cred?", &cred); err != nil {
+		page := starlark.Value(starlark.None)
+		var pageSize starlark.Int
+		if err := starlark.UnpackArgs(name, args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
 			return nil, err
 		}
 		c := credName
 		if cred != "" {
 			c = string(cred)
 		}
-		records, err := search(c, string(filter), logger)
+		records, err := search(c, string(filter), opts, logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -1190,14 +1216,20 @@ func rolePrivilegesList(credName string, logger *slog.Logger) func(*starlark.Thr
 func roleList(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var cred starlark.String
-		if err := starlark.UnpackArgs("role_list", args, kwargs, "cred?", &cred); err != nil {
+		page := starlark.Value(starlark.None)
+		var pageSize starlark.Int
+		if err := starlark.UnpackArgs("role_list", args, kwargs, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
 			return nil, err
 		}
 		c := credName
 		if cred != "" {
 			c = string(cred)
 		}
-		roles, err := buddy.RoleListValues(getCred(thread, c), logger)
+		roles, err := buddy.RoleListValues(getCred(thread, c), opts, logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -1212,18 +1244,24 @@ func roleList(credName string, logger *slog.Logger) func(*starlark.Thread, *star
 	}
 }
 
-// role_fetch_list(cred?) → {ok, value: list of dict}
+// role_fetch_list(page?, page_size?, cred?) → {ok, value: list of dict}
 func roleFetchList(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var cred starlark.String
-		if err := starlark.UnpackArgs("role_fetch_list", args, kwargs, "cred?", &cred); err != nil {
+		page := starlark.Value(starlark.None)
+		var pageSize starlark.Int
+		if err := starlark.UnpackArgs("role_fetch_list", args, kwargs, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
 			return nil, err
 		}
 		c := credName
 		if cred != "" {
 			c = string(cred)
 		}
-		roles, err := buddy.RoleListValues(getCred(thread, c), logger)
+		roles, err := buddy.RoleListValues(getCred(thread, c), opts, logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -1412,18 +1450,24 @@ func roleCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 	}
 }
 
-// client_fetch_list(cred?) → {ok, value: list of dict}
+// client_fetch_list(page?, page_size?, cred?) → {ok, value: list of dict}
 func clientFetchList(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var cred starlark.String
-		if err := starlark.UnpackArgs("client_fetch_list", args, kwargs, "cred?", &cred); err != nil {
+		page := starlark.Value(starlark.None)
+		var pageSize starlark.Int
+		if err := starlark.UnpackArgs("client_fetch_list", args, kwargs, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
 			return nil, err
 		}
 		c := credName
 		if cred != "" {
 			c = string(cred)
 		}
-		clients, err := buddy.ClientListValues(getCred(thread, c), logger)
+		clients, err := buddy.ClientListValues(getCred(thread, c), opts, logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -1796,15 +1840,25 @@ func groupPut(credName string, logger *slog.Logger) func(*starlark.Thread, *star
 // Package builtins
 // ---------------------------------------------------------------------------
 
-// package_list(filter="") → list of {id, packageName, fileName} dicts
+// package_list(filter?, page?, page_size?, cred?) → list of {id, packageName, fileName} dicts
 func packageList(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var filter starlark.String
-		if err := starlark.UnpackArgs("package_list", args, kwargs, "filter?", &filter); err != nil {
+		var filter, credArg starlark.String
+		page := starlark.Value(starlark.None)
+		var pageSize starlark.Int
+		if err := starlark.UnpackArgs("package_list", args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize, "cred?", &credArg); err != nil {
 			return nil, err
 		}
-		cred := getCred(thread, credName)
-		results, err := buddy.PackageSearch(cred, string(filter), logger)
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		c := credName
+		if credArg != "" {
+			c = string(credArg)
+		}
+		cred := getCred(thread, c)
+		results, err := buddy.PackageSearch(cred, string(filter), opts, logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -1970,11 +2024,17 @@ func packageUpload(credName string, logger *slog.Logger) func(*starlark.Thread, 
 	}
 }
 
-// script_list(filter?, cred?) → {ok, value: [{id, name, categoryId, categoryName}, ...]}
+// script_list(filter?, page?, page_size?, cred?) → {ok, value: [{id, name, categoryId, categoryName}, ...]}
 func scriptList(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var filter, cred starlark.String
-		if err := starlark.UnpackArgs("script_list", args, kwargs, "filter?", &filter, "cred?", &cred); err != nil {
+		page := starlark.Value(starlark.None)
+		var pageSize starlark.Int
+		if err := starlark.UnpackArgs("script_list", args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
 			return nil, err
 		}
 		c := credName
@@ -1982,7 +2042,7 @@ func scriptList(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 			c = string(cred)
 		}
 		credResolved := getCred(thread, c)
-		results, err := buddy.ScriptSearch(credResolved, string(filter), logger)
+		results, err := buddy.ScriptSearch(credResolved, string(filter), opts, logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -3373,11 +3433,17 @@ func scriptPutBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 // Computer builtins
 // ---------------------------------------------------------------------------
 
-// computer_find_ids(filter, cred?) → {ok, value: [id1, id2, ...]} or {ok: False, error: "..."}
+// computer_find_ids(filter?, page?, page_size?, cred?) → {ok, value: [id1, id2, ...]} or {ok: False, error: "..."}
 func computerFindIDs(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var filter, cred starlark.String
-		if err := starlark.UnpackArgs("computer_find_ids", args, kwargs, "filter?", &filter, "cred?", &cred); err != nil {
+		page := starlark.Value(starlark.None)
+		var pageSize starlark.Int
+		if err := starlark.UnpackArgs("computer_find_ids", args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
 			return nil, err
 		}
 		c := credName
@@ -3385,7 +3451,7 @@ func computerFindIDs(credName string, logger *slog.Logger) func(*starlark.Thread
 			c = string(cred)
 		}
 		credResolved := getCred(thread, c)
-		records, err := buddy.ComputerSearch(credResolved, string(filter), logger)
+		records, err := buddy.ComputerSearch(credResolved, string(filter), opts, logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -3765,33 +3831,37 @@ func computerCertificates(credName string, logger *slog.Logger) func(*starlark.T
 // MDM builtins
 // ---------------------------------------------------------------------------
 
-// mdm_command_find(filter, sort="dateSent:asc", page_size=200, limit=0, cred=None) → {ok, value: list of dicts}
+// mdm_command_find(filter, sort?, page?, page_size?, limit?, cred?) → {ok, value: list of dicts}
 // Each dict has keys: uuid, command_type, command_state, client_management_id,
 // client_type, date_sent, date_completed.
-// page_size controls records per API request; limit caps the total returned (0 = no cap).
+// Omit page to walk all pages; page_size is per request; limit caps total when page is omitted (0 = no cap).
 func mdmCommandFind(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var filter starlark.String
 		var sort starlark.String
+		page := starlark.Value(starlark.None)
 		var pageSize starlark.Int
 		var limit starlark.Int
 		var cred starlark.String
 		if err := starlark.UnpackArgs("mdm_command_find", args, kwargs,
-			"filter", &filter, "sort?", &sort, "page_size?", &pageSize, "limit?", &limit, "cred?", &cred,
+			"filter", &filter, "sort?", &sort, "page?", &page, "page_size?", &pageSize, "limit?", &limit, "cred?", &cred,
 		); err != nil {
+			return nil, err
+		}
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
 			return nil, err
 		}
 		sortStr := string(sort)
 		if sortStr == "" {
 			sortStr = "dateSent:asc"
 		}
-		ps, _ := pageSize.Int64()
 		lim, _ := limit.Int64()
 		c := credName
 		if cred != "" {
 			c = string(cred)
 		}
-		records, err := buddy.MdmCommandFind(getCred(thread, c), string(filter), sortStr, int(ps), int(lim), logger)
+		records, err := buddy.MdmCommandFind(getCred(thread, c), string(filter), sortStr, opts, int(lim), logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -3811,32 +3881,35 @@ func mdmCommandFind(credName string, logger *slog.Logger) func(*starlark.Thread,
 	}
 }
 
-// mdm_fetch_commands(filter, sort="dateSent:asc", page_size=200, limit=0, cred=None) → {ok, value: list of dicts}
+// mdm_fetch_commands(filter, sort?, page?, page_size?, limit?, cred?) → {ok, value: list of dicts}
 // Alias of mdm_command_find with a more \"component\"-style name.
 func mdmFetchCommands(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var filter starlark.String
 		var sort starlark.String
+		page := starlark.Value(starlark.None)
 		var pageSize starlark.Int
 		var limit starlark.Int
 		var cred starlark.String
 		if err := starlark.UnpackArgs("mdm_fetch_commands", args, kwargs,
-			"filter", &filter, "sort?", &sort, "page_size?", &pageSize, "limit?", &limit, "cred?", &cred,
+			"filter", &filter, "sort?", &sort, "page?", &page, "page_size?", &pageSize, "limit?", &limit, "cred?", &cred,
 		); err != nil {
 			return nil, err
 		}
-		// Delegate to the same implementation used by mdm_command_find.
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
+			return nil, err
+		}
 		sortStr := string(sort)
 		if sortStr == "" {
 			sortStr = "dateSent:asc"
 		}
-		ps, _ := pageSize.Int64()
 		lim, _ := limit.Int64()
 		c := credName
 		if cred != "" {
 			c = string(cred)
 		}
-		records, err := buddy.MdmCommandFind(getCred(thread, c), string(filter), sortStr, int(ps), int(lim), logger)
+		records, err := buddy.MdmCommandFind(getCred(thread, c), string(filter), sortStr, opts, int(lim), logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}

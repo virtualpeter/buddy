@@ -9,6 +9,16 @@ Buddy communicates with Jamf Pro through two API surfaces using direct HTTP requ
 
 Authentication is config-driven per credential (command, basic, or OAuth). See `buddy auth help` and `buddy cred help`. For **basic** (username/password), buddy obtains a Bearer token via `POST /api/v1/auth/token` with Basic auth, then uses that token for all API requests.
 
+### Pagination
+
+Jamf Pro JSON list endpoints that return `{totalCount, results}` are fetched via `fetchJamfPaged` (`internal/buddy/pagination.go`):
+
+- Query params: `page` (0-based) and `page-size` (default **200**).
+- CLI table printers and internal resolvers (find-by-name, etc.) request **all pages**.
+- Starlark list builtins expose `page?` / `page_size?`; **omit `page`** to fetch every page and return the combined list.
+
+Applies to scripts, packages, computers inventory, smart/static group lists, API roles, and API integrations. MDM command list uses the same `page` / `page_size` options but ends on a short page (that API’s `totalCount` is not a reliable global total).
+
 ---
 
 ## Scripts (Jamf Pro API v1)
@@ -17,7 +27,7 @@ Base path: `/api/v1/scripts`
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v1/scripts` | `ScriptSearch`, `ScriptList`, `ScriptGetID` | List all scripts (paginated, `page-size=200`); filtered client-side by name substring |
+| `GET` | `/api/v1/scripts` | `ScriptSearch`, `ScriptList`, `ScriptGetID` | List scripts (paginated; all pages by default); plain filter = client-side name substring, RSQL = server `filter` |
 | `GET` | `/api/v1/scripts/{id}` | `scriptGetFull`, `ScriptGet`, `ScriptGetContents`, `ScriptGetContentsStr`, `ScriptUpdate`, `ScriptSet*` | Fetch full script record including `scriptContents` |
 | `POST` | `/api/v1/scripts` | `ScriptCreate` | Create a new script |
 | `PUT` | `/api/v1/scripts/{id}` | `scriptPut`, `ScriptUpdate`, `ScriptSet*` | Replace a script record (fetch-then-PUT pattern) |
@@ -72,7 +82,7 @@ Base path: `/api/v1/packages`
 ### Notes
 
 - `PackageGet` makes two API calls: one for the record and one for `history?sort=date:desc&page-size=1` to inject `lastChanged` / `lastChangedBy` into the output.
-- `PackageFindID` is shared between the CLI (`policy set package`) and DSL (`package_find_id` builtin).
+- `PackageFindID` is shared between the CLI (`policy set package`) and DSL (`package_find_id` builtin). List/search walks all pages unless a single `page` is requested from Starlark.
 - The `delete-multiple` body is `{"ids": ["1","2",...]}`.
 
 ---
@@ -103,7 +113,7 @@ Base path: `/api/v1/api-roles`
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v1/api-roles` | `RoleList` | List all API roles (paginated) |
+| `GET` | `/api/v1/api-roles` | `RoleList`, `RoleListValues` | List API roles (paginated; all pages by default) |
 | `GET` | `/api/v1/api-roles/{id}` | `RoleGet` | Fetch a single API role |
 | `POST` | `/api/v1/api-roles` | `RoleCreate` | Create a new API role |
 | `PUT` | `/api/v1/api-roles/{id}` | `RoleUpdate` | Replace an API role's name and privilege list |
@@ -118,7 +128,7 @@ Base path: `/api/v1/api-integrations`
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v1/api-integrations` | `ClientList` | List all API integrations (paginated) |
+| `GET` | `/api/v1/api-integrations` | `ClientList`, `ClientListValues` | List API integrations (paginated; all pages by default) |
 | `GET` | `/api/v1/api-integrations/{id}` | `ClientGet`, `clientGetRaw` | Fetch a single API integration |
 | `POST` | `/api/v1/api-integrations` | `ClientCreate` | Create a new API integration |
 | `PUT` | `/api/v1/api-integrations/{id}` | `ClientUpdate`, `ClientSetTokenLifetime` | Update an API integration (name, scopes, token lifetime) |
@@ -138,7 +148,7 @@ Base paths: `/api/v3/computers-inventory`, `/api/v2/mdm/commands`, `/api/v1/jamf
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v3/computers-inventory` | `ComputerSearch`, `ComputerSearchPrint` | List computers; supports optional RSQL `filter` query param |
+| `GET` | `/api/v3/computers-inventory` | `ComputerSearch`, `ComputerSearchPrint` | List computers (paginated; all pages by default); optional RSQL `filter` |
 | `GET` | `/api/v3/computers-inventory/{id}` | `ComputerGet`, `ComputerGetValue`, `computerGetManagementID` | Fetch single computer (optionally `?section=GENERAL` for MDM commands) |
 | `POST` | `/api/v2/mdm/commands` | `ComputerReboot`, `ComputerShutdown`, `ComputerLock`, `ComputerLogOut`, `ComputerErase`, `ComputerDeviceInfo`, `ComputerDeviceLocation`, `ComputerSecurityInfo`, `ComputerInstalledApps`, `ComputerManagedApps`, `ComputerCertificates` | Send MDM command (requires managementId from inventory) |
 | `POST` | `/api/v1/jamf-management-framework/redeploy/{id}` | `ComputerRedeploy` | Trigger Jamf Management Framework redeploy on a computer |
@@ -165,7 +175,7 @@ Base path: `/api/v2/mdm/commands`
 ### Notes
 
 - `GET /api/v2/mdm/commands` **requires at least one RSQL filter field** — the API rejects requests with no `filter` parameter. Buddy enforces this client-side with a non-empty check before the request is sent.
-- The endpoint is paginated (`page` 0-based, `page-size=200`). `MdmCommandFind` loops until `len(results) == 0` or `totalCount` is reached.
+- The endpoint is paginated (`page` 0-based, `page-size` default 200). When fetching all pages, `MdmCommandFind` stops on a short page (`totalCount` from this API is not a reliable global total).
 - `sort` defaults to `dateSent:asc` (API default). Supported sort fields match the RSQL filterable fields.
 - Required privilege: `"View MDM command information in Jamf Pro API"`.
 - Date fields (`dateSent`, `validAfter`, `dateCompleted`) require range operators (`=gt=`, `=lt=`, `=ge=`, `=le=`); equality (`==`) is not supported for dates.

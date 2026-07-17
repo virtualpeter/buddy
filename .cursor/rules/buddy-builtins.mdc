@@ -15,6 +15,16 @@ When adding or changing builtins in `internal/script/builtins.go`, follow these 
 **Good:** `policy_set_enable(policy_id, cred?)`, `group_set_version(group_id, version, cred?)`, `script_fetch(script_id, cred?)`  
 **Avoid:** `policy_set_enable(cred, policy_id)`, `script_fetch(id, cred?)` (use `script_id`)
 
+## Pagination (list builtins)
+
+Jamf collection list APIs that support `page` / `page-size` use this pattern on Starlark list builtins:
+
+- `page?` (int, 0-based): when **omitted**, fetch **all** pages and return the combined result.
+- `page_size?` (int): defaults to 200 when omitted or ≤ 0.
+- Place `page?` / `page_size?` before `cred?`.
+
+Go side: `buddy.PageOpts` + `fetchJamfPaged` in `internal/buddy/pagination.go` (`PageAll = -1`). CLI list commands that print tables always use `PageAll`.
+
 ## Parameter names
 
 Use `{resource}_id` for the resource being operated on: `policy_id`, `group_id`, `profile_id`, `package_id`, `script_id`, `computer_id`, `role_id`, `client_id`. For lists of IDs use e.g. `policy_ids`, `computer_ids`. Do not use bare `id` when the resource is clear from the builtin name (e.g. use `script_id` in script_* builtins, `computer_id` in computer_* builtins).
