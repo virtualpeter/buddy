@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"buddy/internal/buddy/tokenauth"
 )
@@ -94,8 +95,17 @@ func obtainRawTokenDirect(direct DirectAuthOpts, log *slog.Logger) (string, erro
 	if err := validateDirectAuth(cfg); err != nil {
 		return "", err
 	}
+	cfg.CacheKey = directAuthCacheKey(cfg)
 	a := tokenauth.NewAuthenticator(cfg)
 	return a.GetToken()
+}
+
+func directAuthCacheKey(cfg tokenauth.Config) string {
+	base := strings.TrimRight(cfg.BaseURL, "/")
+	if cfg.ClientId != "" {
+		return "direct-oauth-" + cfg.ClientId + "@" + base
+	}
+	return "direct-basic-" + cfg.Username + "@" + base
 }
 
 func validateDirectAuth(cfg tokenauth.Config) error {

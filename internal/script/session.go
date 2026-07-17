@@ -80,6 +80,8 @@ func (s *Session) resetLocked() error {
 }
 
 // Eval executes src in the session. filename is used for error positions (e.g. "cell-1").
+// Multi-statement cells behave like a notebook: statements run for effect, and if the
+// last statement is an expression its value is returned in Result (None is omitted).
 func (s *Session) Eval(filename, src string) EvalResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -101,30 +103,55 @@ func (s *Session) Eval(filename, src string) EvalResult {
 	}
 
 	var out EvalResult
-
-	// Prefer expression eval when the whole cell is a single expression (Jupyter-like).
-	if expr, err := syntax.ParseExpr(filename, src, 0); err == nil {
-		val, err := starlark.EvalExpr(s.thread, expr, s.globals)
+	finish := func() {
 		out.Stdout = stdout.String()
 		out.Stderr = stderr.String()
+	}
+
+	opts := &syntax.FileOptions{
+		Set:             true,
+		TopLevelControl: true, // allow if/for at cell top level (notebook UX)
+		GlobalReassign:  true,
+	}
+
+	f, err := opts.Parse(filename, src, 0)
+	if err != nil {
+		finish()
+		out.Error = formatEvalErr(err)
+		return out
+	}
+
+	var lastExpr syntax.Expr
+	if n := len(f.Stmts); n > 0 {
+		if es, ok := f.Stmts[n-1].(*syntax.ExprStmt); ok {
+			lastExpr = es.X
+			f.Stmts = f.Stmts[:n-1]
+		}
+	}
+
+	if len(f.Stmts) > 0 {
+		if err := starlark.ExecREPLChunk(f, s.thread, s.globals); err != nil {
+			finish()
+			out.Error = formatEvalErr(err)
+			return out
+		}
+	}
+
+	if lastExpr != nil {
+		val, err := starlark.EvalExprOptions(opts, s.thread, lastExpr, s.globals)
+		finish()
 		if err != nil {
 			out.Error = formatEvalErr(err)
 			return out
 		}
 		if val != nil && val != starlark.None {
 			out.Result = val.String()
+			s.globals["_"] = val
 		}
 		return out
 	}
 
-	globals, err := starlark.ExecFile(s.thread, filename, src, s.globals)
-	out.Stdout = stdout.String()
-	out.Stderr = stderr.String()
-	if err != nil {
-		out.Error = formatEvalErr(err)
-		return out
-	}
-	s.globals = globals
+	finish()
 	return out
 }
 

@@ -65,13 +65,24 @@ textarea {
   font: inherit; line-height: 1.45;
 }
 .out {
-  padding: .65rem .75rem; border-top: 1px solid #2a3542;
-  white-space: pre-wrap; font-size: .85rem; min-height: 1.5rem;
+  padding: .5rem .75rem; border-top: 1px solid #2a3542;
+  font-size: .85rem; min-height: 1.5rem;
+  display: flex; flex-direction: column; gap: .45rem;
 }
-.out .stdout { color: var(--ink); }
-.out .stderr { color: #fbbf24; }
-.out .result { color: var(--ok); }
-.out .error { color: var(--err); }
+.out .stream, .out .result, .out .error {
+  white-space: pre-wrap; word-break: break-word;
+  padding: .4rem .5rem; border-radius: 4px;
+  border-left: 3px solid transparent;
+}
+.out .stream-label, .out .result-label, .out .error-label {
+  display: block; font-size: .7rem; letter-spacing: .04em;
+  text-transform: uppercase; margin-bottom: .2rem; opacity: .85;
+}
+.out .stdout { color: var(--ink); background: #0d1218; border-left-color: #64748b; }
+.out .stderr { color: #fde68a; background: #1a1510; border-left-color: #fbbf24; }
+.out .result { color: var(--ok); background: #0f1a12; border-left-color: var(--ok); }
+.out .error { color: var(--err); background: #1a1012; border-left-color: var(--err); }
+.out .empty { color: #64748b; }
 </style>
 </head>
 <body>
@@ -129,11 +140,13 @@ async function loadCreds() {
 
 function renderOut(el, res) {
   const parts = [];
-  if (res.stdout) parts.push('<div class="stdout">' + esc(res.stdout) + '</div>');
-  if (res.stderr) parts.push('<div class="stderr">' + esc(res.stderr) + '</div>');
-  if (res.result) parts.push('<div class="result">' + esc(res.result) + '</div>');
-  if (res.error) parts.push('<div class="error">' + esc(res.error) + '</div>');
-  el.innerHTML = parts.join('') || '<span style="color:#64748b">(no output)</span>';
+  const block = (cls, label, body) =>
+    '<div class="' + cls + '"><span class="' + cls.split(' ')[0] + '-label">' + label + '</span>' + esc(body) + '</div>';
+  if (res.stdout) parts.push(block('stream stdout', 'stdout', res.stdout.replace(/\n$/, '')));
+  if (res.stderr) parts.push(block('stream stderr', 'stderr', res.stderr.replace(/\n$/, '')));
+  if (res.result) parts.push(block('result', 'Out', res.result));
+  if (res.error) parts.push(block('error', 'error', res.error));
+  el.innerHTML = parts.join('') || '<span class="empty">(no output)</span>';
 }
 function esc(s) {
   return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -188,7 +201,7 @@ document.getElementById('reset').onclick = async () => {
 
 (async () => {
   await loadCreds();
-  addCell('print("buddy notebook ready")\n1 + 1');
+  addCell('print("buddy notebook ready")\nerror("stderr demo")\n1 + 1');
 })();
 </script>
 </body>

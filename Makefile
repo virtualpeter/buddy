@@ -20,6 +20,7 @@ $(BUILDTARGET): $(BUDDY_GO_FILES)
 	@ls -l $(BUILDTARGET)
 
 install: $(BUILDTARGET)
+	rm -f ~/go/bin/$(BUILDTARGET)
 	cp $(BUILDTARGET) ~/go/bin/$(BUILDTARGET)
 .PHONY: install
 

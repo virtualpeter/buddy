@@ -21,6 +21,7 @@ type Authenticator struct {
 	tokenCommand []string
 	clientId     string
 	clientSecret string
+	cacheKey     string // when set, persist token+expiry under ~/.config/buddy/tokens/
 	token        string
 	tokenExpiry  time.Time
 	httpClient   *http.Client
@@ -35,7 +36,9 @@ type Config struct {
 	TokenCommand []string
 	ClientId     string
 	ClientSecret string
-	Logger       *slog.Logger
+	// CacheKey enables on-disk token cache (typically the credential name). Empty disables disk cache.
+	CacheKey string
+	Logger   *slog.Logger
 }
 
 // TokenResponse represents the standard token response from Jamf Pro
@@ -65,6 +68,7 @@ func NewAuthenticator(cfg Config) *Authenticator {
 		tokenCommand: cfg.TokenCommand,
 		clientId:     cfg.ClientId,
 		clientSecret: cfg.ClientSecret,
+		cacheKey:     cfg.CacheKey,
 		httpClient:   httpClient,
 		logger:       cfg.Logger,
 	}
@@ -102,11 +106,57 @@ func (a *Authenticator) GetToken() (string, error) {
 	return a.token, nil
 }
 
+const proactiveRefreshWindow = 3 * time.Minute
+
+// setToken stores token+expiry in memory and persists to disk when CacheKey is set.
+func (a *Authenticator) setToken(token string, expiry time.Time) {
+	a.token = token
+	a.tokenExpiry = expiry
+	if a.cacheKey == "" || token == "" || len(a.tokenCommand) > 0 {
+		return
+	}
+	if err := saveDiskToken(a.cacheKey, a.baseURL, token, expiry); err != nil {
+		a.debugf("token disk cache save failed: %v", err)
+	}
+}
+
+// InvalidateDiskCache removes the on-disk token for this authenticator's CacheKey.
+func (a *Authenticator) InvalidateDiskCache() {
+	if a.cacheKey == "" {
+		return
+	}
+	removeDiskToken(a.cacheKey)
+}
+
+func (a *Authenticator) loadFromDiskIfValid() bool {
+	if a.cacheKey == "" || len(a.tokenCommand) > 0 {
+		return false
+	}
+	tok, exp, ok := loadDiskToken(a.cacheKey, a.baseURL, proactiveRefreshWindow)
+	if !ok {
+		return false
+	}
+	a.token = tok
+	a.tokenExpiry = exp
+	a.debugf("loaded token from disk cache (expires %v)", exp)
+	return true
+}
+
+func (a *Authenticator) clearMemoryToken() {
+	a.token = ""
+	a.tokenExpiry = time.Time{}
+}
+
 // ensureValidToken ensures we have a valid token, refreshing if necessary
 func (a *Authenticator) ensureValidToken() error {
-	// If using external token command, get token from that
+	// If using external token command, get token from that (no disk cache)
 	if len(a.tokenCommand) > 0 {
 		return a.ensureTokenCommand()
+	}
+
+	// Hydrate from disk before deciding to hit Jamf
+	if a.token == "" {
+		_ = a.loadFromDiskIfValid()
 	}
 
 	// If using OAuth2 client credentials, handle that flow
@@ -255,9 +305,7 @@ func (a *Authenticator) getTokenFromCredentials() error {
 		return fmt.Errorf("failed to decode token response: %w", err)
 	}
 
-	a.token = tokenResp.Token
-	// Set expiry to 18 minutes to refresh before the 20-minute expiry
-	a.tokenExpiry = time.Now().Add(18 * time.Minute)
+	a.setToken(tokenResp.Token, time.Now().Add(18*time.Minute))
 	a.verbosef("Token obtained successfully, expires at %v", a.tokenExpiry)
 
 	return nil
@@ -303,7 +351,6 @@ func (a *Authenticator) getTokenFromOAuth2() error {
 	}
 
 	a.debugJSON("OAuth2 token response", oauthResp)
-	a.token = oauthResp.AccessToken
 
 	// Calculate expiry from expires_in (typically 1800 seconds = 30 minutes)
 	expiresIn := time.Duration(oauthResp.ExpiresIn) * time.Second
@@ -311,9 +358,7 @@ func (a *Authenticator) getTokenFromOAuth2() error {
 		// Default to 30 minutes if not specified
 		expiresIn = 30 * time.Minute
 	}
-	// Set tokenExpiry to the actual token expiry time (not the refresh trigger time)
-	// This ensures the token is considered valid until it actually expires
-	a.tokenExpiry = time.Now().Add(expiresIn)
+	a.setToken(oauthResp.AccessToken, time.Now().Add(expiresIn))
 	// Log the actual token lifetime
 	actualLifetimeSeconds := int(expiresIn.Seconds())
 	a.verbosef("OAuth2 token obtained successfully, expires in %d seconds", actualLifetimeSeconds)
@@ -383,8 +428,7 @@ func (a *Authenticator) refreshTokenWithKeepAlive() error {
 	}
 
 	a.debugJSON("Token refresh response", tokenResp)
-	a.token = tokenResp.Token
-	a.tokenExpiry = time.Now().Add(18 * time.Minute)
+	a.setToken(tokenResp.Token, time.Now().Add(18*time.Minute))
 	a.verbosef("Token refreshed successfully, expires at %v", a.tokenExpiry)
 
 	return nil
@@ -396,13 +440,14 @@ func (a *Authenticator) RefreshToken() error {
 	// If using external token command, just get a new token from the command
 	if len(a.tokenCommand) > 0 {
 		// Clear current token to force refresh
-		a.token = ""
+		a.clearMemoryToken()
 		return a.getTokenFromCommand()
 	}
 
 	// If using OAuth2, get a new token (OAuth2 client credentials doesn't support keep-alive)
 	if a.clientId != "" && a.clientSecret != "" {
-		a.token = ""
+		a.clearMemoryToken()
+		a.InvalidateDiskCache()
 		return a.getTokenFromOAuth2()
 	}
 
@@ -418,6 +463,8 @@ func (a *Authenticator) RefreshToken() error {
 	}
 
 	// No token or keep-alive failed, get a new token
+	a.clearMemoryToken()
+	a.InvalidateDiskCache()
 	return a.getTokenFromCredentials()
 }
 

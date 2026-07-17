@@ -82,18 +82,20 @@ CLI: `buddy cred secret set|get|delete|path`. `buddy setup configure-oauth` stor
 
 ## Token caching
 
-Two layers:
+Three layers:
 
 1. **Process-local cache** — `credAuthCache` in `internal/buddy/common.go` holds one `tokenauth.Authenticator` per credential name for the lifetime of the buddy process.
 2. **In-authenticator cache** — each `Authenticator` stores `token` + `tokenExpiry`.
+3. **On-disk cache** — `~/.config/buddy/tokens/<cache-key>.json` (mode `0600`), keyed by credential name (or a `direct-…` key for one-off auth flags). Reused across CLI invocations when expiry is more than ~3 minutes away. Skipped for `command` auth. Invalidated on failed refresh / full re-auth.
 
 `GetToken()` flow (`internal/buddy/tokenauth/auth.go`):
 
-- **command auth**: runs external command each time (no long-lived cache).
+- **command auth**: runs external command each time (no long-lived or disk cache).
 - **basic auth**: username/password → `/api/v1/auth/token`; expiry treated as ~18 minutes (refresh before Jamf’s 20-minute limit).
 - **oauth**: client credentials → `/api/oauth/token`; expiry from `expires_in`.
+- **Disk hydrate**: if memory is empty and `CacheKey` is set, load a still-valid disk token before hitting Jamf.
 - **Proactive refresh**: if token expires within 3 minutes, call `/api/v1/auth/keep-alive` before it expires.
-- **Reactive refresh**: on HTTP 401, `RefreshToken()` retries once (keep-alive or full re-auth).
+- **Reactive refresh**: on HTTP 401, `RefreshToken()` retries once (keep-alive or full re-auth); disk cache cleared when re-authing.
 
 CLI surfaces:
 

@@ -152,8 +152,9 @@ func cachedAuthenticator(credName string, cred CredentialConfig) (*tokenauth.Aut
 	}
 	baseURL := strings.TrimRight(cred.URL, "/")
 	cfg := tokenauth.Config{
-		BaseURL: baseURL,
-		Logger:  GetLogger(),
+		BaseURL:  baseURL,
+		CacheKey: credName,
+		Logger:   GetLogger(),
 	}
 	switch resolved.Type {
 	case "basic":
