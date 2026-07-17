@@ -2,16 +2,21 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 
 	"buddy/internal/buddy"
+	"buddy/internal/help"
+	buddymcp "buddy/internal/mcp"
 	"buddy/internal/script"
+	"buddy/internal/serve"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=..."
@@ -175,6 +180,22 @@ func main() {
 	case "setup":
 		if err := runSetup(cfg, opts, credName, args[1:], logger); err != nil {
 			logger.Error("Setup command failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+	case "serve":
+		if err := runServe(credName, opts, args[1:], logger); err != nil {
+			logger.Error("Serve failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+	case "mcp":
+		if len(args) > 1 && args[1] == "help" {
+			fmt.Print(helpMCP)
+			return
+		}
+		if err := buddymcp.Run(credName, opts, logger, Version); err != nil {
+			logger.Error("MCP failed", "error", err)
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
@@ -1893,7 +1914,7 @@ func extractGlobalFlags(argv []string) (globalCLI, []string) {
 }
 
 func printUsage() {
-	fmt.Fprint(os.Stderr, helpRoot)
+	fmt.Fprint(os.Stderr, help.Root)
 }
 
 func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
@@ -2400,6 +2421,32 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 	default:
 		return fmt.Errorf("unknown setup subcommand: %q (use: write-script, configure-oauth)", subcommand)
 	}
+}
+
+func runServe(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) > 0 && args[0] == "help" {
+		fmt.Print(helpServe)
+		return nil
+	}
+	var addr, docsRoot string
+	var open bool
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	fs.StringVar(&addr, "addr", "127.0.0.1:8742", "Listen address (localhost only)")
+	fs.StringVar(&docsRoot, "docs-root", "", "Path to docs/ directory")
+	fs.BoolVar(&open, "open", false, "Open docs in the default browser")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	return serve.Run(ctx, serve.Options{
+		Addr:     addr,
+		DocsRoot: docsRoot,
+		Open:     open,
+		CredName: credName,
+		Opts:     opts,
+		Logger:   log,
+	})
 }
 
 func runMdm(credName string, _ buddy.Opts, args []string, log *slog.Logger) error {

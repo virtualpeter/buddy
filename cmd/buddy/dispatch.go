@@ -3,20 +3,22 @@ package main
 import "os"
 
 var knownCommands = map[string]struct{}{
-	"help":    {},
-	"auth":    {},
-	"cred":    {},
-	"config":  {}, // deprecated alias for cred
-	"policy":  {},
-	"group":   {},
-	"profile": {},
-	"package": {},
+	"help":     {},
+	"auth":     {},
+	"cred":     {},
+	"config":   {}, // deprecated alias for cred
+	"policy":   {},
+	"group":    {},
+	"profile":  {},
+	"package":  {},
 	"computer": {},
-	"role":    {},
-	"client":  {},
-	"script":  {},
-	"mdm":     {},
-	"setup":   {},
+	"role":     {},
+	"client":   {},
+	"script":   {},
+	"mdm":      {},
+	"setup":    {},
+	"serve":    {},
+	"mcp":      {},
 }
 
 func isKnownCommand(name string) bool {

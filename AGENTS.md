@@ -35,11 +35,24 @@ token_command:
 | `internal/buddy/` | Jamf API clients, config, auth, secret CLI |
 | `internal/buddy/tokenauth/` | Token acquisition, caching, proactive/reactive refresh |
 | `internal/buddy/secrets/` | Platform secret stores (Keychain, file, pass) |
-| `internal/script/` | Starlark engine and builtins |
+| `internal/script/` | Starlark engine, builtins, `Session` (REPL/notebook/MCP eval) |
+| `internal/serve/` | `buddy serve` local docs + notebook HTTP UI |
+| `internal/mcp/` | `buddy mcp` stdio MCP server |
+| `internal/help/` | Shared CLI help strings (builtins/shell/starlark/root) |
 | `docs/` | User-facing reference manual |
 | `.cursor/rules/` | Persistent Cursor rules (CLI + Starlark conventions) |
 
-Build: `make buddy` → `./buddy`. Tests: `go test ./...`
+Build: `make buddy` → `./buddy`. Tests: `go test ./...`. Docs UI: `make docs-serve`.
+
+## MCP (Cursor)
+
+See **[docs/mcp.md](docs/mcp.md)** for Cursor setup. Summary:
+
+- Config: `.cursor/mcp.json` or `~/.cursor/mcp.json` with absolute `command` path and `args: ["mcp"]`.
+- Set `BUDDY_DOCS_ROOT` to the repo `docs/` directory for doc resources.
+- Tool results are always `{ok, value, ...}` objects (lists under `value`) so Cursor accepts `structuredContent`.
+- Reload MCP in Cursor Settings after changing config or rebuilding buddy.
+
 
 ## Authentication model
 

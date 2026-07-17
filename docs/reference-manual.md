@@ -13,11 +13,13 @@ This manual describes how the pieces fit together. For behavior that must stay i
 3. [Configuration and credentials](#configuration-and-credentials)
 4. [First-time API setup](#first-time-api-setup)
 5. [CLI overview](#cli-overview)
-6. [Starlark shell and scripts](#starlark-shell-and-scripts)
-7. [Built-in functions](#built-in-functions)
-8. [HTTP API usage](#http-api-usage)
-9. [Examples](#examples)
-10. [Environment variables](#environment-variables)
+6. [Local docs and notebook](#local-docs-and-notebook)
+7. [MCP server](#mcp-server)
+8. [Starlark shell and scripts](#starlark-shell-and-scripts)
+9. [Built-in functions](#built-in-functions)
+10. [HTTP API usage](#http-api-usage)
+11. [Examples](#examples)
+12. [Environment variables](#environment-variables)
 
 ---
 
@@ -104,7 +106,7 @@ buddy help [command] [subcommand]
 |---------|------|
 | `auth` | Test auth; print token material |
 | `cred` | Manage `config.yaml` credentials and platform secrets |
-| `run` | Execute a `.star` script |
+| *(path)* | Execute a `.star` script: `buddy script.star` |
 | `policy` | Policies (get/set/clone/create/delete/find) |
 | `group` | Smart/static computer groups (list/get/set/create/delete; static membership) |
 | `profile` | macOS configuration profiles |
@@ -115,6 +117,8 @@ buddy help [command] [subcommand]
 | `client` | API integrations / OAuth clients |
 | `script` | Jamf script objects |
 | `setup` | Generate setup scripts and OAuth config helpers |
+| `serve` | Local docs browser + Starlark notebook UI |
+| `mcp` | MCP stdio server for Cursor agents |
 
 ### CLI help
 
@@ -127,6 +131,45 @@ buddy policy set help
 ```
 
 Use these when unsure about positional arguments, flags, or subcommand names.
+
+---
+
+## Local docs and notebook
+
+```sh
+make docs-serve
+# or
+buddy serve --open
+buddy serve --addr=127.0.0.1:8742
+```
+
+- Binds **localhost only** (default `127.0.0.1:8742`).
+- `/docs/` — Markdown from the repo (`docs/`, README, AGENTS, examples) plus live CLI help (`help/builtins`, etc.).
+- `/notebook` — Jupyter-like Starlark cells against your configured credential (same builtins as the CLI/REPL).
+- Optional `--docs-root` / `BUDDY_DOCS_ROOT` if not run from the buddy repo.
+- Confirmations follow global `-y` (default: prompts still apply for destructive ops).
+
+Open the printed URL in Cursor’s Simple Browser for an in-editor experience.
+
+---
+
+## MCP server
+
+Full guide: **[MCP server (Cursor setup)](mcp.md)**.
+
+```sh
+buddy mcp
+```
+
+Speaks [Model Context Protocol](https://modelcontextprotocol.io/) over **stdio**.
+
+**Cursor:** add an entry to `.cursor/mcp.json` or `~/.cursor/mcp.json` with an **absolute path** to `buddy`, args `["mcp"]`, and optionally `BUDDY_DOCS_ROOT` pointing at this repo’s `docs/`. See [`examples/mcp.json`](../examples/mcp.json) and reload MCP in Cursor Settings.
+
+**Response shape:** every tool returns a JSON **object** `{ok, value, error?, count?}`—never a bare array—so hosts that require object `structuredContent` (e.g. Cursor) accept list results. `auth_test` defaults to a compact summary (`verbose: true` for full privileges).
+
+Curated tools: `auth_test`, `group_list_smart`, `group_list_static`, `computer_find_ids`, `script_list`, `package_list`, `policy_get_id`, `starlark_eval`. Resources under `buddy://docs/...`.
+
+Uses the active credential (`--user` to override). MCP inherits that credential’s Jamf privileges—treat it like the CLI.
 
 ---
 
@@ -213,6 +256,8 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 |----------|--------|
 | `DEBUG` | Enable debug logging when set |
 | `XDG_CONFIG_HOME` | Config directory root (default: `~/.config`) |
+| `BUDDY_DOCS_ROOT` | Path to `docs/` for `buddy serve` (else walk up from cwd) |
+| `BUDDY_SECRET_STORE` | Secret backend: `file`, `pass`, or `keychain` |
 
 ---
 

@@ -107,9 +107,9 @@ func newThread(credName string, opts buddy.Opts, logger *slog.Logger, trace bool
 	thread.Print = func(t *starlark.Thread, msg string) {
 		if trace {
 			pos := t.CallFrame(0).Pos
-			fmt.Fprintf(os.Stderr, "[trace] %s:%d  print: %s\n", pos.Filename(), pos.Line, msg)
+			fmt.Fprintf(writerFromLocal(t, localStderr, os.Stderr), "[trace] %s:%d  print: %s\n", pos.Filename(), pos.Line, msg)
 		}
-		fmt.Fprintln(os.Stdout, msg)
+		fmt.Fprintln(writerFromLocal(t, localStdout, os.Stdout), msg)
 	}
 
 	return thread, predeclared, nil

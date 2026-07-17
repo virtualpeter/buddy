@@ -2131,7 +2131,7 @@ func groupDelete(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 }
 
 // error is like print but writes to stderr (same *args and optional sep= as print).
-func errorBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func errorBuiltin(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	sep := " "
 	if err := starlark.UnpackArgs("error", nil, kwargs, "sep?", &sep); err != nil {
 		return nil, err
@@ -2143,7 +2143,7 @@ func errorBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, 
 		}
 		appendPrintArg(buf, v)
 	}
-	fmt.Fprintln(os.Stderr, buf.String())
+	fmt.Fprintln(writerFromLocal(thread, localStderr, os.Stderr), buf.String())
 	return starlark.None, nil
 }
 
@@ -2180,7 +2180,7 @@ func exitBuiltin(logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, 
 			return nil, err
 		}
 		c, _ := code.Int64()
-		if inREPL {
+		if inREPL && !inSession(thread) {
 			os.Exit(int(c))
 		}
 		return nil, &ExitError{Code: int(c)}

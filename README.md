@@ -157,6 +157,8 @@ buddy <script.star> [-- args...]
 ```sh
 buddy help starlark   # language subset
 buddy help builtins   # full builtin reference (canonical)
+make docs-serve       # local docs + Starlark notebook (buddy serve --open)
+buddy mcp             # MCP stdio server (see docs/mcp.md)
 ```
 
 **Globals:** `cred` (active credential name), `args` (arguments after `--`), `re` (regex). Use **`error(...)`** for status and diagnostic lines (stderr); use **`print(...)`** only when you intentionally write script output to stdout (e.g. for piping).

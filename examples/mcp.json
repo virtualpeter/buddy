@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "buddy": {
+      "command": "/Users/YOU/go/bin/buddy",
+      "args": ["mcp"],
+      "env": {
+        "BUDDY_DOCS_ROOT": "/Users/YOU/work/buddy/docs"
+      }
+    }
+  }
+}

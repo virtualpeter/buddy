@@ -37,6 +37,11 @@ func SetActiveConfig(cfg *Config) {
 	activeConfig = cfg
 }
 
+// GetActiveConfig returns the config set by SetActiveConfig (may be nil).
+func GetActiveConfig() *Config {
+	return activeConfig
+}
+
 // InitLogger initializes the global logger with appropriate log level.
 func InitLogger() {
 	var level slog.Level

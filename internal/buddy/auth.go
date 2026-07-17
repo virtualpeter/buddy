@@ -158,36 +158,44 @@ func PrintRawToken(credName string, direct DirectAuthOpts, log *slog.Logger) err
 	return nil
 }
 
-// AuthTest tests authentication against /api/v1/auth and pretty-prints the response.
-func AuthTest(credName string, log *slog.Logger) error {
+// AuthTestValue tests authentication against /api/v1/auth and returns the JSON object.
+func AuthTestValue(credName string, log *slog.Logger) (map[string]interface{}, error) {
 	baseURL, err := GetBaseURL(credName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/auth", nil)
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := PerformRequest(nil, req, credName)
 	if err != nil {
-		return fmt.Errorf("auth test: %w", err)
+		return nil, fmt.Errorf("auth test: %w", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("read response: %w", err)
+		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if resp.StatusCode == 401 {
-			return fmt.Errorf("auth test returned 401 Unauthorized: %s — check username/password; for Jamf Pro API, OAuth (client credentials) may be required instead of Basic auth", string(body))
+			return nil, fmt.Errorf("auth test returned 401 Unauthorized: %s — check username/password; for Jamf Pro API, OAuth (client credentials) may be required instead of Basic auth", string(body))
 		}
-		return fmt.Errorf("auth test returned %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("auth test returned %d: %s", resp.StatusCode, string(body))
 	}
 	var result map[string]interface{}
 	if err := json.Unmarshal(body, &result); err != nil {
-		fmt.Printf("OK (status %d)\n%s\n", resp.StatusCode, string(body))
-		return nil
+		return map[string]interface{}{"raw": string(body), "status": resp.StatusCode}, nil
+	}
+	return result, nil
+}
+
+// AuthTest tests authentication against /api/v1/auth and pretty-prints the response.
+func AuthTest(credName string, log *slog.Logger) error {
+	result, err := AuthTestValue(credName, log)
+	if err != nil {
+		return err
 	}
 	out, _ := json.MarshalIndent(result, "", "  ")
 	fmt.Println(string(out))

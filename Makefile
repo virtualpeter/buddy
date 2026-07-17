@@ -30,8 +30,13 @@ test:
 
 # Run integration tests (requires Jamf test environment in config or --user override)
 integration-test: $(BUILDTARGET)
-	./$(BUILDTARGET) run scripts/integration_test.star
+	./$(BUILDTARGET) scripts/integration_test.star
 .PHONY: integration-test
+
+# Local docs + notebook UI (opens browser)
+docs-serve: $(BUILDTARGET)
+	./$(BUILDTARGET) serve --open
+.PHONY: docs-serve
 
 # Clean all built executables
 clean:
@@ -48,6 +53,7 @@ help:
 	@echo "  install   - Install $(BUILDTARGET) CLI to ~/go/bin/"
 	@echo "  test      - Run unit tests"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"
+	@echo "  docs-serve - Local docs + notebook (buddy serve --open)"
 	@echo "  clean   - Remove all built executables"
 	@echo "  help    - Show this help message"
 .PHONY: help

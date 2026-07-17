@@ -13,6 +13,7 @@ Arguments after `--` appear in the global `args` list inside the script.
 | File | Purpose |
 |------|---------|
 | [bump-release.star](bump-release.star) | Illustrative workflow: resolve a policy by trigger, then update package install params (adjust IDs and names to your Jamf instance). |
+| [mcp.json](mcp.json) | Example Cursor MCP config for `buddy mcp` (use absolute paths; see [docs/mcp.md](../docs/mcp.md)). |
 
 ## Full documentation
 
