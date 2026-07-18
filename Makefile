@@ -12,7 +12,7 @@ GO_MAIN_FILES := $(shell find . -name "*.go" -type f -exec grep -l "^package mai
 BUDDY_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 # Buddy CLI (builds to ./buddy)
-BUDDY_GO_FILES := $(shell find cmd/buddy internal docfs -name "*.go" 2>/dev/null)
+BUDDY_GO_FILES := $(shell find cmd/buddy internal docfs stdlib \( -name "*.go" -o -name "*.star" \) 2>/dev/null)
 DOC_SOURCES := $(shell find docs examples .cursor/rules -type f \( -name '*.md' -o -name '*.star' -o -name '*.json' -o -name '*.mdc' \) 2>/dev/null) README.md AGENTS.md
 
 .PHONY: sync-docfs

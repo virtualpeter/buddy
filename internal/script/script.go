@@ -100,7 +100,7 @@ func newThread(credName string, opts buddy.Opts, logger *slog.Logger, trace bool
 
 	thread := &starlark.Thread{
 		Name: "buddy",
-		Load: loader(reModule),
+		Load: stdlibLoader(reModule, predeclared),
 	}
 	thread.SetLocal("cred", credName)
 
@@ -121,15 +121,6 @@ func handleExitError(err error) error {
 		os.Exit(ee.Code)
 	}
 	return err
-}
-
-func loader(reModule starlark.StringDict) func(thread *starlark.Thread, module string) (starlark.StringDict, error) {
-	return func(thread *starlark.Thread, module string) (starlark.StringDict, error) {
-		if module == "re" {
-			return reModule, nil
-		}
-		return nil, fmt.Errorf("unknown module: %s", module)
-	}
 }
 
 func listFromStrings(ss []string) *starlark.List {

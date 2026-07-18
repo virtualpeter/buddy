@@ -152,6 +152,19 @@ func StarlarkToJSON(v starlark.Value) (string, error) {
 	return string(b), nil
 }
 
+// StarlarkToJSONPretty encodes a Starlark value to indented JSON (2-space).
+func StarlarkToJSONPretty(v starlark.Value) (string, error) {
+	g, err := StarlarkValueToGo(v)
+	if err != nil {
+		return "", err
+	}
+	b, err := json.MarshalIndent(g, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
 // PlistDecodeToStarlark parses a plist XML string and returns the equivalent Starlark value.
 func PlistDecodeToStarlark(plistStr string) (starlark.Value, error) {
 	var v interface{}

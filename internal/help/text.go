@@ -161,10 +161,15 @@ BUILT-IN FUNCTIONS
 
   I/O: print() goes to stdout. Buddy adds error(*args, sep=...) like print but to stderr.
 
+MODULES
+  load("re", "match")                      # starlib regex (also predeclared as re)
+  load("stdlib/release.star", "bump_release")  # buddy stdlib (see help builtins)
+
 WHAT IS NOT IN STARLARK (vs Python)
   No:  import  class  try/except  while  lambda  yield  global  nonlocal
   No:  set  frozenset  bytearray  file I/O  os/sys modules
   No:  is  is not  (use == != instead)
+  Use load() for buddy stdlib / re — not Python import.
 
 Use 'buddy help builtins' for buddy-specific functions.
 `
@@ -189,6 +194,19 @@ use ids=True on policies/computers for a bare ID list.
 
 Each builtin lists its signature, then → value (or None). Indented "Params:"
 lines describe arguments; "Returns:" states the value shape when ok.
+
+STDLIB
+  Complex CLI-style workflows live in embedded Starlark modules under stdlib/.
+  Load them with Starlark load() (same mechanism as load("re", ...)):
+
+    load("stdlib/release.star", "bump_release")
+    r = bump_release(trigger_prefix="install-app-", app="app", version="1.2.3")
+    if not r["ok"]:
+      fail(r["error"])
+
+  Modules compose the builtins below and return the same {"ok","value","error"} dicts.
+  Browse modules and builtins in the notebook Libraries drawer (buddy serve → /notebook).
+  Current modules: stdlib/release.star (bump_release).
 
 POLICY
   policies(keywords, exclude_ids?, force_refresh?, ids?=False, cred?)
@@ -356,7 +374,10 @@ SERIALIZATION
       Params: json_str: str. Returns: Starlark dict/list from JSON.
   json_encode(value)
       → value: str (JSON)
-      Params: value: Starlark dict, list, or primitive. Returns: JSON string.
+      Params: value: Starlark dict, list, or primitive. Returns: compact JSON string.
+  json_pretty(value)
+      → value: str (indented JSON)
+      Params: value: Starlark dict, list, or primitive. Returns: pretty-printed JSON (2-space indent).
   plist_decode(plist_xml_str)
       → value: dict or list
       Params: plist_xml_str: str (plist XML). Returns: Starlark dict/list.

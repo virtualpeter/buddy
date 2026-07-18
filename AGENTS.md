@@ -36,6 +36,7 @@ token_command:
 | `internal/buddy/tokenauth/` | Token acquisition, caching, proactive/reactive refresh |
 | `internal/buddy/secrets/` | Platform secret stores (Keychain, file, pass) |
 | `internal/script/` | Starlark engine, builtins, `Session` (REPL/notebook/MCP eval) |
+| `stdlib/` | Embedded Starlark libraries (`load("stdlib/….star", …)`); composed on builtins |
 | `internal/serve/` | `buddy serve` local docs + notebook HTTP UI |
 | `internal/mcp/` | `buddy mcp` stdio MCP server |
 | `internal/help/` | Shared CLI help strings (builtins/shell/starlark/root) |
@@ -130,6 +131,7 @@ buddy resolves secrets from the platform store at runtime, so meliorate config d
 
 - **CLI help**: see `.cursor/rules/buddy-cli.mdc` — usage lines, subcommand naming, placeholders.
 - **Starlark builtins**: see `.cursor/rules/buddy-builtins.mdc` and `docs/builtins-v3.md` — v3 plural/singular grammar (`policies` / `policy` / `policy_set`), resource IDs first on mutate helpers, `cred?` last. Deprecated aliases warn once on stderr.
+- **Starlark stdlib**: multi-step helpers in `stdlib/*.star` via `load("stdlib/release.star", "bump_release")` (etc.). Notebook Libraries drawer browses builtins + stdlib.
 - **User docs**: `README.md`, `docs/reference-manual.md` — keep in sync when adding commands or secret behavior.
 - **Scope**: minimal diffs; match existing patterns; no over-engineering.
 

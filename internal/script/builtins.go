@@ -181,6 +181,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 
 	putBuiltin(dict, "json_decode", jsonDecodeBuiltin)
 	putBuiltin(dict, "json_encode", jsonEncodeBuiltin)
+	putBuiltin(dict, "json_pretty", jsonPrettyBuiltin)
 	putBuiltin(dict, "plist_decode", plistDecodeBuiltin)
 	putBuiltin(dict, "plist_encode", plistEncodeBuiltin)
 	putBuiltin(dict, "xml_escape", xmlEscapeBuiltin)
@@ -2278,6 +2279,19 @@ func jsonEncodeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tu
 		return nil, err
 	}
 	s, err := StarlarkToJSON(val)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(s)), nil
+}
+
+// json_pretty(value) → {ok, value: str} or {ok: False, error: str}
+func jsonPrettyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var val starlark.Value
+	if err := starlark.UnpackArgs("json_pretty", args, kwargs, "value", &val); err != nil {
+		return nil, err
+	}
+	s, err := StarlarkToJSONPretty(val)
 	if err != nil {
 		return resultErr(err.Error()), nil
 	}

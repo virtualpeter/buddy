@@ -117,6 +117,8 @@ func Run(ctx context.Context, o Options) error {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"active": active, "creds": names})
 	})
+	mux.HandleFunc("/api/libraries", handleLibrariesList)
+	mux.HandleFunc("/api/libraries/", handleLibraryDetail)
 	mux.HandleFunc("/api/session", store.handleCreate)
 	mux.HandleFunc("/api/session/", func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.URL.Path, "/api/session/")

@@ -3,18 +3,18 @@
 # Usage:
 #   buddy examples/bump-release.star -- 2.4.27
 #
-# Every buddy builtin returns {"ok": True, "value": ...} or {"ok": False, "error": "..."}.
-# Resource IDs first; optional cred= last.
-# Use error(...) for messages (stderr); use print(...) only for stdout you intend to pipe.
+# Logic lives in stdlib/release.star; this file only sets tenant-specific constants.
+
+load("stdlib/release.star", "bump_release")
 
 # --- edit for your environment ---
 TRIGGER_PREFIX = "install-exampleapp-"
 APP_NAME = "exampleapp"
 
 # Policies found by trigger above often cover package + install + self-service together.
-# If yours differ, set these to the other policies' numeric IDs and the guards below will run them.
-INSTALL_POLICY_ID = 0   # 0 = skip policy_set_install
-SELF_SERVICE_POLICY_ID = 0  # 0 = skip policy_set_ss
+# If yours differ, set these to the other policies' numeric IDs.
+INSTALL_POLICY_ID = 0   # 0 = use the resolved policy for install
+SELF_SERVICE_POLICY_ID = 0  # 0 = use the resolved policy for self-service
 VERSION_GROUP_ID = ""   # smart group ID string, or "" = skip smart_group_set_version
 
 
@@ -24,23 +24,16 @@ def main():
         exit(1)
 
     version = args[0]
-
-    r = policy(trigger=TRIGGER_PREFIX + version, force_refresh=True)
+    r = bump_release(
+        trigger_prefix = TRIGGER_PREFIX,
+        app = APP_NAME,
+        version = version,
+        install_policy_id = INSTALL_POLICY_ID,
+        self_service_policy_id = SELF_SERVICE_POLICY_ID,
+        version_group_id = VERSION_GROUP_ID,
+    )
     if not r["ok"]:
-        error("policy:", r["error"])
+        error(r["error"])
         exit(1)
 
-    policy_id = r["value"]["id"]
-
-    policy_set_package(app=APP_NAME, version=version, policy_id=policy_id)
-
-    install_id = INSTALL_POLICY_ID if INSTALL_POLICY_ID else policy_id
-    policy_set_install(policy_id=install_id, version=version)
-
-    ss_id = SELF_SERVICE_POLICY_ID if SELF_SERVICE_POLICY_ID else policy_id
-    policy_set_ss(policy_id=ss_id, version=version)
-
-    if VERSION_GROUP_ID:
-        smart_group_set_version(group_id=VERSION_GROUP_ID, version=version)
-
-    error("Done. Bumped to", version)
+    error("Done. Bumped to", version, "policy_id=", r["value"]["policy_id"])
