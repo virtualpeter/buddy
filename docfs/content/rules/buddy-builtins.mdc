@@ -80,7 +80,7 @@ Each builtin entry must include:
 ## Groups / Smart groups
 
 The following builtins work with Jamf smart computer groups using the v2 JSON API
-(`/api/v2/computer-groups/smart-groups`). They always return a result dict
+(`/api/v3/computer-groups/smart-groups`). They always return a result dict
 `{"ok": bool, "value": ..., "error": str}`.
 
 - `smart_group(id=?)` | `smart_group(name=?, cred?)` → value: dict
@@ -97,7 +97,7 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
   - **Returns**:
     - `value`: dict `{"id": str, "href"?: str}` from Jamf’s create response.
   - **Behavior**:
-    - `POST`s `body` to `/api/v2/computer-groups/smart-groups`.
+    - `POST`s `body` to `/api/v3/computer-groups/smart-groups`.
 
 - `smart_group_put(group_id, body, cred?) → value: None`
   - **Params**:
@@ -105,7 +105,7 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
     - `body` (dict/list tree): Full smart group JSON, as returned by `smart_group(id=…)`.
     - `cred?` (string, optional).
   - **Behavior**:
-    - Encodes `body` to JSON and `PUT`s it to `/api/v2/computer-groups/smart-groups/{group_id}` using script opts with `SkipConfirm=true`.
+    - Encodes `body` to JSON and `PUT`s it to `/api/v3/computer-groups/smart-groups/{group_id}` using script opts with `SkipConfirm=true`.
 
 - `smart_group_get_criteria(group_id, cred?) → value: list[dict]`
   - **Params**:
@@ -163,10 +163,10 @@ if not r["ok"]:
 ## Static computer groups
 
 These builtins manage **static** Jamf computer group membership. Listing prefers
-`GET /api/v2/computer-groups/static-groups/{id}` when the JSON includes an
+`GET /api/v3/computer-groups/static-groups/{id}` when the JSON includes an
 `assignments` field; otherwise membership is read via Classic
 `GET /JSSResource/computergroups/id/{id}` (XML). Updates use
-`PUT /api/v2/computer-groups/static-groups/{id}` with a full `assignments`
+`PUT /api/v3/computer-groups/static-groups/{id}` with a full `assignments`
 array. They return `{"ok": bool, "value": ..., "error": str}`.
 
 - `static_group_list_computers(group_id, filter?, cred?) → value: list[dict]`
@@ -184,7 +184,7 @@ array. They return `{"ok": bool, "value": ..., "error": str}`.
   - **Returns**:
     - `value`: dict `{"id": str, "href"?: str}` from Jamf’s create response.
   - **Behavior**:
-    - `POST`s `body` to `/api/v2/computer-groups/static-groups`.
+    - `POST`s `body` to `/api/v3/computer-groups/static-groups`.
 
 - `static_group_add_computers(group_id, computer_ids, cred?) → value: None`
   - **Params**:

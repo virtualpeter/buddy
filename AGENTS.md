@@ -107,6 +107,15 @@ buddy auth refresh --url=URL [TOKEN]    # keep-alive refresh (direct flags suppo
 
 Direct auth flags (`--url`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for one-off use.
 
+## Jamf Pro API versions (groups / inventory)
+
+| Resource | Buddy uses | Notes |
+|----------|------------|--------|
+| Computer groups (smart/static) | `/api/v3/computer-groups/...` | Migrated from v2 (v2 deprecated in cloud schema ~2026-05-28). |
+| Computer inventory | `/api/v3/computers-inventory` | **Stay on v3.** Cloud schema exposes v4 and deprecates v3 (~2026-07-14), but production Jamf does not support v4 yet. Do not add a v4 path (or v4→v3 fallback) until prod does; then remap filters/sort (`lastContactTime` → `lastCheckIn` / `lastContact`). |
+
+See [`docs/api-endpoints.md`](docs/api-endpoints.md) for the full endpoint map.
+
 ## Integration as meliorate token helper
 
 meliorate runs `token_command` as a subprocess and expects **only the raw bearer token on stdout** (no log lines). Use:

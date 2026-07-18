@@ -23,7 +23,7 @@ func TestNormalizeAssignmentIDs_EmptyIsNonNilSlice(t *testing.T) {
 }
 
 func TestParseGroupCreateResult(t *testing.T) {
-	got, err := parseGroupCreateResult([]byte(`{"id":"42","href":"https://example/api/v2/computer-groups/smart-groups/42"}`))
+	got, err := parseGroupCreateResult([]byte(`{"id":"42","href":"https://example/api/v3/computer-groups/smart-groups/42"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

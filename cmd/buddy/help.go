@@ -356,9 +356,9 @@ Flags for 'static add' and 'static remove':
 Notes:
   For static members/add/remove, flags such as --computer-ids and --filter may appear before or after
   <group-id> (Go's flag parser otherwise stops at the first positional).
-  Listing static group members prefers GET /api/v2/computer-groups/static-groups/{id} when the response
+  Listing static group members prefers GET /api/v3/computer-groups/static-groups/{id} when the response
   includes assignments; otherwise Classic GET /JSSResource/computergroups/id/{id} is used (requires
-  Read Computer Groups for that fallback). Updates use PUT on the v2 static group endpoint.
+  Read Computer Groups for that fallback). Updates use PUT on the v3 static group endpoint.
 
 Examples:
   buddy group list smart

@@ -30,8 +30,8 @@ type smartGroupV2 struct {
 	SiteId      *string              `json:"siteId,omitempty"`
 }
 
-const uriSmartGroups = "/api/v2/computer-groups/smart-groups"
-const uriStaticGroups = "/api/v2/computer-groups/static-groups"
+const uriSmartGroups = "/api/v3/computer-groups/smart-groups"
+const uriStaticGroups = "/api/v3/computer-groups/static-groups"
 const uriClassicComputerGroup = "/JSSResource/computergroups/id"
 
 // StaticComputerMember is one computer in a static group (from v2 assignments or Classic XML).
@@ -57,7 +57,7 @@ type staticGroupComputerXML struct {
 	SerialNumber string `xml:"serial_number"`
 }
 
-// GroupSummary is one entry from GET /api/v2/computer-groups/smart-groups or static-groups.
+// GroupSummary is one entry from GET /api/v3/computer-groups/smart-groups or static-groups.
 // Both endpoints share the same summary shape.
 type GroupSummary struct {
 	ID          string `json:"id"`

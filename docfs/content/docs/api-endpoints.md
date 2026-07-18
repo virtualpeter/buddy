@@ -155,6 +155,7 @@ Base paths: `/api/v3/computers-inventory`, `/api/v2/mdm/commands`, `/api/v1/jamf
 
 ### Notes
 
+- Inventory stays on **v3** even though some cloud Jamf schemas already advertise v4 (and deprecate v3). Production Jamf does not support inventory v4 yet — do not migrate until it does (then remap RSQL/sort fields such as `general.lastContactTime` → `general.lastCheckIn` / `general.lastContact`).
 - All MDM commands fetch each computer's `managementId` via `GET /api/v3/computers-inventory/{id}?section=GENERAL`, then POST to `/api/v2/mdm/commands` with `clientData: [{managementId, clientType: "COMPUTER"}]` and `commandData: {commandType: "..."}` plus optional fields.
 - **Device control commands** (destructive; require confirmation unless `-y`): `RESTART_DEVICE`, `SHUT_DOWN_DEVICE`, `LOG_OUT_USER`. **DEVICE_LOCK** and **ERASE_DEVICE** require extra confirmation (LOCK: "Proceed?"; ERASE: type "erase" to confirm).
 - **Information/query commands** (non-destructive; queued; results reported asynchronously by device): `DEVICE_INFORMATION`, `DEVICE_LOCATION`, `SECURITY_INFO`, `INSTALLED_APPLICATION_LIST`, `MANAGED_APPLICATION_LIST`, `CERTIFICATE_LIST`.
@@ -188,21 +189,21 @@ Base path: `/api/v2/mdm/commands`
 
 ---
 
-## Computer Groups (Jamf Pro API v2)
+## Computer Groups (Jamf Pro API v3)
 
-Base path: `/api/v2/computer-groups`
+Base path: `/api/v3/computer-groups`
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v2/computer-groups/smart-groups` | `GroupSearchSmart`, `GroupListSmart`, `GroupFindID` | List smart groups (paginated, RSQL filter on `id`, `name`, `siteId`) |
-| `GET` | `/api/v2/computer-groups/static-groups` | `GroupSearchStatic`, `GroupListStatic` | List static groups (paginated, RSQL filter on `id`, `name`, `siteId`) |
-| `GET` | `/api/v2/computer-groups/smart-groups/{id}` | `GroupGetVersion`, `GroupVersion`, `GroupDelete` | Fetch smart group detail (name, criteria) |
-| `POST` | `/api/v2/computer-groups/smart-groups` | `GroupCreateSmart`, `GroupCreateSmartNamed` | Create a smart computer group |
-| `PUT` | `/api/v2/computer-groups/smart-groups/{id}` | `GroupVersion` | Update smart group criteria (version value) |
-| `DELETE` | `/api/v2/computer-groups/smart-groups/{id}` | `GroupDelete` | Delete a smart computer group |
-| `POST` | `/api/v2/computer-groups/static-groups` | `GroupCreateStatic`, `GroupCreateStaticNamed` | Create a static computer group |
-| `GET` | `/api/v2/computer-groups/static-groups/{id}` | `StaticGroupFetchMembers`, `StaticGroupPutAssignments` | Fetch static group (including assignments when present) |
-| `PUT` | `/api/v2/computer-groups/static-groups/{id}` | `StaticGroupPutAssignments` | Update static group membership |
+| `GET` | `/api/v3/computer-groups/smart-groups` | `GroupSearchSmart`, `GroupListSmart`, `GroupFindID` | List smart groups (paginated, RSQL filter on `id`, `name`, `siteId`) |
+| `GET` | `/api/v3/computer-groups/static-groups` | `GroupSearchStatic`, `GroupListStatic` | List static groups (paginated, RSQL filter on `id`, `name`, `siteId`) |
+| `GET` | `/api/v3/computer-groups/smart-groups/{id}` | `GroupGetVersion`, `GroupVersion`, `GroupDelete` | Fetch smart group detail (name, criteria) |
+| `POST` | `/api/v3/computer-groups/smart-groups` | `GroupCreateSmart`, `GroupCreateSmartNamed` | Create a smart computer group |
+| `PUT` | `/api/v3/computer-groups/smart-groups/{id}` | `GroupVersion` | Update smart group criteria (version value) |
+| `DELETE` | `/api/v3/computer-groups/smart-groups/{id}` | `GroupDelete` | Delete a smart computer group |
+| `POST` | `/api/v3/computer-groups/static-groups` | `GroupCreateStatic`, `GroupCreateStaticNamed` | Create a static computer group |
+| `GET` | `/api/v3/computer-groups/static-groups/{id}` | `StaticGroupFetchMembers`, `StaticGroupPutAssignments` | Fetch static group (including assignments when present) |
+| `PUT` | `/api/v3/computer-groups/static-groups/{id}` | `StaticGroupPutAssignments` | Update static group membership |
 
 ### Notes
 
@@ -324,27 +325,27 @@ buddy policy set xml <id>                   (XML piped from stdin)
   └─ PUT /JSSResource/policies/id/{id}      (raw XML PUT, no prior GET)
 
 buddy group list smart [--filter=<rsql>]
-  └─ GET /api/v2/computer-groups/smart-groups       (paginated; RSQL or client-side substring filter)
+  └─ GET /api/v3/computer-groups/smart-groups       (paginated; RSQL or client-side substring filter)
 
 buddy group list static [--filter=<rsql>]
-  └─ GET /api/v2/computer-groups/static-groups      (paginated; RSQL or client-side substring filter)
+  └─ GET /api/v3/computer-groups/static-groups      (paginated; RSQL or client-side substring filter)
 
 buddy group get version <group-id>
-  └─ GET /api/v2/computer-groups/smart-groups/{id}
+  └─ GET /api/v3/computer-groups/smart-groups/{id}
 
 buddy group set version <group-id> <version>
-  └─ GET /api/v2/computer-groups/smart-groups/{id}
-  └─ PUT /api/v2/computer-groups/smart-groups/{id}
+  └─ GET /api/v3/computer-groups/smart-groups/{id}
+  └─ PUT /api/v3/computer-groups/smart-groups/{id}
 
 buddy group delete <group-id>
-  └─ GET /api/v2/computer-groups/smart-groups/{id}
-  └─ DELETE /api/v2/computer-groups/smart-groups/{id}
+  └─ GET /api/v3/computer-groups/smart-groups/{id}
+  └─ DELETE /api/v3/computer-groups/smart-groups/{id}
 
 buddy group create smart …
-  └─ POST /api/v2/computer-groups/smart-groups
+  └─ POST /api/v3/computer-groups/smart-groups
 
 buddy group create static …
-  └─ POST /api/v2/computer-groups/static-groups
+  └─ POST /api/v3/computer-groups/static-groups
 
 step_create_policy (template-based)
   └─ GET /api/v1/categories                 (only if category field is set)
