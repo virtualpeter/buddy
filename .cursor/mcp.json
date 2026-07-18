@@ -5,8 +5,7 @@
       "args": ["mcp"],
       "env": {
         "HOME": "/Users/peter",
-        "XDG_CONFIG_HOME": "/Users/peter/.config",
-        "BUDDY_DOCS_ROOT": "/Users/peter/work/buddy/docs"
+        "XDG_CONFIG_HOME": "/Users/peter/.config"
       }
     }
   }

@@ -39,10 +39,7 @@ Prefer an **absolute path** to the binary. MCP subprocesses often do not inherit
   "mcpServers": {
     "buddy": {
       "command": "/Users/YOU/go/bin/buddy",
-      "args": ["mcp"],
-      "env": {
-        "BUDDY_DOCS_ROOT": "/Users/YOU/work/buddy/docs"
-      }
+      "args": ["mcp"]
     }
   }
 }
@@ -52,9 +49,10 @@ Prefer an **absolute path** to the binary. MCP subprocesses often do not inherit
 |-------|-----|
 | `command` | Absolute path avoids “command not found” when Cursor spawns the server |
 | `args: ["mcp"]` | Starts the stdio MCP server |
-| `BUDDY_DOCS_ROOT` | So `buddy://docs/...` resources resolve even if cwd is not the repo |
 
-A minimal example also lives at [`examples/mcp.json`](../examples/mcp.json) (uses `buddy` on `PATH`).
+Docs, `AGENTS.md`, examples, and Cursor rules are **embedded in the buddy binary** and exposed as `buddy://docs/...` resources. `BUDDY_DOCS_ROOT` is optional (live override while editing sources). After changing docs/rules, run `make sync-docfs` (or `make buddy`) and reload MCP.
+
+A minimal example also lives at [`examples/mcp.json`](../examples/mcp.json).
 
 ### 3. Reload MCP in Cursor
 
@@ -90,11 +88,20 @@ Tool names follow the Starlark v3 plural/singular grammar (see [builtins-v3.md](
 
 ### Resources
 
+MCP exposes the **full agent knowledge** catalog (broader than the curated `buddy serve` HTML UI):
+
 | URI | Content |
 |-----|---------|
-| `buddy://docs/builtins` | Starlark builtins (Markdown, same as `buddy serve` /docs/builtins) |
-| `buddy://docs/help/*` | CLI help text (root, shell, starlark, builtins) |
-| `buddy://docs/*.md` | Repo docs when `BUDDY_DOCS_ROOT` / cwd finds `docs/` |
+| `buddy://docs/builtins` | Starlark builtins (Markdown) |
+| `buddy://docs/docs/*` | User docs + `builtins-v3` migration map |
+| `buddy://docs/agents` | `AGENTS.md` (auth, secrets, contributor context) |
+| `buddy://docs/readme` | `README.md` |
+| `buddy://docs/rules/*` | Cursor rules (CLI, builtins, auth-secrets) |
+| `buddy://docs/examples/*` | Example scripts and mcp.json |
+| `buddy://docs/help/*` | CLI help (root, shell, starlark) |
+| `buddy://docs/*.md` | Legacy aliases for former disk filenames |
+
+The HTML docs UI shows only user-facing guides (no AGENTS/rules/history dumps).
 
 ---
 
@@ -165,7 +172,7 @@ def main():
 | Symptom | Fix |
 |---------|-----|
 | Server missing / failed to start | Use absolute `command` path; run `buddy mcp` in a terminal to see errors |
-| Docs resources empty | Set `BUDDY_DOCS_ROOT` to your repo’s `docs/` directory |
+| Docs resources empty / stale | Rebuild buddy (`make install`) after `make sync-docfs`; reload MCP |
 | Auth / API errors | Fix config with `buddy auth test`; check `--user` / default cred |
 | Agent can’t use list tools | Rebuild buddy ≥ response-envelope change; reload MCP |
 | `starlark_eval` “if not within a function” | Wrap logic in `def main(): ...` |

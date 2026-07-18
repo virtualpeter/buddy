@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 
+	"buddy/internal/docpages"
+
 	"github.com/yuin/goldmark"
 )
 
@@ -30,6 +32,7 @@ func serveDocsHTML(w http.ResponseWriter, r *http.Request, pages []DocPage, md g
 	toc := extractTOC(p.Markdown)
 	data := docsView{
 		Pages:    pages,
+		Sections: docpages.NavSections(pages),
 		ActiveID: p.ID,
 		Title:    p.Title,
 		Body:     template.HTML(htmlBody),
@@ -43,6 +46,7 @@ func serveDocsHTML(w http.ResponseWriter, r *http.Request, pages []DocPage, md g
 
 type docsView struct {
 	Pages    []DocPage
+	Sections []string
 	ActiveID string
 	Title    string
 	Body     template.HTML
@@ -50,8 +54,13 @@ type docsView struct {
 }
 
 var docsTmpl = template.Must(template.New("docs").Funcs(template.FuncMap{
-	"hasPrefix": strings.HasPrefix,
-	"indent":    func(level int) int { return (level - 1) * 10 },
+	"indent": func(level int) int { return (level - 1) * 10 },
+	"sectionOf": func(p DocPage) string {
+		if p.Section == "" {
+			return "Docs"
+		}
+		return p.Section
+	},
 }).Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -82,7 +91,7 @@ body {
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-.layout { display: grid; grid-template-columns: 260px minmax(0,1fr) 200px; min-height: 100vh; }
+.layout { display: grid; grid-template-columns: 240px minmax(0,1fr) 200px; min-height: 100vh; }
 @media (max-width: 960px) {
   .layout { grid-template-columns: 1fr; }
   .toc, .nav { position: static !important; height: auto !important; }
@@ -104,10 +113,12 @@ a:hover { text-decoration: underline; }
   backdrop-filter: blur(6px);
 }
 .toc { border-right: 0; border-left: 1px solid var(--line); font-size: .88rem; }
-.nav a, .toc a { display: block; padding: .2rem 0; color: var(--ink); }
+.nav a, .toc a { display: block; padding: .28rem 0; color: var(--ink); }
 .nav a.active { color: var(--accent); font-weight: 600; }
-.section { margin: 1rem 0 .35rem; font-family: var(--mono); font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.section { margin: 1.15rem 0 .35rem; font-family: var(--mono); font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.section:first-of-type { margin-top: .25rem; }
 main { padding: 1.5rem 2rem 3rem; max-width: 52rem; }
+main > h1:first-child { margin-top: 0; }
 h1,h2,h3 { line-height: 1.25; }
 pre, code { font-family: var(--mono); font-size: .88em; }
 pre { background: #1c1917; color: #f5f5f4; padding: 1rem; overflow: auto; border-radius: 4px; }
@@ -126,33 +137,16 @@ pre { background: #1c1917; color: #f5f5f4; padding: 1rem; overflow: auto; border
     <div class="topbar"><a class="nb" href="/notebook">Notebook →</a></div>
     <input class="search" id="q" type="search" placeholder="Search docs…" autocomplete="off">
     <div class="hits" id="hits"></div>
-    <div class="section">Docs</div>
-    {{range .Pages}}
-      {{if or (hasPrefix .ID "help/") (eq .ID "builtins") (hasPrefix .ID "examples/")}}{{else}}
+    {{range $sec := .Sections}}
+    <div class="section">{{$sec}}</div>
+    {{range $.Pages}}
+      {{if eq (sectionOf .) $sec}}
       <a href="/docs/{{.ID}}" {{if eq .ID $.ActiveID}}class="active"{{end}}>{{.Title}}</a>
       {{end}}
     {{end}}
-    <div class="section">Starlark</div>
-    {{range .Pages}}
-      {{if eq .ID "builtins"}}
-      <a href="/docs/{{.ID}}" {{if eq .ID $.ActiveID}}class="active"{{end}}>{{.Title}}</a>
-      {{end}}
-    {{end}}
-    <div class="section">Examples</div>
-    {{range .Pages}}
-      {{if hasPrefix .ID "examples/"}}
-      <a href="/docs/{{.ID}}" {{if eq .ID $.ActiveID}}class="active"{{end}}>{{.Title}}</a>
-      {{end}}
-    {{end}}
-    <div class="section">CLI help</div>
-    {{range .Pages}}
-      {{if hasPrefix .ID "help/"}}
-      <a href="/docs/{{.ID}}" {{if eq .ID $.ActiveID}}class="active"{{end}}>{{.Title}}</a>
-      {{end}}
     {{end}}
   </aside>
   <main>
-    <h1>{{.Title}}</h1>
     {{.Body}}
   </main>
   <aside class="toc">

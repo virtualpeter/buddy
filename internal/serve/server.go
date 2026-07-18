@@ -41,11 +41,7 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("buddy serve binds localhost only (got %q)", host)
 	}
 
-	docsRoot, err := resolveDocsRoot(o.DocsRoot)
-	if err != nil {
-		return err
-	}
-	pages, err := loadDocPages(docsRoot)
+	pages, docsSource, err := loadDocPages(o.DocsRoot)
 	if err != nil {
 		return err
 	}
@@ -155,7 +151,7 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	url := "http://" + o.Addr + "/docs/"
-	o.Logger.Info("buddy serve listening", "url", url, "docs", docsRoot)
+	o.Logger.Info("buddy serve listening", "url", url, "docs", docsSource)
 	fmt.Printf("buddy serve: %s\n", url)
 	fmt.Printf("notebook:    http://%s/notebook\n", o.Addr)
 

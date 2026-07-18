@@ -3,13 +3,11 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
+	"strings"
 
 	"buddy/internal/buddy"
-	"buddy/internal/help"
+	"buddy/internal/docpages"
 	"buddy/internal/script"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -233,90 +231,69 @@ func encodeTool(tr ToolResult) *mcpsdk.CallToolResult {
 }
 
 func registerDocResources(server *mcpsdk.Server) {
-	for _, p := range help.CLIPages() {
-		page := p
-		uri := "buddy://docs/help/" + page.ID
-		server.AddResource(&mcpsdk.Resource{
-			URI:         uri,
-			Name:        "help/" + page.ID,
-			Description: page.Title,
-			MIMEType:    "text/plain",
-		}, func(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
-			return &mcpsdk.ReadResourceResult{
-				Contents: []*mcpsdk.ResourceContents{{
-					URI:      uri,
-					MIMEType: "text/plain",
-					Text:     page.Body,
-				}},
-			}, nil
-		})
-	}
-
-	// Browsable builtins markdown (same as buddy serve /docs/builtins).
-	uriBuiltins := "buddy://docs/builtins"
-	builtinsMD := help.BuiltinsMarkdown()
-	server.AddResource(&mcpsdk.Resource{
-		URI:         uriBuiltins,
-		Name:        "builtins",
-		Description: "Starlark builtins reference (Markdown)",
-		MIMEType:    "text/markdown",
-	}, func(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
-		return &mcpsdk.ReadResourceResult{
-			Contents: []*mcpsdk.ResourceContents{{
-				URI:      uriBuiltins,
-				MIMEType: "text/markdown",
-				Text:     builtinsMD,
-			}},
-		}, nil
-	})
-
-	docsRoot, err := findDocsRoot()
+	// Full agent knowledge (AGENTS, rules, migration notes, …), embedded by default.
+	// BUDDY_DOCS_ROOT still overrides when set. The HTML docs UI uses CatalogHuman instead.
+	res, err := docpages.Load(docpages.LoadOptions{Catalog: docpages.CatalogAgent})
 	if err != nil {
 		return
 	}
-	for _, name := range []string{"index.md", "reference-manual.md", "api-endpoints.md", "mcp.md"} {
-		path := filepath.Join(docsRoot, name)
-		b, err := os.ReadFile(path)
-		if err != nil {
-			continue
+	for _, p := range res.Pages {
+		page := p
+		uri := docpages.URI(page)
+		mime := "text/markdown"
+		if page.Plain {
+			mime = "text/plain"
 		}
-		uri := "buddy://docs/" + name
-		body := string(b)
+		desc := page.Title
+		if strings.HasPrefix(page.ID, "rules/") {
+			desc = "Cursor agent rule: " + page.Title
+		}
 		server.AddResource(&mcpsdk.Resource{
 			URI:         uri,
-			Name:        name,
-			Description: "Buddy documentation: " + name,
-			MIMEType:    "text/markdown",
+			Name:        page.ID,
+			Description: desc,
+			MIMEType:    mime,
 		}, func(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
 			return &mcpsdk.ReadResourceResult{
 				Contents: []*mcpsdk.ResourceContents{{
 					URI:      uri,
-					MIMEType: "text/markdown",
-					Text:     body,
+					MIMEType: mime,
+					Text:     page.Markdown,
 				}},
 			}, nil
 		})
+		// Backward-compatible aliases for former disk filenames.
+		if alias := legacyDocURI(page.ID); alias != "" && alias != uri {
+			a := alias
+			server.AddResource(&mcpsdk.Resource{
+				URI:         a,
+				Name:        page.ID + " (alias)",
+				Description: desc,
+				MIMEType:    mime,
+			}, func(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
+				return &mcpsdk.ReadResourceResult{
+					Contents: []*mcpsdk.ResourceContents{{
+						URI:      a,
+						MIMEType: mime,
+						Text:     page.Markdown,
+					}},
+				}, nil
+			})
+		}
 	}
 }
 
-func findDocsRoot() (string, error) {
-	if env := os.Getenv("BUDDY_DOCS_ROOT"); env != "" {
-		return env, nil
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	dir := cwd
-	for {
-		candidate := filepath.Join(dir, "docs")
-		if fi, err := os.Stat(filepath.Join(candidate, "index.md")); err == nil && !fi.IsDir() {
-			return candidate, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", fmt.Errorf("docs not found")
-		}
-		dir = parent
+func legacyDocURI(id string) string {
+	switch id {
+	case "docs/index":
+		return "buddy://docs/index.md"
+	case "docs/reference-manual":
+		return "buddy://docs/reference-manual.md"
+	case "docs/api-endpoints":
+		return "buddy://docs/api-endpoints.md"
+	case "docs/mcp":
+		return "buddy://docs/mcp.md"
+	default:
+		return ""
 	}
 }

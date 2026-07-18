@@ -33,17 +33,13 @@ func TestExtractTOC(t *testing.T) {
 	}
 }
 
-func TestResolveDocsRoot(t *testing.T) {
-	root, err := resolveDocsRoot("")
-	if err != nil {
-		t.Skip("not in repo:", err)
-	}
-	if !strings.HasSuffix(root, "docs") {
-		t.Fatalf("root=%q", root)
-	}
-	pages, err := loadDocPages(root)
+func TestLoadDocPages(t *testing.T) {
+	pages, source, err := loadDocPages("")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if source == "" {
+		t.Fatal("empty docs source")
 	}
 	if pageByID(pages, "docs/index") == nil {
 		t.Fatal("missing docs/index")
@@ -54,5 +50,11 @@ func TestResolveDocsRoot(t *testing.T) {
 	builtins := pageByID(pages, "builtins")
 	if !strings.Contains(builtins.Markdown, "### `policy`") {
 		t.Fatal("builtins page not structured")
+	}
+	if pageByID(pages, "agents") != nil {
+		t.Fatal("AGENTS must not appear in the human docs UI")
+	}
+	if pageByID(pages, "rules/buddy-cli.mdc") != nil {
+		t.Fatal("Cursor rules must not appear in the human docs UI")
 	}
 }

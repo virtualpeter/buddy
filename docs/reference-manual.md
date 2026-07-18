@@ -9,7 +9,7 @@ This manual describes how the pieces fit together. For behavior that must stay i
 ## Table of contents
 
 1. [License](#license)
-2. [Installation and build](#installation-and-build)
+2. [Installation](#installation)
 3. [Configuration and credentials](#configuration-and-credentials)
 4. [First-time API setup](#first-time-api-setup)
 5. [CLI overview](#cli-overview)
@@ -29,20 +29,16 @@ This project is released under the MIT License. See the [`LICENSE`](../LICENSE) 
 
 ---
 
-## Installation and build
+## Installation
 
-**Requirements**
-
-- Go 1.26 or newer
-- Optional: a helper command that prints a Bearer token for `command` auth (see [Configuration](#configuration-and-credentials))
-
-**Build**
+Build from a checkout with Go 1.26+:
 
 ```sh
 make buddy
+make install    # copies to ~/go/bin/buddy
 ```
 
-The binary is written to `./buddy`. `make clean` removes it; `make help` lists Makefile targets.
+Or run `./buddy` from the build directory.
 
 ---
 
@@ -144,9 +140,9 @@ buddy serve --addr=127.0.0.1:8742
 ```
 
 - Binds **localhost only** (default `127.0.0.1:8742`).
-- `/docs/` — Markdown from the repo (`docs/`, README, AGENTS, examples) plus live CLI help (`help/builtins`, etc.).
-- `/notebook` — Jupyter-like Starlark cells against your configured credential (same builtins as the CLI/REPL).
-- Optional `--docs-root` / `BUDDY_DOCS_ROOT` if not run from the buddy repo.
+- `/docs/` — Curated user guides (overview, reference, builtins, API, MCP, examples). Contributor/agent material (AGENTS, Cursor rules) is MCP-only.
+- `/notebook` — Interactive Starlark cells against your configured credential (same builtins as the CLI/REPL).
+- Optional `--docs-root` / `BUDDY_DOCS_ROOT` to override embedded markdown with live files while editing.
 - Confirmations follow global `-y` (default: prompts still apply for destructive ops).
 
 Open the printed URL in Cursor’s Simple Browser for an in-editor experience.
@@ -163,7 +159,7 @@ buddy mcp
 
 Speaks [Model Context Protocol](https://modelcontextprotocol.io/) over **stdio**.
 
-**Cursor:** add an entry to `.cursor/mcp.json` or `~/.cursor/mcp.json` with an **absolute path** to `buddy`, args `["mcp"]`, and optionally `BUDDY_DOCS_ROOT` pointing at this repo’s `docs/`. See [`examples/mcp.json`](../examples/mcp.json) and reload MCP in Cursor Settings.
+**Cursor:** add an entry to `.cursor/mcp.json` or `~/.cursor/mcp.json` with an **absolute path** to `buddy` and args `["mcp"]`. Docs resources are embedded (no `BUDDY_DOCS_ROOT` required). See [`examples/mcp.json`](../examples/mcp.json) and reload MCP in Cursor Settings.
 
 **Response shape:** every tool returns a JSON **object** `{ok, value, error?, count?}`—never a bare array—so hosts that require object `structuredContent` (e.g. Cursor) accept list results. `auth_test` defaults to a compact summary (`verbose: true` for full privileges).
 
@@ -260,7 +256,7 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 |----------|--------|
 | `DEBUG` | Enable debug logging when set |
 | `XDG_CONFIG_HOME` | Config directory root (default: `~/.config`) |
-| `BUDDY_DOCS_ROOT` | Path to `docs/` for `buddy serve` (else walk up from cwd) |
+| `BUDDY_DOCS_ROOT` | Optional live `docs/` override for serve/MCP (default: embedded) |
 | `BUDDY_SECRET_STORE` | Secret backend: `file`, `pass`, or `keychain` |
 
 ---

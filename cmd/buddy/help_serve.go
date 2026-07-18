@@ -7,11 +7,16 @@ Usage:
 
 Flags for 'serve':
   --addr=<host:port>   Listen address (default: 127.0.0.1:8742; localhost only)
-  --docs-root=<path>   Path to docs/ directory (default: find repo docs/ or BUDDY_DOCS_ROOT)
+  --docs-root=<path>   Override embedded docs with a live docs/ directory
   --open               Open the docs URL in the default browser
 
 Notes:
-  Serves Markdown docs, CLI help (builtins/shell/starlark), and a notebook UI at /notebook.
+  Serves a curated user docs UI (guides, builtins, examples) plus a notebook at
+  /notebook. Contributor/agent knowledge (AGENTS, Cursor rules, migration notes)
+  is embedded for MCP only — not listed in the HTML sidebar.
+  When run from a checkout, serve prefers the repo docs/ tree so edits show
+  without a rebuild; otherwise the embedded catalog is used. --docs-root /
+  BUDDY_DOCS_ROOT force a filesystem override.
   Starlark cells use the same builtins as the CLI; confirmations follow -y / --yes.
   Bind address must be localhost (127.0.0.1, localhost, or ::1).
 
@@ -34,16 +39,17 @@ Notes:
   array (Cursor requires object structuredContent). auth_test defaults to a
   compact summary; pass verbose=true for the full privileges payload.
 
-  Prefer an absolute path to buddy in mcp.json; set BUDDY_DOCS_ROOT to your
-  repo docs/ so buddy://docs/... resources resolve. See docs/mcp.md.
+  Docs, AGENTS.md, examples, and Cursor rules are embedded in the binary and
+  exposed as buddy://docs/... resources (no BUDDY_DOCS_ROOT required). Set
+  BUDDY_DOCS_ROOT only to override with live files while developing. See
+  docs/mcp.md and make sync-docfs after editing knowledge sources.
 
 Example Cursor mcp.json entry:
   {
     "mcpServers": {
       "buddy": {
         "command": "/Users/YOU/go/bin/buddy",
-        "args": ["mcp"],
-        "env": { "BUDDY_DOCS_ROOT": "/Users/YOU/work/buddy/docs" }
+        "args": ["mcp"]
       }
     }
   }

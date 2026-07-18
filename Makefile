@@ -12,8 +12,17 @@ GO_MAIN_FILES := $(shell find . -name "*.go" -type f -exec grep -l "^package mai
 BUDDY_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 # Buddy CLI (builds to ./buddy)
-BUDDY_GO_FILES := $(shell find cmd/buddy internal -name "*.go" 2>/dev/null)
-$(BUILDTARGET): $(BUDDY_GO_FILES)
+BUDDY_GO_FILES := $(shell find cmd/buddy internal docfs -name "*.go" 2>/dev/null)
+DOC_SOURCES := $(shell find docs examples .cursor/rules -type f \( -name '*.md' -o -name '*.star' -o -name '*.json' -o -name '*.mdc' \) 2>/dev/null) README.md AGENTS.md
+
+.PHONY: sync-docfs
+sync-docfs:
+	@./scripts/sync-docfs.sh
+
+docfs/content/README.embedded: $(DOC_SOURCES) scripts/sync-docfs.sh
+	@./scripts/sync-docfs.sh
+
+$(BUILDTARGET): sync-docfs $(BUDDY_GO_FILES) docfs/content/README.embedded
 	@echo "Building buddy (version $(BUDDY_VERSION))..."
 	$(GO) build $(GOFLAGS) -ldflags "-X main.Version=$(BUDDY_VERSION)" -o $(BUILDTARGET) ./cmd/buddy
 	@! santactl status>/dev/null|| santactl fileinfo buddy|grep Rule|egrep '(Allowed|None)' >/dev/null|| rm buddy
@@ -25,7 +34,7 @@ install: $(BUILDTARGET)
 .PHONY: install
 
 # Run unit tests
-test:
+test: sync-docfs
 	$(GO) test -v ./...
 .PHONY: test
 
@@ -50,7 +59,8 @@ help:
 	@echo "Generic Go Build Makefile"
 	@echo ""
 	@echo "Targets:"
-	@echo "  $(BUILDTARGET)   - Build $(BUILDTARGET) CLI"
+	@echo "  $(BUILDTARGET)   - Sync embedded docs + build $(BUILDTARGET) CLI"
+	@echo "  sync-docfs - Copy docs/AGENTS/examples/rules into docfs/content for go:embed"
 	@echo "  install   - Install $(BUILDTARGET) CLI to ~/go/bin/"
 	@echo "  test      - Run unit tests"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"

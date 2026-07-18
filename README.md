@@ -163,7 +163,8 @@ buddy <script.star> [-- args...]
 buddy help starlark   # language subset
 buddy help builtins   # full builtin reference (canonical)
 make docs-serve       # local docs + Starlark notebook (buddy serve --open)
-buddy mcp             # MCP stdio server (see docs/mcp.md)
+buddy mcp             # MCP stdio server (docs/AGENTS/rules embedded; see docs/mcp.md)
+make sync-docfs       # refresh embedded knowledge after editing docs/rules/AGENTS
 ```
 
 **Globals:** `cred` (active credential name), `args` (arguments after `--`), `re` (regex). Use **`error(...)`** for status and diagnostic lines (stderr); use **`print(...)`** only when you intentionally write script output to stdout (e.g. for piping). If the script defines `main`, buddy calls it after loading—do **not** add a trailing `main()` (that would run it twice).

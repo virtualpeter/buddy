@@ -1,15 +1,19 @@
 # Buddy documentation
 
-| Document | Description |
-|----------|-------------|
-| [../AGENTS.md](../AGENTS.md) | Agent onboarding: auth architecture, secret storage, meliorate integration, project history. |
-| [reference-manual.md](reference-manual.md) | Full reference: configuration, CLI, Starlark scripting, builtins overview, and links to examples. |
-| [api-endpoints.md](api-endpoints.md) | Jamf Pro HTTP endpoints used by buddy (Classic + Jamf Pro API). |
-| [builtins-v3.md](builtins-v3.md) | Starlark v3 plural/singular rename map and migration notes. |
-| [mcp.md](mcp.md) | Cursor MCP setup, tools, response shape, and troubleshooting. |
+**buddy** is a Jamf Pro CLI: policies, groups, profiles, packages, scripts, computers/MDM, and Starlark automation.
 
-**Browse locally:** `make docs-serve` or `buddy serve --open` (docs + Starlark notebook UI).
+Use the sidebar to browse. Start with the [reference manual](/docs/docs/reference-manual) for configuration and commands, and [Starlark builtins](/docs/builtins) for the scripting API.
 
-In the docs UI, open **[Starlark builtins](/docs/builtins)** for a browsable HTML reference of every builtin (sections, signatures, params). Same content as `buddy help builtins`.
+| Guide | What it’s for |
+|-------|----------------|
+| [Reference manual](/docs/docs/reference-manual) | Install, config, credentials, CLI, Starlark, environment |
+| [Starlark builtins](/docs/builtins) | Every built-in function (signatures, params, return values) |
+| [API endpoints](/docs/docs/api-endpoints) | Jamf HTTP APIs buddy calls |
+| [MCP for Cursor](/docs/docs/mcp) | Use buddy as an MCP server from Cursor |
+| [Notebook](/notebook) | Interactive Starlark cells against your Jamf credential |
 
-**Examples:** see the [examples/](../examples/) directory for runnable `.star` scripts. For Cursor MCP, see [examples/mcp.json](../examples/mcp.json).
+```sh
+buddy serve --open          # this docs UI + notebook
+buddy help                  # CLI overview
+buddy help builtins         # same builtins reference as above
+```
