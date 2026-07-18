@@ -9,6 +9,15 @@ Buddy communicates with Jamf Pro through two API surfaces using direct HTTP requ
 
 Authentication is config-driven per credential (command, basic, or OAuth). See `buddy auth help` and `buddy cred help`. For **basic** (username/password), buddy obtains a Bearer token via `POST /api/v1/auth/token` with Basic auth, then uses that token for all API requests.
 
+### Custom calls from Starlark
+
+For endpoints without a typed builtin, scripts can call:
+
+- `jamf_get` / `jamf_post` / `jamf_put` / `jamf_patch` / `jamf_delete`
+- or `jamf_request(method, path, …)`
+
+Paths are host-relative (`/api/v1/…` or `/JSSResource/…`). Media-type defaults follow the path (JSON for `/api/…`, XML for `/JSSResource/…`). See `buddy help builtins` (section **JAMF API**).
+
 ### Pagination
 
 Jamf Pro JSON list endpoints that return `{totalCount, results}` are fetched via `fetchJamfPaged` (`internal/buddy/pagination.go`):

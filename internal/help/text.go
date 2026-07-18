@@ -368,6 +368,30 @@ CLIENT
   client_put(client_id, dict, cred?) → value: dict
   client_create(display_name, scopes, cred?) → value: dict {id, client_id}
 
+JAMF API
+  Low-level authenticated HTTP against the credential’s Jamf host. Prefer typed
+  builtins when they exist; use these for endpoints buddy does not wrap yet.
+  Path is host-relative (must start with /). Defaults: /JSSResource… → XML
+  Classic API; /api/… → JSON Jamf Pro API.
+  value is always {status: int, body: str|dict|list|bytes, content_type: str}.
+  On non-2xx: ok=false, error describes the status, and value is still set.
+
+  jamf_get(path, accept?, parse?=True, cred?)
+      → value: {status, body, content_type}
+      Params: path: str; accept?: str; parse?: bool (JSON→dict/list when possible).
+  jamf_post(path, body?, content_type?, accept?, parse?=True, cred?)
+      → value: {status, body, content_type}
+      Params: body?: str|bytes|dict|list (dict/list JSON-encoded).
+  jamf_put(path, body?, content_type?, accept?, parse?=True, cred?)
+      → value: {status, body, content_type}
+  jamf_patch(path, body?, content_type?, accept?, parse?=True, cred?)
+      → value: {status, body, content_type}
+  jamf_delete(path, accept?, parse?=True, cred?)
+      → value: {status, body, content_type}
+  jamf_request(method, path, body?, content_type?, accept?, parse?=True, cred?)
+      → value: {status, body, content_type}
+      Params: method: GET|POST|PUT|PATCH|DELETE|HEAD.
+
 SERIALIZATION
   json_decode(json_str)
       → value: dict or list
