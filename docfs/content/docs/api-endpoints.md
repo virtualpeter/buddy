@@ -18,6 +18,18 @@ For endpoints without a typed builtin, scripts can call:
 
 Paths are host-relative (`/api/v1/…` or `/JSSResource/…`). Media-type defaults follow the path (JSON for `/api/…`, XML for `/JSSResource/…`). See `buddy help builtins` (section **JAMF API**).
 
+### API schema documents
+
+Each Jamf host publishes its live specs (use `jamf_schema` from Starlark):
+
+| API | Path | Format |
+|-----|------|--------|
+| Jamf Pro API | `/api/schema` | OpenAPI 3 JSON |
+| Classic API | `/classicapi/doc/swagger.yaml` | Swagger 2 YAML |
+
+Example: `jamf_schema(filter="policy delete")` searches **both** surfaces (default `api="both"`).  
+MCP exposes the same helper as tool `jamf_schema`.
+
 ### Pagination
 
 Jamf Pro JSON list endpoints that return `{totalCount, results}` are fetched via `fetchJamfPaged` (`internal/buddy/pagination.go`):

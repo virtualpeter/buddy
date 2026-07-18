@@ -176,6 +176,33 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		return toolOK(map[string]any{"id": id, "trigger": in.Trigger}, nil)
 	})
 
+	type schemaIn struct {
+		API    string `json:"api,omitempty" jsonschema:"pro (OpenAPI /api/schema), classic (Swagger /classicapi/doc/swagger.yaml), or both (default)"`
+		Filter string `json:"filter,omitempty" jsonschema:"case-insensitive; space-separated terms AND-matched against path, method, tags, summary, operationId, description"`
+		Full   bool   `json:"full,omitempty" jsonschema:"if true, include filtered schema document(s) (large); default is operations catalog only"`
+		Cred   string `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "jamf_schema",
+		Description: "Look up Jamf API operations from the live server schemas: Jamf Pro OpenAPI (/api/schema) " +
+			"and/or Classic Swagger (/classicapi/doc/swagger.yaml). " +
+			"Default api=both searches both surfaces so you can learn where an endpoint lives. " +
+			"Use filter (e.g. \"jamf-pro-information\" or \"policy delete\") to narrow results. " +
+			"Returns {ok, value: {api, count, operations:[{api,path,method,summary,...}], pro?, classic?}}. " +
+			"Set full=true only when you need response/parameter schemas.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in schemaIn) (*mcpsdk.CallToolResult, any, error) {
+		api := in.API
+		if api == "" {
+			api = "both"
+		}
+		res, err := buddy.FetchJamfSchema(resolve(credIn{Cred: in.Cred}), api, in.Filter, in.Full)
+		if err != nil {
+			return toolErr(err)
+		}
+		n := res.Count
+		return toolOK(res, &n)
+	})
+
 	type evalIn struct {
 		Source string `json:"source" jsonschema:"Starlark source to evaluate"`
 		Cred   string `json:"cred,omitempty"`

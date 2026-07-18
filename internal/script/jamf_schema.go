@@ -1,0 +1,103 @@
+package script
+
+import (
+	"log/slog"
+
+	"buddy/internal/buddy"
+
+	"go.starlark.net/starlark"
+)
+
+// jamf_schema(api?="both", filter?="", full?=False, cred?)
+//
+// Fetches OpenAPI (/api/schema) and/or Classic Swagger (/classicapi/doc/swagger.yaml)
+// for the active credential. api: "pro", "classic", or "both" (default).
+// filter is a case-insensitive AND of space-separated terms matched against path,
+// method, tags, summary, operationId, description.
+// Default value is a compact operations catalog; full=True includes schema document(s).
+func jamfSchemaBuiltin(credName string, logger *slog.Logger) builtinFn {
+	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		api := starlark.String("both")
+		var filter, cred starlark.String
+		full := starlark.Bool(false)
+		if err := starlark.UnpackArgs(b.Name(), args, kwargs,
+			"api?", &api,
+			"filter?", &filter,
+			"full?", &full,
+			"cred?", &cred,
+		); err != nil {
+			return nil, err
+		}
+		_ = logger
+		res, err := buddy.FetchJamfSchema(resolveCred(thread, credName, cred), string(api), string(filter), bool(full))
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		val, err := GoValueToStarlark(schemaResultToMap(res))
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(val), nil
+	}
+}
+
+func schemaResultToMap(res *buddy.SchemaResult) map[string]interface{} {
+	out := map[string]interface{}{
+		"api":        res.API,
+		"count":      res.Count,
+		"operations": schemaOpsToSlice(res.Operations),
+	}
+	if res.Source != "" {
+		out["source"] = res.Source
+	}
+	if res.Title != "" {
+		out["title"] = res.Title
+	}
+	if res.Version != "" {
+		out["version"] = res.Version
+	}
+	if res.Spec != "" {
+		out["spec"] = res.Spec
+	}
+	if res.Document != nil {
+		out["document"] = res.Document
+	}
+	if res.Pro != nil {
+		out["pro"] = schemaResultToMap(res.Pro)
+	}
+	if res.Classic != nil {
+		out["classic"] = schemaResultToMap(res.Classic)
+	}
+	return out
+}
+
+func schemaOpsToSlice(ops []buddy.SchemaOperation) []interface{} {
+	out := make([]interface{}, 0, len(ops))
+	for _, op := range ops {
+		m := map[string]interface{}{
+			"path":   op.Path,
+			"method": op.Method,
+		}
+		if op.API != "" {
+			m["api"] = op.API
+		}
+		if op.Summary != "" {
+			m["summary"] = op.Summary
+		}
+		if op.Description != "" {
+			m["description"] = op.Description
+		}
+		if op.OperationID != "" {
+			m["operationId"] = op.OperationID
+		}
+		if len(op.Tags) > 0 {
+			tags := make([]interface{}, len(op.Tags))
+			for i, t := range op.Tags {
+				tags[i] = t
+			}
+			m["tags"] = tags
+		}
+		out = append(out, m)
+	}
+	return out
+}

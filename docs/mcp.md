@@ -84,6 +84,7 @@ Tool names follow the Starlark v3 plural/singular grammar (see [builtins-v3.md](
 | `scripts` | Script summaries | Name substring or RSQL |
 | `packages` | Package summaries | RSQL `filter` |
 | `policy` | `{id, trigger}` | Resolve by trigger name |
+| `jamf_schema` | Operations catalog (+ optional docs) | Live OpenAPI + Classic Swagger; see below |
 | `starlark_eval` | `{stdout, stderr, result, error}` | Fresh session; see below |
 
 ### Resources
@@ -149,6 +150,20 @@ Default `value` is small and agent-friendly:
 ```
 
 Use `verbose: true` only when you need the full privilege strings.
+
+### `jamf_schema` tips
+
+Learn endpoints from the **live** Jamf host (not static docs):
+
+| `api` | Source |
+|-------|--------|
+| `both` (default) | Jamf Pro OpenAPI **and** Classic Swagger |
+| `pro` | `GET /api/schema` (OpenAPI 3) |
+| `classic` | `GET /classicapi/doc/swagger.yaml` (Swagger 2) |
+
+- Prefer `filter` (e.g. `"jamf-pro-information"`, `"policy delete"`) — space-separated terms are AND-matched.
+- Default return is a compact `operations` list (`path`, `method`, `summary`, `api`, …). Set `full: true` only when you need parameter/response schemas.
+- Use this before inventing paths; then call typed tools or `starlark_eval` / `jamf_get` for live data.
 
 ### `starlark_eval` tips
 
