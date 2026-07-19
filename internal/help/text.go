@@ -7,6 +7,7 @@ const Root = `buddy - Jamf Pro management CLI
 Usage:
   buddy [global-flags]                              Interactive Starlark shell
   buddy [global-flags] <script.star> [-- args...]   Run a Starlark script
+  buddy [global-flags] -e <code> [-- args...]       Eval a Starlark one-liner
   buddy [global-flags] <command> [subcommand] [args...]
   buddy help [command] [subcommand]
 
@@ -28,6 +29,7 @@ Commands:
 
 Global flags:
   --version           Print version and exit
+  -e, --eval <code>   Run a Starlark snippet and exit (see 'buddy help shell')
   -y                  Skip confirmation prompts (buddy CLI and confirm() in scripts)
   -v, --verbose       Verbose output
   -t, --trace         Trace HTTP requests and responses to stderr (headers and bodies; Authorization/Cookie redacted)
@@ -44,9 +46,12 @@ const Shell = `buddy - Starlark shell and scripts
 Usage:
   buddy [global-flags]                              Interactive Starlark shell
   buddy [global-flags] [--trace] <script.star> [-- args...]
+  buddy [global-flags] -e <code> [-- args...]
+  buddy [global-flags] --eval=<code> [-- args...]
 
 Arguments:
   <script.star>   Path to a Starlark (.star) script file
+  -e, --eval      Starlark snippet to run (filename for errors: <eval>)
   [-- args...]    Optional arguments passed through to the script (available as args)
 
 Flags:
@@ -57,6 +62,12 @@ Flags:
 
 Notes:
   With no arguments, buddy starts an interactive Starlark REPL on stdin/stdout.
+
+  -e / --eval runs a one-liner in the normal buddy Starlark environment (builtins,
+  args, load("stdlib/…")). If main is defined, it is called (same as file scripts).
+  If the last statement is an expression, its value is printed to stdout as
+  JSON-friendly text (same rendering as notebook Out), unless the expression
+  already wrote to stdout (e.g. unwrap or print).
 
   Global -y skips interactive confirmation for buddy CLI commands and makes confirm()
   in scripts return True without reading stdin.
@@ -73,6 +84,10 @@ Examples:
   buddy deploy.star -- --dry-run
   buddy --script-trace deploy.star
   buddy -t deploy.star
+  buddy -e 'unwrap(jamf_schema(filter="smtp"))'
+  buddy -e 'unwrap(jamf_schema(filter="smtp"), pretty=False)' | jq '.operations[0]'
+  buddy --eval='print(len(args))' -- foo bar
+  buddy -y -e 'unwrap(policies("chrome"))'
 `
 
 const Starlark = `Starlark language quick-reference
@@ -400,15 +415,34 @@ JAMF API
       Returns: operations is a list of {api?, path, method, summary?, operationId?, tags?}.
 
 SERIALIZATION
+  Data flow (important):
+    • Jamf builtins return a result envelope: {"ok": bool, "value": …} or
+      {"ok": False, "error": "…"}. That envelope is a Starlark dict, not a JSON string.
+    • print(x) and bare Starlark display look JSON-ish but are NOT JSON.
+      Notebook "Out" pretty-prints dicts/lists as real JSON text.
+    • For jq / stdout JSON, use unwrap (prints value on ok, returns it; soft on error):
+        data = unwrap(jamf_schema(filter="smtp"))
+        buddy script.star | jq '.operations[0]'
+    • json_encode / json_pretty return JSON strings *inside* the envelope — prefer
+      unwrap when you want stdout bytes for tools.
+
+  unwrap(result, pretty?=True)
+      → value on ok, or None on error (soft; does not exit)
+      Params: result: usually a builtin return dict (plain values also accepted).
+        On ok=True: writes JSON of value to stdout and returns value.
+        On ok=False: writes error to stderr and returns None (script continues).
+        pretty?=True indents; pretty=False for compact jq input.
   json_decode(json_str)
       → value: dict or list
       Params: json_str: str. Returns: Starlark dict/list from JSON.
   json_encode(value)
       → value: str (JSON)
-      Params: value: Starlark dict, list, or primitive. Returns: compact JSON string.
+      Params: value: Starlark dict, list, or primitive. Returns: compact JSON string
+      inside the envelope (not printed). Prefer unwrap for stdout.
   json_pretty(value)
       → value: str (indented JSON)
-      Params: value: Starlark dict, list, or primitive. Returns: pretty-printed JSON (2-space indent).
+      Params: value: Starlark dict, list, or primitive. Returns indented JSON string
+      inside the envelope. Prefer unwrap(result) to print real newlines to stdout.
   plist_decode(plist_xml_str)
       → value: dict or list
       Params: plist_xml_str: str (plist XML). Returns: Starlark dict/list.

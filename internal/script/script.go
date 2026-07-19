@@ -3,6 +3,7 @@ package script
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 
@@ -57,6 +58,80 @@ func Run(credName string, opts buddy.Opts, scriptPath string, args []string, log
 	if err != nil {
 		return handleExitError(err)
 	}
+	mainFn := globals["main"]
+	if mainFn != nil {
+		_, err = starlark.Call(thread, mainFn, nil, []starlark.Tuple{
+			{starlark.String("cred"), starlark.String(credName)},
+		})
+		if err != nil {
+			return handleExitError(fmt.Errorf("main: %w", err))
+		}
+	}
+	return nil
+}
+
+// ParseEvalArgs returns script args after an optional leading "--".
+func ParseEvalArgs(args []string) []string {
+	if len(args) > 0 && args[0] == "--" {
+		return args[1:]
+	}
+	return args
+}
+
+// RunSource executes a Starlark snippet (e.g. buddy -e / --eval).
+// Filename for diagnostics is "<eval>". Top-level if/for are allowed.
+// If the last statement is an expression, its value is printed to stdout via
+// FormatDisplayValue (JSON-friendly). If main is defined, it is called afterward
+// (same convention as file scripts).
+func RunSource(credName string, opts buddy.Opts, source string, args []string, logger *slog.Logger, trace bool) error {
+	thread, globals, err := newThread(credName, opts, logger, trace, args)
+	if err != nil {
+		return err
+	}
+
+	fileOpts := &syntax.FileOptions{
+		Set:             true,
+		TopLevelControl: true,
+		GlobalReassign:  true,
+	}
+	const filename = "<eval>"
+	f, err := fileOpts.Parse(filename, source, 0)
+	if err != nil {
+		return err
+	}
+
+	var lastExpr syntax.Expr
+	if n := len(f.Stmts); n > 0 {
+		if es, ok := f.Stmts[n-1].(*syntax.ExprStmt); ok {
+			lastExpr = es.X
+			f.Stmts = f.Stmts[:n-1]
+		}
+	}
+
+	if len(f.Stmts) > 0 {
+		if err := starlark.ExecREPLChunk(f, thread, globals); err != nil {
+			return handleExitError(err)
+		}
+	}
+
+	if lastExpr != nil {
+		// Track stdout from the last expression (unwrap/print) so we do not
+		// double-print when also emitting FormatDisplayValue for bare values.
+		cw := &countingWriter{w: os.Stdout}
+		thread.SetLocal(localStdout, cw)
+		val, err := starlark.EvalExprOptions(fileOpts, thread, lastExpr, globals)
+		thread.SetLocal(localStdout, nil)
+		if err != nil {
+			return handleExitError(err)
+		}
+		if val != nil && val != starlark.None {
+			globals["_"] = val
+			if cw.n == 0 {
+				fmt.Fprintln(os.Stdout, FormatDisplayValue(val))
+			}
+		}
+	}
+
 	mainFn := globals["main"]
 	if mainFn != nil {
 		_, err = starlark.Call(thread, mainFn, nil, []starlark.Tuple{
@@ -129,4 +204,16 @@ func listFromStrings(ss []string) *starlark.List {
 		elems[i] = starlark.String(s)
 	}
 	return starlark.NewList(elems)
+}
+
+// countingWriter wraps a writer and counts bytes written.
+type countingWriter struct {
+	w io.Writer
+	n int
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += n
+	return n, err
 }

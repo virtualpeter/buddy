@@ -32,6 +32,9 @@ type globalCLI struct {
 	user        string
 	cred        string
 	usedCred    bool
+	evalSource  string // -e / --eval snippet
+	evalDup     bool   // second -e/--eval seen
+	evalMissing bool   // -e/--eval without a following argument
 }
 
 func main() {
@@ -45,6 +48,14 @@ func main() {
 	if globals.showVersion {
 		fmt.Println(Version)
 		os.Exit(0)
+	}
+	if globals.evalDup {
+		fmt.Fprintln(os.Stderr, "buddy: only one -e / --eval is allowed")
+		os.Exit(2)
+	}
+	if globals.evalMissing {
+		fmt.Fprintln(os.Stderr, "buddy: -e / --eval requires a Starlark snippet")
+		os.Exit(2)
 	}
 
 	opts := buddy.Opts{
@@ -72,6 +83,16 @@ func main() {
 	buddy.SetVerbose(globals.verbose || globals.trace)
 	buddy.SetHTTPTrace(globals.trace)
 	logger := buddy.GetLogger()
+
+	if globals.evalSource != "" {
+		scriptArgs := script.ParseEvalArgs(args)
+		if err := script.RunSource(credName, opts, globals.evalSource, scriptArgs, logger, globals.scriptTrace); err != nil {
+			logger.Error("Eval failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if len(args) < 1 {
 		if err := script.REPL(credName, opts, logger, globals.scriptTrace); err != nil {
@@ -1890,6 +1911,27 @@ func extractGlobalFlags(argv []string) (globalCLI, []string) {
 			g.trace = true
 		case a == "--script-trace":
 			g.scriptTrace = true
+		case a == "-e", a == "--eval":
+			if g.evalSource != "" {
+				g.evalDup = true
+			}
+			if i+1 >= len(argv) {
+				g.evalMissing = true
+			} else {
+				i++
+				if g.evalSource == "" {
+					g.evalSource = argv[i]
+				}
+			}
+		case strings.HasPrefix(a, "--eval="):
+			if g.evalSource != "" {
+				g.evalDup = true
+			} else {
+				g.evalSource = strings.TrimPrefix(a, "--eval=")
+				if g.evalSource == "" {
+					g.evalMissing = true
+				}
+			}
 		case strings.HasPrefix(a, "--user="):
 			g.user = strings.TrimPrefix(a, "--user=")
 		case a == "--user":

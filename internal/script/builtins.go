@@ -187,6 +187,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "jamf_delete", jamfDeleteBuiltin(credName, logger))
 	putBuiltin(dict, "jamf_schema", jamfSchemaBuiltin(credName, logger))
 
+	putBuiltin(dict, "unwrap", unwrapBuiltin)
 	putBuiltin(dict, "json_decode", jsonDecodeBuiltin)
 	putBuiltin(dict, "json_encode", jsonEncodeBuiltin)
 	putBuiltin(dict, "json_pretty", jsonPrettyBuiltin)

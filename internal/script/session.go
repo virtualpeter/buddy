@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	localStdout = "buddy.stdout"
-	localStderr = "buddy.stderr"
+	localStdout  = "buddy.stdout"
+	localStderr  = "buddy.stderr"
 	localSession = "buddy.session"
 )
 
@@ -145,7 +145,7 @@ func (s *Session) Eval(filename, src string) EvalResult {
 			return out
 		}
 		if val != nil && val != starlark.None {
-			out.Result = val.String()
+			out.Result = FormatDisplayValue(val)
 			s.globals["_"] = val
 		}
 		return out
@@ -194,7 +194,7 @@ func (s *Session) CallMainAppend(out EvalResult) EvalResult {
 		return out
 	}
 	if val != nil && val != starlark.None {
-		out.Result = val.String()
+		out.Result = FormatDisplayValue(val)
 	}
 	return out
 }

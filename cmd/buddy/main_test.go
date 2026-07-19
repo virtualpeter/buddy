@@ -227,6 +227,38 @@ func TestExtractGlobalFlags(t *testing.T) {
 	if g.user != "dev" {
 		t.Fatalf("user = %q, want dev", g.user)
 	}
+
+	argv = []string{"buddy", "-e", "1+1", "--", "foo"}
+	g, rest = extractGlobalFlags(argv)
+	if g.evalSource != "1+1" || g.evalDup || g.evalMissing {
+		t.Fatalf("eval: source=%q dup=%v missing=%v", g.evalSource, g.evalDup, g.evalMissing)
+	}
+	want = []string{"buddy", "--", "foo"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "--eval=print(len(args))", "bar"}
+	g, rest = extractGlobalFlags(argv)
+	if g.evalSource != "print(len(args))" {
+		t.Fatalf("evalSource = %q", g.evalSource)
+	}
+	want = []string{"buddy", "bar"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "--eval", "x", "-e", "y"}
+	g, rest = extractGlobalFlags(argv)
+	if !g.evalDup || g.evalSource != "x" {
+		t.Fatalf("want dup with first source, got dup=%v source=%q", g.evalDup, g.evalSource)
+	}
+
+	argv = []string{"buddy", "-e"}
+	g, _ = extractGlobalFlags(argv)
+	if !g.evalMissing {
+		t.Fatal("expected evalMissing for bare -e")
+	}
 }
 
 func TestRunAuthRefreshHelp(t *testing.T) {

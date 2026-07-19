@@ -1,7 +1,10 @@
 package script
 
 import (
+	"io"
 	"log/slog"
+	"os"
+	"strings"
 	"testing"
 
 	"buddy/internal/buddy"
@@ -38,5 +41,73 @@ func TestParseScriptInvocationEmpty(t *testing.T) {
 	trace, path, scriptArgs := ParseScriptInvocation(nil)
 	if trace || path != "" || scriptArgs != nil {
 		t.Errorf("got trace=%v path=%q args=%v", trace, path, scriptArgs)
+	}
+}
+
+func TestParseEvalArgs(t *testing.T) {
+	if got := ParseEvalArgs([]string{"--", "a", "b"}); len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("ParseEvalArgs(-- …) = %v", got)
+	}
+	if got := ParseEvalArgs([]string{"a"}); len(got) != 1 || got[0] != "a" {
+		t.Fatalf("ParseEvalArgs(a) = %v", got)
+	}
+}
+
+func captureStdout(t *testing.T, fn func() error) (string, error) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	runErr := fn()
+	_ = w.Close()
+	os.Stdout = old
+	b, readErr := io.ReadAll(r)
+	_ = r.Close()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	return string(b), runErr
+}
+
+func TestRunSourceLastExpr(t *testing.T) {
+	logger := slog.Default()
+	out, err := captureStdout(t, func() error {
+		return RunSource("default", buddy.Opts{}, "1+1", nil, logger, false)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != "2" {
+		t.Fatalf("stdout=%q, want 2", out)
+	}
+}
+
+func TestRunSourceUnwrap(t *testing.T) {
+	logger := slog.Default()
+	src := `unwrap({"ok": True, "value": {"a": 1}, "error": ""}, pretty=False)`
+	out, err := captureStdout(t, func() error {
+		return RunSource("default", buddy.Opts{}, src, nil, logger, false)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != `{"a":1}` {
+		t.Fatalf("stdout=%q, want {\"a\":1}", out)
+	}
+}
+
+func TestRunSourceArgs(t *testing.T) {
+	logger := slog.Default()
+	out, err := captureStdout(t, func() error {
+		return RunSource("default", buddy.Opts{}, "len(args)", []string{"foo", "bar"}, logger, false)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != "2" {
+		t.Fatalf("stdout=%q, want 2", out)
 	}
 }
