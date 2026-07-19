@@ -19,6 +19,7 @@ var knownCommands = map[string]struct{}{
 	"setup":    {},
 	"serve":    {},
 	"mcp":      {},
+	"lsp":      {},
 }
 
 func isKnownCommand(name string) bool {

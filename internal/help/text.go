@@ -6,7 +6,7 @@ const Root = `buddy - Jamf Pro management CLI
 
 Usage:
   buddy [global-flags]                              Interactive Starlark shell
-  buddy [global-flags] <script.star> [-- args...]   Run a Starlark script
+  buddy [global-flags] <script.buddy> [-- args...]  Run a Starlark script (.buddy preferred; .star still works)
   buddy [global-flags] -e <code> [-- args...]       Eval a Starlark one-liner
   buddy [global-flags] <command> [subcommand] [args...]
   buddy help [command] [subcommand]
@@ -26,6 +26,7 @@ Commands:
   setup    Write setup script (role + client for buddy)
   serve    Local docs + Starlark notebook web UI
   mcp      MCP stdio server for Cursor agents
+  lsp      Language server for buddy Starlark (editor integration)
 
 Global flags:
   --version           Print version and exit
@@ -45,17 +46,17 @@ const Shell = `buddy - Starlark shell and scripts
 
 Usage:
   buddy [global-flags]                              Interactive Starlark shell
-  buddy [global-flags] [--trace] <script.star> [-- args...]
+  buddy [global-flags] [--trace] <script.buddy> [-- args...]
   buddy [global-flags] -e <code> [-- args...]
   buddy [global-flags] --eval=<code> [-- args...]
 
 Arguments:
-  <script.star>   Path to a Starlark (.star) script file
+  <script.buddy>  Path to a buddy Starlark script (.buddy preferred; .star still works)
   -e, --eval      Starlark snippet to run (filename for errors: <eval>)
   [-- args...]    Optional arguments passed through to the script (available as args)
 
 Flags:
-  --trace         Positional flag before <script.star>: log each buddy builtin call to
+  --trace         Positional flag before the script path: log each buddy builtin call to
                   stderr with its source position, arguments, and return value. Also logs
                   a trace line to stderr for each Starlark print() (the message itself
                   goes to stdout). Buddy's error() writes to stderr only.
@@ -73,17 +74,17 @@ Notes:
   in scripts return True without reading stdin.
 
   --script-trace enables the same builtin tracing as positional --trace (for scripts
-  and the REPL). HTTP tracing (-t / --trace) is separate: use "buddy -t deploy.star"
+  and the REPL). HTTP tracing (-t / --trace) is separate: use "buddy -t deploy.buddy"
   to trace Jamf API traffic from builtins.
 
   Use 'buddy help starlark' and 'buddy help builtins' for language and API reference.
 
 Examples:
   buddy
-  buddy deploy.star
-  buddy deploy.star -- --dry-run
-  buddy --script-trace deploy.star
-  buddy -t deploy.star
+  buddy deploy.buddy
+  buddy deploy.buddy -- --dry-run
+  buddy --script-trace deploy.buddy
+  buddy -t deploy.buddy
   buddy -e 'unwrap(jamf_schema(filter="smtp"))'
   buddy -e 'unwrap(jamf_schema(filter="smtp"), pretty=False)' | jq '.operations[0]'
   buddy --eval='print(len(args))' -- foo bar
@@ -178,7 +179,7 @@ BUILT-IN FUNCTIONS
 
 MODULES
   load("re", "match")                      # starlib regex (also predeclared as re)
-  load("stdlib/release.star", "bump_release")  # buddy stdlib (see help builtins)
+  load("stdlib/release.buddy", "bump_release")  # buddy stdlib (see help builtins)
 
 WHAT IS NOT IN STARLARK (vs Python)
   No:  import  class  try/except  while  lambda  yield  global  nonlocal
@@ -214,14 +215,14 @@ STDLIB
   Complex CLI-style workflows live in embedded Starlark modules under stdlib/.
   Load them with Starlark load() (same mechanism as load("re", ...)):
 
-    load("stdlib/release.star", "bump_release")
+    load("stdlib/release.buddy", "bump_release")
     r = bump_release(trigger_prefix="install-app-", app="app", version="1.2.3")
     if not r["ok"]:
       fail(r["error"])
 
   Modules compose the builtins below and return the same {"ok","value","error"} dicts.
   Browse modules and builtins in the notebook Libraries drawer (buddy serve → /notebook).
-  Current modules: stdlib/release.star (bump_release).
+  Current modules: stdlib/release.buddy (bump_release).
 
 POLICY
   policies(keywords, exclude_ids?, force_refresh?, ids?=False, cred?)
@@ -422,7 +423,7 @@ SERIALIZATION
       Notebook "Out" pretty-prints dicts/lists as real JSON text.
     • For jq / stdout JSON, use unwrap (prints value on ok, returns it; soft on error):
         data = unwrap(jamf_schema(filter="smtp"))
-        buddy script.star | jq '.operations[0]'
+        buddy script.buddy | jq '.operations[0]'
     • json_encode / json_pretty return JSON strings *inside* the envelope — prefer
       unwrap when you want stdout bytes for tools.
 

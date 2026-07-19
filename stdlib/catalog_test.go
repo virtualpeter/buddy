@@ -27,7 +27,7 @@ func TestCatalogRelease(t *testing.T) {
 	if fn.Summary == "" {
 		t.Fatal("expected summary")
 	}
-	if !strings.Contains(fn.Insert, `load("stdlib/release.star", "bump_release")`) ||
+	if !strings.Contains(fn.Insert, `load("stdlib/release.buddy", "bump_release")`) ||
 		!strings.Contains(fn.Insert, "bump_release(") {
 		t.Fatalf("insert = %q", fn.Insert)
 	}

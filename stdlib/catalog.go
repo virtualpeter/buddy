@@ -23,7 +23,7 @@ type FuncInfo struct {
 type ModuleInfo struct {
 	ID        string // e.g. stdlib/release
 	Title     string // e.g. release
-	Path      string // e.g. stdlib/release.star
+	Path      string // e.g. stdlib/release.buddy
 	Functions []FuncInfo
 }
 
@@ -39,7 +39,7 @@ func Catalog() ([]ModuleInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		base := strings.TrimSuffix(path.Base(modPath), ".star")
+		base := strings.TrimSuffix(path.Base(modPath), ".buddy")
 		info := ModuleInfo{
 			ID:        "stdlib/" + base,
 			Title:     base,

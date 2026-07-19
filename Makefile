@@ -12,8 +12,8 @@ GO_MAIN_FILES := $(shell find . -name "*.go" -type f -exec grep -l "^package mai
 BUDDY_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 # Buddy CLI (builds to ./buddy)
-BUDDY_GO_FILES := $(shell find cmd/buddy internal docfs stdlib \( -name "*.go" -o -name "*.star" \) 2>/dev/null)
-DOC_SOURCES := $(shell find docs examples .cursor/rules -type f \( -name '*.md' -o -name '*.star' -o -name '*.json' -o -name '*.mdc' \) 2>/dev/null) README.md AGENTS.md
+BUDDY_GO_FILES := $(shell find cmd/buddy internal docfs stdlib \( -name "*.go" -o -name "*.buddy" -o -name "*.star" \) 2>/dev/null)
+DOC_SOURCES := $(shell find docs examples .cursor/rules -type f \( -name '*.md' -o -name '*.buddy' -o -name '*.star' -o -name '*.json' -o -name '*.mdc' \) 2>/dev/null) README.md AGENTS.md
 
 .PHONY: sync-docfs
 sync-docfs:
@@ -40,7 +40,7 @@ test: sync-docfs
 
 # Run integration tests (requires Jamf test environment in config or --user override)
 integration-test: $(BUILDTARGET)
-	./$(BUILDTARGET) scripts/integration_test.star
+	./$(BUILDTARGET) scripts/integration_test.buddy
 .PHONY: integration-test
 
 # Local docs + notebook UI (opens browser)
@@ -54,6 +54,11 @@ clean:
 	@rm -f $(BUILDTARGET)
 .PHONY: clean
 
+# Package Cursor/VS Code extension VSIX (PUBLISHER=virtualpeter by default)
+extension-package:
+	cd editors/vscode && npm install && PUBLISHER=$(or $(PUBLISHER),virtualpeter) npm run package
+.PHONY: extension-package
+
 # Help target
 help:
 	@echo "Generic Go Build Makefile"
@@ -65,6 +70,7 @@ help:
 	@echo "  test      - Run unit tests"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"
 	@echo "  docs-serve - Local docs + notebook (buddy serve --open)"
+	@echo "  extension-package - Build editors/vscode VSIX (PUBLISHER=virtualpeter)"
 	@echo "  clean   - Remove all built executables"
 	@echo "  help    - Show this help message"
 .PHONY: help

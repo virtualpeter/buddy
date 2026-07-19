@@ -281,9 +281,10 @@ Usage:
   write-script [path]
     Writes a Starlark script that creates a Jamf API role with privileges needed
     for buddy and an API client (integration) scoped to that role. Default path
-    is setup_buddy_role.star.
+    is setup_buddy_role.buddy.
 
     Run the generated script with:
+      ./<path> -y
       buddy <path> -y
     Then add an OAuth credential to config (see configure-oauth below), or get
     the client secret (shown once) with:
@@ -609,6 +610,7 @@ func printCommandHelp(path []string) {
 		"setup":         helpSetup,
 		"serve":         helpServe,
 		"mcp":           helpMCP,
+		"lsp":           helpLSP,
 	}
 	if text, ok := helpMap[key]; ok {
 		fmt.Print(text)

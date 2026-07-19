@@ -9,7 +9,7 @@ mkdir -p "$dest/docs" "$dest/examples" "$dest/rules"
 
 cp "$root"/docs/*.md "$dest/docs/"
 # Skip scratch scripts under docs/
-if [[ -f "$root/docs/test.star" ]]; then
+if [[ -f "$root/docs/test.star" ]] || [[ -f "$root/docs/test.buddy" ]]; then
 	: # intentionally not embedded
 fi
 
@@ -17,7 +17,7 @@ cp "$root/README.md" "$dest/README.md"
 cp "$root/AGENTS.md" "$dest/AGENTS.md"
 
 shopt -s nullglob
-for f in "$root"/examples/*.md "$root"/examples/*.star "$root"/examples/*.json; do
+for f in "$root"/examples/*.md "$root"/examples/*.buddy "$root"/examples/*.star "$root"/examples/*.json; do
 	cp "$f" "$dest/examples/"
 done
 for f in "$root"/.cursor/rules/*.mdc; do

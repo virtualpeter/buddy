@@ -54,3 +54,25 @@ Example Cursor mcp.json entry:
     }
   }
 `
+
+const helpLSP = `buddy lsp - Language server for buddy Starlark (.buddy)
+
+Usage:
+  buddy lsp
+
+Notes:
+  Speaks LSP over stdin/stdout for the Cursor/VS Code buddy extension.
+  Provides parse diagnostics, undefined-name checks, invalid load() modules,
+  deprecation warnings for legacy builtins, completions, hover, and signature help.
+  Uses the same builtin catalog as 'buddy help builtins' and embedded stdlib/.
+
+  Prefer the .buddy file extension for user scripts. Embedded stdlib modules
+  and stdlib use .buddy (e.g. load("stdlib/<name>.buddy", …)). Existing .star paths still run.
+
+  Optional initializationOptions.cellMode=true enables notebook/-e dialect
+  (top-level if/for and global reassign).
+
+Examples:
+  buddy lsp
+  # usually launched by the editor extension, not interactively
+`

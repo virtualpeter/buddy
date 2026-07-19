@@ -1,0 +1,46 @@
+package script
+
+// DeprecatedAliases maps legacy builtin names to their recommended replacements.
+// Kept in sync with putDeprecated calls in makeBuiltins.
+func DeprecatedAliases() map[string]string {
+	return map[string]string{
+		"policy_find_ids":      "policies(..., ids=True)",
+		"policy_get_id":        "policy(trigger=...)",
+		"policy_get_enable":    "policy(id=...)[\"value\"][\"enabled\"]",
+		"policy_get_details":   "policy(id=...)",
+		"policy_fetch_xml":     "policy_xml",
+		"policy_set_enable":    "policy_set(..., enable=True)",
+		"policy_set_disable":   "policy_set(..., enable=False)",
+		"policy_set_trigger":   "policy_set(..., trigger=...)",
+		"policy_set_name":      "policy_set(..., name=...)",
+		"policy_set_frequency": "policy_set(..., frequency=...)",
+		"package_list":         "packages",
+		"package_find_id":      "package(app=..., version=...)",
+		"package_fetch":        "package(id=...)",
+		"script_list":          "scripts",
+		"script_get_id":        "script(name=...)",
+		"script_fetch":         "script(id=...)",
+		"computer_find_ids":    "computers(..., ids=True)",
+		"computer_get":         "computer",
+		"computer_fetch":       "computer",
+		"mdm_command_find":     "mdm_commands",
+		"mdm_fetch_commands":   "mdm_commands",
+		"profile_list":         "profiles",
+		"profile_find_id":      "profile(name=...)",
+		"profile_fetch_xml":    "profile_xml / profile(id=...)",
+		"group_list_smart":     "smart_groups",
+		"group_list_static":    "static_groups",
+		"group_find_id":        "smart_group(name=...)",
+		"group_fetch":          "smart_group(id=...)",
+		"smart_group_fetch":    "smart_group(id=...)",
+		"group_get_version":    "smart_group_get_version",
+		"group_set_version":    "smart_group_set_version",
+		"group_put":            "smart_group_put",
+		"role_list":            "roles",
+		"role_fetch_list":      "roles(full=True)",
+		"role_fetch":           "role",
+		"role_privileges_list": "role_privileges",
+		"client_fetch_list":    "clients",
+		"client_fetch":         "client",
+	}
+}

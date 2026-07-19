@@ -14,6 +14,7 @@ import (
 
 	"buddy/internal/buddy"
 	"buddy/internal/help"
+	buddylsp "buddy/internal/lsp"
 	buddymcp "buddy/internal/mcp"
 	"buddy/internal/script"
 	"buddy/internal/serve"
@@ -217,6 +218,16 @@ func main() {
 		}
 		if err := buddymcp.Run(credName, opts, logger, Version); err != nil {
 			logger.Error("MCP failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+	case "lsp":
+		if len(args) > 1 && args[1] == "help" {
+			fmt.Print(helpLSP)
+			return
+		}
+		if err := buddylsp.Run(Version); err != nil {
+			logger.Error("LSP failed", "error", err)
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
@@ -2413,7 +2424,7 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 	args = args[1:]
 	switch subcommand {
 	case "write-script":
-		path := "setup_buddy_role.star"
+		path := "setup_buddy_role.buddy"
 		if len(args) > 0 {
 			path = args[0]
 		}
@@ -2421,7 +2432,7 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 			return fmt.Errorf("write setup script: %w", err)
 		}
 		fmt.Printf("Wrote %s\n", path)
-		fmt.Println("Run with: buddy", path, "-y")
+		fmt.Printf("Run with: ./%s -y   (or: buddy %s -y)\n", path, path)
 		return nil
 	case "configure-oauth":
 		credNameForAPI := credName

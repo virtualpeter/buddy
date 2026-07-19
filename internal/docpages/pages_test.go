@@ -15,7 +15,7 @@ func TestLoadHumanEmbedded(t *testing.T) {
 	}
 	for _, id := range []string{
 		"docs/index", "docs/reference-manual", "docs/api-endpoints",
-		"docs/mcp", "builtins", "examples/bump-release.star",
+		"docs/mcp", "builtins", "examples/bump-release.buddy",
 	} {
 		if ByID(res.Pages, id) == nil {
 			t.Errorf("missing human page %q", id)
@@ -40,7 +40,7 @@ func TestLoadAgentEmbedded(t *testing.T) {
 	for _, id := range []string{
 		"docs/index", "docs/builtins-v3", "readme", "agents", "builtins",
 		"rules/buddy-cli.mdc", "rules/buddy-auth-secrets.mdc", "rules/buddy-builtins.mdc",
-		"help/root", "examples/bump-release.star",
+		"help/root", "examples/bump-release.buddy",
 	} {
 		if ByID(res.Pages, id) == nil {
 			t.Errorf("missing agent page %q", id)

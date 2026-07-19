@@ -170,7 +170,7 @@ Learn endpoints from the **live** Jamf host (not static docs):
 - Prefer a **single expression**, or define `main()` **without** calling it (MCP sets `CallMain` and invokes `main` for you).
 - Top-level `if` / `for` outside a function is invalid Starlark—put control flow inside `main()`.
 - Mutating Jamf calls still respect confirmations unless the MCP process was started with global `-y`.
-- You can `load("stdlib/….star", …)` the same as in CLI scripts / the notebook (e.g. `load("stdlib/release.star", "bump_release")`).
+- You can `load("stdlib/….buddy", …)` the same as in CLI scripts / the notebook (e.g. `load("stdlib/release.buddy", "bump_release")`).
 
 Example:
 

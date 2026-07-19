@@ -13,7 +13,7 @@ Includes a Starlark scripting engine for composing multi-step workflows.
 | [docs/reference-manual.md](docs/reference-manual.md) | Full reference: config, CLI, scripting, builtins overview, API doc link |
 | [docs/builtins-v3.md](docs/builtins-v3.md) | Starlark v3 plural/singular rename map (breaking) |
 | [docs/api-endpoints.md](docs/api-endpoints.md) | Jamf HTTP endpoints used by buddy |
-| [examples/](examples/) | Runnable `.star` examples and index |
+| [examples/](examples/) | Runnable `.buddy` examples and index |
 
 Complete builtin signatures always match your installed binary: `buddy help builtins`.
 
@@ -84,8 +84,8 @@ Each credential specifies its own URL and authentication method (`command`, `bas
 To create a Jamf API role with the permissions buddy needs and an API client (integration) scoped to that role:
 
 ```sh
-buddy setup write-script              # writes setup_buddy_role.star (or specify a path)
-buddy setup_buddy_role.star -y     # create the role and client (idempotent: reuses existing "Buddy" role)
+buddy setup write-script              # writes setup_buddy_role.buddy (or specify a path)
+buddy setup_buddy_role.buddy -y    # create the role and client (idempotent: reuses existing "Buddy" role)
 buddy setup configure-oauth -y        # stores clientId in config and client secret in platform store
 ```
 
@@ -99,7 +99,7 @@ The role the script targets may include **destructive or high-impact privileges*
 
 ```
 buddy [flags]                              # interactive Starlark shell
-buddy [flags] <script.star> [-- args...]   # run a script
+buddy [flags] <script.buddy> [-- args...]  # run a script (.buddy preferred; .star still works)
 buddy [flags] <command> <subcommand> [args...]
 ```
 
@@ -154,14 +154,17 @@ buddy embeds a [Starlark](https://github.com/google/starlark-go) interpreter wit
 
 ```sh
 buddy                              # interactive Starlark shell
-buddy <script.star> [-- args...]
+buddy <script.buddy> [-- args...]  # .buddy preferred; any existing path (including .star) still runs
 ```
+
+Prefer the **`.buddy`** extension for scripts and stdlib modules (`load("stdlib/<name>.buddy", …)`) so the Cursor/VS Code extension language id applies. Existing `.star` paths still run. Editor support: `buddy lsp` plus [editors/vscode](editors/vscode) (`make extension-package`).
 
 **Built-in functions (v3):** plural nouns enumerate (`policies`, `packages`, …); singular nouns load one resource (`policy(id=…)` / `policy(trigger=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). Optional `cred=` last. Every Jamf-related builtin returns `{"ok": true, "value": ...}` or `{"ok": false, "error": "..."}` unless documented otherwise. See [docs/builtins-v3.md](docs/builtins-v3.md) for the old→new rename map (deprecated aliases warn once on stderr).
 
 ```sh
 buddy help starlark   # language subset
 buddy help builtins   # full builtin reference (canonical)
+buddy help lsp        # language server for the editor extension
 make docs-serve       # local docs + Starlark notebook (buddy serve --open)
 buddy mcp             # MCP stdio server (docs/AGENTS/rules embedded; see docs/mcp.md)
 make sync-docfs       # refresh embedded knowledge after editing docs/rules/AGENTS
@@ -174,8 +177,8 @@ Sample scripts: [examples/](examples/).
 #### Example (illustrative)
 
 ```python
-# Edit TRIGGER_PREFIX / APP_NAME for your policies; see examples/bump-release.star for a fuller sample.
-# Usage: buddy examples/bump-release.star -- 2.4.27
+# Edit TRIGGER_PREFIX / APP_NAME for your policies; see examples/bump-release.buddy for a fuller sample.
+# Usage: buddy examples/bump-release.buddy -- 2.4.27
 
 TRIGGER_PREFIX = "install-exampleapp-"
 APP_NAME = "exampleapp"
@@ -194,7 +197,7 @@ def main():
     # with those policy IDs. To bump a smart-group version criterion: smart_group_set_version(group_id="...", version=version).
 ```
 
-A runnable file with the same ideas (and optional steps you can uncomment) lives at [examples/bump-release.star](examples/bump-release.star).
+A runnable file with the same ideas (and optional steps you can uncomment) lives at [examples/bump-release.buddy](examples/bump-release.buddy).
 
 ## License
 
@@ -231,13 +234,12 @@ buddy/
 │   │   ├── role.go
 │   │   ├── setup.go      # Setup script generator (role + client)
 │   │   └── script_jamf.go
-│   └── script/         # Starlark runner and builtins
-│       ├── builtins.go
-│       ├── script.go
-│       └── workflow.go
+│   ├── script/         # Starlark runner and builtins
+│   └── lsp/            # buddy lsp (editor language server)
+├── editors/vscode/      # Cursor/VS Code extension (.buddy)
 ├── scripts/
-│   └── integration_test.star   # Broad Jamf integration harness (non-production)
-├── examples/            # Runnable .star samples (see examples/README.md)
+│   └── integration_test.buddy  # Broad Jamf integration harness (non-production)
+├── examples/            # Runnable .buddy samples (see examples/README.md)
 ├── docs/                # Reference manual, API catalog
 ├── go.mod
 ├── go.sum

@@ -1,6 +1,6 @@
-# stdlib/release.star — multi-step release helpers composed from buddy builtins.
+# stdlib/release.buddy — multi-step release helpers composed from buddy builtins.
 #
-# load("stdlib/release.star", "bump_release")
+# load("stdlib/release.buddy", "bump_release")
 
 def _ok(value):
     return {"ok": True, "value": value, "error": ""}

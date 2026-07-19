@@ -22,9 +22,9 @@ func stdlibLoader(reModule, predeclared starlark.StringDict) func(*starlark.Thre
 		}
 		if !stdlib.ValidModule(module) {
 			if strings.HasPrefix(module, "stdlib/") {
-				return nil, fmt.Errorf("invalid stdlib module %q (want stdlib/<name>.star)", module)
+				return nil, fmt.Errorf("invalid stdlib module %q (want stdlib/<name>.buddy)", module)
 			}
-			return nil, fmt.Errorf("unknown module: %s (try load(\"stdlib/release.star\", ...) or load(\"re\", ...))", module)
+			return nil, fmt.Errorf("unknown module: %s (try load(\"stdlib/release.buddy\", ...) or load(\"re\", ...))", module)
 		}
 
 		mu.Lock()

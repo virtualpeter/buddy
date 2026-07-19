@@ -1,6 +1,6 @@
 # Buddy reference manual
 
-**buddy** is a command-line tool for [Jamf Pro](https://www.jamf.com/products/jamf-pro/) automation: policies, computer groups, configuration profiles, packages, scripts, computers / MDM, API roles, and API clients. It includes a [Starlark](https://github.com/google/starlark-go) runtime so multi-step workflows can live in `.star` scripts.
+**buddy** is a command-line tool for [Jamf Pro](https://www.jamf.com/products/jamf-pro/) automation: policies, computer groups, configuration profiles, packages, scripts, computers / MDM, API roles, and API clients. It includes a [Starlark](https://github.com/google/starlark-go) runtime so multi-step workflows can live in `.buddy` scripts (`.star` still works).
 
 This manual describes how the pieces fit together. For behavior that must stay in lockstep with the code, buddy exposes the same text via `buddy help` (see [CLI help](#cli-help)).
 
@@ -66,8 +66,8 @@ Full YAML shape and field descriptions are in the [README](../README.md#configur
 To create a Jamf API role with the privileges buddy needs and an API client scoped to that role:
 
 ```sh
-buddy setup write-script              # writes setup_buddy_role.star (or pass a path)
-buddy setup_buddy_role.star -y    # idempotent: reuses an existing "Buddy" role when present
+buddy setup write-script              # writes setup_buddy_role.buddy (or pass a path)
+buddy setup_buddy_role.buddy -y   # idempotent: reuses an existing "Buddy" role when present
 buddy setup configure-oauth -y        # optional: store OAuth in config
 ```
 
@@ -102,7 +102,7 @@ buddy help [command] [subcommand]
 |---------|------|
 | `auth` | Test auth; print token material |
 | `cred` | Manage `config.yaml` credentials and platform secrets |
-| *(path)* | Execute a `.star` script: `buddy script.star` |
+| *(path)* | Execute a script: `buddy script.buddy` (`.buddy` preferred; `.star` still works) |
 | `policy` | Policies (get/set/clone/create/delete/find) |
 | `group` | Smart/static computer groups (list/get/set/create/delete; static membership) |
 | `profile` | macOS configuration profiles |
@@ -115,6 +115,7 @@ buddy help [command] [subcommand]
 | `setup` | Generate setup scripts and OAuth config helpers |
 | `serve` | Local docs browser + Starlark notebook UI |
 | `mcp` | MCP stdio server for Cursor agents |
+| `lsp` | Language server for the Cursor/VS Code buddy extension |
 
 ### CLI help
 
@@ -175,17 +176,27 @@ Uses the active credential (`--user` to override). MCP inherits that credential�
 
 ```sh
 buddy [global-flags]                              # interactive Starlark shell
-buddy [global-flags] [--trace] <script.star> [-- args...]
+buddy [global-flags] [--trace] <script.buddy> [-- args...]
 ```
 
 - With no arguments, buddy starts an interactive Starlark REPL on stdin/stdout.
 - Scripts are **Starlark** (a deterministic Python-like language). See **Language** below.
+- Prefer the **`.buddy`** file extension for user scripts and stdlib modules (Cursor/VS Code language id + `buddy lsp`). Load with `load("stdlib/<name>.buddy", …)`. Existing **`.star`** paths still run.
 - `args` after `--` are available as the global list `args`.
 - The active credential name is available as `cred` (override per builtin with `cred=`).
 - The regex module is exposed as `re` (see `buddy help starlark` for what Starlark provides globally).
 - If the script defines `main`, buddy invokes it after load (same as MCP `starlark_eval`). Do not call `main()` yourself at top level.
 - **`print()`** writes to stdout; buddy adds **`error(*args, ...)`** for stderr (same signature as `print`). Prefer **`error`** for progress, skips, and failures so stdout stays free for machine-readable output; reserve **`print`** for lines meant to be piped or captured as the script’s primary result.
-- **Positional `--trace` before `<script.star>`** or global **`--script-trace`** logs each builtin call (and optionally Starlark `print` tracing) to stderr. **HTTP tracing** uses the top-level `-t` / `--trace` on `buddy`: `buddy -t deploy.star`.
+- **Positional `--trace` before the script path** or global **`--script-trace`** logs each builtin call (and optionally Starlark `print` tracing) to stderr. **HTTP tracing** uses the top-level `-t` / `--trace` on `buddy`: `buddy -t deploy.buddy`.
+
+### Editor / language server
+
+```sh
+buddy lsp
+make extension-package   # PUBLISHER=virtualpeter by default → editors/vscode/*.vsix
+```
+
+`buddy lsp` speaks LSP over stdio (diagnostics, completions, hover, signature help). The thin editor client lives in [`editors/vscode`](../editors/vscode); see that README for install settings and build-time `PUBLISHER`.
 
 ### Language
 
@@ -244,9 +255,9 @@ Use it when correlating buddy behavior with Jamf’s API or troubleshooting perm
 
 Runnable Star scripts and a short index live under [**examples/**](../examples/README.md):
 
-- [`examples/bump-release.star`](../examples/bump-release.star) — minimal pattern: `policy(trigger=…)`, then updates (edit triggers/IDs for your tenant).
+- [`examples/bump-release.buddy`](../examples/bump-release.buddy) — minimal pattern: `policy(trigger=…)`, then updates (edit triggers/IDs for your tenant).
 - [`docs/builtins-v3.md`](builtins-v3.md) — Starlark plural/singular rename map (v3).
-- For broad integration testing against a non-production Jamf instance, see [`scripts/integration_test.star`](../scripts/integration_test.star) (creates and tears down test resources; read before running).
+- For broad integration testing against a non-production Jamf instance, see [`scripts/integration_test.buddy`](../scripts/integration_test.buddy) (creates and tears down test resources; read before running).
 
 ---
 

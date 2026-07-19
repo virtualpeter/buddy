@@ -1,0 +1,106 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Buddy Starlark",
+  "scopeName": "source.buddy",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#constants" },
+    { "include": "#function-defs" },
+    { "include": "#calls" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.buddy",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.triple.buddy",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "patterns": [{ "name": "constant.character.escape.buddy", "match": "\\\\." }]
+        },
+        {
+          "name": "string.quoted.triple.buddy",
+          "begin": "'''",
+          "end": "'''",
+          "patterns": [{ "name": "constant.character.escape.buddy", "match": "\\\\." }]
+        },
+        {
+          "name": "string.quoted.double.buddy",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "name": "constant.character.escape.buddy", "match": "\\\\." }]
+        },
+        {
+          "name": "string.quoted.single.buddy",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "name": "constant.character.escape.buddy", "match": "\\\\." }]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.buddy",
+          "match": "\\b\\d+(\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.buddy",
+          "match": "\\b(if|elif|else|for|in|return|break|continue|pass|load|def|lambda|and|or|not)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.buddy",
+          "match": "\\b(True|False|None)\\b"
+        }
+      ]
+    },
+    "function-defs": {
+      "patterns": [
+        {
+          "match": "\\b(def)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.buddy" },
+            "2": { "name": "entity.name.function.buddy" }
+          }
+        }
+      ]
+    },
+    "calls": {
+      "patterns": [
+        {
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.buddy" }
+          }
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.buddy",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}

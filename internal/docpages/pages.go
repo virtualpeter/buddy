@@ -162,7 +162,7 @@ func loadHumanFromDisk(docsRoot string) ([]Page, error) {
 	}
 	pages = append(pages, builtinsPage())
 	for _, p := range loadExamplesDir(filepath.Join(repoRoot, "examples")) {
-		if strings.HasSuffix(p.ID, ".star") {
+		if strings.HasSuffix(p.ID, ".buddy") || strings.HasSuffix(p.ID, ".star") {
 			p.Section = "Examples"
 			pages = append(pages, p)
 		}
@@ -187,7 +187,7 @@ func loadHumanFromEmbedded() ([]Page, error) {
 	ents, err := fs.ReadDir(docfs.Content, "content/examples")
 	if err == nil {
 		for _, ent := range ents {
-			if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".star") {
+			if ent.IsDir() || (!strings.HasSuffix(ent.Name(), ".buddy") && !strings.HasSuffix(ent.Name(), ".star")) {
 				continue
 			}
 			name := ent.Name()
@@ -342,7 +342,7 @@ func loadExamplesDir(dir string) []Page {
 	var pages []Page
 	for _, ent := range ents {
 		name := ent.Name()
-		if ent.IsDir() || (!strings.HasSuffix(name, ".md") && !strings.HasSuffix(name, ".star") && !strings.HasSuffix(name, ".json")) {
+		if ent.IsDir() || (!strings.HasSuffix(name, ".md") && !strings.HasSuffix(name, ".buddy") && !strings.HasSuffix(name, ".star") && !strings.HasSuffix(name, ".json")) {
 			continue
 		}
 		path := filepath.Join(dir, name)
@@ -378,12 +378,15 @@ func loadRulesDir(dir string) []Page {
 
 func examplePage(id, name, body, source string) Page {
 	title := name
-	if strings.HasSuffix(name, ".star") {
+	switch {
+	case strings.HasSuffix(name, ".buddy"):
+		title = strings.TrimSuffix(name, ".buddy")
+	case strings.HasSuffix(name, ".star"):
 		title = strings.TrimSuffix(name, ".star")
 	}
 	md := body
 	switch {
-	case strings.HasSuffix(name, ".star"):
+	case strings.HasSuffix(name, ".buddy"), strings.HasSuffix(name, ".star"):
 		md = "```python\n" + body + "\n```"
 	case strings.HasSuffix(name, ".json"):
 		md = "```json\n" + body + "\n```"

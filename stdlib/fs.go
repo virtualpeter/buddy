@@ -1,5 +1,8 @@
 // Package stdlib holds embedded Starlark library modules loaded via
-// load("stdlib/<name>.star", ...).
+// load("stdlib/<name>.buddy", ...).
+//
+// Modules use the .buddy suffix so they share the editor language id / LSP
+// with user scripts (same file type as the Cursor/VS Code extension).
 package stdlib
 
 import (
@@ -12,12 +15,12 @@ import (
 	"strings"
 )
 
-//go:embed *.star
+//go:embed *.buddy
 var content embed.FS
 
-var moduleNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*\.star$`)
+var moduleNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*\.buddy$`)
 
-// ModulePath returns the load path for a bare file name (e.g. "release.star" → "stdlib/release.star").
+// ModulePath returns the load path for a bare file name (e.g. "release.buddy" → "stdlib/release.buddy").
 func ModulePath(file string) string {
 	return path.Join("stdlib", file)
 }

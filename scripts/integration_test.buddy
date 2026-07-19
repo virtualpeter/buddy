@@ -1,3 +1,4 @@
+#!/usr/bin/env buddy
 TEST_PREFIX = "buddy-test-"
 
 # Optional: set to a static computer group Jamf ID to run static_group_list_computers (read-only).

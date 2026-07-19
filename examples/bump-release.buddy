@@ -1,11 +1,13 @@
-# bump-release.star — illustrative release bump (edit constants for your Jamf tenant)
+#!/usr/bin/env buddy
+# bump-release.buddy — illustrative release bump (edit constants for your Jamf tenant)
 #
 # Usage:
-#   buddy examples/bump-release.star -- 2.4.27
+#   ./examples/bump-release.buddy -- 2.4.27
+#   buddy examples/bump-release.buddy -- 2.4.27
 #
-# Logic lives in stdlib/release.star; this file only sets tenant-specific constants.
+# Logic lives in stdlib/release.buddy; this file only sets tenant-specific constants.
 
-load("stdlib/release.star", "bump_release")
+load("stdlib/release.buddy", "bump_release")
 
 # --- edit for your environment ---
 TRIGGER_PREFIX = "install-exampleapp-"
@@ -20,7 +22,7 @@ VERSION_GROUP_ID = ""   # smart group ID string, or "" = skip smart_group_set_ve
 
 def main():
     if len(args) < 1:
-        error("Usage: buddy examples/bump-release.star -- <version>")
+        error("Usage: buddy examples/bump-release.buddy -- <version>")
         exit(1)
 
     version = args[0]

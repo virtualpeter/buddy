@@ -1,0 +1,89 @@
+{
+  "name": "buddy",
+  "displayName": "Buddy Starlark",
+  "description": "Language support for buddy Starlark scripts (.buddy)",
+  "version": "0.1.0",
+  "publisher": "virtualpeter",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:buddy"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "buddy",
+        "aliases": [
+          "Buddy Starlark",
+          "buddy"
+        ],
+        "extensions": [
+          ".buddy"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "buddy",
+        "scopeName": "source.buddy",
+        "path": "./syntaxes/buddy.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Buddy",
+      "properties": {
+        "buddy.path": {
+          "type": "string",
+          "default": "buddy",
+          "description": "Path to the buddy executable (used to launch `buddy lsp`)."
+        },
+        "buddy.lsp.path": {
+          "type": "string",
+          "default": "",
+          "description": "Optional override for the language server command. When empty, uses `${buddy.path} lsp`."
+        },
+        "buddy.associateStar": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also treat *.star files as buddy language (off by default to avoid clashing with Bazel)."
+        },
+        "buddy.cellMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable notebook/-e dialect (top-level if/for and global reassign) in the language server."
+        },
+        "buddy.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace communication between VS Code/Cursor and buddy lsp."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "node ./scripts/package.js",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "^5.3.3"
+  }
+}

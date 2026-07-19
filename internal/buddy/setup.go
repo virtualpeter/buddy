@@ -46,8 +46,9 @@ var DefaultBuddyPrivileges = []string{
 // Run with: buddy <path> -y
 // Then run "buddy client credentials <id>" to get the client secret (shown once).
 func WriteSetupScript(path string) error {
-	script := `# Setup script: create a Jamf API role with buddy permissions and a client scoped to it.
-# Run with: buddy ` + path + ` -y
+	script := `#!/usr/bin/env buddy
+# Setup script: create a Jamf API role with buddy permissions and a client scoped to it.
+# Run with: ./` + path + ` -y   (or: buddy ` + path + ` -y)
 # Then: buddy client credentials <client_id>  # to get the client secret (shown once).
 # Idempotent: reuses existing role "Buddy" if present.
 
@@ -89,7 +90,7 @@ def main():
     error("Next: run the following to get the client secret (shown once):")
     error("  buddy client credentials %s" % client_id)
 `
-	return os.WriteFile(path, []byte(script), 0644)
+	return os.WriteFile(path, []byte(script), 0755)
 }
 
 // SetupConfigureOAuth finds the API integration by display name, generates new OAuth credentials,

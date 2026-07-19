@@ -36,14 +36,16 @@ token_command:
 | `internal/buddy/tokenauth/` | Token acquisition, caching, proactive/reactive refresh |
 | `internal/buddy/secrets/` | Platform secret stores (Keychain, file, pass) |
 | `internal/script/` | Starlark engine, builtins, `Session` (REPL/notebook/MCP eval) |
-| `stdlib/` | Embedded Starlark libraries (`load("stdlib/….star", …)`); composed on builtins |
+| `internal/lsp/` | `buddy lsp` language server (editor integration) |
+| `stdlib/` | Embedded Starlark libraries (`load("stdlib/….buddy", …)`); composed on builtins |
+| `editors/vscode/` | Cursor/VS Code extension (language id `buddy`, `.buddy` files) |
 | `internal/serve/` | `buddy serve` local docs + notebook HTTP UI |
 | `internal/mcp/` | `buddy mcp` stdio MCP server |
 | `internal/help/` | Shared CLI help strings (builtins/shell/starlark/root) |
 | `docs/` | User-facing reference manual |
 | `.cursor/rules/` | Persistent Cursor rules (CLI + Starlark conventions) |
 
-Build: `make buddy` → `./buddy`. Tests: `go test ./...`. Docs UI: `make docs-serve`.
+Build: `make buddy` → `./buddy`. Tests: `go test ./...`. Docs UI: `make docs-serve`. Extension VSIX: `make extension-package` (`PUBLISHER` defaults to `virtualpeter`).
 
 ## MCP (Cursor)
 
@@ -131,7 +133,8 @@ buddy resolves secrets from the platform store at runtime, so meliorate config d
 
 - **CLI help**: see `.cursor/rules/buddy-cli.mdc` — usage lines, subcommand naming, placeholders.
 - **Starlark builtins**: see `.cursor/rules/buddy-builtins.mdc` and `docs/builtins-v3.md` — v3 plural/singular grammar (`policies` / `policy` / `policy_set`), resource IDs first on mutate helpers, `cred?` last. Deprecated aliases warn once on stderr.
-- **Starlark stdlib**: multi-step helpers in `stdlib/*.star` via `load("stdlib/release.star", "bump_release")` (etc.). Notebook Libraries drawer browses builtins + stdlib.
+- **Starlark stdlib**: multi-step helpers in `stdlib/*.buddy` via `load("stdlib/release.buddy", "bump_release")` (etc.). Notebook Libraries drawer browses builtins + stdlib.
+- **Script file extension**: user scripts and stdlib modules use `.buddy` (editor language id / LSP). Keep accepting `.star` (and any path) for legacy scripts.
 - **User docs**: `README.md`, `docs/reference-manual.md` — keep in sync when adding commands or secret behavior.
 - **Scope**: minimal diffs; match existing patterns; no over-engineering.
 
