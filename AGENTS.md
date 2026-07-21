@@ -39,7 +39,7 @@ token_command:
 | `internal/lsp/` | `buddy lsp` language server (editor integration) |
 | `stdlib/` | Embedded Starlark libraries (`load("stdlib/….buddy", …)`); composed on builtins |
 | `editors/vscode/` | Cursor/VS Code extension (language id `buddy`, `.buddy` files) |
-| `internal/serve/` | `buddy serve` local docs + notebook HTTP UI |
+| `internal/serve/` | `buddy serve` local docs + notebook + `/ide` script runner |
 | `internal/mcp/` | `buddy mcp` stdio MCP server |
 | `internal/help/` | Shared CLI help strings (builtins/shell/starlark/root) |
 | `docs/` | User-facing reference manual |

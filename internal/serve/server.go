@@ -69,6 +69,9 @@ func Run(ctx context.Context, o Options) error {
 	mux.HandleFunc("/notebook", func(w http.ResponseWriter, r *http.Request) {
 		serveNotebookHTML(w, r, o.CredName)
 	})
+	mux.HandleFunc("/ide", func(w http.ResponseWriter, r *http.Request) {
+		serveIDEHTML(w, r, o.CredName)
+	})
 	mux.HandleFunc("/api/pages", func(w http.ResponseWriter, r *http.Request) {
 		type item struct {
 			ID    string `json:"id"`
@@ -119,6 +122,9 @@ func Run(ctx context.Context, o Options) error {
 	})
 	mux.HandleFunc("/api/libraries", handleLibrariesList)
 	mux.HandleFunc("/api/libraries/", handleLibraryDetail)
+	mux.HandleFunc("/api/fs/root", handleFSRoot)
+	mux.HandleFunc("/api/fs/read", handleFSRead)
+	mux.HandleFunc("/api/fs/write", handleFSWrite)
 	mux.HandleFunc("/api/session", store.handleCreate)
 	mux.HandleFunc("/api/session/", func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.URL.Path, "/api/session/")
@@ -135,6 +141,12 @@ func Run(ctx context.Context, o Options) error {
 		switch parts[1] {
 		case "eval":
 			store.handleEval(w, r, id)
+		case "run":
+			store.handleRun(w, r, id)
+		case "config":
+			store.handleConfig(w, r, id)
+		case "globals":
+			store.handleGlobals(w, r, id)
 		case "reset":
 			store.handleReset(w, r, id)
 		default:
@@ -156,6 +168,7 @@ func Run(ctx context.Context, o Options) error {
 	o.Logger.Info("buddy serve listening", "url", url, "docs", docsSource)
 	fmt.Printf("buddy serve: %s\n", url)
 	fmt.Printf("notebook:    http://%s/notebook\n", o.Addr)
+	fmt.Printf("ide:         http://%s/ide\n", o.Addr)
 
 	if o.Open {
 		go func() {

@@ -13,7 +13,7 @@ This manual describes how the pieces fit together. For behavior that must stay i
 3. [Configuration and credentials](#configuration-and-credentials)
 4. [First-time API setup](#first-time-api-setup)
 5. [CLI overview](#cli-overview)
-6. [Local docs and notebook](#local-docs-and-notebook)
+6. [Local docs, notebook, and script IDE](#local-docs-notebook-and-script-ide)
 7. [MCP server](#mcp-server)
 8. [Starlark shell and scripts](#starlark-shell-and-scripts)
 9. [Built-in functions](#built-in-functions)
@@ -113,7 +113,7 @@ buddy help [command] [subcommand]
 | `client` | API integrations / OAuth clients |
 | `script` | Jamf script objects |
 | `setup` | Generate setup scripts and OAuth config helpers |
-| `serve` | Local docs browser + Starlark notebook UI |
+| `serve` | Local docs browser + Starlark notebook + script IDE |
 | `mcp` | MCP stdio server for Cursor agents |
 | `lsp` | Language server for the Cursor/VS Code buddy extension |
 
@@ -131,7 +131,7 @@ Use these when unsure about positional arguments, flags, or subcommand names.
 
 ---
 
-## Local docs and notebook
+## Local docs, notebook, and script IDE
 
 ```sh
 make docs-serve
@@ -143,6 +143,8 @@ buddy serve --addr=127.0.0.1:8742
 - Binds **localhost only** (default `127.0.0.1:8742`).
 - `/docs/` — Curated user guides (overview, reference, builtins, API, MCP, examples). Contributor/agent material (AGENTS, Cursor rules) is MCP-only.
 - `/notebook` — Interactive Starlark cells against your configured credential (same builtins as the CLI/REPL).
+- `/ide` — Single-buffer script runner with open/save, args, optional `--script-trace`-style builtin tracing, Run (file dialect + call `main()` if present), and a post-run Variables panel. Open/save is limited to the process cwd or `BUDDY_IDE_ROOT`. Matches CLI file semantics; not a replacement for the notebook.
+- Line breakpoints and stepping are **not** available (Starlark-go has no pause/step API). A soft `breakpoint()` builtin that only stops when the script calls it may be added later.
 - Optional `--docs-root` / `BUDDY_DOCS_ROOT` to override embedded markdown with live files while editing.
 - Confirmations follow global `-y` (default: prompts still apply for destructive ops).
 

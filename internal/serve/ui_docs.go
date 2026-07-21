@@ -134,7 +134,7 @@ pre { background: #1c1917; color: #f5f5f4; padding: 1rem; overflow: auto; border
 <div class="layout">
   <aside class="nav">
     <a class="brand" href="/docs/">buddy</a>
-    <div class="topbar"><a class="nb" href="/notebook">Notebook →</a></div>
+    <div class="topbar"><a class="nb" href="/notebook">Notebook</a> · <a class="nb" href="/ide">IDE</a></div>
     <input class="search" id="q" type="search" placeholder="Search docs…" autocomplete="off">
     <div class="hits" id="hits"></div>
     {{range $sec := .Sections}}

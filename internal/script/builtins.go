@@ -288,12 +288,13 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 			orig := b
 			dict[bName] = starlark.NewBuiltin(bName, func(t *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 				pos := t.CallFrame(0).Pos
-				fmt.Fprintf(os.Stderr, "[trace] %s:%d  → %s(%s)\n", pos.Filename(), pos.Line, bName, formatTraceArgs(args, kwargs))
+				w := writerFromLocal(t, localStderr, os.Stderr)
+				fmt.Fprintf(w, "[trace] %s:%d  → %s(%s)\n", pos.Filename(), pos.Line, bName, formatTraceArgs(args, kwargs))
 				result, err := starlark.Call(t, orig, args, kwargs)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "[trace] %s:%d  ← %s error: %v\n", pos.Filename(), pos.Line, bName, err)
+					fmt.Fprintf(w, "[trace] %s:%d  ← %s error: %v\n", pos.Filename(), pos.Line, bName, err)
 				} else {
-					fmt.Fprintf(os.Stderr, "[trace] %s:%d  ← %s = %s\n", pos.Filename(), pos.Line, bName, result)
+					fmt.Fprintf(w, "[trace] %s:%d  ← %s = %s\n", pos.Filename(), pos.Line, bName, result)
 				}
 				return result, err
 			})

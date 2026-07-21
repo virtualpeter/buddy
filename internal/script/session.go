@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 
@@ -29,24 +30,31 @@ type EvalResult struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// Session is a persistent Starlark environment (REPL / notebook / MCP eval).
+// Session is a persistent Starlark environment (REPL / notebook / MCP eval / IDE).
 type Session struct {
 	mu       sync.Mutex
 	credName string
 	opts     buddy.Opts
 	logger   *slog.Logger
 	trace    bool
+	args     []string
 	thread   *starlark.Thread
 	globals  starlark.StringDict
 }
 
 // NewSession creates a Starlark session with buddy builtins.
 func NewSession(credName string, opts buddy.Opts, logger *slog.Logger, trace bool) (*Session, error) {
+	return NewSessionArgs(credName, opts, logger, trace, nil)
+}
+
+// NewSessionArgs is like NewSession with initial script args (global args list).
+func NewSessionArgs(credName string, opts buddy.Opts, logger *slog.Logger, trace bool, args []string) (*Session, error) {
 	s := &Session{
 		credName: credName,
 		opts:     opts,
 		logger:   logger,
 		trace:    trace,
+		args:     append([]string(nil), args...),
 	}
 	if err := s.resetLocked(); err != nil {
 		return nil, err
@@ -61,7 +69,40 @@ func (s *Session) Cred() string {
 	return s.credName
 }
 
-// Reset recreates the thread and globals (clears bindings).
+// Trace reports whether builtin call tracing is enabled.
+func (s *Session) Trace() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.trace
+}
+
+// Args returns a copy of the session script args.
+func (s *Session) Args() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.args...)
+}
+
+// SetArgs updates the global args list (and the Starlark args binding).
+func (s *Session) SetArgs(args []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.args = append([]string(nil), args...)
+	if s.globals != nil {
+		s.globals["args"] = listFromStrings(s.args)
+	}
+}
+
+// SetTrace enables/disables builtin tracing and recreates the thread/globals
+// (bindings cleared; args preserved).
+func (s *Session) SetTrace(trace bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.trace = trace
+	return s.resetLocked()
+}
+
+// Reset recreates the thread and globals (clears bindings; keeps args/trace).
 func (s *Session) Reset() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -69,7 +110,7 @@ func (s *Session) Reset() error {
 }
 
 func (s *Session) resetLocked() error {
-	thread, globals, err := newThread(s.credName, s.opts, s.logger, s.trace, nil)
+	thread, globals, err := newThread(s.credName, s.opts, s.logger, s.trace, s.args)
 	if err != nil {
 		return err
 	}
@@ -175,6 +216,10 @@ func (s *Session) EvalOpts(filename, src string, opts EvalOptions) EvalResult {
 func (s *Session) CallMainAppend(out EvalResult) EvalResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.callMainLocked(out)
+}
+
+func (s *Session) callMainLocked(out EvalResult) EvalResult {
 	mainFn := s.globals["main"]
 	if mainFn == nil {
 		return out
@@ -186,7 +231,7 @@ func (s *Session) CallMainAppend(out EvalResult) EvalResult {
 		s.thread.SetLocal(localStdout, nil)
 		s.thread.SetLocal(localStderr, nil)
 	}()
-	val, err := starlark.Call(s.thread, mainFn, nil, nil)
+	val, err := callScriptMain(s.thread, mainFn, s.credName)
 	out.Stdout += stdout.String()
 	out.Stderr += stderr.String()
 	if err != nil {
@@ -195,6 +240,95 @@ func (s *Session) CallMainAppend(out EvalResult) EvalResult {
 	}
 	if val != nil && val != starlark.None {
 		out.Result = FormatDisplayValue(val)
+	}
+	return out
+}
+
+// RunScript executes a full script buffer using file dialect (like buddy <path>),
+// then calls main() if defined. Returns eval streams plus a globals snapshot.
+func (s *Session) RunScript(filename, src string) (EvalResult, []GlobalVar) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var stdout, stderr bytes.Buffer
+	s.thread.SetLocal(localStdout, &stdout)
+	s.thread.SetLocal(localStderr, &stderr)
+	defer func() {
+		s.thread.SetLocal(localStdout, nil)
+		s.thread.SetLocal(localStderr, nil)
+	}()
+
+	var out EvalResult
+	finish := func() {
+		out.Stdout = stdout.String()
+		out.Stderr = stderr.String()
+	}
+	if filename == "" {
+		filename = "<script>"
+	}
+	src = strings.ReplaceAll(src, "\r\n", "\n")
+	if strings.HasPrefix(src, "#!") {
+		if i := strings.IndexByte(src, '\n'); i >= 0 {
+			src = src[i+1:]
+		} else {
+			src = ""
+		}
+	}
+
+	fileOpts := &syntax.FileOptions{} // file dialect (no top-level if/for)
+	f, err := fileOpts.Parse(filename, src, 0)
+	if err != nil {
+		finish()
+		out.Error = formatEvalErr(err)
+		return out, s.inspectGlobalsLocked()
+	}
+	if err := starlark.ExecREPLChunk(f, s.thread, s.globals); err != nil {
+		finish()
+		out.Error = formatEvalErr(err)
+		return out, s.inspectGlobalsLocked()
+	}
+	finish()
+	out = s.callMainLocked(out)
+	return out, s.inspectGlobalsLocked()
+}
+
+// GlobalVar is one session global for the IDE variables panel.
+type GlobalVar struct {
+	Name  string `json:"name"`
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
+// InspectGlobals returns user-visible globals (skips builtins and the re module).
+func (s *Session) InspectGlobals() []GlobalVar {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inspectGlobalsLocked()
+}
+
+func (s *Session) inspectGlobalsLocked() []GlobalVar {
+	if s.globals == nil {
+		return nil
+	}
+	names := make([]string, 0, len(s.globals))
+	for k, v := range s.globals {
+		if k == "" || k == "re" {
+			continue
+		}
+		if _, ok := v.(*starlark.Builtin); ok {
+			continue
+		}
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	out := make([]GlobalVar, 0, len(names))
+	for _, k := range names {
+		v := s.globals[k]
+		out = append(out, GlobalVar{
+			Name:  k,
+			Type:  v.Type(),
+			Value: FormatDisplayValue(v),
+		})
 	}
 	return out
 }

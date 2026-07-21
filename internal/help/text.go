@@ -24,7 +24,7 @@ Commands:
   client   Manage API integrations (list/get/create/update/delete/credentials/set)
   script   Manage Jamf scripts (list/get/create/upload/download/delete/set)
   setup    Write setup script (role + client for buddy)
-  serve    Local docs + Starlark notebook web UI
+  serve    Local docs + notebook + script IDE web UI
   mcp      MCP stdio server for Cursor agents
   lsp      Language server for buddy Starlark (editor integration)
 

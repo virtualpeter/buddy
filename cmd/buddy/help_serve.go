@@ -1,6 +1,6 @@
 package main
 
-const helpServe = `buddy serve - Local docs and Starlark notebook web UI
+const helpServe = `buddy serve - Local docs, notebook, and script IDE web UI
 
 Usage:
   buddy [global-flags] serve [args...]
@@ -11,13 +11,21 @@ Flags for 'serve':
   --open               Open the docs URL in the default browser
 
 Notes:
-  Serves a curated user docs UI (guides, builtins, examples) plus a notebook at
-  /notebook. Contributor/agent knowledge (AGENTS, Cursor rules, migration notes)
-  is embedded for MCP only — not listed in the HTML sidebar.
+  Serves a curated user docs UI (guides, builtins, examples) plus:
+  /notebook — REPL-style Starlark cells (explore builtins interactively)
+  /ide      — Single-buffer script runner (open/save, args, trace, Run as file)
+  Contributor/agent knowledge (AGENTS, Cursor rules, migration notes) is
+  embedded for MCP only — not listed in the HTML sidebar.
   When run from a checkout, serve prefers the repo docs/ tree so edits show
   without a rebuild; otherwise the embedded catalog is used. --docs-root /
   BUDDY_DOCS_ROOT force a filesystem override.
-  Starlark cells use the same builtins as the CLI; confirmations follow -y / --yes.
+  IDE open/save is limited to the process working directory, or BUDDY_IDE_ROOT
+  if set. Run matches CLI file semantics (file dialect, call main() if present,
+  args from the form, optional builtin-call trace). Line breakpoints / stepping
+  are not supported (Starlark-go has no pause API); a soft breakpoint() builtin
+  may come later.
+  Starlark cells and IDE runs use the same builtins as the CLI; confirmations
+  follow -y / --yes.
   Bind address must be localhost (127.0.0.1, localhost, or ::1).
 
 Examples:

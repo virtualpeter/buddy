@@ -58,12 +58,8 @@ func Run(credName string, opts buddy.Opts, scriptPath string, args []string, log
 	if err != nil {
 		return handleExitError(err)
 	}
-	mainFn := globals["main"]
-	if mainFn != nil {
-		_, err = starlark.Call(thread, mainFn, nil, []starlark.Tuple{
-			{starlark.String("cred"), starlark.String(credName)},
-		})
-		if err != nil {
+	if globals["main"] != nil {
+		if _, err := callScriptMain(thread, globals["main"], credName); err != nil {
 			return handleExitError(fmt.Errorf("main: %w", err))
 		}
 	}
@@ -76,6 +72,35 @@ func ParseEvalArgs(args []string) []string {
 		return args[1:]
 	}
 	return args
+}
+
+// callScriptMain invokes main like the CLI file runner. Passes cred= only when
+// main declares a cred parameter or **kwargs (most scripts use def main():).
+func callScriptMain(thread *starlark.Thread, mainFn starlark.Value, credName string) (starlark.Value, error) {
+	var kwargs []starlark.Tuple
+	if fn, ok := mainFn.(*starlark.Function); ok {
+		if fn.HasKwargs() || functionHasParam(fn, "cred") {
+			kwargs = []starlark.Tuple{{starlark.String("cred"), starlark.String(credName)}}
+		}
+	}
+	return starlark.Call(thread, mainFn, nil, kwargs)
+}
+
+func functionHasParam(fn *starlark.Function, name string) bool {
+	n := fn.NumParams()
+	if fn.HasVarargs() {
+		n--
+	}
+	if fn.HasKwargs() {
+		n--
+	}
+	for i := 0; i < n; i++ {
+		pname, _ := fn.Param(i)
+		if pname == name {
+			return true
+		}
+	}
+	return false
 }
 
 // RunSource executes a Starlark snippet (e.g. buddy -e / --eval).
@@ -132,12 +157,8 @@ func RunSource(credName string, opts buddy.Opts, source string, args []string, l
 		}
 	}
 
-	mainFn := globals["main"]
-	if mainFn != nil {
-		_, err = starlark.Call(thread, mainFn, nil, []starlark.Tuple{
-			{starlark.String("cred"), starlark.String(credName)},
-		})
-		if err != nil {
+	if globals["main"] != nil {
+		if _, err := callScriptMain(thread, globals["main"], credName); err != nil {
 			return handleExitError(fmt.Errorf("main: %w", err))
 		}
 	}

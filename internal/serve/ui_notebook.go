@@ -139,6 +139,7 @@ textarea {
   <button id="reset">Reset kernel</button>
   <button id="toggleLibs">Libraries</button>
   <div class="spacer"></div>
+  <a href="/ide" style="color:var(--muted);font-size:.85rem;margin-right:.75rem">IDE</a>
   <a href="/docs/" style="color:var(--muted);font-size:.85rem">Docs</a>
 </header>
 <div class="layout" id="layout">
