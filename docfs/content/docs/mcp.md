@@ -66,6 +66,7 @@ Ask in natural language; the agent calls tools for you:
 - “List Jamf smart groups”
 - “Find computer IDs where name contains lab”
 - “Resolve policy ID for trigger install-foo-1.0”
+- “Show buddy builtin conventions / AGENTS.md via docs”
 
 Optional tool argument `cred` selects a named credential from config.
 
@@ -86,10 +87,11 @@ Tool names follow the Starlark v3 plural/singular grammar (see [builtins-v3.md](
 | `policy` | `{id, trigger}` | Resolve by trigger name |
 | `jamf_schema` | Operations catalog (+ optional docs) | Live OpenAPI + Classic Swagger; see below |
 | `starlark_eval` | `{stdout, stderr, result, error}` | Fresh session; see below |
+| `docs` | Catalog entries or page markdown | Embedded buddy docs/rules; see below |
 
 ### Resources
 
-MCP exposes the **full agent knowledge** catalog (broader than the curated `buddy serve` HTML UI):
+MCP also exposes the **full agent knowledge** catalog as `buddy://docs/...` resources (broader than the curated `buddy serve` HTML UI). Hosts that support resource pickers can attach them; **agents that call tools should use the `docs` tool** (same catalog) so conventions and rules are loaded during chat.
 
 | URI | Content |
 |-----|---------|
@@ -164,6 +166,19 @@ Learn endpoints from the **live** Jamf host (not static docs):
 - Prefer `filter` (e.g. `"jamf-pro-information"`, `"policy delete"`) — space-separated terms are AND-matched.
 - Default return is a compact `operations` list (`path`, `method`, `summary`, `api`, …). Set `full: true` only when you need parameter/response schemas.
 - Use this before inventing paths; then call typed tools or `starlark_eval` / `jamf_get` for live data.
+
+### `docs` tips
+
+Read embedded buddy documentation and Cursor rules (same data as `buddy://docs/...` resources):
+
+| `action` | Args | Returns |
+|----------|------|---------|
+| `list` (default) | optional `query` | `[{id, title, section, uri}, …]` |
+| `get` | `id` required | `{id, title, uri, markdown}` |
+
+- Prefer `docs` before inventing buddy CLI/Starlark conventions.
+- Typical flow: `docs` with `query: "builtin"` or `query: "agents"`, then `action: "get"` with the page `id`.
+- `id` may be a short id (`agents`, `builtins`, `rules/buddy-builtins`) or a full `buddy://docs/…` URI (including legacy `….md` aliases).
 
 ### `starlark_eval` tips
 

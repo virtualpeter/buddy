@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -229,6 +230,42 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 			return encodeTool(tr), tr, nil
 		}
 		return toolOK(out, nil)
+	})
+
+	type docsIn struct {
+		Action string `json:"action,omitempty" jsonschema:"list (default) or get"`
+		Query  string `json:"query,omitempty" jsonschema:"for list: case-insensitive substring on id/title/section"`
+		ID     string `json:"id,omitempty" jsonschema:"for get: page id (e.g. agents, builtins, rules/buddy-builtins) or buddy://docs/… URI"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "docs",
+		Description: "Read buddy embedded documentation and design rules (same catalog as buddy://docs/… resources). " +
+			"Prefer this before inventing buddy conventions. " +
+			"action=list (default) returns [{id,title,section,uri},…]; optional query filters. " +
+			"action=get requires id and returns {id,title,uri,markdown}. List then get.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in docsIn) (*mcpsdk.CallToolResult, any, error) {
+		pages, err := loadAgentDocs()
+		if err != nil {
+			return toolErr(err)
+		}
+		action := strings.ToLower(strings.TrimSpace(in.Action))
+		if action == "" {
+			action = "list"
+		}
+		switch action {
+		case "list":
+			entries := docsList(pages, in.Query)
+			n := len(entries)
+			return toolOK(entries, &n)
+		case "get":
+			page, err := docsGet(pages, in.ID)
+			if err != nil {
+				return toolErr(err)
+			}
+			return toolOK(page, nil)
+		default:
+			return toolErr(fmt.Errorf("unknown action %q (want list or get)", in.Action))
+		}
 	})
 }
 

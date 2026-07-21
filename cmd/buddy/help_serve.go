@@ -32,7 +32,8 @@ Usage:
 
 Notes:
   Speaks Model Context Protocol over stdin/stdout (for Cursor mcp.json).
-  Exposes curated read-oriented tools plus starlark_eval and docs resources.
+  Exposes curated read-oriented tools plus starlark_eval, docs (embedded
+  knowledge catalog), and buddy://docs/... resources.
   Uses the active credential from config (override with --user).
 
   Every tool returns a JSON object {ok, value, error?, count?} — never a bare

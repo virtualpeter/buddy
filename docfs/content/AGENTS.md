@@ -52,7 +52,7 @@ Build: `make buddy` → `./buddy`. Tests: `go test ./...`. Docs UI: `make docs-s
 See **[docs/mcp.md](docs/mcp.md)** for Cursor setup. Summary:
 
 - Config: `.cursor/mcp.json` or `~/.cursor/mcp.json` with absolute `command` path and `args: ["mcp"]`.
-- Docs/AGENTS/examples/Cursor rules are embedded in the binary (`docfs/`; refresh with `make sync-docfs`). `BUDDY_DOCS_ROOT` is an optional live override.
+- Docs/AGENTS/examples/Cursor rules are embedded in the binary (`docfs/`; refresh with `make sync-docfs`). `BUDDY_DOCS_ROOT` is an optional live override. Agents should use the MCP `docs` tool (list/get); the same pages are also `buddy://docs/...` resources.
 - Tool results are always `{ok, value, ...}` objects (lists under `value`) so Cursor accepts `structuredContent`.
 - Reload MCP in Cursor Settings after changing config or rebuilding buddy.
 
