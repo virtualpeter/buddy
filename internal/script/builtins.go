@@ -3277,6 +3277,7 @@ func payloadsReplacePayload(logger *slog.Logger) func(*starlark.Thread, *starlar
 }
 
 // payloads_replace_mcx_dict(payloads_plist_str, domain, dict_xml_str) → {ok, value: str}
+// dict_xml_str may be a bare <dict>…</dict> or a full plist from plist_encode (normalised before splice).
 func payloadsReplaceMCXDictBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var plistStr, domain, dictXML starlark.String
 	if err := starlark.UnpackArgs("payloads_replace_mcx_dict", args, kwargs,

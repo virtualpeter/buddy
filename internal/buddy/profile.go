@@ -815,7 +815,7 @@ func ProfileClone(credName string, opts Opts, sourceProfileID int, newName strin
 		return fmt.Errorf("profile XML has malformed <name>")
 	}
 	nameEnd += nameStart + len("</name>")
-	xml = bytes.Join([][]byte{xml[:nameStart], []byte("<name>" + newName + "</name>"), xml[nameEnd:]}, nil)
+	xml = bytes.Join([][]byte{xml[:nameStart], []byte("<name>" + xmlEncodePayload(newName) + "</name>"), xml[nameEnd:]}, nil)
 
 	// Replace entire <scope>...</scope> block with empty scope
 	scopeStart := bytes.Index(xml, []byte("<scope>"))
@@ -1002,33 +1002,54 @@ func patchProfilePayload(profileXML []byte, domain, newDictXML string) ([]byte, 
 	return replacePayloadsContent(profileXML, updatedPlist), nil
 }
 
-// ReplaceMCXDict navigates the decoded plist XML to find the mcx_preference_settings
+// ReplaceMCXDict navigates the plist XML to find the mcx_preference_settings
 // <dict> under the given domain key and replaces it with newDictXML.
+// newDictXML may be a bare <dict> fragment or a full plist from plist_encode;
+// it is normalised and re-encoded so XML delimiters (& < >) are entity-escaped.
 func ReplaceMCXDict(plist, domain, newDictXML string) (string, error) {
 	return replaceMCXDict(plist, domain, newDictXML)
 }
 
-func replaceMCXDict(plist, domain, newDictXML string) (string, error) {
-	domainKey := "<key>" + domain + "</key>"
-	domainPos := strings.Index(plist, domainKey)
+func replaceMCXDict(plistXML, domain, newDictXML string) (string, error) {
+	// Accept bare <dict> or full plist_encode output; re-encode so & < > are entity-escaped.
+	fragment, err := normaliseDictFile([]byte(newDictXML))
+	if err != nil {
+		return "", fmt.Errorf("dict XML: %w", err)
+	}
+	m, err := dictFileToPlistMap([]byte(fragment))
+	if err != nil {
+		return "", fmt.Errorf("dict XML: %w", err)
+	}
+	var encBuf bytes.Buffer
+	if err := plist.NewEncoder(&encBuf).Encode(m); err != nil {
+		return "", fmt.Errorf("encode dict: %w", err)
+	}
+	fragment, err = normaliseDictFile(encBuf.Bytes())
+	if err != nil {
+		return "", err
+	}
+
+	// Keys in XML are entity-encoded; search with the same escaping.
+	domainKey := "<key>" + xmlEncodePayload(domain) + "</key>"
+	domainPos := strings.Index(plistXML, domainKey)
 	if domainPos < 0 {
 		return "", fmt.Errorf("domain %q not found in payloads plist", domain)
 	}
 
 	afterDomain := domainPos + len(domainKey)
 	mcxKey := "<key>mcx_preference_settings</key>"
-	mcxRelPos := strings.Index(plist[afterDomain:], mcxKey)
+	mcxRelPos := strings.Index(plistXML[afterDomain:], mcxKey)
 	if mcxRelPos < 0 {
 		return "", fmt.Errorf("mcx_preference_settings not found for domain %q", domain)
 	}
 	afterMCX := afterDomain + mcxRelPos + len(mcxKey)
 
-	dictRelPos := strings.Index(plist[afterMCX:], "<dict>")
+	dictRelPos := strings.Index(plistXML[afterMCX:], "<dict>")
 	if dictRelPos < 0 {
 		// Empty dict may be <dict/> or <dict />
-		dictRelPos = strings.Index(plist[afterMCX:], "<dict/>")
+		dictRelPos = strings.Index(plistXML[afterMCX:], "<dict/>")
 		if dictRelPos < 0 {
-			dictRelPos = strings.Index(plist[afterMCX:], "<dict />")
+			dictRelPos = strings.Index(plistXML[afterMCX:], "<dict />")
 		}
 		if dictRelPos < 0 {
 			return "", fmt.Errorf("no <dict> found after mcx_preference_settings for domain %q", domain)
@@ -1037,17 +1058,17 @@ func replaceMCXDict(plist, domain, newDictXML string) (string, error) {
 	dictOpenPos := afterMCX + dictRelPos
 
 	var dictCloseEnd int
-	if strings.HasPrefix(plist[dictOpenPos:], "<dict>") {
-		dictCloseEnd = findMatchingCloseDict(plist, dictOpenPos)
+	if strings.HasPrefix(plistXML[dictOpenPos:], "<dict>") {
+		dictCloseEnd = findMatchingCloseDict(plistXML, dictOpenPos)
 		if dictCloseEnd < 0 {
 			return "", fmt.Errorf("unmatched <dict> in mcx_preference_settings for domain %q", domain)
 		}
 	} else {
 		// Self-closing <dict/> or <dict />
-		dictCloseEnd = dictOpenPos + strings.Index(plist[dictOpenPos:], ">") + 1
+		dictCloseEnd = dictOpenPos + strings.Index(plistXML[dictOpenPos:], ">") + 1
 	}
 
-	return plist[:dictOpenPos] + newDictXML + plist[dictCloseEnd:], nil
+	return plistXML[:dictOpenPos] + fragment + plistXML[dictCloseEnd:], nil
 }
 
 // findMatchingCloseDict returns the index immediately after the </dict> that closes

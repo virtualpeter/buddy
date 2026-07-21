@@ -26,6 +26,18 @@ func TestXMLEscapeUnescape(t *testing.T) {
 	}
 }
 
+func TestXMLEscape_AmpersandBeforeAngles(t *testing.T) {
+	// If < were replaced before &, "&lt;" would become "&amp;lt;".
+	got := XMLEscape("<")
+	if got != "&lt;" {
+		t.Fatalf("got %q", got)
+	}
+	got = XMLEscape("&<")
+	if got != "&amp;&lt;" {
+		t.Fatalf("got %q want &amp;&lt;", got)
+	}
+}
+
 func TestXMLUnescapeNamedAndNumeric(t *testing.T) {
 	got := XMLUnescape(`&lt;a&gt;&quot;b&quot;&#39;c&#39;`)
 	want := `<a>"b"'c'`
