@@ -55,6 +55,14 @@ A minimal file defines a default credential name and one or more named credentia
 
 For `basic` auth, buddy exchanges username/password for a Bearer token via Jamf’s `POST /api/v1/auth/token`.
 
+**Platform API Gateway:** set a `region` (e.g. `us`, `eu`, `apac`) and a `tenantId` to route Pro (and Blueprints) calls through the Jamf Platform API Gateway. Region-based credentials imply `oauth` and derive the base URL as `https://{region}.apigw.jamf.com` (pass `url` only to override, e.g. a proxy). Example:
+
+```sh
+buddy cred add --name=gateway --region=us --tenant-id=<tenant-id> --client-id=<id>
+```
+
+Classic (`/JSSResource/…`) calls are rewritten for the gateway, but Jamf does not yet expose Classic permissions to Platform integrations — expect `403` on Classic until it does. Use an instance credential for Classic-heavy work.
+
 **Security:** Omit secrets from YAML and use `buddy cred secret set`. macOS defaults to Keychain; Linux defaults to `~/.config/buddy/secrets/`. Override with `BUDDY_SECRET_STORE=file|pass|keychain`. Inline secrets in config remain supported for dev/test. Never commit credentials to source control.
 
 Full YAML shape and field descriptions are in the [README](../README.md#configuration).
@@ -112,6 +120,7 @@ buddy help [command] [subcommand]
 | `role` | API roles |
 | `client` | API integrations / OAuth clients |
 | `script` | Jamf script objects |
+| `blueprint` | Platform API Blueprints (list/get/create/set/delete/deploy/status; gateway credential required) |
 | `setup` | Generate setup scripts and OAuth config helpers |
 | `serve` | Local docs browser + Starlark notebook + script IDE |
 | `mcp` | MCP stdio server for Cursor agents |

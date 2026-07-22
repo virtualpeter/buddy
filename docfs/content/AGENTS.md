@@ -4,7 +4,7 @@ This file captures project context for AI agents (and humans) picking up work on
 
 ## What buddy is
 
-**buddy** is a Go CLI for Jamf Pro automation: policies, groups, profiles, packages, Starlark workflows, and API auth/token helpers. Config lives at `~/.config/buddy/config.yaml`.
+**buddy** is a Go CLI for Jamf Pro automation: policies, groups, profiles, packages, Platform API Blueprints, Starlark workflows, and API auth/token helpers. Config lives at `~/.config/buddy/config.yaml`.
 
 Sibling project **meliorate** (separate repo under `../meliorate`) tracks Jamf config in Git. It can call buddy as an external token helper via `jamfpro.token_command`.
 
@@ -67,6 +67,10 @@ Each named credential in config has `url` + `auth`:
 | `basic` | `username`; password inline or in store | `buddy cred secret set <cred>` |
 | `oauth` | `clientId`; secret inline or in store | `buddy cred secret set <cred> --client-secret` |
 
+Optional credential fields `region` (e.g. `us`) and/or gateway `url`, plus `tenantId`, enable Platform API Gateway mode: OAuth only, path rewrite for Pro/Classic, and Blueprints. With `region` set, the base URL defaults to `https://{region}.apigw.jamf.com` unless `url` overrides it (proxy).
+
+**Classic parity:** path rewrite for `/JSSResource/…` is implemented, but Platform integrations do not yet offer Classic permissions in Jamf Account — expect `403` on Classic until Jamf exposes them. Use an instance credential for Classic-heavy work; Pro + Blueprints are the supported gateway surfaces today.
+
 Resolution order for secrets: **inline config → platform store → error** (`ResolveAuthWithSecrets` in `internal/buddy/auth_resolve.go`).
 
 ### Secret backends
@@ -95,9 +99,10 @@ Three layers:
 
 - **command auth**: runs external command each time (no long-lived or disk cache).
 - **basic auth**: username/password → `/api/v1/auth/token`; expiry treated as ~18 minutes (refresh before Jamf’s 20-minute limit).
-- **oauth**: client credentials → `/api/oauth/token`; expiry from `expires_in`.
+- **oauth** (instance): client credentials → `/api/oauth/token`; expiry from `expires_in`.
+- **oauth** (Platform API Gateway, credential `tenantId` set): client credentials → `{gateway}/auth/token` (fallback `/oauth2/token`); ~900s expiry; **no keep-alive** — re-auth when near expiry.
 - **Disk hydrate**: if memory is empty and `CacheKey` is set, load a still-valid disk token before hitting Jamf.
-- **Proactive refresh**: if token expires within 3 minutes, call `/api/v1/auth/keep-alive` before it expires.
+- **Proactive refresh**: if token expires within 3 minutes, call `/api/v1/auth/keep-alive` before it expires (instance basic/oauth only; skipped for Platform).
 - **Reactive refresh**: on HTTP 401, `RefreshToken()` retries once (keep-alive or full re-auth); disk cache cleared when re-authing.
 
 CLI surfaces:
@@ -105,10 +110,12 @@ CLI surfaces:
 ```sh
 buddy auth test                         # verify credential
 buddy auth token [--raw] [--user=NAME]  # print Authorization header or raw bearer
-buddy auth refresh --url=URL [TOKEN]    # keep-alive refresh (direct flags supported)
+buddy auth refresh --url=URL [TOKEN]    # keep-alive refresh (instance; direct flags supported)
 ```
 
-Direct auth flags (`--url`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for one-off use.
+Direct auth flags (`--url`, `--tenant-id`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for one-off use.
+
+When `tenantId` is set, request paths are rewritten via `RewriteJamfPath` / `ResolveEndpoint` (Pro → `/api/pro/vN/tenant/{id}/…`, Classic → `/api/proclassic/tenant/{id}/JSSResource/…`). Blueprints: `buddy blueprint`, Starlark `blueprints` / `blueprint_*`, and first-class MCP `blueprint*` tools (gateway credential required).
 
 ## Jamf Pro API versions (groups / inventory)
 

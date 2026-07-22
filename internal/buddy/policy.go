@@ -870,11 +870,10 @@ func PolicySetXML(credName string, opts Opts, policyID int, r io.Reader, logger 
 			return nil
 		}
 	}
-	policyBaseURL, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/policies/id/%d", policyID))
 	if err != nil {
 		return err
 	}
-	url := policyBaseURL + fmt.Sprintf("/JSSResource/policies/id/%d", policyID)
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -906,11 +905,10 @@ func PolicyPutXML(credName string, opts Opts, policyID int, xml []byte, logger *
 			return nil
 		}
 	}
-	policyBaseURL, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/policies/id/%d", policyID))
 	if err != nil {
 		return err
 	}
-	url := policyBaseURL + fmt.Sprintf("/JSSResource/policies/id/%d", policyID)
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)

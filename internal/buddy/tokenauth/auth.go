@@ -21,6 +21,7 @@ type Authenticator struct {
 	tokenCommand []string
 	clientId     string
 	clientSecret string
+	platform     bool   // Platform API Gateway OAuth
 	cacheKey     string // when set, persist token+expiry under ~/.config/buddy/tokens/
 	token        string
 	tokenExpiry  time.Time
@@ -36,6 +37,8 @@ type Config struct {
 	TokenCommand []string
 	ClientId     string
 	ClientSecret string
+	// Platform enables Platform API Gateway OAuth (token at /auth/token, no keep-alive).
+	Platform bool
 	// CacheKey enables on-disk token cache (typically the credential name). Empty disables disk cache.
 	CacheKey string
 	Logger   *slog.Logger
@@ -52,6 +55,7 @@ type OAuth2TokenResponse struct {
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
 	ExpiresIn   int    `json:"expires_in"` // Expires in seconds
+	Scope       string `json:"scope,omitempty"`
 }
 
 // NewAuthenticator creates a new Authenticator with the given configuration
@@ -68,6 +72,7 @@ func NewAuthenticator(cfg Config) *Authenticator {
 		tokenCommand: cfg.TokenCommand,
 		clientId:     cfg.ClientId,
 		clientSecret: cfg.ClientSecret,
+		platform:     cfg.Platform,
 		cacheKey:     cfg.CacheKey,
 		httpClient:   httpClient,
 		logger:       cfg.Logger,
@@ -222,6 +227,12 @@ func (a *Authenticator) handleOAuth2TokenRefresh(now time.Time) error {
 		return nil
 	}
 
+	// Platform API Gateway has no keep-alive; re-auth before expiry.
+	if a.platform {
+		a.debugf("Platform OAuth2 token expires soon (%d seconds), requesting new token", secondsRemaining)
+		return a.getTokenFromOAuth2()
+	}
+
 	// Token expires soon, try keep-alive first
 	a.debugf("OAuth2 token expires soon (%d seconds), attempting keep-alive", secondsRemaining)
 	keepAliveErr := a.refreshTokenWithKeepAlive()
@@ -325,6 +336,9 @@ func (a *Authenticator) getTokenFromCredentials() error {
 
 // getTokenFromOAuth2 obtains a bearer token using OAuth2 client credentials flow
 func (a *Authenticator) getTokenFromOAuth2() error {
+	if a.platform {
+		return a.getTokenFromPlatformOAuth2()
+	}
 	tokenURL := fmt.Sprintf("%s/api/oauth/token", a.baseURL)
 	a.verbosef("Requesting OAuth2 token from %s", tokenURL)
 
@@ -353,6 +367,53 @@ func (a *Authenticator) getTokenFromOAuth2() error {
 		return fmt.Errorf("OAuth2 token request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
+	return a.applyOAuth2TokenResponse(body)
+}
+
+// getTokenFromPlatformOAuth2 requests a token from the Platform API Gateway.
+// Primary endpoint is /auth/token (jamf-cli / jamfplatform-go-sdk); falls back to /oauth2/token on 404.
+func (a *Authenticator) getTokenFromPlatformOAuth2() error {
+	formData := url.Values{}
+	formData.Set("grant_type", "client_credentials")
+	formData.Set("client_id", a.clientId)
+	formData.Set("client_secret", a.clientSecret)
+	encoded := formData.Encode()
+
+	tryURL := func(tokenURL string) (body []byte, status int, err error) {
+		a.verbosef("Requesting Platform OAuth2 token from %s", tokenURL)
+		req, err := http.NewRequest("POST", tokenURL, strings.NewReader(encoded))
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to create Platform OAuth2 token request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to request Platform OAuth2 token: %w", err)
+		}
+		defer resp.Body.Close()
+		body, _ = io.ReadAll(resp.Body)
+		return body, resp.StatusCode, nil
+	}
+
+	base := strings.TrimRight(a.baseURL, "/")
+	body, status, err := tryURL(base + "/auth/token")
+	if err != nil {
+		return err
+	}
+	if status == http.StatusNotFound {
+		body, status, err = tryURL(base + "/oauth2/token")
+		if err != nil {
+			return err
+		}
+	}
+	if status != http.StatusOK {
+		a.debugf("Platform OAuth2 token request failed with status %d: %s", status, string(body))
+		return fmt.Errorf("Platform OAuth2 token request failed with status %d: %s", status, string(body))
+	}
+	return a.applyOAuth2TokenResponse(body)
+}
+
+func (a *Authenticator) applyOAuth2TokenResponse(body []byte) error {
 	var oauthResp OAuth2TokenResponse
 	if err := json.Unmarshal(body, &oauthResp); err != nil {
 		return fmt.Errorf("failed to decode OAuth2 token response: %w", err)
@@ -364,14 +425,17 @@ func (a *Authenticator) getTokenFromOAuth2() error {
 
 	a.debugJSON("OAuth2 token response", oauthResp)
 
-	// Calculate expiry from expires_in (typically 1800 seconds = 30 minutes)
+	// Calculate expiry from expires_in (typically 1800 seconds = 30 minutes; Platform ~900)
 	expiresIn := time.Duration(oauthResp.ExpiresIn) * time.Second
 	if expiresIn == 0 {
-		// Default to 30 minutes if not specified
-		expiresIn = 30 * time.Minute
+		// Default to 30 minutes if not specified; Platform tokens are often 900s
+		if a.platform {
+			expiresIn = 15 * time.Minute
+		} else {
+			expiresIn = 30 * time.Minute
+		}
 	}
 	a.setToken(oauthResp.AccessToken, time.Now().Add(expiresIn))
-	// Log the actual token lifetime
 	actualLifetimeSeconds := int(expiresIn.Seconds())
 	a.verbosef("OAuth2 token obtained successfully, expires in %d seconds", actualLifetimeSeconds)
 	a.debugf("OAuth2 token expiry set to: %v (current time: %v)", a.tokenExpiry, time.Now())

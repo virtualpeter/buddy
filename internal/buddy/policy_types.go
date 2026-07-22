@@ -271,11 +271,10 @@ func iconUpload(credName, filePath string) (int, error) {
 		return 0, fmt.Errorf("close multipart: %w", err)
 	}
 
-	iconBaseURL, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/icon")
 	if err != nil {
 		return 0, err
 	}
-	url := iconBaseURL + "/api/v1/icon"
 	req, err := http.NewRequest(http.MethodPost, url, &buf)
 	if err != nil {
 		return 0, fmt.Errorf("create request: %w", err)

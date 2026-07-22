@@ -8,20 +8,21 @@ import (
 	"buddy/internal/help"
 )
 
-
 const helpAuth = `buddy auth - Obtain and test API authentication
 
 Usage:
   buddy [global-flags] auth <subcommand> [args...]
 
 Subcommands:
-  test                         GET /api/v1/auth and pretty-print the response
+  test                         Test auth (instance: GET /api/v1/auth; platform: token + buildings probe)
   token [flags]                Print Authorization header or raw bearer token
-  refresh [flags] [<token>]    Refresh a bearer token via keep-alive
+  refresh [flags] [<token>]    Refresh a bearer token via keep-alive (instance basic auth)
 
 Flags for 'token':
   --raw                        Print bearer token only (for scripts and token_command)
-  --url=<url>                  Jamf Pro base URL (direct auth, no config credential)
+  --url=<url>                  Jamf Pro or Platform gateway base URL (direct auth)
+  --region=<region>            Platform gateway region (direct auth; builds URL when --url omitted)
+  --tenant-id=<tenant-id>      Platform API Gateway tenant id (direct auth; requires oauth)
   --username=<u>                 Username (direct basic auth)
   --password=<p>                 Password (direct basic auth)
   --client-id=<id>               OAuth2 client ID (direct auth)
@@ -38,6 +39,7 @@ Examples:
   buddy auth token --raw
   buddy --user dev auth token --raw
   buddy auth token --raw --url=https://example.jamfcloud.com --username=admin --password=secret
+  buddy auth token --raw --region=us --tenant-id=<tenant-id> --client-id=<id> --client-secret=<secret>
   buddy auth refresh eyJhbGciOiJIUzI1NiJ9...
   buddy --user dev auth refresh --token=eyJhbGciOiJIUzI1NiJ9...
 `
@@ -48,34 +50,44 @@ Usage:
   buddy cred <subcommand> [args...]
 
 Subcommands:
-  list                          List all credentials (name, URL, auth type)
+  list                          List all credentials (name, URL, auth type, region, tenant)
   get <name>                    Show one credential's details (secrets redacted)
-  add <name> <url> [flags]      Add or replace a credential (upsert)
+  add [flags]                   Add or replace a credential (upsert; flag-only)
   delete <name>                 Remove a credential
   default [name]                Show current default, or set a new one
   secret <subcommand>           Manage secrets in the platform store (see 'buddy cred secret help')
 
 Flags for 'add':
-  --type=command|basic|oauth    Auth type (required)
+  --name=<name>                 Credential name (required)
+  --url=<url>                   Jamf Pro instance or gateway URL (required unless --region)
+  --region=<region>             Platform API Gateway region (us|eu|apac|…); implies oauth + gateway
+  --type=command|basic|oauth    Auth type (required unless --region, which defaults to oauth)
   --run=<cmd>                   Command to run; stdout is used as the Bearer token (type: command)
   --username=<u>                Username (type: basic)
   --password=<p>                Password inline in config (type: basic; dev/test)
   --client-id=<id>              OAuth client ID (type: oauth)
   --client-secret=<s>           OAuth client secret inline in config (type: oauth; dev/test)
+  --tenant-id=<tenant-id>       Platform tenant id (required with --region or a gateway --url)
 
 Notes:
+  Flags accept --flag=value or --flag value. Positionals are rejected for 'add'.
   For production, omit --password and --client-secret from 'add' and store secrets with
   'buddy cred secret set'. macOS uses Keychain; Linux uses ~/.config/buddy/secrets/
   (override with BUDDY_SECRET_STORE=file|pass|keychain).
   Inline secrets in config.yaml still work for dev/test. Never commit secrets.
+  Platform credentials: prefer --region=us --tenant-id=<id> --client-id=<id> (url is built as
+  https://{region}.apigw.jamf.com). Pass --url only to override (e.g. a proxy). Gateway mode
+  is oauth-only; tenantId is required.
 
 Examples:
   buddy cred list
   buddy cred get default
-  buddy cred add sandbox https://example-sandbox.jamfcloud.com --type=oauth --client-id=abc
+  buddy cred add --name=sandbox --url=https://example-sandbox.jamfcloud.com --type=oauth --client-id=abc
+  buddy cred add --name=gateway --region=us --tenant-id=e77c1408-10c8-4007-b177-abc9157fbcaa --client-id=abc
+  buddy cred add --name=gateway --region=us --url=https://proxy.example.com --tenant-id=e77c1408-10c8-4007-b177-abc9157fbcaa --client-id=abc
   buddy cred secret set sandbox --client-secret
   buddy cred secret path
-  buddy cred add staging https://example-staging.jamfcloud.com --type=basic --username=admin
+  buddy cred add --name=staging --url=https://example-staging.jamfcloud.com --type=basic --username=admin
   buddy cred secret set staging --password
   buddy cred delete staging
   buddy cred default
@@ -115,9 +127,6 @@ Examples:
   buddy cred secret get sandbox
   buddy cred secret delete sandbox --client-secret
 `
-
-
-
 
 const helpPolicy = `buddy policy - Manage Jamf policies
 
@@ -408,6 +417,41 @@ Examples:
   buddy profile redeploy 99
 `
 
+const helpBlueprint = `buddy blueprint - Manage Jamf Platform API Blueprints
+
+Usage:
+  buddy [global-flags] blueprint <subcommand> [args...]
+
+Subcommands:
+  list                          List blueprints (table)
+  get <blueprint-id>            Fetch one blueprint (JSON)
+  create [--file=<path>|-]      Create from JSON body (file or stdin)
+  set <blueprint-id> [--file=|-]  PATCH blueprint (merge-patch+json)
+  delete <blueprint-id>         Delete a blueprint
+  deploy <blueprint-id>         Deploy a blueprint
+  undeploy <blueprint-id>       Undeploy a blueprint
+  status <blueprint-id>         Deployment status report (JSON)
+  components [identifier]       List components, or get one by identifier
+
+Flags for 'list':
+  --search=<text>               Search name/description
+  --sort=<field:dir>            Sort (default created:desc)
+
+Notes:
+  Requires a Platform API Gateway credential (region like us, or url like https://us.apigw.jamf.com
+  and tenantId). See 'buddy cred help'.
+
+Examples:
+  buddy blueprint list
+  buddy blueprint list --search=chrome
+  buddy blueprint get e77c1408-10c8-4007-b177-abc9157fbcaa
+  buddy blueprint create --file=bp.json
+  buddy blueprint set <blueprint-id> --file=patch.json
+  buddy blueprint deploy <blueprint-id>
+  buddy blueprint status <blueprint-id>
+  buddy blueprint components
+`
+
 const helpPackage = `buddy package - Manage Jamf Pro package records
 
 Usage:
@@ -602,6 +646,7 @@ func printCommandHelp(path []string) {
 		"package":       helpPackage,
 		"computer":      helpComputer,
 		"mdm":           helpMdm,
+		"blueprint":     helpBlueprint,
 		"role":          helpRole,
 		"client":        helpClient,
 		"script":        helpScript,

@@ -131,11 +131,10 @@ func ScriptList(credName, filter string, logger *slog.Logger) error {
 
 // scriptGetFull fetches a single script by ID and returns the full detail struct.
 func scriptGetFull(credName, id string) (*ScriptDetail, error) {
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/scripts/" + id)
 	if err != nil {
 		return nil, err
 	}
-	endpoint := baseURL + "/api/v1/scripts/" + id
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -213,12 +212,10 @@ func ScriptHistory(credName, id string, limit int, logger *slog.Logger) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, fmt.Sprintf("/api/v1/scripts/%s/history?sort=date:desc&page-size=%d", id, limit))
 	if err != nil {
 		return err
 	}
-	endpoint := fmt.Sprintf("%s/api/v1/scripts/%s/history?sort=date:desc&page-size=%d",
-		baseURL, id, limit)
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -285,11 +282,10 @@ func ScriptCreate(credName string, opts Opts, name, file, category, priority, in
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/scripts")
 	if err != nil {
 		return err
 	}
-	endpoint := baseURL + "/api/v1/scripts"
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -319,11 +315,10 @@ func scriptPut(credName, id string, s *ScriptDetail) (*ScriptDetail, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/scripts/" + id)
 	if err != nil {
 		return nil, err
 	}
-	endpoint := baseURL + "/api/v1/scripts/" + id
 	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -464,11 +459,10 @@ func ScriptDelete(credName string, opts Opts, ids []string, logger *slog.Logger)
 }
 
 func scriptDeleteOne(credName, id, name string) error {
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/scripts/" + id)
 	if err != nil {
 		return err
 	}
-	endpoint := baseURL + "/api/v1/scripts/" + id
 	req, err := http.NewRequest(http.MethodDelete, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)

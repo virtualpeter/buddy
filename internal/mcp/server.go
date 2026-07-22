@@ -177,6 +177,160 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		return toolOK(map[string]any{"id": id, "trigger": in.Trigger}, nil)
 	})
 
+	// Blueprints (Platform API Gateway credential required: region/url + tenantId).
+	mutOpts := func() buddy.Opts {
+		o := opts
+		o.SkipConfirm = true // no interactive stdin in MCP; the host approves the tool call
+		return o
+	}
+
+	type blueprintListIn struct {
+		Search   string `json:"search,omitempty" jsonschema:"search name/description"`
+		Sort     string `json:"sort,omitempty" jsonschema:"sort field:dir (default created:desc)"`
+		Page     *int   `json:"page,omitempty" jsonschema:"0-based page; omit to fetch all pages"`
+		PageSize int    `json:"page_size,omitempty" jsonschema:"page size (default 200)"`
+		Cred     string `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "blueprints",
+		Description: "List Jamf Platform API blueprints (Platform gateway credential required). Returns {ok, value:[{id,name,description,...}], count}. Omit page to fetch all pages.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in blueprintListIn) (*mcpsdk.CallToolResult, any, error) {
+		o := buddy.PageOpts{Page: buddy.PageAll, PageSize: in.PageSize}
+		if in.Page != nil {
+			o.Page = *in.Page
+		}
+		items, err := buddy.BlueprintListValues(resolve(credIn{Cred: in.Cred}), buddy.BlueprintListOpts{Search: in.Search, Sort: in.Sort, Page: o}, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		n := len(items)
+		return toolOK(items, &n)
+	})
+
+	type blueprintIDIn struct {
+		BlueprintID string `json:"blueprint_id" jsonschema:"blueprint UUID"`
+		Cred        string `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "blueprint",
+		Description: "Load one Jamf Platform API blueprint by id (Platform gateway credential required). Returns {ok, value: full blueprint JSON}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in blueprintIDIn) (*mcpsdk.CallToolResult, any, error) {
+		out, err := buddy.BlueprintGetValue(resolve(credIn{Cred: in.Cred}), in.BlueprintID, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "blueprint_status",
+		Description: "Fetch a blueprint's deployment status report (Platform gateway credential required). Returns {ok, value: report JSON}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in blueprintIDIn) (*mcpsdk.CallToolResult, any, error) {
+		out, err := buddy.BlueprintStatusValue(resolve(credIn{Cred: in.Cred}), in.BlueprintID, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+
+	type blueprintComponentsIn struct {
+		Identifier string `json:"identifier,omitempty" jsonschema:"component identifier; omit to list all components"`
+		Page       *int   `json:"page,omitempty" jsonschema:"0-based page; omit to fetch all pages"`
+		PageSize   int    `json:"page_size,omitempty" jsonschema:"page size (default 200)"`
+		Cred       string `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "blueprint_components",
+		Description: "List blueprint components, or load one when identifier is set (Platform gateway credential required). Returns {ok, value: [...]|{...}, count?}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in blueprintComponentsIn) (*mcpsdk.CallToolResult, any, error) {
+		cred := resolve(credIn{Cred: in.Cred})
+		if strings.TrimSpace(in.Identifier) != "" {
+			out, err := buddy.BlueprintComponentValue(cred, in.Identifier, logger)
+			if err != nil {
+				return toolErr(err)
+			}
+			return toolOK(out, nil)
+		}
+		o := buddy.PageOpts{Page: buddy.PageAll, PageSize: in.PageSize}
+		if in.Page != nil {
+			o.Page = *in.Page
+		}
+		items, err := buddy.BlueprintComponentsValues(cred, o, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		n := len(items)
+		return toolOK(items, &n)
+	})
+
+	type blueprintCreateIn struct {
+		Body map[string]any `json:"body" jsonschema:"blueprint JSON body (object)"`
+		Cred string         `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "blueprint_create",
+		Description: "Create a Jamf Platform API blueprint from a JSON body (Platform gateway credential required; mutating). Returns {ok, value: create response}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in blueprintCreateIn) (*mcpsdk.CallToolResult, any, error) {
+		bodyJSON, err := json.Marshal(in.Body)
+		if err != nil {
+			return toolErr(fmt.Errorf("encode body: %w", err))
+		}
+		out, err := buddy.BlueprintCreateValue(resolve(credIn{Cred: in.Cred}), mutOpts(), bodyJSON, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+
+	type blueprintSetIn struct {
+		BlueprintID string         `json:"blueprint_id" jsonschema:"blueprint UUID"`
+		Body        map[string]any `json:"body" jsonschema:"merge-patch JSON body (object)"`
+		Cred        string         `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "blueprint_set",
+		Description: "Update a blueprint via merge-patch JSON (Platform gateway credential required; mutating). Returns {ok}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in blueprintSetIn) (*mcpsdk.CallToolResult, any, error) {
+		bodyJSON, err := json.Marshal(in.Body)
+		if err != nil {
+			return toolErr(fmt.Errorf("encode body: %w", err))
+		}
+		if err := buddy.BlueprintSetValue(resolve(credIn{Cred: in.Cred}), in.BlueprintID, mutOpts(), bodyJSON, logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(map[string]any{"id": in.BlueprintID}, nil)
+	})
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "blueprint_delete",
+		Description: "Delete a blueprint by id (Platform gateway credential required; mutating). Returns {ok}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in blueprintIDIn) (*mcpsdk.CallToolResult, any, error) {
+		if err := buddy.BlueprintDeleteValue(resolve(credIn{Cred: in.Cred}), in.BlueprintID, mutOpts(), logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(map[string]any{"id": in.BlueprintID}, nil)
+	})
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "blueprint_deploy",
+		Description: "Deploy a blueprint by id (Platform gateway credential required; mutating). Returns {ok}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in blueprintIDIn) (*mcpsdk.CallToolResult, any, error) {
+		if err := buddy.BlueprintDeploy(resolve(credIn{Cred: in.Cred}), in.BlueprintID, mutOpts(), logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(map[string]any{"id": in.BlueprintID, "action": "deploy"}, nil)
+	})
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "blueprint_undeploy",
+		Description: "Undeploy a blueprint by id (Platform gateway credential required; mutating). Returns {ok}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in blueprintIDIn) (*mcpsdk.CallToolResult, any, error) {
+		if err := buddy.BlueprintUndeploy(resolve(credIn{Cred: in.Cred}), in.BlueprintID, mutOpts(), logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(map[string]any{"id": in.BlueprintID, "action": "undeploy"}, nil)
+	})
+
 	type schemaIn struct {
 		API    string `json:"api,omitempty" jsonschema:"pro (OpenAPI /api/schema), classic (Swagger /classicapi/doc/swagger.yaml), or both (default)"`
 		Filter string `json:"filter,omitempty" jsonschema:"case-insensitive; space-separated terms AND-matched against path, method, tags, summary, operationId, description"`

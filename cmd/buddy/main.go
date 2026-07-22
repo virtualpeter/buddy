@@ -199,6 +199,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
+	case "blueprint":
+		if err := runBlueprint(credName, opts, args[1:], buddy.GetLogger()); err != nil {
+			logger.Error("Blueprint command failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
 	case "setup":
 		if err := runSetup(cfg, opts, credName, args[1:], logger); err != nil {
 			logger.Error("Setup command failed", "error", err)
@@ -1970,6 +1976,105 @@ func printUsage() {
 	fmt.Fprint(os.Stderr, help.Root)
 }
 
+func runBlueprint(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == "help" {
+		fmt.Print(helpBlueprint)
+		return nil
+	}
+	subcommand := args[0]
+	args = args[1:]
+
+	switch subcommand {
+	case "list":
+		listOpts := buddy.BlueprintListOpts{Page: buddy.PageOpts{Page: buddy.PageAll}}
+		for _, a := range args {
+			switch {
+			case strings.HasPrefix(a, "--search="):
+				listOpts.Search = strings.TrimPrefix(a, "--search=")
+			case strings.HasPrefix(a, "--sort="):
+				listOpts.Sort = strings.TrimPrefix(a, "--sort=")
+			default:
+				return fmt.Errorf("unknown list flag %q; run 'buddy blueprint help'", a)
+			}
+		}
+		return buddy.BlueprintList(credName, listOpts, log)
+	case "get":
+		if len(args) < 1 {
+			return fmt.Errorf("missing blueprint-id; run 'buddy blueprint help'")
+		}
+		return buddy.BlueprintGet(credName, args[0], log)
+	case "create":
+		file := ""
+		for _, a := range args {
+			switch {
+			case strings.HasPrefix(a, "--file="):
+				file = strings.TrimPrefix(a, "--file=")
+			case a == "-":
+				file = "-"
+			default:
+				return fmt.Errorf("unknown create arg %q; use --file=<path> or - for stdin", a)
+			}
+		}
+		if file == "" {
+			file = "-"
+		}
+		body, err := buddy.ReadJSONBodyFile(file)
+		if err != nil {
+			return err
+		}
+		return buddy.BlueprintCreate(credName, opts, body, log)
+	case "set":
+		if len(args) < 1 {
+			return fmt.Errorf("missing blueprint-id; run 'buddy blueprint help'")
+		}
+		blueprintID := args[0]
+		file := "-"
+		for _, a := range args[1:] {
+			switch {
+			case strings.HasPrefix(a, "--file="):
+				file = strings.TrimPrefix(a, "--file=")
+			case a == "-":
+				file = "-"
+			default:
+				return fmt.Errorf("unknown set arg %q; use --file=<path> or - for stdin", a)
+			}
+		}
+		body, err := buddy.ReadJSONBodyFile(file)
+		if err != nil {
+			return err
+		}
+		return buddy.BlueprintSet(credName, blueprintID, opts, body, log)
+	case "delete":
+		if len(args) < 1 {
+			return fmt.Errorf("missing blueprint-id; run 'buddy blueprint help'")
+		}
+		return buddy.BlueprintDelete(credName, args[0], opts, log)
+	case "deploy":
+		if len(args) < 1 {
+			return fmt.Errorf("missing blueprint-id; run 'buddy blueprint help'")
+		}
+		return buddy.BlueprintDeploy(credName, args[0], opts, log)
+	case "undeploy":
+		if len(args) < 1 {
+			return fmt.Errorf("missing blueprint-id; run 'buddy blueprint help'")
+		}
+		return buddy.BlueprintUndeploy(credName, args[0], opts, log)
+	case "status":
+		if len(args) < 1 {
+			return fmt.Errorf("missing blueprint-id; run 'buddy blueprint help'")
+		}
+		return buddy.BlueprintStatus(credName, args[0], log)
+	case "components":
+		identifier := ""
+		if len(args) >= 1 {
+			identifier = args[0]
+		}
+		return buddy.BlueprintComponents(credName, identifier, log)
+	default:
+		return fmt.Errorf("unknown blueprint subcommand: %q (use: list, get, create, set, delete, deploy, undeploy, status, components)", subcommand)
+	}
+}
+
 func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
 	if len(args) == 0 || args[0] == "help" {
 		fmt.Print(helpAuth)
@@ -1998,7 +2103,9 @@ func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 func runAuthToken(credName string, args []string, log *slog.Logger) error {
 	fs := flag.NewFlagSet("auth token", flag.ContinueOnError)
 	raw := fs.Bool("raw", false, "Print bearer token only (no \"Bearer \" prefix)")
-	baseURL := fs.String("url", "", "Jamf Pro base URL (direct auth, no config credential)")
+	baseURL := fs.String("url", "", "Jamf Pro or Platform API Gateway base URL (direct auth)")
+	region := fs.String("region", "", "Platform API Gateway region (direct auth; builds URL when --url omitted)")
+	tenantID := fs.String("tenant-id", "", "Platform API Gateway tenant id (direct auth)")
 	username := fs.String("username", "", "Username for basic auth")
 	password := fs.String("password", "", "Password for basic auth")
 	clientID := fs.String("client-id", "", "OAuth2 client ID")
@@ -2011,6 +2118,8 @@ func runAuthToken(credName string, args []string, log *slog.Logger) error {
 
 	direct := buddy.DirectAuthOpts{
 		BaseURL:         *baseURL,
+		Region:          *region,
+		TenantID:        *tenantID,
 		Username:        *username,
 		Password:        *password,
 		ClientID:        *clientID,
@@ -2097,14 +2206,29 @@ func runConfigList(cfg *buddy.Config) error {
 		fmt.Println("No credentials configured. Use 'buddy cred add' to add one.")
 		return nil
 	}
-	fmt.Printf("%-20s  %-45s  %s\n", "NAME", "URL", "TYPE")
-	fmt.Printf("%-20s  %-45s  %s\n", "--------------------", "---------------------------------------------", "-------")
+	fmt.Printf("%-18s  %-36s  %-8s  %-8s  %s\n", "NAME", "URL", "TYPE", "REGION", "TENANT")
+	fmt.Printf("%-18s  %-36s  %-8s  %-8s  %s\n", "------------------", "------------------------------------", "--------", "--------", "------")
 	for name, cred := range cfg.Credentials {
 		marker := ""
 		if name == cfg.Cred {
 			marker = " *"
 		}
-		fmt.Printf("%-20s  %-45s  %s%s\n", name, cred.URL, cred.Auth.Type, marker)
+		url := cred.EffectiveBaseURL()
+		if url == "" {
+			url = "-"
+		}
+		region := cred.EffectiveRegion()
+		if region == "" {
+			region = "-"
+		}
+		tenant := cred.EffectiveTenantID()
+		switch {
+		case tenant == "" && cred.IsPlatform():
+			tenant = "(missing!)"
+		case tenant == "":
+			tenant = "-"
+		}
+		fmt.Printf("%-18s  %-36s  %-8s  %-8s  %s%s\n", name, url, cred.Auth.Type, region, tenant, marker)
 	}
 	fmt.Printf("\n* = default credential\n")
 	return nil
@@ -2120,7 +2244,19 @@ func runConfigGet(cfg *buddy.Config, name string) error {
 		isDefault = "yes"
 	}
 	fmt.Printf("name:     %s\n", name)
-	fmt.Printf("url:      %s\n", cred.URL)
+	fmt.Printf("url:      %s\n", cred.EffectiveBaseURL())
+	if r := cred.EffectiveRegion(); r != "" {
+		fmt.Printf("region:   %s\n", r)
+		if strings.TrimSpace(cred.URL) != "" && strings.TrimSpace(cred.Region) != "" {
+			fmt.Printf("urlNote:  explicit url overrides regional default\n")
+		}
+	}
+	if tid := cred.EffectiveTenantID(); tid != "" {
+		fmt.Printf("tenantId: %s\n", tid)
+		if strings.TrimSpace(cred.TenantID) == "" && strings.TrimSpace(cred.Auth.TenantID) != "" {
+			fmt.Fprintf(os.Stderr, "note: tenantId is under auth: — move it up next to url: for clarity\n")
+		}
+	}
 	fmt.Printf("type:     %s\n", cred.Auth.Type)
 	switch cred.Auth.Type {
 	case "command":
@@ -2157,71 +2293,18 @@ func redact(s string) string {
 }
 
 func runConfigAdd(cfg *buddy.Config, opts buddy.Opts, args []string) error {
-	// Parse positional: name url, then flags
-	var positional []string
-	authType := ""
-	runCommand := ""
-	username := ""
-	password := ""
-	clientID := ""
-	clientSecret := ""
-	skipConfirm := opts.SkipConfirm
-
-	for _, a := range args {
-		switch {
-		case strings.HasPrefix(a, "--type="):
-			authType = strings.TrimPrefix(a, "--type=")
-		case strings.HasPrefix(a, "--run="):
-			runCommand = strings.TrimPrefix(a, "--run=")
-		case strings.HasPrefix(a, "--username="):
-			username = strings.TrimPrefix(a, "--username=")
-		case strings.HasPrefix(a, "--password="):
-			password = strings.TrimPrefix(a, "--password=")
-		case strings.HasPrefix(a, "--client-id="):
-			clientID = strings.TrimPrefix(a, "--client-id=")
-		case strings.HasPrefix(a, "--client-secret="):
-			clientSecret = strings.TrimPrefix(a, "--client-secret=")
-		case a == "-y":
-			skipConfirm = true
-		default:
-			positional = append(positional, a)
-		}
+	parsed, err := parseCredAddArgs(args, opts.SkipConfirm)
+	if err != nil {
+		return err
 	}
-	if len(positional) < 2 {
-		return fmt.Errorf("usage: buddy cred add <name> <url> --type=<type> [flags]; run 'buddy cred help' for details")
-	}
-	credName := positional[0]
-	credURL := positional[1]
-
-	if authType == "" {
-		return fmt.Errorf("--type is required (command, basic, or oauth); run 'buddy cred help' for details")
+	cred := parsed.Cred
+	if err := cred.Validate(); err != nil {
+		return err
 	}
 
-	auth := buddy.AuthConfig{Type: authType}
-	switch authType {
-	case "command":
-		if runCommand == "" {
-			return fmt.Errorf("--run is required for auth type 'command'")
-		}
-		auth.RunCommand = runCommand
-	case "basic":
-		if username == "" {
-			return fmt.Errorf("--username is required for auth type 'basic'")
-		}
-		auth.Username = username
-		auth.Password = password
-	case "oauth":
-		if clientID == "" {
-			return fmt.Errorf("--client-id is required for auth type 'oauth'")
-		}
-		auth.ClientID = clientID
-		auth.ClientSecret = clientSecret
-	default:
-		return fmt.Errorf("unknown auth type %q (supported: command, basic, oauth)", authType)
-	}
-
+	credName := parsed.Name
 	_, existing := cfg.Credentials[credName]
-	if existing && !skipConfirm {
+	if existing && !parsed.SkipConfirm {
 		fmt.Printf("Credential %q already exists. Overwrite? [y/N] ", credName)
 		var response string
 		fmt.Scanln(&response)
@@ -2234,7 +2317,7 @@ func runConfigAdd(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	if cfg.Credentials == nil {
 		cfg.Credentials = make(map[string]buddy.CredentialConfig)
 	}
-	cfg.Credentials[credName] = buddy.CredentialConfig{URL: credURL, Auth: auth}
+	cfg.Credentials[credName] = cred
 
 	if err := buddy.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
@@ -2244,13 +2327,158 @@ func runConfigAdd(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	} else {
 		fmt.Printf("Added credential %q\n", credName)
 	}
-	if authType == "basic" && password == "" {
+	if r := strings.TrimSpace(cred.Region); r != "" {
+		fmt.Printf("region:   %s\n", r)
+	}
+	fmt.Printf("url:      %s\n", cred.EffectiveBaseURL())
+	if tid := strings.TrimSpace(cred.TenantID); tid != "" {
+		fmt.Printf("tenantId: %s\n", tid)
+	}
+	if cred.Auth.Type == "basic" && cred.Auth.Password == "" {
 		fmt.Fprintf(os.Stderr, "Note: no password in config — store one with: buddy cred secret set %s --password\n", credName)
 	}
-	if authType == "oauth" && clientSecret == "" {
+	if cred.Auth.Type == "oauth" && cred.Auth.ClientSecret == "" {
 		fmt.Fprintf(os.Stderr, "Note: no client secret in config — store one with: buddy cred secret set %s --client-secret\n", credName)
 	}
 	return nil
+}
+
+type credAddParsed struct {
+	Name        string
+	Cred        buddy.CredentialConfig
+	SkipConfirm bool
+}
+
+// parseCredAddArgs parses `buddy cred add` arguments as --flag value / --flag=value
+// only (no positionals). --name is required. --url is required unless --region is set
+// (Platform API Gateway). --region implies oauth when --type is omitted.
+func parseCredAddArgs(args []string, skipConfirm bool) (credAddParsed, error) {
+	var (
+		credName     string
+		credURL      string
+		region       string
+		authType     string
+		runCommand   string
+		username     string
+		password     string
+		clientID     string
+		clientSecret string
+		tenantID     string
+	)
+
+	stringFlags := map[string]*string{
+		"name":          &credName,
+		"url":           &credURL,
+		"region":        &region,
+		"type":          &authType,
+		"run":           &runCommand,
+		"username":      &username,
+		"password":      &password,
+		"client-id":     &clientID,
+		"client-secret": &clientSecret,
+		"tenant-id":     &tenantID,
+	}
+
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "-y" {
+			skipConfirm = true
+			continue
+		}
+		if a == "--" {
+			if i+1 < len(args) {
+				return credAddParsed{}, fmt.Errorf("unexpected argument %q; use --name/--url/--region flags (see 'buddy cred help')", args[i+1])
+			}
+			break
+		}
+		if !strings.HasPrefix(a, "-") {
+			return credAddParsed{}, fmt.Errorf("unexpected argument %q; use --name/--url/--region flags (see 'buddy cred help')", a)
+		}
+		name := a
+		val := ""
+		hasVal := false
+		if strings.HasPrefix(a, "--") {
+			name = strings.TrimPrefix(a, "--")
+			if j := strings.IndexByte(name, '='); j >= 0 {
+				val = name[j+1:]
+				name = name[:j]
+				hasVal = true
+			}
+		} else {
+			return credAddParsed{}, fmt.Errorf("unknown flag %q; run 'buddy cred help' for details", a)
+		}
+		dest, ok := stringFlags[name]
+		if !ok {
+			return credAddParsed{}, fmt.Errorf("unknown flag --%s; run 'buddy cred help' for details", name)
+		}
+		if !hasVal {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return credAddParsed{}, fmt.Errorf("flag --%s requires a value; use --%s=<value> or --%s <value>", name, name, name)
+			}
+			i++
+			val = args[i]
+		}
+		*dest = val
+	}
+
+	credName = strings.TrimSpace(credName)
+	credURL = strings.TrimSpace(credURL)
+	region = strings.TrimSpace(region)
+	tenantID = strings.TrimSpace(tenantID)
+
+	if credName == "" {
+		return credAddParsed{}, fmt.Errorf("--name is required; run 'buddy cred help' for details")
+	}
+	if region != "" {
+		norm, err := buddy.NormalizePlatformRegion(region)
+		if err != nil {
+			return credAddParsed{}, err
+		}
+		region = norm
+		if authType == "" {
+			authType = "oauth"
+		}
+	}
+	if credURL == "" && region == "" {
+		return credAddParsed{}, fmt.Errorf("--url is required (or pass --region for Platform API Gateway); run 'buddy cred help'")
+	}
+	if authType == "" {
+		return credAddParsed{}, fmt.Errorf("--type is required (command, basic, or oauth); run 'buddy cred help' for details")
+	}
+
+	auth := buddy.AuthConfig{Type: authType}
+	switch authType {
+	case "command":
+		if runCommand == "" {
+			return credAddParsed{}, fmt.Errorf("--run is required for auth type 'command'")
+		}
+		auth.RunCommand = runCommand
+	case "basic":
+		if username == "" {
+			return credAddParsed{}, fmt.Errorf("--username is required for auth type 'basic'")
+		}
+		auth.Username = username
+		auth.Password = password
+	case "oauth":
+		if clientID == "" {
+			return credAddParsed{}, fmt.Errorf("--client-id is required for auth type 'oauth'")
+		}
+		auth.ClientID = clientID
+		auth.ClientSecret = clientSecret
+	default:
+		return credAddParsed{}, fmt.Errorf("unknown auth type %q (supported: command, basic, oauth)", authType)
+	}
+
+	return credAddParsed{
+		Name: credName,
+		Cred: buddy.CredentialConfig{
+			Region:   region,
+			URL:      credURL,
+			TenantID: tenantID,
+			Auth:     auth,
+		},
+		SkipConfirm: skipConfirm,
+	}, nil
 }
 
 func runConfigDelete(cfg *buddy.Config, opts buddy.Opts, name string) error {

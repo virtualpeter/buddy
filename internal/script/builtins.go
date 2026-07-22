@@ -108,6 +108,16 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "client", clientBuiltin(credName, logger))
 	putBuiltin(dict, "smart_group_get_version", smartGroupGetVersionNamed(credName, logger))
 	putBuiltin(dict, "smart_group_set_version", smartGroupSetVersionNamed(credName, logger))
+	putBuiltin(dict, "blueprints", blueprintsBuiltin(credName, logger))
+	putBuiltin(dict, "blueprint", blueprintBuiltin(credName, logger))
+	putBuiltin(dict, "blueprint_create", blueprintCreateBuiltin(credName, logger))
+	putBuiltin(dict, "blueprint_set", blueprintSetBuiltin(credName, logger))
+	putBuiltin(dict, "blueprint_delete", blueprintDeleteBuiltin(credName, logger))
+	putBuiltin(dict, "blueprint_deploy", blueprintDeployBuiltin(credName, logger))
+	putBuiltin(dict, "blueprint_undeploy", blueprintUndeployBuiltin(credName, logger))
+	putBuiltin(dict, "blueprint_status", blueprintStatusBuiltin(credName, logger))
+	putBuiltin(dict, "blueprint_components", blueprintComponentsBuiltin(credName, logger))
+	putBuiltin(dict, "blueprint_component", blueprintComponentBuiltin(credName, logger))
 
 	// Deprecated aliases (warn once, then call legacy or shared impl).
 	putDeprecated(dict, "policy_find_ids", "policies(..., ids=True)", policyFindIDs(credName, logger))

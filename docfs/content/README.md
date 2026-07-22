@@ -53,9 +53,18 @@ credentials:
       type: oauth
       clientId: your_client_id
       # clientSecret stored via: buddy cred secret set default --client-secret
+
+  # Optional: Jamf Platform API Gateway (Pro JSON + Blueprints; Classic not yet usable —
+  # Jamf Account integrations do not expose Classic/proclassic permissions yet)
+  gateway:
+    region: us
+    tenantId: e77c1408-10c8-4007-b177-abc9157fbcaa
+    auth:
+      type: oauth
+      clientId: your_integration_client_id
 ```
 
-**Credential storage:** Config holds URL, auth type, username, and client ID. Passwords and OAuth client secrets can stay inline for **dev/test**, or be stored outside the file:
+**Credential storage:** Config holds URL and/or `region` (Platform API Gateway), optional `tenantId`, auth type, username, and client ID. Passwords and OAuth client secrets can stay inline for **dev/test**, or be stored outside the file:
 
 | Platform | Default store | Override |
 |----------|---------------|----------|
@@ -63,7 +72,8 @@ credentials:
 | Linux | `~/.config/buddy/secrets/<name>.json` (mode 0600) | `BUDDY_SECRET_STORE=file` or `pass` |
 
 ```sh
-buddy cred add sandbox https://example.jamfcloud.com --type=oauth --client-id=abc
+buddy cred add --name=sandbox --url=https://example.jamfcloud.com --type=oauth --client-id=abc
+buddy cred add --name=gateway --region=us --tenant-id=e77c1408-10c8-4007-b177-abc9157fbcaa --client-id=abc
 buddy cred secret set sandbox --client-secret
 buddy cred secret path
 ```
@@ -73,11 +83,11 @@ Inline `password` / `clientSecret` in YAML still works. `buddy setup configure-o
 | Field         | Description                              | Default     |
 |---------------|------------------------------------------|-------------|
 | `cred`        | Active credential name                   | `default`   |
-| `credentials` | Map of named credentials (url + auth)    | —           |
+| `credentials` | Map of named credentials (`url` and/or `region`, auth; optional `tenantId` for Platform API Gateway) | — |
 
 Override the active credential per-invocation with `--user <name>` (`--cred` is a deprecated alias).
 
-Each credential specifies its own URL and authentication method (`command`, `basic`, or `oauth`). Use `buddy cred help` to manage credentials, and `buddy auth test` to verify a credential works. For `basic` (username/password), buddy exchanges credentials for a Bearer token via Jamf's `/api/v1/auth/token` so API calls succeed.
+Each credential specifies its own URL (or Platform `region`) and authentication method (`command`, `basic`, or `oauth`). Use `buddy cred help` to manage credentials, and `buddy auth test` to verify a credential works. For `basic` (username/password), buddy exchanges credentials for a Bearer token via Jamf's `/api/v1/auth/token` so API calls succeed. Credentials with `region`/`tenantId` (or a gateway URL) target the Platform API Gateway (OAuth only; token via `/auth/token`). Pro JSON and Blueprints work through the gateway; Classic (`/JSSResource`) is rewritten but not practically usable yet because Platform integrations lack Classic permissions.
 
 ### Setting up a role and client for buddy
 

@@ -40,11 +40,10 @@ func ProfileFetchXML(credName string, profileID int) ([]byte, error) {
 
 // profileFetchRaw fetches the full profile XML and returns it as bytes.
 func profileFetchRaw(credName string, profileID int) ([]byte, error) {
-	baseURL, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
 	if err != nil {
 		return nil, err
 	}
-	url := baseURL + fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -401,11 +400,10 @@ func PatchProfilePayload(profileXML []byte, domain, newDictXML string) ([]byte, 
 // ProfileSearch fetches all configuration profiles and returns records matching the optional name filter.
 // If nameFilter is empty, returns all profiles. Otherwise filters by name (case-insensitive contains).
 func ProfileSearch(credName string, nameFilter string, logger *slog.Logger) ([]ProfileRecord, error) {
-	baseURL, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/JSSResource/osxconfigurationprofiles")
 	if err != nil {
 		return nil, err
 	}
-	url := baseURL + "/JSSResource/osxconfigurationprofiles"
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -488,11 +486,10 @@ func ProfileRedeploy(credName string, opts Opts, profileID int, logger *slog.Log
 			return nil
 		}
 	}
-	redeployBase, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
 	if err != nil {
 		return err
 	}
-	url := redeployBase + fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID)
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(updatedXML))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -515,11 +512,10 @@ func ProfileRedeploy(credName string, opts Opts, profileID int, logger *slog.Log
 // Uses a raw HTTP GET to preserve the exact Jamf Pro XML, including base64-encoded mobileconfig payloads,
 // which can be corrupted if round-tripped through Go struct marshaling.
 func ProfileGetXML(credName string, profileID int, w io.Writer, logger *slog.Logger) error {
-	baseURL, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
 	if err != nil {
 		return err
 	}
-	url := baseURL + fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -620,11 +616,10 @@ func ProfileSetXML(credName string, opts Opts, profileID int, r io.Reader, redep
 			return nil
 		}
 	}
-	setBase, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
 	if err != nil {
 		return err
 	}
-	url := setBase + fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID)
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -662,11 +657,10 @@ func ProfilePutXML(credName string, opts Opts, profileID int, xml []byte, redepl
 			return nil
 		}
 	}
-	setBase, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
 	if err != nil {
 		return err
 	}
-	url := setBase + fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID)
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -703,11 +697,10 @@ func ProfileSetPayload(credName string, opts Opts, profileID int, domain string,
 		return fmt.Errorf("dict file %q: %w", dictFile, err)
 	}
 
-	profileBase, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
 	if err != nil {
 		return err
 	}
-	url := profileBase + fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID)
 
 	getReq, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -842,11 +835,10 @@ func ProfileClone(credName string, opts Opts, sourceProfileID int, newName strin
 		}
 	}
 
-	baseURL, err := GetBaseURL(credName)
+	postURL, err := ResolveEndpoint(credName, "/JSSResource/osxconfigurationprofiles/id/0")
 	if err != nil {
 		return err
 	}
-	postURL := baseURL + "/JSSResource/osxconfigurationprofiles/id/0"
 	postReq, err := http.NewRequest(http.MethodPost, postURL, bytes.NewReader(xml))
 	if err != nil {
 		return fmt.Errorf("create post request: %w", err)

@@ -25,9 +25,11 @@ type JamfResponse struct {
 }
 
 // DefaultJamfMedia returns Content-Type / Accept defaults from the path:
-// Classic /JSSResource → XML; everything else (including /api/…) → JSON.
+// Classic /JSSResource (or gateway /api/proclassic/…) → XML; everything else → JSON.
 func DefaultJamfMedia(path string) (contentType, accept string) {
-	if strings.HasPrefix(path, "/JSSResource") {
+	if strings.HasPrefix(path, "/JSSResource") ||
+		strings.HasPrefix(path, "/api/proclassic/") ||
+		strings.Contains(path, "/proclassic/") {
 		return "application/xml", "application/xml"
 	}
 	return "application/json", "application/json"
@@ -80,7 +82,7 @@ func JamfRequest(credName string, opts JamfRequestOpts) (*JamfResponse, error) {
 		contentType = defCT
 	}
 
-	baseURL, err := resolveURL(credName)
+	endpoint, err := ResolveEndpoint(credName, path)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +91,7 @@ func JamfRequest(credName string, opts JamfRequestOpts) (*JamfResponse, error) {
 	if len(opts.Body) > 0 {
 		bodyReader = bytes.NewReader(opts.Body)
 	}
-	req, err := http.NewRequest(method, baseURL+path, bodyReader)
+	req, err := http.NewRequest(method, endpoint, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}

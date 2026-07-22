@@ -96,11 +96,10 @@ func PackageSearch(credName, filter string, opts PageOpts, logger *slog.Logger) 
 // It also fetches the most recent history entry and injects lastChanged and
 // lastChangedBy into the printed record.
 func PackageGet(credName, id string, logger *slog.Logger) error {
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/" + id)
 	if err != nil {
 		return err
 	}
-	endpoint := baseURL + "/api/v1/packages/" + id
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -147,11 +146,10 @@ func PackageDelete(credName string, opts Opts, ids []string, logger *slog.Logger
 }
 
 func packageDeleteOne(credName, id string) error {
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/" + id)
 	if err != nil {
 		return err
 	}
-	endpoint := baseURL + "/api/v1/packages/" + id
 	req, err := http.NewRequest(http.MethodDelete, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -175,11 +173,10 @@ func packageDeleteMultiple(credName string, ids []string) error {
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/delete-multiple")
 	if err != nil {
 		return err
 	}
-	endpoint := baseURL + "/api/v1/packages/delete-multiple"
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -371,11 +368,10 @@ type PackageFull struct {
 
 // packageGetFull fetches the full Package object for a given ID without printing.
 func packageGetFull(credName, id string) (*PackageFull, error) {
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/" + id)
 	if err != nil {
 		return nil, err
 	}
-	endpoint := baseURL + "/api/v1/packages/" + id
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -408,11 +404,10 @@ func packagePut(credName, id string, pkg *PackageFull) (*PackageFull, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/" + id)
 	if err != nil {
 		return nil, err
 	}
-	endpoint := baseURL + "/api/v1/packages/" + id
 	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -531,11 +526,10 @@ func packageCreate(credName string, payload *packageCreatePayload) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("marshal create payload: %w", err)
 	}
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages")
 	if err != nil {
 		return "", err
 	}
-	endpoint := baseURL + "/api/v1/packages"
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
@@ -674,11 +668,10 @@ func packageUploadFile(credName, id string, file *os.File, opts Opts) error {
 	if err := w.Close(); err != nil {
 		return fmt.Errorf("close multipart writer: %w", err)
 	}
-	uploadBase, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/" + id + "/upload")
 	if err != nil {
 		return err
 	}
-	endpoint := uploadBase + "/api/v1/packages/" + id + "/upload"
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		return fmt.Errorf("create upload request: %w", err)
@@ -884,11 +877,10 @@ func PackageSetReboot(credName, id string, opts Opts, value bool, logger *slog.L
 // packageGetLatestHistory fetches the single most-recent history entry for a package.
 // Returns nil (no error) when no history entries exist.
 func packageGetLatestHistory(credName, id string) (*PackageHistoryEntry, error) {
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/" + id + "/history?sort=date:desc&page-size=1")
 	if err != nil {
 		return nil, err
 	}
-	endpoint := baseURL + "/api/v1/packages/" + id + "/history?sort=date:desc&page-size=1"
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -919,12 +911,10 @@ func PackageHistory(credName, id string, limit int, logger *slog.Logger) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	histBase, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, fmt.Sprintf("/api/v1/packages/%s/history?sort=date:desc&page-size=%d", id, limit))
 	if err != nil {
 		return err
 	}
-	endpoint := fmt.Sprintf("%s/api/v1/packages/%s/history?sort=date:desc&page-size=%d",
-		histBase, id, limit)
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)

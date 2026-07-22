@@ -82,11 +82,10 @@ func ClientFindByDisplayName(credName, displayName string, logger *slog.Logger) 
 
 // ClientGet fetches and prints a single API integration by ID.
 func ClientGet(credName, id string, logger *slog.Logger) error {
-	baseURL, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/api-integrations/" + id)
 	if err != nil {
 		return err
 	}
-	url := baseURL + "/api/v1/api-integrations/" + id
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -145,11 +144,10 @@ func ClientCreateWithResult(credName string, opts Opts, displayName string, scop
 			return nil, nil
 		}
 	}
-	createBase, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/api-integrations")
 	if err != nil {
 		return nil, err
 	}
-	url := createBase + "/api/v1/api-integrations"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -208,11 +206,10 @@ func ClientUpdateWithResult(credName, id string, opts Opts, displayName string, 
 			return nil, nil
 		}
 	}
-	updateBase, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/api-integrations/" + id)
 	if err != nil {
 		return nil, err
 	}
-	url := updateBase + "/api/v1/api-integrations/" + id
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -273,11 +270,10 @@ func ClientDelete(credName, id string, opts Opts, logger *slog.Logger) error {
 			return nil
 		}
 	}
-	deleteBase, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/api-integrations/" + id)
 	if err != nil {
 		return err
 	}
-	url := deleteBase + "/api/v1/api-integrations/" + id
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -316,11 +312,10 @@ func ClientCredentialsWithResult(credName, id string, opts Opts, logger *slog.Lo
 			return "", "", nil
 		}
 	}
-	credBase, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/api-integrations/" + id + "/client-credentials")
 	if err != nil {
 		return "", "", err
 	}
-	url := credBase + "/api/v1/api-integrations/" + id + "/client-credentials"
 	req, err := http.NewRequest(http.MethodPost, url, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("create request: %w", err)
@@ -364,11 +359,10 @@ func ClientSetTokenLifetime(credName, id string, opts Opts, seconds int, logger 
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
-	lifetimeBase, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/api-integrations/" + id)
 	if err != nil {
 		return err
 	}
-	endpoint := lifetimeBase + "/api/v1/api-integrations/" + id
 	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -394,11 +388,10 @@ func ClientSetTokenLifetime(credName, id string, opts Opts, seconds int, logger 
 
 // clientGetRaw fetches an API integration without printing, used internally.
 func clientGetRaw(credName, id string) (*ApiIntegrationResponse, error) {
-	baseURL, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/api-integrations/" + id)
 	if err != nil {
 		return nil, err
 	}
-	url := baseURL + "/api/v1/api-integrations/" + id
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

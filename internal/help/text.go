@@ -20,6 +20,7 @@ Commands:
   package  Manage package records (list/get/upload/delete/set/history)
   computer Manage computers and MDM commands (find/get/reboot/lock/erase/...)
   mdm      Query MDM commands from Jamf Pro (find with RSQL filter)
+  blueprint Manage Platform API blueprints (list/get/create/set/delete/deploy/…)
   role     Manage API roles (list/get/create/update/delete/privileges)
   client   Manage API integrations (list/get/create/update/delete/credentials/set)
   script   Manage Jamf scripts (list/get/create/upload/download/delete/set)
@@ -274,6 +275,25 @@ GROUP
   static_group_add_computers(group_id, computer_ids, cred?) → None
   static_group_remove_computers(group_id, computer_ids, cred?) → None
   static_group_set_computers(group_id, computer_ids, cred?) → None
+
+BLUEPRINT (Platform API Gateway credential required)
+  blueprints(search?, page?, page_size?, cred?)
+      → value: list of {id, name, description?, created?, updated?}
+      Params: search?: str; page?: int (omit = all); page_size?; cred?.
+  blueprint(id=, cred?)
+      → value: dict (full blueprint JSON)
+      Params: id: str (blueprint UUID); cred?.
+  blueprint_create(body, cred?) → value: dict
+      Params: body: dict (create JSON); cred?.
+  blueprint_set(blueprint_id, body, cred?) → None
+      Params: blueprint_id: str; body: dict (merge-patch JSON); cred?.
+  blueprint_delete(blueprint_id, cred?) → None
+  blueprint_deploy(blueprint_id, cred?) → None
+  blueprint_undeploy(blueprint_id, cred?) → None
+  blueprint_status(blueprint_id, cred?) → value: dict (status report)
+  blueprint_components(page?, page_size?, cred?) → value: list[dict]
+  blueprint_component(id=, cred?) → value: dict
+      Params: id: str (component identifier); cred?.
 
 PACKAGE
   packages(filter?, page?, page_size?, cred?)

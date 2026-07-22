@@ -8,6 +8,8 @@ buddy mcp
 
 Uses stdio JSON-RPC. The active credential comes from `~/.config/buddy/config.yaml` (override with global `--user=<name>` on the command in mcp.json). MCP inherits that credential’s Jamf privileges—treat it like the CLI.
 
+A Platform API Gateway credential (`region`/`url` + `tenantId`) works the same way: Pro tools and the first-class `blueprint*` tools route through the gateway.
+
 ---
 
 ## Cursor setup
@@ -66,6 +68,7 @@ Ask in natural language; the agent calls tools for you:
 - “List Jamf smart groups”
 - “Find computer IDs where name contains lab”
 - “Resolve policy ID for trigger install-foo-1.0”
+- “List Platform blueprints” (calls `blueprints`; needs a gateway credential)
 - “Show buddy builtin conventions / AGENTS.md via docs”
 
 Optional tool argument `cred` selects a named credential from config.
@@ -85,6 +88,11 @@ Tool names follow the Starlark v3 plural/singular grammar (see [builtins-v3.md](
 | `scripts` | Script summaries | Name substring or RSQL |
 | `packages` | Package summaries | RSQL `filter` |
 | `policy` | `{id, trigger}` | Resolve by trigger name |
+| `blueprints` | Blueprint summaries | Platform gateway credential; `search`, `sort`, paging |
+| `blueprint` | Full blueprint JSON | By `blueprint_id` |
+| `blueprint_status` | Deployment report | By `blueprint_id` |
+| `blueprint_components` | Components list or one | Omit `identifier` = all |
+| `blueprint_create` / `blueprint_set` / `blueprint_delete` / `blueprint_deploy` / `blueprint_undeploy` | `{id, …}` | **Mutating** (gateway credential) |
 | `jamf_schema` | Operations catalog (+ optional docs) | Live OpenAPI + Classic Swagger; see below |
 | `starlark_eval` | `{stdout, stderr, result, error}` | Fresh session; see below |
 | `docs` | Catalog entries or page markdown | Embedded buddy docs/rules; see below |
@@ -179,6 +187,13 @@ Read embedded buddy documentation and Cursor rules (same data as `buddy://docs/.
 - Prefer `docs` before inventing buddy CLI/Starlark conventions.
 - Typical flow: `docs` with `query: "builtin"` or `query: "agents"`, then `action: "get"` with the page `id`.
 - `id` may be a short id (`agents`, `builtins`, `rules/buddy-builtins`) or a full `buddy://docs/…` URI (including legacy `….md` aliases).
+
+### Blueprint tips
+
+- All `blueprint*` tools require a **Platform API Gateway credential** (`region`/`url` + `tenantId`); they return `{ok:false, error}` otherwise.
+- Read-only: `blueprints`, `blueprint`, `blueprint_status`, `blueprint_components`. Mutating: `blueprint_create`, `blueprint_set`, `blueprint_delete`, `blueprint_deploy`, `blueprint_undeploy`.
+- Mutating tools **do not** prompt for confirmation (there is no interactive stdin in MCP) — the host’s tool-call approval is the guard. Treat them like `-y`.
+- `blueprint_create` / `blueprint_set` take a JSON `body` object; `blueprint_set` is a merge-patch.
 
 ### `starlark_eval` tips
 

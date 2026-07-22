@@ -61,11 +61,10 @@ func RoleListValues(credName string, opts PageOpts, logger *slog.Logger) ([]ApiR
 
 // RoleGet fetches and prints a single API role by ID.
 func RoleGet(credName, id string, logger *slog.Logger) error {
-	baseURL, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/api-roles/"+id)
 	if err != nil {
 		return err
 	}
-	url := baseURL + "/api/v1/api-roles/" + id
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -91,11 +90,10 @@ func RoleGet(credName, id string, logger *slog.Logger) error {
 
 // RoleFetch fetches a single API role by ID and returns it (for script/component use).
 func RoleFetch(credName, id string, logger *slog.Logger) (*ApiRole, error) {
-	baseURL, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/api-roles/"+id)
 	if err != nil {
 		return nil, err
 	}
-	url := baseURL + "/api/v1/api-roles/" + id
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -146,11 +144,10 @@ func RoleCreateWithID(credName string, opts Opts, displayName string, privileges
 			return nil, nil
 		}
 	}
-	createBase, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/api-roles")
 	if err != nil {
 		return nil, err
 	}
-	url := createBase + "/api/v1/api-roles"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -202,11 +199,10 @@ func RoleUpdateWithResult(credName, id string, opts Opts, displayName string, pr
 			return nil, nil
 		}
 	}
-	updateBase, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/api-roles/" + id)
 	if err != nil {
 		return nil, err
 	}
-	url := updateBase + "/api/v1/api-roles/" + id
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -236,11 +232,10 @@ func RoleDelete(credName, id string, opts Opts, logger *slog.Logger) error {
 			return nil
 		}
 	}
-	deleteBase, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/api-roles/" + id)
 	if err != nil {
 		return err
 	}
-	url := deleteBase + "/api/v1/api-roles/" + id
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -272,11 +267,10 @@ func RolePrivileges(credName string, logger *slog.Logger) error {
 
 // RolePrivilegesList fetches and returns all available API role privilege strings.
 func RolePrivilegesList(credName string, logger *slog.Logger) ([]string, error) {
-	baseURL, err := GetBaseURL(credName)
+	url, err := ResolveEndpoint(credName, "/api/v1/api-role-privileges")
 	if err != nil {
 		return nil, err
 	}
-	url := baseURL + "/api/v1/api-role-privileges"
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

@@ -50,14 +50,14 @@ func MdmCommandFind(credName, filter, sort string, opts PageOpts, limit int, _ *
 		sort = "dateSent:asc"
 	}
 	opts = opts.Normalize()
-	baseURL, err := GetBaseURL(credName)
+	baseEndpoint, err := ResolveEndpoint(credName, uriMdmCommands)
 	if err != nil {
 		return nil, err
 	}
 
 	fetchPage := func(page, pageSize int) ([]MdmCommandRecord, error) {
-		endpoint := fmt.Sprintf("%s%s?page=%d&page-size=%d&sort=%s&filter=%s",
-			baseURL, uriMdmCommands, page, pageSize,
+		endpoint := fmt.Sprintf("%s?page=%d&page-size=%d&sort=%s&filter=%s",
+			baseEndpoint, page, pageSize,
 			url.QueryEscape(sort),
 			url.QueryEscape(filter),
 		)

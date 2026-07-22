@@ -753,3 +753,218 @@ func smartGroupSetVersionNamed(credName string, logger *slog.Logger) func(*starl
 		return resultOK(starlark.None), nil
 	}
 }
+
+// blueprints(search?, page?, page_size?, cred?) → list of summary dicts
+func blueprintsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var search, credArg starlark.String
+		page := starlark.Value(starlark.None)
+		var pageSize starlark.Int
+		if err := starlark.UnpackArgs("blueprints", args, kwargs, "search?", &search, "page?", &page, "page_size?", &pageSize, "cred?", &credArg); err != nil {
+			return nil, err
+		}
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		items, err := buddy.BlueprintListValues(resolveCred(thread, credName, credArg), buddy.BlueprintListOpts{
+			Search: string(search),
+			Page:   opts,
+		}, logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		b, err := json.Marshal(items)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(val), nil
+	}
+}
+
+// blueprint(id=, cred?) → full dict
+func blueprintBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var id, cred starlark.String
+		if err := starlark.UnpackArgs("blueprint", args, kwargs, "id", &id, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		out, err := buddy.BlueprintGetValue(resolveCred(thread, credName, cred), string(id), logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		b, err := json.Marshal(out)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(val), nil
+	}
+}
+
+func blueprintCreateBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var body starlark.Value
+		var cred starlark.String
+		if err := starlark.UnpackArgs("blueprint_create", args, kwargs, "body", &body, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		jsonStr, err := StarlarkToJSON(body)
+		if err != nil {
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+		}
+		out, err := buddy.BlueprintCreateValue(resolveCred(thread, credName, cred), scriptOpts, []byte(jsonStr), logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		if out == nil {
+			return resultErr("blueprint_create: cancelled"), nil
+		}
+		b, err := json.Marshal(out)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(val), nil
+	}
+}
+
+func blueprintSetBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var blueprintID starlark.String
+		var body starlark.Value
+		var cred starlark.String
+		if err := starlark.UnpackArgs("blueprint_set", args, kwargs, "blueprint_id", &blueprintID, "body", &body, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		jsonStr, err := StarlarkToJSON(body)
+		if err != nil {
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+		}
+		if err := buddy.BlueprintSetValue(resolveCred(thread, credName, cred), string(blueprintID), scriptOpts, []byte(jsonStr), logger); err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(starlark.None), nil
+	}
+}
+
+func blueprintDeleteBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var blueprintID, cred starlark.String
+		if err := starlark.UnpackArgs("blueprint_delete", args, kwargs, "blueprint_id", &blueprintID, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		if err := buddy.BlueprintDeleteValue(resolveCred(thread, credName, cred), string(blueprintID), scriptOpts, logger); err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(starlark.None), nil
+	}
+}
+
+func blueprintDeployBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var blueprintID, cred starlark.String
+		if err := starlark.UnpackArgs("blueprint_deploy", args, kwargs, "blueprint_id", &blueprintID, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		if err := buddy.BlueprintDeploy(resolveCred(thread, credName, cred), string(blueprintID), scriptOpts, logger); err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(starlark.None), nil
+	}
+}
+
+func blueprintUndeployBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var blueprintID, cred starlark.String
+		if err := starlark.UnpackArgs("blueprint_undeploy", args, kwargs, "blueprint_id", &blueprintID, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		if err := buddy.BlueprintUndeploy(resolveCred(thread, credName, cred), string(blueprintID), scriptOpts, logger); err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(starlark.None), nil
+	}
+}
+
+func blueprintStatusBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var blueprintID, cred starlark.String
+		if err := starlark.UnpackArgs("blueprint_status", args, kwargs, "blueprint_id", &blueprintID, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		out, err := buddy.BlueprintStatusValue(resolveCred(thread, credName, cred), string(blueprintID), logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		b, err := json.Marshal(out)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(val), nil
+	}
+}
+
+func blueprintComponentsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var cred starlark.String
+		page := starlark.Value(starlark.None)
+		var pageSize starlark.Int
+		if err := starlark.UnpackArgs("blueprint_components", args, kwargs, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		items, err := buddy.BlueprintComponentsValues(resolveCred(thread, credName, cred), opts, logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		b, err := json.Marshal(items)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(val), nil
+	}
+}
+
+func blueprintComponentBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var id, cred starlark.String
+		if err := starlark.UnpackArgs("blueprint_component", args, kwargs, "id", &id, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		out, err := buddy.BlueprintComponentValue(resolveCred(thread, credName, cred), string(id), logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		b, err := json.Marshal(out)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(val), nil
+	}
+}

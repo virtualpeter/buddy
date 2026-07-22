@@ -170,11 +170,10 @@ func ComputerGetValue(credName, idStr string, logger *slog.Logger) (map[string]i
 	if err != nil || id <= 0 {
 		return nil, fmt.Errorf("invalid computer-id %q: must be positive integer", idStr)
 	}
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v3/computers-inventory/" + strconv.Itoa(id))
 	if err != nil {
 		return nil, err
 	}
-	endpoint := baseURL + "/api/v3/computers-inventory/" + strconv.Itoa(id)
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -229,11 +228,10 @@ func ComputerGetValue(credName, idStr string, logger *slog.Logger) (map[string]i
 
 // computerGetManagementID fetches a computer's managementId (for MDM commands).
 func computerGetManagementID(credName string, computerID int) (string, error) {
-	baseURL, err := GetBaseURL(credName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v3/computers-inventory/" + strconv.Itoa(computerID) + "?section=GENERAL")
 	if err != nil {
 		return "", err
 	}
-	endpoint := baseURL + "/api/v3/computers-inventory/" + strconv.Itoa(computerID) + "?section=GENERAL"
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
@@ -303,11 +301,10 @@ func computerSendMDMCommand(credName string, computerIDs []int, commandType stri
 		if err != nil {
 			return fmt.Errorf("marshal MDM command payload: %w", err)
 		}
-		mdmBaseURL, err := GetBaseURL(credName)
+		endpoint, err := ResolveEndpoint(credName, "/api/v2/mdm/commands")
 		if err != nil {
 			return err
 		}
-		endpoint := mdmBaseURL + "/api/v2/mdm/commands"
 		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
 		if err != nil {
 			return fmt.Errorf("create request: %w", err)
@@ -537,12 +534,11 @@ func ComputerRedeploy(credName string, opts Opts, computerIDs []int, logger *slo
 			return nil
 		}
 	}
-	redeployBase, err := GetBaseURL(credName)
-	if err != nil {
-		return err
-	}
 	for _, id := range computerIDs {
-		endpoint := redeployBase + "/api/v1/jamf-management-framework/redeploy/" + strconv.Itoa(id)
+		endpoint, err := ResolveEndpoint(credName, "/api/v1/jamf-management-framework/redeploy/"+strconv.Itoa(id))
+		if err != nil {
+			return err
+		}
 		req, err := http.NewRequest(http.MethodPost, endpoint, nil)
 		if err != nil {
 			return fmt.Errorf("create request: %w", err)

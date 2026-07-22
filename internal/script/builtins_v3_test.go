@@ -18,6 +18,9 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 		"profiles", "profile", "profile_xml",
 		"smart_groups", "static_groups", "smart_group", "static_group",
 		"roles", "role", "role_privileges", "clients", "client",
+		"blueprints", "blueprint", "blueprint_create", "blueprint_set",
+		"blueprint_delete", "blueprint_deploy", "blueprint_undeploy",
+		"blueprint_status", "blueprint_components", "blueprint_component",
 		"auth", "confirm", "error", "exit",
 		// Deprecated aliases still registered during migration window.
 		"policy_find_ids", "package_list", "computer_find_ids", "group_list_smart",

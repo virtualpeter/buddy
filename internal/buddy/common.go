@@ -79,11 +79,12 @@ func resolveURL(credName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if cred.URL == "" {
-		return "", fmt.Errorf("credential %q has no URL configured", credName)
+	base := cred.EffectiveBaseURL()
+	if base == "" {
+		return "", fmt.Errorf("credential %q has no URL or region configured", credName)
 	}
 	// Normalize: no trailing slash so path concatenation never produces "//".
-	return strings.TrimRight(cred.URL, "/"), nil
+	return base, nil
 }
 
 // resolveAuthHeader returns the Authorization header value for the named credential.
@@ -146,14 +147,25 @@ func cachedAuthenticator(credName string, cred CredentialConfig) (*tokenauth.Aut
 	if a, ok := credAuthCache.byCred[credName]; ok {
 		return a, nil
 	}
+	if err := cred.Validate(); err != nil {
+		return nil, fmt.Errorf("credential %q: %w", credName, err)
+	}
 	resolved, err := cred.ResolveAuthWithSecrets(credName)
 	if err != nil {
 		return nil, err
 	}
-	baseURL := strings.TrimRight(cred.URL, "/")
+	baseURL := cred.EffectiveBaseURL()
+	if baseURL == "" {
+		return nil, fmt.Errorf("credential %q has no URL or region configured", credName)
+	}
+	cacheKey := credName
+	if cred.IsPlatform() {
+		cacheKey = credName + "@platform:" + cred.EffectiveTenantID()
+	}
 	cfg := tokenauth.Config{
 		BaseURL:  baseURL,
-		CacheKey: credName,
+		CacheKey: cacheKey,
+		Platform: cred.UsesPlatformAuth(),
 		Logger:   GetLogger(),
 	}
 	switch resolved.Type {
@@ -300,11 +312,11 @@ func jamfGET(credName, path string) ([]byte, error) {
 
 // jamfGETWithAccept performs a GET request with a specific Accept header.
 func jamfGETWithAccept(credName, path, accept string) ([]byte, error) {
-	baseURL, err := resolveURL(credName)
+	endpoint, err := ResolveEndpoint(credName, path)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodGet, baseURL+path, nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -326,11 +338,11 @@ func jamfGETWithAccept(credName, path, accept string) ([]byte, error) {
 
 // jamfPUT performs a PUT request with the given body and content type.
 func jamfPUT(credName, path string, body []byte, contentType string) error {
-	baseURL, err := resolveURL(credName)
+	endpoint, err := ResolveEndpoint(credName, path)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPut, baseURL+path, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -350,11 +362,11 @@ func jamfPUT(credName, path string, body []byte, contentType string) error {
 
 // jamfPOST performs a POST request with the given body and content type.
 func jamfPOST(credName, path string, body []byte, contentType string) ([]byte, error) {
-	baseURL, err := resolveURL(credName)
+	endpoint, err := ResolveEndpoint(credName, path)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, baseURL+path, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -377,11 +389,11 @@ func jamfPOST(credName, path string, body []byte, contentType string) ([]byte, e
 
 // jamfDELETE performs a DELETE request.
 func jamfDELETE(credName, path string) error {
-	baseURL, err := resolveURL(credName)
+	endpoint, err := ResolveEndpoint(credName, path)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodDelete, baseURL+path, nil)
+	req, err := http.NewRequest(http.MethodDelete, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

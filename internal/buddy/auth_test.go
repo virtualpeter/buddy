@@ -16,6 +16,10 @@ func TestDirectAuthOptsUsesDirectAuth(t *testing.T) {
 	if !withURL.UsesDirectAuth() {
 		t.Fatal("url should trigger direct auth")
 	}
+	withRegion := DirectAuthOpts{Region: "us"}
+	if !withRegion.UsesDirectAuth() {
+		t.Fatal("region should trigger direct auth")
+	}
 }
 
 func TestValidateDirectAuth(t *testing.T) {

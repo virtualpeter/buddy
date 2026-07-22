@@ -2,12 +2,23 @@
 
 For CLI scripting and configuration, start with the [reference manual](reference-manual.md).
 
-Buddy communicates with Jamf Pro through two API surfaces using direct HTTP requests (no third-party SDK).
+Buddy communicates with Jamf through direct HTTP requests (no third-party SDK).
 
 - **Classic API** — XML-based, path prefix `/JSSResource/`
-- **Jamf Pro API** — JSON-based, path prefix `/api/v1/` or `/api/v2/`
+- **Jamf Pro API** — JSON-based, path prefix `/api/v1/` or `/api/v2/` / `/api/v3/`
+- **Platform API Gateway (optional)** — set `region` (e.g. `us`) and/or gateway `url` `https://{us|eu|apac}.apigw.jamf.com`, plus OAuth client credentials and `tenantId` on the credential
 
-Authentication is config-driven per credential (command, basic, or OAuth). See `buddy auth help` and `buddy cred help`. For **basic** (username/password), buddy obtains a Bearer token via `POST /api/v1/auth/token` with Basic auth, then uses that token for all API requests.
+Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`). When the credential has `tenantId` set, buddy rewrites them:
+
+| Caller path | Gateway path |
+|-------------|--------------|
+| `/api/vN/rest…` | `/api/pro/vN/tenant/{tenantId}/rest…` |
+| `/JSSResource/…` | `/api/proclassic/tenant/{tenantId}/JSSResource/…` |
+| `/api/blueprints/vN/…` | inject `/tenant/{tenantId}` after the version |
+
+**Limitation (Classic / proclassic):** Buddy rewrites Classic paths for the gateway, but Jamf Account Platform integrations do not yet expose Classic permissions. In practice, Pro JSON and Blueprints work through the gateway when the integration is scoped correctly; Classic calls (`/JSSResource/…`, profiles, Classic policy XML, etc.) typically return `403 BAD_PERMISSIONS` until Jamf adds those privileges. Prefer an instance credential for Classic-heavy workflows for now.
+
+Authentication is config-driven per credential (command, basic, or OAuth). See `buddy auth help` and `buddy cred help`. For **basic** (username/password), buddy obtains a Bearer token via `POST /api/v1/auth/token` with Basic auth, then uses that token for all API requests. Platform credentials use **OAuth only** (`POST {gateway}/auth/token`, fallback `/oauth2/token`); there is no keep-alive.
 
 ### Custom calls from Starlark
 
@@ -16,11 +27,11 @@ For endpoints without a typed builtin, scripts can call:
 - `jamf_get` / `jamf_post` / `jamf_put` / `jamf_patch` / `jamf_delete`
 - or `jamf_request(method, path, …)`
 
-Paths are host-relative (`/api/v1/…` or `/JSSResource/…`). Media-type defaults follow the path (JSON for `/api/…`, XML for `/JSSResource/…`). See `buddy help builtins` (section **JAMF API**).
+Paths are host-relative (`/api/v1/…` or `/JSSResource/…`). Media-type defaults follow the path (JSON for `/api/…`, XML for `/JSSResource/…` and gateway `/api/proclassic/…`). See `buddy help builtins` (section **JAMF API**).
 
 ### API schema documents
 
-Each Jamf host publishes its live specs (use `jamf_schema` from Starlark):
+Each Jamf **instance** host publishes its live specs (use `jamf_schema` from Starlark). Schema paths are **not** supported via the Platform API Gateway:
 
 | API | Path | Format |
 |-----|------|--------|
@@ -38,7 +49,29 @@ Jamf Pro JSON list endpoints that return `{totalCount, results}` are fetched via
 - CLI table printers and internal resolvers (find-by-name, etc.) request **all pages**.
 - Starlark list builtins expose `page?` / `page_size?`; **omit `page`** to fetch every page and return the combined list.
 
-Applies to scripts, packages, computers inventory, smart/static group lists, API roles, and API integrations. MDM command list uses the same `page` / `page_size` options but ends on a short page (that API’s `totalCount` is not a reliable global total).
+Applies to scripts, packages, computers inventory, smart/static group lists, API roles, API integrations, and blueprints. MDM command list uses the same `page` / `page_size` options but ends on a short page (that API’s `totalCount` is not a reliable global total).
+
+---
+
+## Blueprints (Platform API Gateway)
+
+Base path (logical): `/api/blueprints/v1/blueprints`  
+Rewritten: `/api/blueprints/v1/tenant/{tenantId}/blueprints`
+
+Requires a credential with `tenantId` and `region` (or gateway `url`, e.g. `https://us.apigw.jamf.com`). CLI: `buddy blueprint …`. Starlark: `blueprints` / `blueprint` / `blueprint_*`.
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/api/blueprints/v1/blueprints` | `BlueprintList`, `blueprints` | List blueprints (paged; `search`, `sort`) |
+| `GET` | `/api/blueprints/v1/blueprints/{id}` | `BlueprintGet`, `blueprint` | Fetch one blueprint |
+| `POST` | `/api/blueprints/v1/blueprints` | `BlueprintCreate`, `blueprint_create` | Create |
+| `PATCH` | `/api/blueprints/v1/blueprints/{id}` | `BlueprintSet`, `blueprint_set` | Merge-patch update |
+| `DELETE` | `/api/blueprints/v1/blueprints/{id}` | `BlueprintDelete`, `blueprint_delete` | Delete |
+| `POST` | `…/blueprints/{id}/deploy` | `BlueprintDeploy`, `blueprint_deploy` | Deploy |
+| `POST` | `…/blueprints/{id}/undeploy` | `BlueprintUndeploy`, `blueprint_undeploy` | Undeploy |
+| `GET` | `…/blueprints/{id}/report` | `BlueprintStatus`, `blueprint_status` | Status report |
+| `GET` | `/api/blueprints/v1/blueprint-components` | `BlueprintComponents`, `blueprint_components` | List components |
+| `GET` | `/api/blueprints/v1/blueprint-components/{id}` | `BlueprintComponent`, `blueprint_component` | Get component |
 
 ---
 

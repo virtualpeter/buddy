@@ -16,6 +16,8 @@ import (
 // DirectAuthOpts holds one-off authentication settings (no config credential).
 type DirectAuthOpts struct {
 	BaseURL         string
+	Region          string // Platform API Gateway region (builds BaseURL when set and BaseURL empty)
+	TenantID        string // Platform API Gateway tenant id
 	Username        string
 	Password        string
 	ClientID        string
@@ -25,6 +27,8 @@ type DirectAuthOpts struct {
 
 func (o DirectAuthOpts) UsesDirectAuth() bool {
 	return o.BaseURL != "" ||
+		o.Region != "" ||
+		o.TenantID != "" ||
 		o.Username != "" ||
 		o.Password != "" ||
 		o.ClientID != "" ||
@@ -82,8 +86,19 @@ func obtainRawTokenDirect(direct DirectAuthOpts, log *slog.Logger) (string, erro
 	if err := direct.resolveOAuth2File(); err != nil {
 		return "", err
 	}
+	if direct.BaseURL == "" && strings.TrimSpace(direct.Region) != "" {
+		region, err := NormalizePlatformRegion(direct.Region)
+		if err != nil {
+			return "", err
+		}
+		direct.BaseURL = PlatformGatewayURL(region)
+	}
 	if direct.BaseURL == "" {
-		return "", fmt.Errorf("Jamf Pro URL is required for direct auth (use --url)")
+		return "", fmt.Errorf("Jamf Pro URL is required for direct auth (use --url or --region)")
+	}
+	platform := strings.TrimSpace(direct.TenantID) != ""
+	if platform && (direct.ClientID == "" || direct.ClientSecret == "") {
+		return "", fmt.Errorf("Platform API Gateway direct auth requires --client-id and --client-secret (and --tenant-id)")
 	}
 	cfg := tokenauth.Config{
 		BaseURL:      direct.BaseURL,
@@ -91,18 +106,22 @@ func obtainRawTokenDirect(direct DirectAuthOpts, log *slog.Logger) (string, erro
 		Password:     direct.Password,
 		ClientId:     direct.ClientID,
 		ClientSecret: direct.ClientSecret,
+		Platform:     platform,
 		Logger:       log,
 	}
 	if err := validateDirectAuth(cfg); err != nil {
 		return "", err
 	}
-	cfg.CacheKey = directAuthCacheKey(cfg)
+	cfg.CacheKey = directAuthCacheKey(cfg, direct.TenantID)
 	a := tokenauth.NewAuthenticator(cfg)
 	return a.GetToken()
 }
 
-func directAuthCacheKey(cfg tokenauth.Config) string {
+func directAuthCacheKey(cfg tokenauth.Config, tenantID string) string {
 	base := strings.TrimRight(cfg.BaseURL, "/")
+	if cfg.Platform {
+		return "direct-platform-" + cfg.ClientId + "@" + base + "/" + strings.TrimSpace(tenantID)
+	}
 	if cfg.ClientId != "" {
 		return "direct-oauth-" + cfg.ClientId + "@" + base
 	}
@@ -245,13 +264,23 @@ func CompactAuthInfo(info map[string]interface{}) map[string]interface{} {
 	return out
 }
 
-// AuthTestValue tests authentication against /api/v1/auth and returns the JSON object.
+// AuthTestValue tests authentication and returns a JSON-friendly object.
+// Instance credentials use GET /api/v1/auth. Platform credentials obtain a token
+// and probe GET /api/v1/buildings (rewritten to the gateway); if buildings is
+// forbidden but the token succeeded, a token-acquired summary is returned.
 func AuthTestValue(credName string, log *slog.Logger) (map[string]interface{}, error) {
-	baseURL, err := GetBaseURL(credName)
+	platform, err := IsPlatformCred(credName)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/auth", nil)
+	if platform {
+		return authTestPlatform(credName, log)
+	}
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/auth")
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -276,6 +305,77 @@ func AuthTestValue(credName string, log *slog.Logger) (map[string]interface{}, e
 		return map[string]interface{}{"raw": string(body), "status": resp.StatusCode}, nil
 	}
 	return result, nil
+}
+
+func authTestPlatform(credName string, log *slog.Logger) (map[string]interface{}, error) {
+	// Force a fresh platform token so disk-cached tokens from a prior endpoint
+	// (e.g. /oauth2/token) cannot mask gateway REQUEST_CONTEXT failures.
+	if activeConfig == nil {
+		return nil, fmt.Errorf("internal error: config not loaded (SetActiveConfig not called)")
+	}
+	cred, err := activeConfig.ResolveCredential(credName)
+	if err != nil {
+		return nil, err
+	}
+	a, err := cachedAuthenticator(credName, cred)
+	if err != nil {
+		return nil, fmt.Errorf("platform auth token: %w", err)
+	}
+	if err := a.ForceRenew(); err != nil {
+		return nil, fmt.Errorf("platform auth token: %w", err)
+	}
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/buildings")
+	if err != nil {
+		return nil, err
+	}
+	endpoint += "?page=0&page-size=1"
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := PerformRequest(nil, req, credName)
+	if err != nil {
+		return nil, fmt.Errorf("platform auth test: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	tenantID, _ := tenantIDForCred(credName)
+	baseURL, _ := resolveURL(credName)
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return map[string]interface{}{
+			"ok":       true,
+			"mode":     "platform",
+			"url":      baseURL,
+			"tenantId": tenantID,
+			"probe":    "buildings",
+			"status":   resp.StatusCode,
+		}, nil
+	}
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+		// Token was obtained; privilege for buildings may be missing.
+		if log != nil {
+			log.Debug("platform auth probe buildings not permitted; token acquired", "status", resp.StatusCode)
+		}
+		return map[string]interface{}{
+			"ok":            true,
+			"mode":          "platform",
+			"url":           baseURL,
+			"tenantId":      tenantID,
+			"tokenAcquired": true,
+			"probe":         "buildings",
+			"probeStatus":   resp.StatusCode,
+			"note":          "Bearer token acquired; buildings probe not permitted (need read:pro:buildings for a full probe)",
+		}, nil
+	}
+	looksUUID := len(tenantID) == 36 && strings.Count(tenantID, "-") == 4
+	if strings.Contains(string(body), "REQUEST_CONTEXT_NOT_PROVIDED") && !looksUUID {
+		return nil, fmt.Errorf("platform auth test returned %d: %s\nHint: tenantId %q does not look like a Jamf Account tenant UUID. In Jamf Account → Integrations, open the integration and click the tenant pill to copy the tenant id (not the jamfcloud.com subdomain)", resp.StatusCode, string(body), tenantID)
+	}
+	return nil, fmt.Errorf("platform auth test returned %d: %s", resp.StatusCode, string(body))
 }
 
 // AuthTest tests authentication against /api/v1/auth and pretty-prints the response.

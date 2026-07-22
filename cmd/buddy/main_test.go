@@ -316,3 +316,91 @@ func TestStaticGroupSplitFlags(t *testing.T) {
 		})
 	}
 }
+
+func TestParseCredAddArgs_TenantIDEqualsAndSpace(t *testing.T) {
+	tid := "e77c1408-10c8-4007-b177-abc9157fbcaa"
+	for _, args := range [][]string{
+		{"--name=gw", "--url=https://us.apigw.jamf.com", "--type=oauth", "--client-id=cid", "--tenant-id=" + tid},
+		{"--name", "gw", "--url", "https://us.apigw.jamf.com", "--type", "oauth", "--client-id", "cid", "--tenant-id", tid},
+	} {
+		got, err := parseCredAddArgs(args, false)
+		if err != nil {
+			t.Fatalf("parseCredAddArgs(%v): %v", args, err)
+		}
+		if got.Name != "gw" {
+			t.Fatalf("Name = %q", got.Name)
+		}
+		if got.Cred.TenantID != tid {
+			t.Fatalf("TenantID = %q, want %q (args=%v)", got.Cred.TenantID, tid, args)
+		}
+		if got.Cred.Auth.ClientID != "cid" {
+			t.Fatalf("ClientID = %q", got.Cred.Auth.ClientID)
+		}
+	}
+}
+
+func TestParseCredAddArgs_RegionBuildsURL(t *testing.T) {
+	tid := "e77c1408-10c8-4007-b177-abc9157fbcaa"
+	got, err := parseCredAddArgs([]string{
+		"--name=gw", "--region=us", "--tenant-id", tid, "--client-id=cid",
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Cred.Region != "us" {
+		t.Fatalf("Region = %q", got.Cred.Region)
+	}
+	if got.Cred.Auth.Type != "oauth" {
+		t.Fatalf("Type = %q (region should default oauth)", got.Cred.Auth.Type)
+	}
+	if got.Cred.URL != "" {
+		t.Fatalf("URL should be empty when only region set, got %q", got.Cred.URL)
+	}
+	if got.Cred.EffectiveBaseURL() != "https://us.apigw.jamf.com" {
+		t.Fatalf("EffectiveBaseURL = %q", got.Cred.EffectiveBaseURL())
+	}
+	if err := got.Cred.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParseCredAddArgs_RejectsPositionals(t *testing.T) {
+	_, err := parseCredAddArgs([]string{
+		"gw", "https://us.apigw.jamf.com", "--type=oauth", "--client-id=cid",
+	}, false)
+	if err == nil || !strings.Contains(err.Error(), "unexpected argument") {
+		t.Fatalf("expected positional rejection, got %v", err)
+	}
+}
+
+func TestParseCredAddArgs_UnknownFlag(t *testing.T) {
+	_, err := parseCredAddArgs([]string{
+		"--name=gw", "--url=https://example.jamfcloud.com", "--type=oauth", "--client-id=cid", "--tenant", "x",
+	}, false)
+	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("expected unknown flag error, got %v", err)
+	}
+}
+
+func TestParseCredAddArgs_FlagRequiresValue(t *testing.T) {
+	_, err := parseCredAddArgs([]string{
+		"--name=gw", "--region=us", "--client-id=cid", "--tenant-id",
+	}, false)
+	if err == nil || !strings.Contains(err.Error(), "requires a value") {
+		t.Fatalf("expected requires value error, got %v", err)
+	}
+}
+
+func TestParseCredAddArgs_GatewayRequiresTenantViaValidate(t *testing.T) {
+	got, err := parseCredAddArgs([]string{
+		"--name=gw", "--region=us", "--client-id=cid",
+	}, false)
+	if err != nil {
+		t.Fatalf("parse ok without tenant: %v", err)
+	}
+	if err := got.Cred.Validate(); err == nil {
+		t.Fatal("Validate should reject platform without tenantId")
+	} else if !strings.Contains(err.Error(), "tenantId") {
+		t.Fatalf("Validate error = %v", err)
+	}
+}

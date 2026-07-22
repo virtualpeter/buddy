@@ -85,6 +85,28 @@ Singular `profile(id=…)` returns XML string (same as today’s fetch). `profil
 | `client_fetch_list` | `clients(...)` |
 | `client_fetch` | `client(id=…)` |
 
+### Blueprints (Platform API Gateway)
+
+New in the Platform API Gateway surface — these are additions, not renames. They
+require a **gateway credential** (`region` like `us`, or a `url` such as
+`https://us.apigw.jamf.com`, plus `tenantId`). Same `{"ok", "value"|"error"}` shape.
+
+| Builtin | Role |
+|---------|------|
+| `blueprints(search?, page?, page_size?, cred?)` | enumerate → list of `{id, name, description?, …}` (omit `page` = all) |
+| `blueprint(id=, cred?)` | load one → full blueprint dict |
+| `blueprint_create(body, cred?)` | create → response dict |
+| `blueprint_set(blueprint_id, body, cred?)` | merge-patch update → None |
+| `blueprint_delete(blueprint_id, cred?)` | delete → None |
+| `blueprint_deploy(blueprint_id, cred?)` | deploy → None |
+| `blueprint_undeploy(blueprint_id, cred?)` | undeploy → None |
+| `blueprint_status(blueprint_id, cred?)` | deployment report → dict |
+| `blueprint_components(page?, page_size?, cred?)` | enumerate components → list[dict] |
+| `blueprint_component(id=, cred?)` | load one component → dict |
+
+Follows the same conventions: resource IDs first on mutate/action helpers, `cred?`
+last. The CLI mirror is `buddy blueprint <subcommand>` (see `buddy blueprint help`).
+
 ### Unchanged families
 
 `rsql_*`, `plist_*`, `payloads_*`, `file_*`, `json_*`, `xml_*`, most `step_*`, computer MDM action verbs (`computer_reboot`, …).
