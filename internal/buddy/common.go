@@ -163,6 +163,7 @@ func cachedAuthenticator(credName string, cred CredentialConfig) (*tokenauth.Aut
 		cacheKey = credName + "@platform:" + cred.EffectiveTenantID()
 	}
 	cfg := tokenauth.Config{
+		Name:     credName,
 		BaseURL:  baseURL,
 		CacheKey: cacheKey,
 		Platform: cred.UsesPlatformAuth(),

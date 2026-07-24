@@ -64,8 +64,8 @@ Each named credential in config has `url` + `auth`:
 | `auth.type` | Config fields | Secret storage |
 |-------------|---------------|----------------|
 | `command` | `runCommand` (shell string) | N/A — command prints token |
-| `basic` | `username`; password inline or in store | `buddy cred secret set <cred>` |
-| `oauth` | `clientId`; secret inline or in store | `buddy cred secret set <cred> --client-secret` |
+| `basic` | `username`; password inline or in store | `buddy cred set secret <cred>` |
+| `oauth` | `clientId`; secret inline or in store | `buddy cred set secret <cred> --client-secret` |
 
 Optional credential fields `region` (e.g. `us`) and/or gateway `url`, plus `tenantId`, enable Platform API Gateway mode: OAuth only, path rewrite for Pro/Classic, and Blueprints. With `region` set, the base URL defaults to `https://{region}.apigw.jamf.com` unless `url` overrides it (proxy).
 
@@ -85,7 +85,7 @@ Selected by platform or `BUDDY_SECRET_STORE`:
 | `pass` | any | `buddy/<cred>/password`, `buddy/<cred>/client-secret` |
 | `keychain` | macOS only | Explicit Keychain |
 
-CLI: `buddy cred secret set|get|delete|path`. `buddy setup configure-oauth` stores client secret in the platform store automatically.
+CLI: `buddy cred set|get|delete secret <cred>`, `buddy cred store`, `buddy cred migrate`. `buddy setup configure-oauth` stores client secret in the platform store automatically.
 
 ## Token caching
 

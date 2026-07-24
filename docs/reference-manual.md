@@ -48,8 +48,9 @@ Default config path: `~/.config/buddy/config.yaml` (override config root with `X
 
 A minimal file defines a default credential name and one or more named credentials (each with a Jamf Pro base URL and auth: `command`, `basic`, or `oauth`). Use:
 
-- `buddy cred help` — add, list, delete credentials; set the default name
-- `buddy cred secret help` — store password/client secret in Keychain, file, or pass
+- `buddy cred help` — set, list, get, delete credentials; manage secrets; set the default (`cred use`)
+- `buddy cred set secret <name>` — store password/client secret in Keychain, file, or pass
+- `buddy cred migrate` — move inline config.yaml secrets into the secure store
 - `buddy auth test` — verify the active credential
 - `buddy --user <name> ...` — override the default credential for one invocation (`--cred` is deprecated)
 
@@ -58,12 +59,12 @@ For `basic` auth, buddy exchanges username/password for a Bearer token via Jamf�
 **Platform API Gateway:** set a `region` (e.g. `us`, `eu`, `apac`) and a `tenantId` to route Pro (and Blueprints) calls through the Jamf Platform API Gateway. Region-based credentials imply `oauth` and derive the base URL as `https://{region}.apigw.jamf.com` (pass `url` only to override, e.g. a proxy). Example:
 
 ```sh
-buddy cred add --name=gateway --region=us --tenant-id=<tenant-id> --client-id=<id>
+buddy cred set gateway --region=us --tenant-id=<tenant-id> --client-id=<client-id>
 ```
 
 Classic (`/JSSResource/…`) calls are rewritten for the gateway, but Jamf does not yet expose Classic permissions to Platform integrations — expect `403` on Classic until it does. Use an instance credential for Classic-heavy work.
 
-**Security:** Omit secrets from YAML and use `buddy cred secret set`. macOS defaults to Keychain; Linux defaults to `~/.config/buddy/secrets/`. Override with `BUDDY_SECRET_STORE=file|pass|keychain`. Inline secrets in config remain supported for dev/test. Never commit credentials to source control.
+**Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate` to move existing inline secrets). macOS defaults to Keychain; Linux defaults to `~/.config/buddy/secrets/`. Override with `BUDDY_SECRET_STORE=file|pass|keychain`. Inline secrets in config remain supported for dev/test. Never commit credentials to source control.
 
 Full YAML shape and field descriptions are in the [README](../README.md#configuration).
 

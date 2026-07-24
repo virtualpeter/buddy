@@ -15,6 +15,7 @@ import (
 
 // Authenticator handles authentication for Jamf Pro API
 type Authenticator struct {
+	name         string // credential name, used only for diagnostics
 	baseURL      string
 	username     string
 	password     string
@@ -31,6 +32,8 @@ type Authenticator struct {
 
 // Config holds authentication configuration
 type Config struct {
+	// Name is the credential name, used only to make auth errors actionable.
+	Name         string
 	BaseURL      string
 	Username     string
 	Password     string
@@ -66,6 +69,7 @@ func NewAuthenticator(cfg Config) *Authenticator {
 		cfg.Logger = slog.Default()
 	}
 	return &Authenticator{
+		name:         cfg.Name,
 		baseURL:      cfg.BaseURL,
 		username:     cfg.Username,
 		password:     cfg.Password,
@@ -301,6 +305,24 @@ func (a *Authenticator) getTokenFromCommand() error {
 }
 
 // getTokenFromCredentials obtains a token using username/password basic auth
+// authEndpointError builds an actionable error for a 400/401/403 returned by a
+// token endpoint, which almost always means the stored secret is wrong, revoked,
+// or expired rather than a transient failure. The raw body is logged at debug.
+func (a *Authenticator) authEndpointError(status int, secretKind string, body []byte) error {
+	a.debugf("token endpoint returned %d: %s", status, string(body))
+	who := ""
+	action := "verify the stored credentials and the integration/user in Jamf"
+	if a.name != "" {
+		who = fmt.Sprintf(" for credential %q", a.name)
+		action = fmt.Sprintf("re-store it with 'buddy cred set secret %s' and verify the integration/user in Jamf", a.name)
+	}
+	return fmt.Errorf("authentication failed at the token endpoint (status %d)%s: the %s is likely wrong, revoked, or expired — %s", status, who, secretKind, action)
+}
+
+func isAuthRejection(status int) bool {
+	return status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusBadRequest
+}
+
 func (a *Authenticator) getTokenFromCredentials() error {
 	url := fmt.Sprintf("%s/api/v1/auth/token", a.baseURL)
 	a.verbosef("Requesting authentication token from %s", url)
@@ -319,6 +341,9 @@ func (a *Authenticator) getTokenFromCredentials() error {
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
+		if isAuthRejection(resp.StatusCode) {
+			return a.authEndpointError(resp.StatusCode, "password", body)
+		}
 		a.debugf("Token request failed with status %d: %s", resp.StatusCode, string(body))
 		return fmt.Errorf("token request failed with status %d: %s", resp.StatusCode, string(body))
 	}
@@ -363,6 +388,9 @@ func (a *Authenticator) getTokenFromOAuth2() error {
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
+		if isAuthRejection(resp.StatusCode) {
+			return a.authEndpointError(resp.StatusCode, "client secret", body)
+		}
 		a.debugf("OAuth2 token request failed with status %d: %s", resp.StatusCode, string(body))
 		return fmt.Errorf("OAuth2 token request failed with status %d: %s", resp.StatusCode, string(body))
 	}
@@ -407,6 +435,9 @@ func (a *Authenticator) getTokenFromPlatformOAuth2() error {
 		}
 	}
 	if status != http.StatusOK {
+		if isAuthRejection(status) {
+			return a.authEndpointError(status, "client secret", body)
+		}
 		a.debugf("Platform OAuth2 token request failed with status %d: %s", status, string(body))
 		return fmt.Errorf("Platform OAuth2 token request failed with status %d: %s", status, string(body))
 	}

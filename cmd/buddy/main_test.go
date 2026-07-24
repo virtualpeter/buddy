@@ -4,7 +4,45 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"buddy/internal/buddy"
+	"buddy/internal/buddy/secrets"
 )
+
+type mockSecretStore struct {
+	values map[string]string
+}
+
+func (m *mockSecretStore) key(credName string, kind secrets.Kind) string {
+	return credName + "/" + kind.String()
+}
+
+func (m *mockSecretStore) Get(credName string, kind secrets.Kind) (string, error) {
+	if v, ok := m.values[m.key(credName, kind)]; ok && v != "" {
+		return v, nil
+	}
+	return "", secrets.ErrNotFound
+}
+
+func (m *mockSecretStore) Set(credName string, kind secrets.Kind, value string) error {
+	if m.values == nil {
+		m.values = make(map[string]string)
+	}
+	m.values[m.key(credName, kind)] = value
+	return nil
+}
+
+func (m *mockSecretStore) Delete(credName string, kind secrets.Kind) error {
+	delete(m.values, m.key(credName, kind))
+	return nil
+}
+
+func (m *mockSecretStore) Has(credName string, kind secrets.Kind) (bool, error) {
+	v, ok := m.values[m.key(credName, kind)]
+	return ok && v != "", nil
+}
+
+func (m *mockSecretStore) Description() string { return "mock" }
 
 func TestParseInt_Valid(t *testing.T) {
 	got, err := parseInt("42", "id")
@@ -317,15 +355,15 @@ func TestStaticGroupSplitFlags(t *testing.T) {
 	}
 }
 
-func TestParseCredAddArgs_TenantIDEqualsAndSpace(t *testing.T) {
+func TestParseCredSetArgs_TenantIDEqualsAndSpace(t *testing.T) {
 	tid := "e77c1408-10c8-4007-b177-abc9157fbcaa"
 	for _, args := range [][]string{
 		{"--name=gw", "--url=https://us.apigw.jamf.com", "--type=oauth", "--client-id=cid", "--tenant-id=" + tid},
 		{"--name", "gw", "--url", "https://us.apigw.jamf.com", "--type", "oauth", "--client-id", "cid", "--tenant-id", tid},
 	} {
-		got, err := parseCredAddArgs(args, false)
+		got, err := parseCredSetArgs(args, false)
 		if err != nil {
-			t.Fatalf("parseCredAddArgs(%v): %v", args, err)
+			t.Fatalf("parseCredSetArgs(%v): %v", args, err)
 		}
 		if got.Name != "gw" {
 			t.Fatalf("Name = %q", got.Name)
@@ -339,9 +377,9 @@ func TestParseCredAddArgs_TenantIDEqualsAndSpace(t *testing.T) {
 	}
 }
 
-func TestParseCredAddArgs_RegionBuildsURL(t *testing.T) {
+func TestParseCredSetArgs_RegionBuildsURL(t *testing.T) {
 	tid := "e77c1408-10c8-4007-b177-abc9157fbcaa"
-	got, err := parseCredAddArgs([]string{
+	got, err := parseCredSetArgs([]string{
 		"--name=gw", "--region=us", "--tenant-id", tid, "--client-id=cid",
 	}, false)
 	if err != nil {
@@ -364,17 +402,41 @@ func TestParseCredAddArgs_RegionBuildsURL(t *testing.T) {
 	}
 }
 
-func TestParseCredAddArgs_RejectsPositionals(t *testing.T) {
-	_, err := parseCredAddArgs([]string{
-		"gw", "https://us.apigw.jamf.com", "--type=oauth", "--client-id=cid",
+func TestParseCredSetArgs_PositionalName(t *testing.T) {
+	got, err := parseCredSetArgs([]string{
+		"sandbox", "--url=https://example.jamfcloud.com", "--type=oauth", "--client-id=cid",
 	}, false)
-	if err == nil || !strings.Contains(err.Error(), "unexpected argument") {
-		t.Fatalf("expected positional rejection, got %v", err)
+	if err != nil {
+		t.Fatalf("parseCredSetArgs: %v", err)
+	}
+	if got.Name != "sandbox" {
+		t.Fatalf("Name = %q, want sandbox", got.Name)
+	}
+	if got.Cred.Auth.ClientID != "cid" {
+		t.Fatalf("ClientID = %q", got.Cred.Auth.ClientID)
 	}
 }
 
-func TestParseCredAddArgs_UnknownFlag(t *testing.T) {
-	_, err := parseCredAddArgs([]string{
+func TestParseCredSetArgs_RejectsExtraPositionals(t *testing.T) {
+	_, err := parseCredSetArgs([]string{
+		"gw", "https://us.apigw.jamf.com", "--type=oauth", "--client-id=cid",
+	}, false)
+	if err == nil || !strings.Contains(err.Error(), "unexpected argument") {
+		t.Fatalf("expected extra positional rejection, got %v", err)
+	}
+}
+
+func TestParseCredSetArgs_NameGivenTwice(t *testing.T) {
+	_, err := parseCredSetArgs([]string{
+		"gw", "--name=other", "--url=https://example.jamfcloud.com", "--type=oauth", "--client-id=cid",
+	}, false)
+	if err == nil || !strings.Contains(err.Error(), "given twice") {
+		t.Fatalf("expected name-given-twice error, got %v", err)
+	}
+}
+
+func TestParseCredSetArgs_UnknownFlag(t *testing.T) {
+	_, err := parseCredSetArgs([]string{
 		"--name=gw", "--url=https://example.jamfcloud.com", "--type=oauth", "--client-id=cid", "--tenant", "x",
 	}, false)
 	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
@@ -382,8 +444,8 @@ func TestParseCredAddArgs_UnknownFlag(t *testing.T) {
 	}
 }
 
-func TestParseCredAddArgs_FlagRequiresValue(t *testing.T) {
-	_, err := parseCredAddArgs([]string{
+func TestParseCredSetArgs_FlagRequiresValue(t *testing.T) {
+	_, err := parseCredSetArgs([]string{
 		"--name=gw", "--region=us", "--client-id=cid", "--tenant-id",
 	}, false)
 	if err == nil || !strings.Contains(err.Error(), "requires a value") {
@@ -391,8 +453,51 @@ func TestParseCredAddArgs_FlagRequiresValue(t *testing.T) {
 	}
 }
 
-func TestParseCredAddArgs_GatewayRequiresTenantViaValidate(t *testing.T) {
-	got, err := parseCredAddArgs([]string{
+func TestSecretSelectionForAuthType(t *testing.T) {
+	wantPw, wantCs, err := secretSelectionForAuthType("basic", "c")
+	if err != nil || !wantPw || wantCs {
+		t.Fatalf("basic => pw=%v cs=%v err=%v", wantPw, wantCs, err)
+	}
+	wantPw, wantCs, err = secretSelectionForAuthType("oauth", "c")
+	if err != nil || wantPw || !wantCs {
+		t.Fatalf("oauth => pw=%v cs=%v err=%v", wantPw, wantCs, err)
+	}
+	if _, _, err = secretSelectionForAuthType("command", "c"); err == nil {
+		t.Fatal("command auth should have no stored secret")
+	}
+	if _, _, err = secretSelectionForAuthType("", "c"); err == nil {
+		t.Fatal("empty auth type should error")
+	}
+}
+
+func TestRunCredMigrate_MovesInlineSecret(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	mock := &mockSecretStore{values: map[string]string{}}
+	secrets.SetStore(mock)
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	cfg := &buddy.Config{
+		Cred: "sandbox",
+		Credentials: map[string]buddy.CredentialConfig{
+			"sandbox": {
+				URL:  "https://example.jamfcloud.com",
+				Auth: buddy.AuthConfig{Type: "oauth", ClientID: "cid", ClientSecret: "inline-secret"},
+			},
+		},
+	}
+	if err := runCredMigrate(cfg, buddy.Opts{SkipConfirm: true}, nil); err != nil {
+		t.Fatalf("runCredMigrate: %v", err)
+	}
+	if got := cfg.Credentials["sandbox"].Auth.ClientSecret; got != "" {
+		t.Fatalf("inline clientSecret not cleared: %q", got)
+	}
+	if v, err := mock.Get("sandbox", secrets.KindClientSecret); err != nil || v != "inline-secret" {
+		t.Fatalf("store client-secret = %q, err %v", v, err)
+	}
+}
+
+func TestParseCredSetArgs_GatewayRequiresTenantViaValidate(t *testing.T) {
+	got, err := parseCredSetArgs([]string{
 		"--name=gw", "--region=us", "--client-id=cid",
 	}, false)
 	if err != nil {

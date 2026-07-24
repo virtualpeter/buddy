@@ -52,7 +52,7 @@ credentials:
     auth:
       type: oauth
       clientId: your_client_id
-      # clientSecret stored via: buddy cred secret set default --client-secret
+      # clientSecret stored via: buddy cred set secret default --client-secret
 
   # Optional: Jamf Platform API Gateway (Pro JSON + Blueprints; Classic not yet usable —
   # Jamf Account integrations do not expose Classic/proclassic permissions yet)
@@ -72,13 +72,13 @@ credentials:
 | Linux | `~/.config/buddy/secrets/<name>.json` (mode 0600) | `BUDDY_SECRET_STORE=file` or `pass` |
 
 ```sh
-buddy cred add --name=sandbox --url=https://example.jamfcloud.com --type=oauth --client-id=abc
-buddy cred add --name=gateway --region=us --tenant-id=e77c1408-10c8-4007-b177-abc9157fbcaa --client-id=abc
-buddy cred secret set sandbox --client-secret
-buddy cred secret path
+buddy cred set sandbox --url=https://example.jamfcloud.com --type=oauth --client-id=abc
+buddy cred set gateway --region=us --tenant-id=e77c1408-10c8-4007-b177-abc9157fbcaa --client-id=abc
+buddy cred set secret sandbox --client-secret
+buddy cred store
 ```
 
-Inline `password` / `clientSecret` in YAML still works. `buddy setup configure-oauth` stores the client secret in the platform store automatically. Set `BUDDY_SECRET_STORE=pass` on Linux to use [pass](https://www.passwordstore.org/) (`buddy/<cred>/password`, `buddy/<cred>/client-secret`).
+Inline `password` / `clientSecret` in YAML still works; move them into the secure store with `buddy cred migrate`. `buddy setup configure-oauth` stores the client secret in the platform store automatically. Set `BUDDY_SECRET_STORE=pass` on Linux to use [pass](https://www.passwordstore.org/) (`buddy/<cred>/password`, `buddy/<cred>/client-secret`).
 
 | Field         | Description                              | Default     |
 |---------------|------------------------------------------|-------------|

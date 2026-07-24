@@ -26,14 +26,30 @@ func SetCredentialSecrets(credName, password, clientSecret string) error {
 	return nil
 }
 
-// PromptSecretLine reads a secret from stdin with a label.
+// PromptSecretLine reads a secret from stdin with a label (echoed).
 func PromptSecretLine(label string) (string, error) {
 	return secrets.PromptLine(label)
+}
+
+// PromptSecret reads a secret from stdin without echoing it (when stdin is a TTY).
+func PromptSecret(label string) (string, error) {
+	return secrets.PromptSecret(label)
+}
+
+// StdinIsTerminal reports whether stdin is an interactive terminal.
+func StdinIsTerminal() bool {
+	return secrets.StdinIsTerminal()
 }
 
 // ReadSecretFromStdin reads a secret value from stdin.
 func ReadSecretFromStdin() (string, error) {
 	return secrets.ReadAllFromReader(os.Stdin)
+}
+
+// SecretStoreAvailable reports whether a platform secret store can be used.
+func SecretStoreAvailable() bool {
+	_, err := secrets.DefaultStore()
+	return err == nil
 }
 
 // CredentialSecretStatus describes stored secrets for a credential.
