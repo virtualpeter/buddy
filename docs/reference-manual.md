@@ -124,6 +124,10 @@ buddy help [command] [subcommand]
 | `client` | API integrations / OAuth clients |
 | `script` | Jamf script objects |
 | `blueprint` | Platform API Blueprints (list/get/create/set/delete/deploy/status; gateway credential required) |
+| `device` | Platform API devices (inventory + check-in/restart/erase/…; not Pro `computer`) |
+| `device-group` | Platform API device groups (not Pro computer groups) |
+| `ddm` | Platform DDM declaration reporting (read-only) |
+| `benchmark` | Platform compliance benchmarks (beta) |
 | `setup` | Generate setup scripts and OAuth config helpers |
 | `serve` | Local docs browser + Starlark notebook + script IDE |
 | `mcp` | MCP stdio server for Cursor agents |

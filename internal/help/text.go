@@ -21,6 +21,10 @@ Commands:
   computer Manage computers and MDM commands (find/get/reboot/lock/erase/...)
   mdm      Query MDM commands from Jamf Pro (find with RSQL filter)
   blueprint Manage Platform API blueprints (list/get/create/set/delete/deploy/…)
+  device   Manage Platform API devices (inventory + check-in/restart/erase/…)
+  device-group Manage Platform API device groups (not Pro computer groups)
+  ddm      Platform DDM declaration reporting (read-only)
+  benchmark Platform compliance benchmarks (beta)
   role     Manage API roles (list/get/create/update/delete/privileges)
   client   Manage API integrations (list/get/create/update/delete/credentials/set)
   script   Manage Jamf scripts (list/get/create/upload/download/delete/set)
@@ -296,6 +300,43 @@ BLUEPRINT (Platform API Gateway credential required)
   blueprint_components(page?, page_size?, cred?) → value: list[dict]
   blueprint_component(id=, cred?) → value: dict
       Params: id: str (component identifier); cred?.
+
+PLATFORM DEVICE (Platform gateway; distinct from computer/Pro inventory)
+  devices(filter?, sort?, page?, page_size?, cred?) → value: list of {id, name, serialNumber?, …}
+  device(id=, cred?) → value: dict
+  device_set(device_id, body, cred?) → None
+  device_delete(device_id, cred?) → None
+  device_applications(device_id, filter?, page?, page_size?, cred?) → value: list[dict]
+  device_check_in(device_id, cred?) → None
+  device_restart(device_id, cred?) → None
+  device_shutdown(device_id, cred?) → None
+  device_erase(device_id, cred?) → None
+  device_unmanage(device_id, cred?) → None
+
+PLATFORM DEVICE GROUP (not Pro smart/static computer groups)
+  device_groups(filter?, page?, page_size?, cred?) → value: list of {id, name, …}
+  device_group(id=, cred?) → value: dict
+  device_group_create(body, cred?) → value: dict
+  device_group_set(group_id, body, cred?) → None
+  device_group_delete(group_id, cred?) → None
+  device_group_members(group_id, cred?) → value: JSON
+  device_group_set_members(group_id, body, cred?) → None
+
+DDM REPORT (read-only Platform declaration reporting)
+  ddm_declaration_devices(declaration_id, filter?, sort?, page?, page_size?, cred?) → value: JSON
+  ddm_device_declarations(device_id, filter?, sort?, page?, page_size?, cred?) → value: JSON
+  ddm_device_channels(device_id, cred?) → value: JSON
+
+COMPLIANCE BENCHMARK (beta Platform API)
+  benchmarks(cred?) → value: JSON
+  benchmark(id=, cred?) → value: dict
+  benchmark_create(body, cred?) → value: dict
+  benchmark_delete(benchmark_id, cred?) → None
+  benchmark_baselines(cred?) → value: JSON
+  benchmark_catalog_rules(baseline?, cred?) → value: JSON
+  benchmark_compliance_percentage(benchmark_id, cred?) → value: JSON
+  benchmark_report_devices(benchmark_id, cred?) → value: JSON
+  benchmark_report_rules(benchmark_id, cred?) → value: JSON
 
 PACKAGE
   packages(filter?, page?, page_size?, cred?)

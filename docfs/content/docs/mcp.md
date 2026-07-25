@@ -8,7 +8,7 @@ buddy mcp
 
 Uses stdio JSON-RPC. The active tenant/auth comes from `~/.config/buddy/config.yaml` (override with `--tenant=<name>` and/or `--user=<auth>` on the command in mcp.json). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 
-A Platform-capable tenant (`region`/`url` + `tenantId`) with a linked oauth auth works the same way: Pro tools and the first-class `blueprint*` tools route through the gateway.
+A Platform-capable tenant (`region`/`url` + `tenantId`) with a linked oauth auth works the same way: Pro tools and first-class Platform tools (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) route through the gateway.
 
 ---
 
@@ -93,6 +93,11 @@ Tool names follow the Starlark v3 plural/singular grammar (see [builtins-v3.md](
 | `blueprint_status` | Deployment report | By `blueprint_id` |
 | `blueprint_components` | Components list or one | Omit `identifier` = all |
 | `blueprint_create` / `blueprint_set` / `blueprint_delete` / `blueprint_deploy` / `blueprint_undeploy` | `{id, …}` | **Mutating** (gateway credential) |
+| `devices` / `device` / `device_set` / `device_delete` / `device_applications` | Platform device inventory | Distinct from Pro `computers` |
+| `device_check_in` / `device_restart` / `device_shutdown` / `device_erase` / `device_unmanage` | Device actions | **Mutating**; `execute:pro:device-actions` |
+| `device_groups` / `device_group` / `device_group_*` | Platform device groups | Not Pro computer groups |
+| `ddm_declaration_devices` / `ddm_device_declarations` / `ddm_device_channels` | DDM reporting | Read-only |
+| `benchmarks` / `benchmark` / `benchmark_*` | Compliance benchmarks | Beta Platform API |
 | `jamf_schema` | Operations catalog (+ optional docs) | Live Pro OpenAPI + Classic Swagger + embedded Platform specs; see below |
 | `starlark_eval` | `{stdout, stderr, result, error}` | Fresh session; see below |
 | `docs` | Catalog entries or page markdown | Embedded buddy docs/rules; see below |
@@ -194,9 +199,8 @@ Read embedded buddy documentation and Cursor rules (same data as `buddy://docs/.
 
 ### Blueprint tips
 
-- All `blueprint*` tools require a **Platform API Gateway credential** (`region`/`url` + `tenantId`); they return `{ok:false, error}` otherwise.
-- Read-only: `blueprints`, `blueprint`, `blueprint_status`, `blueprint_components`. Mutating: `blueprint_create`, `blueprint_set`, `blueprint_delete`, `blueprint_deploy`, `blueprint_undeploy`.
-- Mutating tools **do not** prompt for confirmation (there is no interactive stdin in MCP) — the host’s tool-call approval is the guard. Treat them like `-y`.
+- All Platform product tools (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) require a **Platform API Gateway credential** (`region`/`url` + `tenantId`); they return `{ok:false, error}` otherwise.
+- Mutating tools **do not** prompt for confirmation (there is no interactive stdin in MCP) — the host’s tool-call approval is the guard. Treat them like `-y`. Readonly auths are rejected for mutates.
 - `blueprint_create` / `blueprint_set` take a JSON `body` object; `blueprint_set` is a merge-patch.
 
 ### `starlark_eval` tips

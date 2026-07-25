@@ -4,7 +4,7 @@ This file captures project context for AI agents (and humans) picking up work on
 
 ## What buddy is
 
-**buddy** is a Go CLI for Jamf Pro automation: policies, groups, profiles, packages, Platform API Blueprints, Starlark workflows, and API auth/token helpers. Config lives at `~/.config/buddy/config.yaml`.
+**buddy** is a Go CLI for Jamf Pro automation: policies, groups, profiles, packages, Platform API (blueprints, devices, device-groups, DDM report, compliance benchmarks), Starlark workflows, and API auth/token helpers. Config lives at `~/.config/buddy/config.yaml`.
 
 Sibling project **meliorate** (separate repo under `../meliorate`) tracks Jamf config in Git. It can call buddy as an external token helper via `jamfpro.token_command`.
 
@@ -120,7 +120,7 @@ buddy auth refresh --url=URL [TOKEN]         # keep-alive refresh (instance; dir
 
 Direct auth flags (`--url`, `--tenant-id`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for one-offs.
 
-When the resolved session uses a platform surface, paths are rewritten via `RewriteJamfPath` / `ResolveEndpoint` (Pro → `/api/pro/vN/tenant/{id}/…`, Classic → `/api/proclassic/tenant/{id}/JSSResource/…`). Blueprints require a platform-capable tenant+auth (`buddy blueprint`, Starlark `blueprints` / `blueprint_*`, MCP `blueprint*` tools).
+When the resolved session uses a platform surface, paths are rewritten via `RewriteJamfPath` / `ResolveEndpoint` (Pro → `/api/pro/vN/tenant/{id}/…`, Classic → `/api/proclassic/tenant/{id}/JSSResource/…`, Platform product APIs → inject `/tenant/{id}` after version for blueprints/devices/device-groups/device-actions/ddm/report/compliance-benchmarks). Platform product commands require a platform-capable tenant+auth (`buddy blueprint|device|device-group|ddm|benchmark`, matching Starlark/MCP tools).
 
 ## Jamf Pro API versions (groups / inventory)
 

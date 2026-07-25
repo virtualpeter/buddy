@@ -224,6 +224,30 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
+	case "device":
+		if err := runDevice(credName, opts, args[1:], buddy.GetLogger()); err != nil {
+			logger.Error("Device command failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+	case "device-group":
+		if err := runDeviceGroup(credName, opts, args[1:], buddy.GetLogger()); err != nil {
+			logger.Error("Device-group command failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+	case "ddm":
+		if err := runDDM(credName, opts, args[1:], buddy.GetLogger()); err != nil {
+			logger.Error("DDM command failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+	case "benchmark":
+		if err := runBenchmark(credName, opts, args[1:], buddy.GetLogger()); err != nil {
+			logger.Error("Benchmark command failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
 	case "setup":
 		if err := runSetup(cfg, opts, credName, args[1:], logger); err != nil {
 			logger.Error("Setup command failed", "error", err)

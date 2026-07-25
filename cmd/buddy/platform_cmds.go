@@ -1,0 +1,301 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strings"
+
+	"buddy/internal/buddy"
+)
+
+func readJSONFileArg(args []string) (body []byte, rest []string, err error) {
+	file := "-"
+	var leftover []string
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--file="):
+			file = strings.TrimPrefix(a, "--file=")
+		case a == "-":
+			file = "-"
+		default:
+			leftover = append(leftover, a)
+		}
+	}
+	body, err = buddy.ReadJSONBodyFile(file)
+	return body, leftover, err
+}
+
+func runDeviceGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == "help" {
+		fmt.Print(helpDeviceGroup)
+		return nil
+	}
+	subcommand := args[0]
+	args = args[1:]
+	switch subcommand {
+	case "list":
+		listOpts := buddy.DeviceGroupListOpts{Page: buddy.PageOpts{Page: buddy.PageAll}}
+		for _, a := range args {
+			switch {
+			case strings.HasPrefix(a, "--filter="):
+				listOpts.Filter = strings.TrimPrefix(a, "--filter=")
+			default:
+				return fmt.Errorf("unknown list flag %q; run 'buddy device-group help'", a)
+			}
+		}
+		return buddy.DeviceGroupList(credName, listOpts, log)
+	case "get":
+		if len(args) < 1 {
+			return fmt.Errorf("missing group-id; run 'buddy device-group help'")
+		}
+		return buddy.DeviceGroupGet(credName, args[0], log)
+	case "create":
+		body, _, err := readJSONFileArg(args)
+		if err != nil {
+			return err
+		}
+		return buddy.DeviceGroupCreate(credName, opts, body, log)
+	case "set":
+		if len(args) < 1 {
+			return fmt.Errorf("missing group-id; run 'buddy device-group help'")
+		}
+		groupID := args[0]
+		body, _, err := readJSONFileArg(args[1:])
+		if err != nil {
+			return err
+		}
+		return buddy.DeviceGroupSet(credName, groupID, opts, body, log)
+	case "delete":
+		if len(args) < 1 {
+			return fmt.Errorf("missing group-id; run 'buddy device-group help'")
+		}
+		return buddy.DeviceGroupDelete(credName, args[0], opts, log)
+	case "members":
+		if len(args) < 1 {
+			return fmt.Errorf("missing group-id; run 'buddy device-group help'")
+		}
+		return buddy.DeviceGroupMembers(credName, args[0], log)
+	case "set-members":
+		if len(args) < 1 {
+			return fmt.Errorf("missing group-id; run 'buddy device-group help'")
+		}
+		groupID := args[0]
+		body, _, err := readJSONFileArg(args[1:])
+		if err != nil {
+			return err
+		}
+		return buddy.DeviceGroupSetMembers(credName, groupID, opts, body, log)
+	default:
+		return fmt.Errorf("unknown device-group subcommand: %q (use: list, get, create, set, delete, members, set-members)", subcommand)
+	}
+}
+
+func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == "help" {
+		fmt.Print(helpDevice)
+		return nil
+	}
+	subcommand := args[0]
+	args = args[1:]
+	switch subcommand {
+	case "list":
+		listOpts := buddy.DeviceListOpts{Page: buddy.PageOpts{Page: buddy.PageAll}}
+		for _, a := range args {
+			switch {
+			case strings.HasPrefix(a, "--filter="):
+				listOpts.Filter = strings.TrimPrefix(a, "--filter=")
+			case strings.HasPrefix(a, "--sort="):
+				listOpts.Sort = strings.TrimPrefix(a, "--sort=")
+			default:
+				return fmt.Errorf("unknown list flag %q; run 'buddy device help'", a)
+			}
+		}
+		return buddy.DeviceList(credName, listOpts, log)
+	case "get":
+		if len(args) < 1 {
+			return fmt.Errorf("missing device-id; run 'buddy device help'")
+		}
+		return buddy.DeviceGet(credName, args[0], log)
+	case "set":
+		if len(args) < 1 {
+			return fmt.Errorf("missing device-id; run 'buddy device help'")
+		}
+		deviceID := args[0]
+		body, _, err := readJSONFileArg(args[1:])
+		if err != nil {
+			return err
+		}
+		return buddy.DeviceSet(credName, deviceID, opts, body, log)
+	case "delete":
+		if len(args) < 1 {
+			return fmt.Errorf("missing device-id; run 'buddy device help'")
+		}
+		return buddy.DeviceDelete(credName, args[0], opts, log)
+	case "applications":
+		if len(args) < 1 {
+			return fmt.Errorf("missing device-id; run 'buddy device help'")
+		}
+		deviceID := args[0]
+		filter := ""
+		for _, a := range args[1:] {
+			if strings.HasPrefix(a, "--filter=") {
+				filter = strings.TrimPrefix(a, "--filter=")
+			} else {
+				return fmt.Errorf("unknown applications flag %q", a)
+			}
+		}
+		return buddy.DeviceApplications(credName, deviceID, filter, log)
+	case "user":
+		if len(args) < 1 {
+			return fmt.Errorf("missing user-id; run 'buddy device help'")
+		}
+		listOpts := buddy.DeviceListOpts{Page: buddy.PageOpts{Page: buddy.PageAll}}
+		items, err := buddy.DevicesForUserValue(credName, args[0], listOpts, log)
+		if err != nil {
+			return err
+		}
+		enc, _ := json.MarshalIndent(items, "", "  ")
+		fmt.Println(string(enc))
+		return nil
+	case "check-in":
+		if len(args) < 1 {
+			return fmt.Errorf("missing device-id; run 'buddy device help'")
+		}
+		return buddy.DeviceCheckIn(credName, args[0], opts, log)
+	case "restart":
+		if len(args) < 1 {
+			return fmt.Errorf("missing device-id; run 'buddy device help'")
+		}
+		return buddy.DeviceRestart(credName, args[0], opts, log)
+	case "shutdown":
+		if len(args) < 1 {
+			return fmt.Errorf("missing device-id; run 'buddy device help'")
+		}
+		return buddy.DeviceShutdown(credName, args[0], opts, log)
+	case "erase":
+		if len(args) < 1 {
+			return fmt.Errorf("missing device-id; run 'buddy device help'")
+		}
+		return buddy.DeviceErase(credName, args[0], opts, log)
+	case "unmanage":
+		if len(args) < 1 {
+			return fmt.Errorf("missing device-id; run 'buddy device help'")
+		}
+		return buddy.DeviceUnmanage(credName, args[0], opts, log)
+	default:
+		return fmt.Errorf("unknown device subcommand: %q (use: list, get, set, delete, applications, user, check-in, restart, shutdown, erase, unmanage)", subcommand)
+	}
+}
+
+func runDDM(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	_ = opts
+	if len(args) == 0 || args[0] == "help" {
+		fmt.Print(helpDDM)
+		return nil
+	}
+	switch args[0] {
+	case "declaration":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: buddy ddm declaration <declaration-id> [--filter=] [--sort=]")
+		}
+		id := args[1]
+		filter, sort := "", ""
+		for _, a := range args[2:] {
+			switch {
+			case strings.HasPrefix(a, "--filter="):
+				filter = strings.TrimPrefix(a, "--filter=")
+			case strings.HasPrefix(a, "--sort="):
+				sort = strings.TrimPrefix(a, "--sort=")
+			default:
+				return fmt.Errorf("unknown flag %q", a)
+			}
+		}
+		return buddy.DDMDeclarationDevices(credName, id, filter, sort, log)
+	case "device":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: buddy ddm device <device-id> <declarations|channels> [--filter=] [--sort=]")
+		}
+		deviceID := args[1]
+		if len(args) < 3 {
+			return fmt.Errorf("usage: buddy ddm device <device-id> <declarations|channels>")
+		}
+		switch args[2] {
+		case "channels":
+			return buddy.DDMDeviceChannels(credName, deviceID, log)
+		case "declarations":
+			filter, sort := "", ""
+			for _, a := range args[3:] {
+				switch {
+				case strings.HasPrefix(a, "--filter="):
+					filter = strings.TrimPrefix(a, "--filter=")
+				case strings.HasPrefix(a, "--sort="):
+					sort = strings.TrimPrefix(a, "--sort=")
+				default:
+					return fmt.Errorf("unknown flag %q", a)
+				}
+			}
+			return buddy.DDMDeviceDeclarations(credName, deviceID, filter, sort, log)
+		default:
+			return fmt.Errorf("unknown ddm device subcommand %q (use: declarations, channels)", args[2])
+		}
+	default:
+		return fmt.Errorf("unknown ddm subcommand: %q (use: declaration, device)", args[0])
+	}
+}
+
+func runBenchmark(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == "help" {
+		fmt.Print(helpBenchmark)
+		return nil
+	}
+	switch args[0] {
+	case "list":
+		return buddy.BenchmarkList(credName, log)
+	case "get":
+		if len(args) < 2 {
+			return fmt.Errorf("missing benchmark-id; run 'buddy benchmark help'")
+		}
+		return buddy.BenchmarkGet(credName, args[1], log)
+	case "create":
+		body, _, err := readJSONFileArg(args[1:])
+		if err != nil {
+			return err
+		}
+		return buddy.BenchmarkCreate(credName, opts, body, log)
+	case "delete":
+		if len(args) < 2 {
+			return fmt.Errorf("missing benchmark-id; run 'buddy benchmark help'")
+		}
+		return buddy.BenchmarkDelete(credName, args[1], opts, log)
+	case "baselines":
+		return buddy.BenchmarkBaselines(credName, log)
+	case "rules":
+		baseline := ""
+		for _, a := range args[1:] {
+			if strings.HasPrefix(a, "--baseline=") {
+				baseline = strings.TrimPrefix(a, "--baseline=")
+			} else {
+				return fmt.Errorf("unknown rules flag %q", a)
+			}
+		}
+		return buddy.BenchmarkCatalogRules(credName, baseline, log)
+	case "compliance-percentage":
+		if len(args) < 2 {
+			return fmt.Errorf("missing benchmark-id; run 'buddy benchmark help'")
+		}
+		return buddy.BenchmarkCompliancePercentage(credName, args[1], log)
+	case "report-devices":
+		if len(args) < 2 {
+			return fmt.Errorf("missing benchmark-id; run 'buddy benchmark help'")
+		}
+		return buddy.BenchmarkReportDevices(credName, args[1], log)
+	case "report-rules":
+		if len(args) < 2 {
+			return fmt.Errorf("missing benchmark-id; run 'buddy benchmark help'")
+		}
+		return buddy.BenchmarkReportRules(credName, args[1], log)
+	default:
+		return fmt.Errorf("unknown benchmark subcommand: %q (use: list, get, create, delete, baselines, rules, compliance-percentage, report-devices, report-rules)", args[0])
+	}
+}

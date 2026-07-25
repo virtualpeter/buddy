@@ -331,6 +331,334 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		return toolOK(map[string]any{"id": in.BlueprintID, "action": "undeploy"}, nil)
 	})
 
+	// Platform devices / device-groups / ddm / benchmarks
+	type deviceListIn struct {
+		Filter   string `json:"filter,omitempty" jsonschema:"RSQL filter"`
+		Sort     string `json:"sort,omitempty" jsonschema:"sort field:dir"`
+		Page     *int   `json:"page,omitempty" jsonschema:"0-based page; omit to fetch all pages"`
+		PageSize int    `json:"page_size,omitempty" jsonschema:"page size (default 200)"`
+		Cred     string `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "devices",
+		Description: "List Jamf Platform API devices (gateway credential required; distinct from Pro computers). Returns {ok, value:[{id,name,...}], count}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceListIn) (*mcpsdk.CallToolResult, any, error) {
+		o := buddy.PageOpts{Page: buddy.PageAll, PageSize: in.PageSize}
+		if in.Page != nil {
+			o.Page = *in.Page
+		}
+		items, err := buddy.DeviceListValues(resolve(credIn{Cred: in.Cred}), buddy.DeviceListOpts{Filter: in.Filter, Sort: in.Sort, Page: o}, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		n := len(items)
+		return toolOK(items, &n)
+	})
+	type deviceIDIn struct {
+		DeviceID string `json:"device_id" jsonschema:"Platform device UUID"`
+		Cred     string `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "device",
+		Description: "Load one Platform API device by id. Returns {ok, value: device JSON}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceIDIn) (*mcpsdk.CallToolResult, any, error) {
+		out, err := buddy.DeviceGetValue(resolve(credIn{Cred: in.Cred}), in.DeviceID, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+	type deviceSetIn struct {
+		DeviceID string         `json:"device_id" jsonschema:"Platform device UUID"`
+		Body     map[string]any `json:"body" jsonschema:"PATCH JSON body"`
+		Cred     string         `json:"cred,omitempty"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "device_set",
+		Description: "PATCH a Platform device (mutating). Returns {ok}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceSetIn) (*mcpsdk.CallToolResult, any, error) {
+		bodyJSON, err := json.Marshal(in.Body)
+		if err != nil {
+			return toolErr(fmt.Errorf("encode body: %w", err))
+		}
+		if err := buddy.DeviceSetValue(resolve(credIn{Cred: in.Cred}), in.DeviceID, mutOpts(), bodyJSON, logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(map[string]any{"id": in.DeviceID}, nil)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "device_delete",
+		Description: "Delete a Platform device (mutating). Returns {ok}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceIDIn) (*mcpsdk.CallToolResult, any, error) {
+		if err := buddy.DeviceDeleteValue(resolve(credIn{Cred: in.Cred}), in.DeviceID, mutOpts(), logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(map[string]any{"id": in.DeviceID}, nil)
+	})
+	type deviceAppsIn struct {
+		DeviceID string `json:"device_id" jsonschema:"Platform device UUID"`
+		Filter   string `json:"filter,omitempty"`
+		Page     *int   `json:"page,omitempty"`
+		PageSize int    `json:"page_size,omitempty"`
+		Cred     string `json:"cred,omitempty"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "device_applications",
+		Description: "List installed applications for a Platform device. Returns {ok, value:[...], count}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceAppsIn) (*mcpsdk.CallToolResult, any, error) {
+		o := buddy.PageOpts{Page: buddy.PageAll, PageSize: in.PageSize}
+		if in.Page != nil {
+			o.Page = *in.Page
+		}
+		items, err := buddy.DeviceApplicationsValue(resolve(credIn{Cred: in.Cred}), in.DeviceID, o, in.Filter, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		n := len(items)
+		return toolOK(items, &n)
+	})
+	for _, act := range []struct {
+		name, desc string
+		fn         func(string, string, buddy.Opts, *slog.Logger) error
+	}{
+		{"device_check_in", "Request Platform device check-in (mutating).", buddy.DeviceCheckIn},
+		{"device_restart", "Restart a Platform device (mutating).", buddy.DeviceRestart},
+		{"device_shutdown", "Shut down a Platform device (mutating).", buddy.DeviceShutdown},
+		{"device_erase", "Erase a Platform device (mutating).", buddy.DeviceErase},
+		{"device_unmanage", "Unmanage a Platform device (mutating).", buddy.DeviceUnmanage},
+	} {
+		act := act
+		mcpsdk.AddTool(server, &mcpsdk.Tool{
+			Name:        act.name,
+			Description: act.desc + " Returns {ok}.",
+		}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceIDIn) (*mcpsdk.CallToolResult, any, error) {
+			if err := act.fn(resolve(credIn{Cred: in.Cred}), in.DeviceID, mutOpts(), logger); err != nil {
+				return toolErr(err)
+			}
+			return toolOK(map[string]any{"id": in.DeviceID, "action": act.name}, nil)
+		})
+	}
+
+	type deviceGroupListIn struct {
+		Filter   string `json:"filter,omitempty" jsonschema:"RSQL filter"`
+		Page     *int   `json:"page,omitempty"`
+		PageSize int    `json:"page_size,omitempty"`
+		Cred     string `json:"cred,omitempty"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "device_groups",
+		Description: "List Platform API device groups (not Pro computer groups). Returns {ok, value:[...], count}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceGroupListIn) (*mcpsdk.CallToolResult, any, error) {
+		o := buddy.PageOpts{Page: buddy.PageAll, PageSize: in.PageSize}
+		if in.Page != nil {
+			o.Page = *in.Page
+		}
+		items, err := buddy.DeviceGroupListValues(resolve(credIn{Cred: in.Cred}), buddy.DeviceGroupListOpts{Filter: in.Filter, Page: o}, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		n := len(items)
+		return toolOK(items, &n)
+	})
+	type deviceGroupIDIn struct {
+		GroupID string `json:"group_id" jsonschema:"Platform device group UUID"`
+		Cred    string `json:"cred,omitempty"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "device_group",
+		Description: "Load one Platform device group by id. Returns {ok, value: group JSON}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceGroupIDIn) (*mcpsdk.CallToolResult, any, error) {
+		out, err := buddy.DeviceGroupGetValue(resolve(credIn{Cred: in.Cred}), in.GroupID, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+	type deviceGroupBodyIn struct {
+		Body map[string]any `json:"body" jsonschema:"JSON body"`
+		Cred string         `json:"cred,omitempty"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "device_group_create",
+		Description: "Create a Platform device group (mutating). Returns {ok, value: create response}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceGroupBodyIn) (*mcpsdk.CallToolResult, any, error) {
+		bodyJSON, err := json.Marshal(in.Body)
+		if err != nil {
+			return toolErr(fmt.Errorf("encode body: %w", err))
+		}
+		out, err := buddy.DeviceGroupCreateValue(resolve(credIn{Cred: in.Cred}), mutOpts(), bodyJSON, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+	type deviceGroupSetIn struct {
+		GroupID string         `json:"group_id"`
+		Body    map[string]any `json:"body"`
+		Cred    string         `json:"cred,omitempty"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "device_group_set",
+		Description: "PATCH a Platform device group (mutating). Returns {ok}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceGroupSetIn) (*mcpsdk.CallToolResult, any, error) {
+		bodyJSON, err := json.Marshal(in.Body)
+		if err != nil {
+			return toolErr(fmt.Errorf("encode body: %w", err))
+		}
+		if err := buddy.DeviceGroupSetValue(resolve(credIn{Cred: in.Cred}), in.GroupID, mutOpts(), bodyJSON, logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(map[string]any{"id": in.GroupID}, nil)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "device_group_delete",
+		Description: "Delete a Platform device group (mutating). Returns {ok}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceGroupIDIn) (*mcpsdk.CallToolResult, any, error) {
+		if err := buddy.DeviceGroupDeleteValue(resolve(credIn{Cred: in.Cred}), in.GroupID, mutOpts(), logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(map[string]any{"id": in.GroupID}, nil)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "device_group_members",
+		Description: "List members of a Platform device group. Returns {ok, value: members JSON}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceGroupIDIn) (*mcpsdk.CallToolResult, any, error) {
+		out, err := buddy.DeviceGroupMembersValue(resolve(credIn{Cred: in.Cred}), in.GroupID, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "device_group_set_members",
+		Description: "PATCH membership of a static Platform device group (mutating). Returns {ok}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceGroupSetIn) (*mcpsdk.CallToolResult, any, error) {
+		bodyJSON, err := json.Marshal(in.Body)
+		if err != nil {
+			return toolErr(fmt.Errorf("encode body: %w", err))
+		}
+		if err := buddy.DeviceGroupSetMembersValue(resolve(credIn{Cred: in.Cred}), in.GroupID, mutOpts(), bodyJSON, logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(map[string]any{"id": in.GroupID}, nil)
+	})
+
+	type ddmDeclIn struct {
+		DeclarationID string `json:"declaration_id" jsonschema:"declaration identifier"`
+		Filter        string `json:"filter,omitempty"`
+		Sort          string `json:"sort,omitempty"`
+		Page          *int   `json:"page,omitempty"`
+		PageSize      int    `json:"page_size,omitempty"`
+		Cred          string `json:"cred,omitempty"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "ddm_declaration_devices",
+		Description: "List devices reporting a DDM declaration (Platform read-only). Returns {ok, value}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in ddmDeclIn) (*mcpsdk.CallToolResult, any, error) {
+		o := buddy.PageOpts{Page: buddy.PageAll, PageSize: in.PageSize}
+		if in.Page != nil {
+			o.Page = *in.Page
+		}
+		out, err := buddy.DDMDeclarationDevicesValue(resolve(credIn{Cred: in.Cred}), in.DeclarationID, o, in.Filter, in.Sort, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+	type ddmDeviceIn struct {
+		DeviceID string `json:"device_id"`
+		Filter   string `json:"filter,omitempty"`
+		Sort     string `json:"sort,omitempty"`
+		Page     *int   `json:"page,omitempty"`
+		PageSize int    `json:"page_size,omitempty"`
+		Cred     string `json:"cred,omitempty"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "ddm_device_declarations",
+		Description: "List DDM declarations reported for a device. Returns {ok, value}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in ddmDeviceIn) (*mcpsdk.CallToolResult, any, error) {
+		o := buddy.PageOpts{Page: buddy.PageAll, PageSize: in.PageSize}
+		if in.Page != nil {
+			o.Page = *in.Page
+		}
+		out, err := buddy.DDMDeviceDeclarationsValue(resolve(credIn{Cred: in.Cred}), in.DeviceID, o, in.Filter, in.Sort, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "ddm_device_channels",
+		Description: "List DDM channels for a device. Returns {ok, value}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceIDIn) (*mcpsdk.CallToolResult, any, error) {
+		out, err := buddy.DDMDeviceChannelsValue(resolve(credIn{Cred: in.Cred}), in.DeviceID, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+
+	type credOnlyIn struct {
+		Cred string `json:"cred,omitempty"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "benchmarks",
+		Description: "List Platform compliance benchmarks (beta). Returns {ok, value}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in credOnlyIn) (*mcpsdk.CallToolResult, any, error) {
+		out, err := buddy.BenchmarkListValues(resolve(credIn{Cred: in.Cred}), logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+	type benchmarkIDIn struct {
+		BenchmarkID string `json:"benchmark_id"`
+		Cred        string `json:"cred,omitempty"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "benchmark",
+		Description: "Load one compliance benchmark by id (beta). Returns {ok, value}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in benchmarkIDIn) (*mcpsdk.CallToolResult, any, error) {
+		out, err := buddy.BenchmarkGetValue(resolve(credIn{Cred: in.Cred}), in.BenchmarkID, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "benchmark_create",
+		Description: "Create a compliance benchmark (beta, mutating). Returns {ok, value}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in deviceGroupBodyIn) (*mcpsdk.CallToolResult, any, error) {
+		bodyJSON, err := json.Marshal(in.Body)
+		if err != nil {
+			return toolErr(fmt.Errorf("encode body: %w", err))
+		}
+		out, err := buddy.BenchmarkCreateValue(resolve(credIn{Cred: in.Cred}), mutOpts(), bodyJSON, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "benchmark_delete",
+		Description: "Delete a compliance benchmark (beta, mutating). Returns {ok}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in benchmarkIDIn) (*mcpsdk.CallToolResult, any, error) {
+		if err := buddy.BenchmarkDeleteValue(resolve(credIn{Cred: in.Cred}), in.BenchmarkID, mutOpts(), logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(map[string]any{"id": in.BenchmarkID}, nil)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "benchmark_baselines",
+		Description: "List mSCP baselines for compliance benchmarks (beta). Returns {ok, value}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in credOnlyIn) (*mcpsdk.CallToolResult, any, error) {
+		out, err := buddy.BenchmarkBaselinesValue(resolve(credIn{Cred: in.Cred}), logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+
 	type schemaIn struct {
 		API    string `json:"api,omitempty" jsonschema:"pro (OpenAPI /api/schema), classic (Swagger /classicapi/doc/swagger.yaml), platform (embedded Platform API Gateway specs), both (pro+classic), or all (default; pro+classic+platform)"`
 		Filter string `json:"filter,omitempty" jsonschema:"case-insensitive; space-separated terms AND-matched against path, method, tags, summary, operationId, description"`

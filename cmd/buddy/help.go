@@ -434,6 +434,108 @@ Examples:
   buddy blueprint components
 `
 
+const helpDevice = `buddy device - Manage Jamf Platform API devices (inventory + actions)
+
+Usage:
+  buddy [global-flags] device <subcommand> [args...]
+
+Subcommands:
+  list [--filter=<rsql>] [--sort=]     List Platform devices (table)
+  get <device-id>                      Fetch one device (JSON)
+  set <device-id> [--file=|-]          PATCH device JSON
+  delete <device-id>                   Delete a device
+  applications <device-id> [--filter=] List installed applications
+  user <user-id>                       List devices for a user
+  check-in <device-id>                 Request device check-in
+  restart <device-id>                  Restart device
+  shutdown <device-id>                 Shut down device
+  erase <device-id>                    Erase device
+  unmanage <device-id>                 Remove remote management
+
+Notes:
+  Platform Devices API (not Jamf Pro computer inventory). Use 'buddy computer' for Pro/MDM.
+  Requires Platform API Gateway tenant+auth. Actions need execute:pro:device-actions.
+
+Examples:
+  buddy device list --filter='name=="*Mac*"'
+  buddy device get <device-id>
+  buddy device applications <device-id>
+  buddy device restart <device-id>
+`
+
+const helpDeviceGroup = `buddy device-group - Manage Jamf Platform API device groups
+
+Usage:
+  buddy [global-flags] device-group <subcommand> [args...]
+
+Subcommands:
+  list [--filter=<rsql>]               List device groups (table)
+  get <group-id>                       Fetch one group (JSON)
+  create [--file=<path>|-]             Create from JSON body
+  set <group-id> [--file=|-]           PATCH group JSON
+  delete <group-id>                    Delete a group
+  members <group-id>                   List group members (JSON)
+  set-members <group-id> [--file=|-]   PATCH membership (static groups)
+
+Notes:
+  Distinct from Jamf Pro computer groups ('buddy group' / smart_group / static_group).
+  Requires Platform API Gateway tenant+auth.
+
+Examples:
+  buddy device-group list
+  buddy device-group get <group-id>
+  buddy device-group members <group-id>
+`
+
+const helpDDM = `buddy ddm - Jamf Platform DDM declaration reporting (read-only)
+
+Usage:
+  buddy [global-flags] ddm <subcommand> [args...]
+
+Subcommands:
+  declaration <declaration-id> [--filter=] [--sort=]
+      List devices reporting a declaration
+  device <device-id> declarations [--filter=] [--sort=]
+      List declarations reported for a device
+  device <device-id> channels
+      List channels available for a device
+
+Notes:
+  Requires Platform API Gateway tenant+auth and read:pro:declaration-reporting.
+  Useful alongside 'buddy blueprint status' for deployment verification.
+
+Examples:
+  buddy ddm declaration com.jamf.ddm.sw-updates
+  buddy ddm device <device-id> declarations
+  buddy ddm device <device-id> channels
+`
+
+const helpBenchmark = `buddy benchmark - Jamf Platform compliance benchmarks (beta)
+
+Usage:
+  buddy [global-flags] benchmark <subcommand> [args...]
+
+Subcommands:
+  list                                   List tenant benchmarks (JSON)
+  get <benchmark-id>                     Fetch one benchmark
+  create [--file=<path>|-]               Create from JSON body
+  delete <benchmark-id>                  Delete a benchmark
+  baselines                              List mSCP baselines
+  rules [--baseline=<id>]                Catalog rules for a baseline
+  compliance-percentage <benchmark-id>   Overall compliance percentage
+  report-devices <benchmark-id>          Devices for a benchmark report
+  report-rules <benchmark-id>            Rules stats for a benchmark
+
+Notes:
+  Beta Platform API. Requires Platform gateway tenant+auth and
+  read|create|delete:pro:compliance-benchmarks as applicable.
+
+Examples:
+  buddy benchmark list
+  buddy benchmark baselines
+  buddy benchmark get <benchmark-id>
+`
+
 const helpPackage = `buddy package - Manage Jamf Pro package records
 
 Usage:
@@ -627,6 +729,10 @@ func printCommandHelp(path []string) {
 		"computer":      helpComputer,
 		"mdm":           helpMdm,
 		"blueprint":     helpBlueprint,
+		"device":        helpDevice,
+		"device-group":  helpDeviceGroup,
+		"ddm":           helpDDM,
+		"benchmark":     helpBenchmark,
 		"role":          helpRole,
 		"client":        helpClient,
 		"script":        helpScript,

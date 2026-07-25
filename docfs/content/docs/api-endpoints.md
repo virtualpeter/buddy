@@ -81,6 +81,64 @@ Requires a credential with `tenantId` and `region` (or gateway `url`, e.g. `http
 
 ---
 
+## Platform devices (`/api/devices`)
+
+Logical paths inject `/tenant/{tenantId}` after `v1` (same as blueprints). Distinct from Jamf Pro `computer` inventory.
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/api/devices/v1/devices` | `DeviceList`, `devices` | List devices (paged; RSQL `filter`) |
+| `GET` | `/api/devices/v1/devices/{id}` | `DeviceGet`, `device` | Fetch one |
+| `PATCH` | `/api/devices/v1/devices/{id}` | `DeviceSet`, `device_set` | Update |
+| `DELETE` | `/api/devices/v1/devices/{id}` | `DeviceDelete`, `device_delete` | Delete |
+| `GET` | `…/devices/{id}/applications` | `DeviceApplications`, `device_applications` | Installed apps |
+| `GET` | `/api/devices/v1/users/{id}/devices` | `DevicesForUser`, `buddy device user` | Devices for user |
+
+## Platform device actions (`/api/device-actions`)
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `POST` | `/api/device-actions/v1/devices/{id}/check-in` | `DeviceCheckIn`, `device_check_in` | Check-in |
+| `POST` | `…/restart` | `DeviceRestart`, `device_restart` | Restart |
+| `POST` | `…/shutdown` | `DeviceShutdown`, `device_shutdown` | Shutdown |
+| `POST` | `…/erase` | `DeviceErase`, `device_erase` | Erase |
+| `POST` | `…/unmanage` | `DeviceUnmanage`, `device_unmanage` | Unmanage |
+
+## Platform device groups (`/api/device-groups`)
+
+Not Jamf Pro computer groups (`buddy group` / `smart_group` / `static_group`).
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET`/`POST` | `/api/device-groups/v1/device-groups` | list/create | List / create |
+| `GET`/`PATCH`/`DELETE` | `…/device-groups/{id}` | get/set/delete | CRUD |
+| `GET`/`PATCH` | `…/device-groups/{id}/members` | members / set-members | Membership |
+| `GET` | `/api/device-groups/v1/devices/{id}/device-groups` | `DeviceGroupsForDevice` | Groups for device |
+
+## DDM declaration reporting (`/api/ddm/report`)
+
+Read-only. CLI: `buddy ddm …`. Starlark: `ddm_*`.
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `…/declarations/{id}/devices` | `DDMDeclarationDevices` | Devices for declaration |
+| `GET` | `…/devices/{id}/declarations` | `DDMDeviceDeclarations` | Declarations for device |
+| `GET` | `…/devices/{id}/channels` | `DDMDeviceChannels` | Channels for device |
+
+## Compliance benchmarks (`/api/compliance-benchmarks`, beta)
+
+CLI: `buddy benchmark …`. Starlark: `benchmark` / `benchmark_*`.
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET`/`POST` | `/api/compliance-benchmarks/v1/benchmarks` | list/create | Tenant benchmarks |
+| `GET`/`DELETE` | `…/benchmarks/{id}` | get/delete | One benchmark |
+| `GET` | `…/baselines`, `…/rules` | baselines / catalog rules | Catalog |
+| `GET` | `…/benchmarks/{id}/compliance-percentage` | report | Compliance % |
+| `GET` | `…/benchmarks/{id}/devices`, `…/rules` | report | Report subresources |
+
+---
+
 ## Scripts (Jamf Pro API v1)
 
 Base path: `/api/v1/scripts`

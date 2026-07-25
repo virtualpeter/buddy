@@ -1,12 +1,10 @@
 package buddy
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -16,34 +14,6 @@ const (
 	uriBlueprints          = "/api/blueprints/v1/blueprints"
 	uriBlueprintComponents = "/api/blueprints/v1/blueprint-components"
 )
-
-// requirePlatformCred ensures a platform-capable session can be resolved for credName
-// (auth pin or active tenant). Auto-picks a platform-linked auth when possible.
-func requirePlatformCred(credName string) error {
-	sess, err := ResolveSessionForCred(credName, OpPlatform)
-	if err != nil {
-		return fmt.Errorf("blueprints require a Platform API Gateway tenant+auth (set tenantId on the tenant and link an oauth auth); see 'buddy cred help': %w", err)
-	}
-	if sess.Credential.EffectiveTenantID() == "" {
-		return fmt.Errorf("blueprints require a Platform API Gateway tenant (tenantId); see 'buddy cred help'")
-	}
-	return nil
-}
-
-// requirePlatformMutate is like requirePlatformCred but rejects readonly auths.
-func requirePlatformMutate(credName string) error {
-	if err := requirePlatformCred(credName); err != nil {
-		return err
-	}
-	sess, err := ResolveSessionForCred(credName, OpPlatform)
-	if err != nil {
-		return err
-	}
-	if sess.Auth.EffectiveAccess() == AccessReadonly {
-		return fmt.Errorf("auth %q is readonly; blueprints mutations require a full-access auth", sess.AuthName)
-	}
-	return nil
-}
 
 // BlueprintOverview is a list-item summary from the Blueprints API.
 type BlueprintOverview struct {
@@ -201,26 +171,8 @@ func BlueprintSetValue(credName, blueprintID string, opts Opts, bodyJSON []byte,
 			return nil
 		}
 	}
-	endpoint, err := ResolveEndpoint(credName, uriBlueprints+"/"+url.PathEscape(blueprintID))
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodPatch, endpoint, bytes.NewReader(bodyJSON))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/merge-patch+json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("PATCH blueprint %s status %d: %s", blueprintID, resp.StatusCode, string(respBody))
-	}
-	return nil
+	_, err := jamfPATCH(credName, uriBlueprints+"/"+url.PathEscape(blueprintID), bodyJSON, "application/merge-patch+json")
+	return err
 }
 
 // BlueprintSet PATCHes a blueprint.

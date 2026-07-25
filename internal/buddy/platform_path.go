@@ -8,8 +8,32 @@ import (
 
 var (
 	proVersionPathRE = regexp.MustCompile(`^(/api)/(v\d+)(/.*)$`)
-	blueprintsPathRE = regexp.MustCompile(`^(/api/blueprints)/(v\d+)(/.*)$`)
+	// platformProductPathRE matches Platform product APIs that inject /tenant/{id}
+	// after the version segment (blueprints, devices, device-groups, …).
+	// Service may include a slash (ddm/report).
+	platformProductPathRE = regexp.MustCompile(`^(/api/(?:blueprints|devices|device-groups|device-actions|compliance-benchmarks|ddm/report))/(v\d+)(/.*)$`)
 )
+
+// platformProductPrefixes are logical path prefixes that use Platform gateway auth.
+var platformProductPrefixes = []string{
+	"/api/blueprints",
+	"/api/devices",
+	"/api/device-groups",
+	"/api/device-actions",
+	"/api/compliance-benchmarks",
+	"/api/ddm/report",
+}
+
+// isPlatformProductPath reports whether path targets a vendored Platform product API
+// (instance-relative or already gateway-rewritten; both keep the /api/{service} prefix).
+func isPlatformProductPath(path string) bool {
+	for _, p := range platformProductPrefixes {
+		if path == p || strings.HasPrefix(path, p+"/") {
+			return true
+		}
+	}
+	return false
+}
 
 // RewriteJamfPath maps an instance-relative Jamf path onto the Platform API Gateway
 // when tenantID is non-empty. With an empty tenantID the path is returned unchanged
@@ -18,7 +42,8 @@ var (
 // Rules:
 //   - /api/vN/rest…           → /api/pro/vN/tenant/{id}/rest…
 //   - /JSSResource/…          → /api/proclassic/tenant/{id}/JSSResource/…
-//   - /api/blueprints/vN/…    → inject /tenant/{id} after the version segment
+//   - /api/{product}/vN/…     → inject /tenant/{id} after the version segment
+//     (blueprints, devices, device-groups, device-actions, compliance-benchmarks, ddm/report)
 //   - already contains /tenant/ → unchanged
 //   - /api/schema, /classicapi → error (not supported via gateway)
 func RewriteJamfPath(tenantID, path string) (string, error) {
@@ -45,9 +70,9 @@ func RewriteJamfPath(tenantID, path string) (string, error) {
 	switch {
 	case strings.HasPrefix(path, "/JSSResource"):
 		return "/api/proclassic/tenant/" + tenantID + path + query, nil
-	case blueprintsPathRE.MatchString(path):
-		m := blueprintsPathRE.FindStringSubmatch(path)
-		// m[1]=/api/blueprints m[2]=vN m[3]=/rest
+	case platformProductPathRE.MatchString(path):
+		m := platformProductPathRE.FindStringSubmatch(path)
+		// m[1]=/api/{service} m[2]=vN m[3]=/rest
 		rest := m[3]
 		if strings.HasPrefix(rest, "/tenant/") {
 			return path + query, nil

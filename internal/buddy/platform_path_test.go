@@ -51,6 +51,41 @@ func TestRewriteJamfPath_Blueprints(t *testing.T) {
 	}
 }
 
+func TestRewriteJamfPath_PlatformProducts(t *testing.T) {
+	tid := "tid-1"
+	cases := []struct {
+		in, want string
+	}{
+		{"/api/devices/v1/devices", "/api/devices/v1/tenant/tid-1/devices"},
+		{"/api/device-groups/v1/device-groups", "/api/device-groups/v1/tenant/tid-1/device-groups"},
+		{"/api/device-actions/v1/devices/x/restart", "/api/device-actions/v1/tenant/tid-1/devices/x/restart"},
+		{"/api/compliance-benchmarks/v1/benchmarks", "/api/compliance-benchmarks/v1/tenant/tid-1/benchmarks"},
+		{"/api/ddm/report/v1/devices/x/declarations", "/api/ddm/report/v1/tenant/tid-1/devices/x/declarations"},
+		{"/api/devices/v1/devices?page=0", "/api/devices/v1/tenant/tid-1/devices?page=0"},
+	}
+	for _, tc := range cases {
+		got, err := RewriteJamfPath(tid, tc.in)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.in, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s: got %q want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestOpClassForPath_PlatformProducts(t *testing.T) {
+	if got := opClassForPath("GET", "/api/devices/v1/devices"); got != OpPlatform {
+		t.Fatalf("GET devices → %q", got)
+	}
+	if got := opClassForPath("POST", "/api/device-actions/v1/devices/x/restart"); got != OpPlatformWrite {
+		t.Fatalf("POST device-actions → %q", got)
+	}
+	if got := opClassForPath("GET", "/api/ddm/report/v1/devices/x/declarations"); got != OpPlatform {
+		t.Fatalf("GET ddm/report → %q", got)
+	}
+}
+
 func TestRewriteJamfPath_AlreadyScoped(t *testing.T) {
 	path := "/api/pro/v1/tenant/tid-1/buildings"
 	got, err := RewriteJamfPath("tid-1", path)

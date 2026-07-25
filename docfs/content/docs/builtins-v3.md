@@ -103,9 +103,15 @@ require a **gateway credential** (`region` like `us`, or a `url` such as
 | `blueprint_status(blueprint_id, cred?)` | deployment report → dict |
 | `blueprint_components(page?, page_size?, cred?)` | enumerate components → list[dict] |
 | `blueprint_component(id=, cred?)` | load one component → dict |
+| `devices(filter?, sort?, page?, page_size?, cred?)` | Platform device inventory (not Pro `computers`) |
+| `device(id=, cred?)` / `device_set` / `device_delete` / `device_applications` | load / patch / delete / apps |
+| `device_check_in` / `device_restart` / `device_shutdown` / `device_erase` / `device_unmanage` | Platform device-actions |
+| `device_groups` / `device_group` / `device_group_*` | Platform device groups (not Pro computer groups) |
+| `ddm_declaration_devices` / `ddm_device_declarations` / `ddm_device_channels` | DDM declaration reporting (read-only) |
+| `benchmarks` / `benchmark` / `benchmark_*` | Compliance benchmarks (beta) |
 
 Follows the same conventions: resource IDs first on mutate/action helpers, `cred?`
-last. The CLI mirror is `buddy blueprint <subcommand>` (see `buddy blueprint help`).
+last. CLI mirrors: `buddy blueprint|device|device-group|ddm|benchmark help`.
 
 ### Unchanged families
 

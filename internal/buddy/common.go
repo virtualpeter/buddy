@@ -424,6 +424,33 @@ func jamfPOST(credName, path string, body []byte, contentType string) ([]byte, e
 	return respBody, nil
 }
 
+// jamfPATCH performs a PATCH request with the given body and content type.
+func jamfPATCH(credName, path string, body []byte, contentType string) ([]byte, error) {
+	endpoint, err := ResolveEndpoint(credName, path)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPatch, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Accept", "application/json, application/xml")
+	resp, err := PerformRequest(nil, req, credName)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("%s %s status %d: %s", http.MethodPatch, path, resp.StatusCode, string(respBody))
+	}
+	return respBody, nil
+}
+
 // jamfDELETE performs a DELETE request.
 func jamfDELETE(credName, path string) error {
 	endpoint, err := ResolveEndpoint(credName, path)

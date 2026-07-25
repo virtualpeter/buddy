@@ -52,8 +52,8 @@ func opClassForPath(method, path string) OpClass {
 		}
 		return OpMutate
 	}
-	// Blueprints (instance-relative or gateway-rewritten).
-	if strings.Contains(path, "/blueprints") || strings.HasPrefix(path, "/api/blueprints") {
+	// Vendored Platform product APIs (blueprints, devices, device-groups, …).
+	if isPlatformProductPath(path) {
 		if method == http.MethodGet || method == http.MethodHead {
 			return OpPlatform
 		}

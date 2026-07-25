@@ -118,6 +118,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "blueprint_status", blueprintStatusBuiltin(credName, logger))
 	putBuiltin(dict, "blueprint_components", blueprintComponentsBuiltin(credName, logger))
 	putBuiltin(dict, "blueprint_component", blueprintComponentBuiltin(credName, logger))
+	registerPlatformBuiltins(dict, credName, logger)
 
 	// Deprecated aliases (warn once, then call legacy or shared impl).
 	putDeprecated(dict, "policy_find_ids", "policies(..., ids=True)", policyFindIDs(credName, logger))
