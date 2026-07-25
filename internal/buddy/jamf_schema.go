@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"buddy/internal/buddy/platformschema"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -38,43 +40,56 @@ type SchemaResult struct {
 	Count      int                    `json:"count"`
 	Operations []SchemaOperation      `json:"operations"`
 	Document   map[string]interface{} `json:"document,omitempty"`
-	// Pro / Classic are set when API == "both" (per-surface metadata; Document only if full).
-	Pro     *SchemaResult `json:"pro,omitempty"`
-	Classic *SchemaResult `json:"classic,omitempty"`
+	// Pro / Classic / Platform are set when API is a combined selector ("both" or
+	// "all"): per-surface metadata; Document only if full.
+	Pro      *SchemaResult `json:"pro,omitempty"`
+	Classic  *SchemaResult `json:"classic,omitempty"`
+	Platform *SchemaResult `json:"platform,omitempty"`
 }
 
 // ResolveSchemaAPI maps user-facing api names to the fetch path and normalized name.
-// For "both"/"all", name is "both" and path is empty — use SchemaAPIList instead.
+// Combined selectors ("both", "all") return an empty path — use SchemaAPIList
+// to expand them. "platform" is served from embedded specs (no path/network).
 func ResolveSchemaAPI(api string) (name, path string, err error) {
 	switch strings.ToLower(strings.TrimSpace(api)) {
 	case "", "pro", "openapi", "jamf", "jamfpro", "modern":
 		return "pro", JamfSchemaProPath, nil
 	case "classic", "capi", "swagger", "jss":
 		return "classic", JamfSchemaClassicPath, nil
-	case "both", "all":
+	case "platform", "gateway", "apigw", "gw":
+		return "platform", "", nil
+	case "both":
 		return "both", "", nil
+	case "all", "everything":
+		return "all", "", nil
 	default:
-		return "", "", fmt.Errorf("api must be \"pro\", \"classic\", or \"both\" (got %q)", api)
+		return "", "", fmt.Errorf("api must be \"pro\", \"classic\", \"platform\", \"both\", or \"all\" (got %q)", api)
 	}
 }
 
 // SchemaAPIList returns the concrete api names to fetch for a user api selector.
+// "both" → pro+classic; "all" → pro+classic+platform.
 func SchemaAPIList(api string) ([]string, error) {
 	name, _, err := ResolveSchemaAPI(api)
 	if err != nil {
 		return nil, err
 	}
-	if name == "both" {
+	switch name {
+	case "both":
 		return []string{"pro", "classic"}, nil
+	case "all":
+		return []string{"pro", "classic", "platform"}, nil
+	default:
+		return []string{name}, nil
 	}
-	return []string{name}, nil
 }
 
 // FetchJamfSchema downloads and parses schema(s) for api ("pro", "classic", or "both").
 // filter is a case-insensitive expression: space-separated terms are AND-matched
 // against path, method, tags, summary, operationId, and description.
-// When full is true, Document (or pro/classic.Document) holds the filtered schema object.
-// Prefer api="both" when discovering whether an endpoint lives on Classic or Jamf Pro API.
+// When full is true, Document (or pro/classic/platform.Document) holds the
+// filtered schema object. Prefer api="all" (or "both") when discovering whether
+// an endpoint lives on Classic, Jamf Pro, or the Platform API Gateway.
 func FetchJamfSchema(credName, api, filter string, full bool) (*SchemaResult, error) {
 	apis, err := SchemaAPIList(api)
 	if err != nil {
@@ -83,8 +98,9 @@ func FetchJamfSchema(credName, api, filter string, full bool) (*SchemaResult, er
 	if len(apis) == 1 {
 		return fetchOneJamfSchema(credName, apis[0], filter, full)
 	}
+	combinedName, _, _ := ResolveSchemaAPI(api)
 
-	var pro, classic *SchemaResult
+	var pro, classic, platform *SchemaResult
 	var ops []SchemaOperation
 	var errs []string
 	for _, a := range apis {
@@ -98,21 +114,24 @@ func FetchJamfSchema(credName, api, filter string, full bool) (*SchemaResult, er
 			pro = res
 		case "classic":
 			classic = res
+		case "platform":
+			platform = res
 		}
 		ops = append(ops, res.Operations...)
 	}
-	if pro == nil && classic == nil {
+	if pro == nil && classic == nil && platform == nil {
 		return nil, fmt.Errorf("fetch schemas: %s", strings.Join(errs, "; "))
 	}
 	out := &SchemaResult{
-		API:        "both",
+		API:        combinedName,
 		Count:      len(ops),
 		Operations: ops,
 		Pro:        stripOps(pro),
 		Classic:    stripOps(classic),
+		Platform:   stripOps(platform),
 	}
 	if len(errs) > 0 {
-		// Partial success: still return matches; callers see which side failed via nil pro/classic.
+		// Partial success: still return matches; callers see which side failed via nil pro/classic/platform.
 		out.Title = "partial: " + strings.Join(errs, "; ")
 	}
 	return out, nil
@@ -133,14 +152,20 @@ func fetchOneJamfSchema(credName, api, filter string, full bool) (*SchemaResult,
 	if err != nil {
 		return nil, err
 	}
-	if name == "both" {
-		return nil, fmt.Errorf("internal: fetchOneJamfSchema does not accept both")
+	switch name {
+	case "both", "all":
+		return nil, fmt.Errorf("internal: fetchOneJamfSchema does not accept %q", name)
+	case "platform":
+		// Platform specs are embedded (no live gateway schema endpoint); no cred needed.
+		return fetchPlatformSchema(filter, full)
 	}
 
 	resp, err := JamfRequest(credName, JamfRequestOpts{
 		Method: http.MethodGet,
 		Path:   path,
 		Accept: "application/json, application/yaml, text/yaml, text/plain, */*",
+		// Pro /api/schema and Classic swagger docs are public; no token needed.
+		Unauthenticated: true,
 	})
 	if err != nil {
 		return nil, err
@@ -179,6 +204,118 @@ func fetchOneJamfSchema(credName, api, filter string, full bool) (*SchemaResult,
 		}
 	}
 	return out, nil
+}
+
+// fetchPlatformSchema merges the embedded Platform API specs into one catalog.
+// The Platform API Gateway has no single live schema document, so each service's
+// OpenAPI spec is vendored (see internal/buddy/platformschema). Path keys are
+// prefixed with each spec's server base (e.g. /api/blueprints) so they match the
+// real gateway paths, and the service segment is added as a tag for filtering.
+func fetchPlatformSchema(filter string, full bool) (*SchemaResult, error) {
+	specs, err := platformschema.All()
+	if err != nil {
+		return nil, fmt.Errorf("load platform specs: %w", err)
+	}
+	if len(specs) == 0 {
+		return nil, fmt.Errorf("no embedded platform specs found (run 'make sync-platform-schema')")
+	}
+	var ops []SchemaOperation
+	services := map[string]interface{}{}
+	for _, sp := range specs {
+		doc, err := parseSchemaDocument(sp.Data)
+		if err != nil {
+			return nil, fmt.Errorf("parse platform spec %s: %w", sp.File, err)
+		}
+		base := schemaServerBasePath(doc)
+		service := strings.TrimPrefix(base, "/api/")
+		prefixed := prefixDocPaths(doc, base)
+		sops := listSchemaOperations(prefixed, filter)
+		for i := range sops {
+			sops[i].API = "platform"
+			if service != "" && !containsString(sops[i].Tags, service) {
+				sops[i].Tags = append(sops[i].Tags, service)
+			}
+		}
+		ops = append(ops, sops...)
+		if full && len(sops) > 0 {
+			key := service
+			if key == "" {
+				key = sp.File
+			}
+			if strings.TrimSpace(filter) == "" {
+				services[key] = prefixed
+			} else {
+				services[key] = filterSchemaDocument(prefixed, filter)
+			}
+		}
+	}
+	sort.Slice(ops, func(i, j int) bool {
+		if ops[i].Path != ops[j].Path {
+			return ops[i].Path < ops[j].Path
+		}
+		return ops[i].Method < ops[j].Method
+	})
+	out := &SchemaResult{
+		API:        "platform",
+		Source:     "embedded: Jamf-Concepts/jamf-cli specs/platform",
+		Title:      "Jamf Platform API",
+		Spec:       "openapi 3.x",
+		Count:      len(ops),
+		Operations: ops,
+	}
+	if full {
+		out.Document = map[string]interface{}{"services": services}
+	}
+	return out, nil
+}
+
+// schemaServerBasePath returns the path portion of the first server URL, e.g.
+// "https://{region}.apigw.jamf.com/api/blueprints" → "/api/blueprints".
+func schemaServerBasePath(doc map[string]interface{}) string {
+	servers, _ := doc["servers"].([]interface{})
+	if len(servers) == 0 {
+		return ""
+	}
+	s0, _ := servers[0].(map[string]interface{})
+	u, _ := s0["url"].(string)
+	if i := strings.Index(u, "://"); i >= 0 {
+		rest := u[i+3:]
+		if j := strings.Index(rest, "/"); j >= 0 {
+			return strings.TrimRight(rest[j:], "/")
+		}
+		return ""
+	}
+	if strings.HasPrefix(u, "/") {
+		return strings.TrimRight(u, "/")
+	}
+	return ""
+}
+
+// prefixDocPaths returns a shallow copy of doc with every path key prefixed by base.
+func prefixDocPaths(doc map[string]interface{}, base string) map[string]interface{} {
+	paths, _ := doc["paths"].(map[string]interface{})
+	if base == "" || paths == nil {
+		return doc
+	}
+	np := make(map[string]interface{}, len(paths))
+	for p, v := range paths {
+		np[base+p] = v
+	}
+	out := make(map[string]interface{}, len(doc))
+	for k, v := range doc {
+		out[k] = v
+	}
+	out["paths"] = np
+	return out
+}
+
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 func parseSchemaDocument(data []byte) (map[string]interface{}, error) {

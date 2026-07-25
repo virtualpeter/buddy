@@ -215,6 +215,19 @@ func PerformRequest(_ interface{}, req *http.Request, credName string) (*http.Re
 		return nil, fmt.Errorf("get auth for %q: %w", credName, err)
 	}
 	req.Header.Set("Authorization", authHeader)
+	return performHTTP(req)
+}
+
+// PerformRequestNoAuth makes an HTTP request without an Authorization header.
+// Use it for endpoints served publicly by the Jamf host (e.g. the Pro/Classic
+// schema documents) so callers only need the base URL — schema discovery then
+// works even when a credential has no stored secret.
+func PerformRequestNoAuth(req *http.Request) (*http.Response, error) {
+	return performHTTP(req)
+}
+
+// performHTTP executes req (honoring the HTTP trace toggle) without touching auth.
+func performHTTP(req *http.Request) (*http.Response, error) {
 	logger.Debug("API request", "method", req.Method, "url", req.URL.String())
 
 	if !httpTrace.Load() {
@@ -228,6 +241,7 @@ func PerformRequest(_ interface{}, req *http.Request, credName string) (*http.Re
 
 	var reqBody []byte
 	if req.Body != nil {
+		var err error
 		reqBody, err = io.ReadAll(req.Body)
 		if err != nil {
 			return nil, fmt.Errorf("read request body for trace: %w", err)

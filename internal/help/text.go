@@ -427,12 +427,16 @@ JAMF API
   jamf_request(method, path, body?, content_type?, accept?, parse?=True, cred?)
       → value: {status, body, content_type}
       Params: method: GET|POST|PUT|PATCH|DELETE|HEAD.
-  jamf_schema(api?="both", filter?="", full?=False, cred?)
-      → value: {api, count, operations, source?, title?, pro?, classic?, document?}
+  jamf_schema(api?="all", filter?="", full?=False, cred?)
+      → value: {api, count, operations, source?, title?, pro?, classic?, platform?, document?}
       Params: api?: "pro" (/api/schema OpenAPI), "classic" (/classicapi/doc/swagger.yaml),
-        or "both" (default; search both). filter?: case-insensitive; space-separated terms
-        AND-matched against path, method, tags, summary, operationId, description.
-        full?: include filtered schema document(s) (large). Default is operations catalog only.
+        "platform" (embedded Platform API Gateway specs; no cred needed), "both"
+        (pro+classic), or "all" (default; pro+classic+platform). filter?: case-insensitive;
+        space-separated terms AND-matched against path, method, tags, summary, operationId,
+        description. full?: include filtered schema document(s) (large). Default is a
+        compact operations catalog only.
+      Note: no schema requires authentication — Pro/Classic schema docs are public on the
+        Jamf host (cred is only used to resolve the base URL) and Platform specs are embedded.
       Returns: operations is a list of {api?, path, method, summary?, operationId?, tags?}.
 
 SERIALIZATION

@@ -31,15 +31,21 @@ Paths are host-relative (`/api/v1/…` or `/JSSResource/…`). Media-type defaul
 
 ### API schema documents
 
-Each Jamf **instance** host publishes its live specs (use `jamf_schema` from Starlark). Schema paths are **not** supported via the Platform API Gateway:
+Each Jamf **instance** host publishes its live Pro/Classic specs (use `jamf_schema` from Starlark). The **Platform API Gateway** does **not** serve a single live schema, so buddy ships a snapshot of the per-service Platform specs embedded in the binary:
 
-| API | Path | Format |
-|-----|------|--------|
-| Jamf Pro API | `/api/schema` | OpenAPI 3 JSON |
-| Classic API | `/classicapi/doc/swagger.yaml` | Swagger 2 YAML |
+| API | `api=` | Source | Format |
+|-----|--------|--------|--------|
+| Jamf Pro API | `pro` | live `/api/schema` | OpenAPI 3 JSON |
+| Classic API | `classic` | live `/classicapi/doc/swagger.yaml` | Swagger 2 YAML |
+| Platform API Gateway | `platform` | embedded specs (blueprints, devices, device-groups, device-actions, ddm/report, compliance-benchmarks) | OpenAPI 3.x JSON |
 
-Example: `jamf_schema(filter="policy delete")` searches **both** surfaces (default `api="both"`).  
-MCP exposes the same helper as tool `jamf_schema`.
+`api="both"` searches pro+classic; `api="all"` (the default) also includes platform. Platform paths are prefixed with each service's gateway base (e.g. `/api/blueprints/v1/tenant/{tenantId}/blueprints`) and tagged with the service segment, so `jamf_schema(filter="blueprints deploy")` finds them. `api="platform"` needs no credential.
+
+**Authentication:** none of these schema documents require authentication. The Pro `/api/schema` and Classic `/classicapi/doc/swagger.yaml` endpoints are served publicly by the Jamf host (only *data* endpoints need a bearer token), and the Platform specs are embedded in the binary. buddy fetches Pro/Classic schemas with **no `Authorization` header**, using the credential only to resolve the host base URL — so schema discovery works even when the credential has no stored secret.
+
+Example: `jamf_schema(filter="policy delete")` searches Pro, Classic, and Platform (default `api="all"`). MCP exposes the same helper as tool `jamf_schema`.
+
+The embedded Platform specs are vendored from [`Jamf-Concepts/jamf-cli`](https://github.com/Jamf-Concepts/jamf-cli/tree/main/specs/platform) (MIT) into `internal/buddy/platformschema/specs/`. Refresh them with `make sync-platform-schema` and commit the result.
 
 ### Pagination
 

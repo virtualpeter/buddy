@@ -15,6 +15,10 @@ type JamfRequestOpts struct {
 	Body        []byte
 	ContentType string // request Content-Type (POST/PUT/PATCH)
 	Accept      string // Accept header; empty uses path-based default
+	// Unauthenticated sends no Authorization header. Only for endpoints the Jamf
+	// host serves publicly (e.g. /api/schema, /classicapi/doc/swagger.yaml); the
+	// credential is then used solely to resolve the base URL.
+	Unauthenticated bool
 }
 
 // JamfResponse is the raw HTTP outcome of JamfRequest (including non-2xx).
@@ -100,7 +104,12 @@ func JamfRequest(credName string, opts JamfRequestOpts) (*JamfResponse, error) {
 		req.Header.Set("Content-Type", contentType)
 	}
 
-	resp, err := PerformRequest(nil, req, credName)
+	var resp *http.Response
+	if opts.Unauthenticated {
+		resp, err = PerformRequestNoAuth(req)
+	} else {
+		resp, err = PerformRequest(nil, req, credName)
+	}
 	if err != nil {
 		return nil, err
 	}

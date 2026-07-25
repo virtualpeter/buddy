@@ -93,7 +93,7 @@ Tool names follow the Starlark v3 plural/singular grammar (see [builtins-v3.md](
 | `blueprint_status` | Deployment report | By `blueprint_id` |
 | `blueprint_components` | Components list or one | Omit `identifier` = all |
 | `blueprint_create` / `blueprint_set` / `blueprint_delete` / `blueprint_deploy` / `blueprint_undeploy` | `{id, …}` | **Mutating** (gateway credential) |
-| `jamf_schema` | Operations catalog (+ optional docs) | Live OpenAPI + Classic Swagger; see below |
+| `jamf_schema` | Operations catalog (+ optional docs) | Live Pro OpenAPI + Classic Swagger + embedded Platform specs; see below |
 | `starlark_eval` | `{stdout, stderr, result, error}` | Fresh session; see below |
 | `docs` | Catalog entries or page markdown | Embedded buddy docs/rules; see below |
 
@@ -163,15 +163,19 @@ Use `verbose: true` only when you need the full privilege strings.
 
 ### `jamf_schema` tips
 
-Learn endpoints from the **live** Jamf host (not static docs):
+Learn endpoints from the Jamf host schemas plus the embedded Platform specs:
 
 | `api` | Source |
 |-------|--------|
-| `both` (default) | Jamf Pro OpenAPI **and** Classic Swagger |
-| `pro` | `GET /api/schema` (OpenAPI 3) |
-| `classic` | `GET /classicapi/doc/swagger.yaml` (Swagger 2) |
+| `all` (default) | Jamf Pro OpenAPI + Classic Swagger + Platform specs |
+| `both` | Jamf Pro OpenAPI **and** Classic Swagger |
+| `pro` | `GET /api/schema` (OpenAPI 3, live) |
+| `classic` | `GET /classicapi/doc/swagger.yaml` (Swagger 2, live) |
+| `platform` | Embedded Platform API Gateway specs (no credential needed) |
 
-- Prefer `filter` (e.g. `"jamf-pro-information"`, `"policy delete"`) — space-separated terms are AND-matched.
+- The Platform API Gateway has no live schema endpoint, so its specs (blueprints, devices, device-groups, device-actions, ddm/report, compliance-benchmarks) are vendored into the binary. Platform paths appear with their gateway base, e.g. `/api/blueprints/v1/tenant/{tenantId}/blueprints`.
+- No schema requires authentication: the Pro/Classic schema documents are served publicly by the Jamf host (only data endpoints need a bearer token), and Platform specs are embedded. buddy sends no `Authorization` header for these fetches — the credential is used only to resolve the host URL for `pro`/`classic`, so discovery works even with a secret-less credential.
+- Prefer `filter` (e.g. `"blueprints deploy"`, `"policy delete"`) — space-separated terms are AND-matched against path, method, tags, summary, operationId, description.
 - Default return is a compact `operations` list (`path`, `method`, `summary`, `api`, …). Set `full: true` only when you need parameter/response schemas.
 - Use this before inventing paths; then call typed tools or `starlark_eval` / `jamf_get` for live data.
 

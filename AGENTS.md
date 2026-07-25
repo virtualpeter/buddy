@@ -45,7 +45,7 @@ token_command:
 | `docs/` | User-facing reference manual |
 | `.cursor/rules/` | Persistent Cursor rules (CLI + Starlark conventions) |
 
-Build: `make buddy` → `./buddy`. Tests: `go test ./...`. Docs UI: `make docs-serve`. Extension VSIX: `make extension-package` (`PUBLISHER` defaults to `virtualpeter`).
+Build: `make buddy` → `./buddy`. Tests: `go test ./...`. Docs UI: `make docs-serve`. Extension VSIX: `make extension-package` (`PUBLISHER` defaults to `virtualpete`).
 
 ## MCP (Cursor)
 
@@ -125,6 +125,12 @@ When `tenantId` is set, request paths are rewritten via `RewriteJamfPath` / `Res
 | Computer inventory | `/api/v3/computers-inventory` | **Stay on v3.** Cloud schema exposes v4 and deprecates v3 (~2026-07-14), but production Jamf does not support v4 yet. Do not add a v4 path (or v4→v3 fallback) until prod does; then remap filters/sort (`lastContactTime` → `lastCheckIn` / `lastContact`). |
 
 See [`docs/api-endpoints.md`](docs/api-endpoints.md) for the full endpoint map.
+
+## API schemas (jamf_schema)
+
+`jamf_schema` (Starlark builtin + MCP tool) discovers endpoints. Pro (`/api/schema`) and Classic (`/classicapi/doc/swagger.yaml`) are fetched **live** from the credential's host. The **Platform API Gateway has no live schema endpoint**, so its per-service OpenAPI specs are vendored (MIT, from `Jamf-Concepts/jamf-cli`) into `internal/buddy/platformschema/specs/` and embedded via `go:embed`. Refresh with `make sync-platform-schema` and commit. `api="all"` (default) covers pro+classic+platform; `api="platform"` needs no credential.
+
+None of the schema documents require authentication: the Pro/Classic schema endpoints are public on the Jamf host (only data endpoints need a bearer token) and Platform specs are embedded. buddy fetches Pro/Classic schemas with no `Authorization` header (`JamfRequestOpts.Unauthenticated` → `PerformRequestNoAuth`), using the credential only to resolve the base URL — so schema discovery works even when the credential has no stored secret.
 
 ## Integration as meliorate token helper
 

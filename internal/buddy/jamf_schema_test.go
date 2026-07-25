@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -55,12 +56,56 @@ func TestResolveSchemaAPI(t *testing.T) {
 	if err != nil || name != "both" || path != "" {
 		t.Fatalf("%s %s %v", name, path, err)
 	}
-	apis, err := SchemaAPIList("all")
+	name, path, err = ResolveSchemaAPI("platform")
+	if err != nil || name != "platform" || path != "" {
+		t.Fatalf("%s %s %v", name, path, err)
+	}
+	name, _, err = ResolveSchemaAPI("all")
+	if err != nil || name != "all" {
+		t.Fatalf("%s %v", name, err)
+	}
+	apis, err := SchemaAPIList("both")
 	if err != nil || len(apis) != 2 || apis[0] != "pro" || apis[1] != "classic" {
+		t.Fatalf("%v %v", apis, err)
+	}
+	apis, err = SchemaAPIList("all")
+	if err != nil || len(apis) != 3 || apis[2] != "platform" {
 		t.Fatalf("%v %v", apis, err)
 	}
 	if _, _, err := ResolveSchemaAPI("nope"); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestFetchPlatformSchemaEmbedded(t *testing.T) {
+	// Platform specs are embedded, so no credential/network is required.
+	res, err := FetchJamfSchema("", "platform", "blueprints", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.API != "platform" || res.Count == 0 {
+		t.Fatalf("%+v", res)
+	}
+	sawBlueprintsPath := false
+	for _, op := range res.Operations {
+		if op.API != "platform" {
+			t.Fatalf("api field %q", op.API)
+		}
+		if strings.HasPrefix(op.Path, "/api/blueprints/") {
+			sawBlueprintsPath = true
+		}
+	}
+	if !sawBlueprintsPath {
+		t.Fatalf("expected a /api/blueprints/ path; ops=%+v", res.Operations)
+	}
+
+	full, err := FetchJamfSchema("", "platform", "blueprints", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services, _ := full.Document["services"].(map[string]interface{})
+	if _, ok := services["blueprints"]; !ok {
+		t.Fatalf("expected blueprints service document; got %v", full.Document)
 	}
 }
 
@@ -155,6 +200,44 @@ func TestFetchJamfSchemaPro(t *testing.T) {
 	}
 	if res.Operations[0].API != "pro" {
 		t.Fatalf("api field %q", res.Operations[0].API)
+	}
+}
+
+func TestFetchJamfSchemaUnauthenticated(t *testing.T) {
+	InitLogger()
+	var sawAuthHeader bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			sawAuthHeader = true
+		}
+		if r.URL.Path != JamfSchemaProPath {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, testOpenAPI)
+	}))
+	defer srv.Close()
+
+	// Basic credential with no stored secret: an authenticated request would fail
+	// to resolve the password, but schema fetch must not need it.
+	SetActiveConfig(&Config{
+		Cred: "t",
+		Credentials: map[string]CredentialConfig{
+			"t": {URL: srv.URL, Auth: AuthConfig{Type: "basic", Username: "admin"}},
+		},
+	})
+	t.Cleanup(func() { SetActiveConfig(nil) })
+
+	res, err := FetchJamfSchema("t", "pro", "scripts", false)
+	if err != nil {
+		t.Fatalf("schema fetch should not require a secret: %v", err)
+	}
+	if res.Count != 1 {
+		t.Fatalf("%+v", res)
+	}
+	if sawAuthHeader {
+		t.Fatal("schema request must not send an Authorization header")
 	}
 }
 

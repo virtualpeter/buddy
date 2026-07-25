@@ -19,6 +19,11 @@ DOC_SOURCES := $(shell find docs examples .cursor/rules -type f \( -name '*.md' 
 sync-docfs:
 	@./scripts/sync-docfs.sh
 
+# Refresh vendored Jamf Platform API OpenAPI specs (needs network). Commit the result.
+.PHONY: sync-platform-schema
+sync-platform-schema:
+	@./scripts/sync-platform-schema.sh
+
 docfs/content/README.embedded: $(DOC_SOURCES) scripts/sync-docfs.sh
 	@./scripts/sync-docfs.sh
 
@@ -54,9 +59,9 @@ clean:
 	@rm -f $(BUILDTARGET)
 .PHONY: clean
 
-# Package Cursor/VS Code extension VSIX (PUBLISHER=virtualpeter by default)
+# Package Cursor/VS Code extension VSIX (PUBLISHER=virtualpete by default)
 extension-package:
-	cd editors/vscode && npm install && PUBLISHER=$(or $(PUBLISHER),virtualpeter) npm run package
+	cd editors/vscode && npm install && PUBLISHER=$(or $(PUBLISHER),virtualpete) npm run package
 .PHONY: extension-package
 
 # Help target
@@ -66,11 +71,12 @@ help:
 	@echo "Targets:"
 	@echo "  $(BUILDTARGET)   - Sync embedded docs + build $(BUILDTARGET) CLI"
 	@echo "  sync-docfs - Copy docs/AGENTS/examples/rules into docfs/content for go:embed"
+	@echo "  sync-platform-schema - Refresh vendored Jamf Platform API OpenAPI specs"
 	@echo "  install   - Install $(BUILDTARGET) CLI to ~/go/bin/"
 	@echo "  test      - Run unit tests"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"
 	@echo "  docs-serve - Local docs + notebook (buddy serve --open)"
-	@echo "  extension-package - Build editors/vscode VSIX (PUBLISHER=virtualpeter)"
+	@echo "  extension-package - Build editors/vscode VSIX (PUBLISHER=virtualpete)"
 	@echo "  clean   - Remove all built executables"
 	@echo "  help    - Show this help message"
 .PHONY: help
