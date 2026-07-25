@@ -47,8 +47,9 @@ Examples:
 const helpCred = `buddy cred - Manage tenants, auths, and secrets
 
 Config is split into tenants (Jamf host / platform tenantId) and auths (secret-bearing
-principals linked to one or more tenants). Global --tenant selects a tenant (auto-picks
-auth); --user / --auth pins a specific auth. Default pointer is a tenant (cred use).
+principals linked to one or more tenants). Selection lives under tenant: (default plus
+optional cli/mcp/serve/ide). Global --tenant selects a tenant (auto-picks auth);
+--user / --auth pins a specific auth.
 
 Usage:
   buddy cred <subcommand> [args...]
@@ -62,7 +63,9 @@ Subcommands:
   set auth <name> [args...]         Add or update an auth (link to tenants)
   set secret <auth> [args...]       Store password / client secret in the secure store
   delete tenant|auth|secret <name>  Remove a tenant, auth, or stored secrets
-  use [tenant]                      Show or set the default tenant
+  use [tenant]                      Show or set tenant.default
+  use --cli|--mcp|--ide|--serve [tenant]
+                                    Show or set tenant.<surface>
   store                             Show the active secret backend
   migrate [auth]                    Move inline config.yaml secrets into the secure store
 
@@ -75,7 +78,8 @@ Flags for 'set auth':
   --type=command|basic|oauth        Auth type (required)
   --tenants=<a,b>                   Comma-separated tenant names this auth may use (required)
   --access=full|readonly            Default full; readonly preferred for reads
-  --surface=any|platform|instance   Default any; platform requires oauth
+  --surface=any|platform|instance   Jamf API surface (default any; platform requires oauth)
+  --channels=cli,mcp,serve|all      Buddy clients that may use this auth (default all)
   --run=<cmd>                       Command auth
   --username=<user>                 Basic auth
   --password=<password>             Basic password inline (dev/test)
@@ -89,15 +93,19 @@ Flags for 'set secret':
 
 Notes:
   A platform clientId may list multiple tenants under --tenants.
-  Old credentials: configs migrate automatically on load to tenants:/auths: (breaking change).
+  Old credentials: / string tenant: / defaults: / allow_auths: migrate on load.
   Secrets are keyed by auth name in the platform store.
+  Auth channels (cli/mcp/serve) default to all; restrict e.g. MCP to readonly by
+  giving the readonly auth channels including mcp and omitting mcp from others.
+  IDE/notebook use the serve channel; tenant.ide prefills the UI tenant.
 
 Examples:
   buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=apac --tenant-id=…
-  buddy cred set auth platform-ro --type=oauth --client-id=… --tenants=sandbox,prod --access=readonly --surface=platform
-  buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox --surface=instance
+  buddy cred set auth platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp
+  buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox --surface=instance --channels=cli,serve
   buddy cred set secret platform-ro --client-secret
   buddy cred use sandbox
+  buddy cred use --mcp sandbox
   buddy --tenant=sandbox policy list
   buddy --user=sandbox-admin policy set …
 `

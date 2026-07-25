@@ -4,10 +4,9 @@ import (
 	"net/http"
 )
 
-func serveNotebookHTML(w http.ResponseWriter, _ *http.Request, defaultCred string) {
+func serveNotebookHTML(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(notebookHTML))
-	_ = defaultCred
 }
 
 const notebookHTML = `<!DOCTYPE html>
@@ -133,7 +132,8 @@ textarea {
 <body>
 <header>
   <div class="brand"><a href="/docs/">buddy</a> · notebook</div>
-  <label>cred <select id="cred"></select></label>
+  <label>tenant <select id="tenant"></select></label>
+  <label>user <select id="auth"></select></label>
   <button id="runAll" class="primary">Run all</button>
   <button id="addCell">Add cell</button>
   <button id="reset">Reset kernel</button>
@@ -159,14 +159,16 @@ let sessionId = null;
 let cells = [];
 let focusedTa = null;
 let libCache = {};
+let authCatalog = [];
 
 async function ensureSession() {
   if (sessionId) return sessionId;
-  const cred = document.getElementById('cred').value;
+  const tenant = document.getElementById('tenant').value;
+  const cred = document.getElementById('auth').value;
   const r = await fetch('/api/session', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({cred})
+    body: JSON.stringify({tenant, cred, auth: cred})
   });
   const data = await r.json();
   if (!r.ok) throw new Error(data.error || 'session failed');
@@ -174,28 +176,65 @@ async function ensureSession() {
   return sessionId;
 }
 
+function fillAuthSelect(selected) {
+  const tenant = document.getElementById('tenant').value;
+  const sel = document.getElementById('auth');
+  const prev = selected !== undefined ? selected : sel.value;
+  sel.innerHTML = '';
+  const auto = document.createElement('option');
+  auto.value = '';
+  auto.textContent = '(auto)';
+  sel.appendChild(auto);
+  (authCatalog || []).forEach(a => {
+    const linked = !tenant || !(a.tenants || []).length || (a.tenants || []).includes(tenant);
+    if (!linked) return;
+    const o = document.createElement('option');
+    o.value = a.name;
+    let label = a.name;
+    if (a.access && a.access !== 'full') label += ' · ' + a.access;
+    if (a.surface && a.surface !== 'any') label += ' · ' + a.surface;
+    o.textContent = label;
+    sel.appendChild(o);
+  });
+  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  else sel.value = '';
+}
+
+async function dropSession() {
+  if (sessionId) {
+    await fetch('/api/session/' + sessionId, {method:'DELETE'});
+    sessionId = null;
+  }
+}
+
 async function loadCreds() {
   const r = await fetch('/api/creds');
   const data = await r.json();
-  const sel = document.getElementById('cred');
-  sel.innerHTML = '';
-  (data.creds || []).forEach(c => {
+  authCatalog = data.auths || [];
+  const tsel = document.getElementById('tenant');
+  tsel.innerHTML = '';
+  (data.tenants || []).forEach(t => {
     const o = document.createElement('option');
-    o.value = c; o.textContent = c;
-    if (c === data.active) o.selected = true;
-    sel.appendChild(o);
+    o.value = t; o.textContent = t;
+    if (t === data.tenant) o.selected = true;
+    tsel.appendChild(o);
   });
-  if (!sel.options.length) {
+  if (!tsel.options.length) {
     const o = document.createElement('option');
-    o.value = data.active || 'default'; o.textContent = o.value;
-    sel.appendChild(o);
+    o.value = data.tenant || '';
+    o.textContent = o.value || '(no tenants)';
+    tsel.appendChild(o);
   }
-  sel.addEventListener('change', async () => {
-    if (sessionId) {
-      await fetch('/api/session/' + sessionId, {method:'DELETE'});
-      sessionId = null;
-    }
+  const preselect = data.ide_tenant || data.tenant || '';
+  if (preselect && [...tsel.options].some(o => o.value === preselect)) {
+    tsel.value = preselect;
+  }
+  fillAuthSelect(data.auth || '');
+  tsel.addEventListener('change', async () => {
+    fillAuthSelect('');
+    await dropSession();
   });
+  document.getElementById('auth').addEventListener('change', () => dropSession());
 }
 
 function renderOut(el, res) {

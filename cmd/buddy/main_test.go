@@ -414,7 +414,7 @@ func TestRunCredMigrate_MovesInlineSecret(t *testing.T) {
 	t.Cleanup(func() { secrets.SetStore(nil) })
 
 	cfg := &buddy.Config{
-		Tenant: "sandbox",
+		Tenant: buddy.TenantSelection{Default: "sandbox"},
 		Tenants: map[string]buddy.TenantConfig{
 			"sandbox": {URL: "https://example.jamfcloud.com"},
 		},

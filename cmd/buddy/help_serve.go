@@ -25,11 +25,13 @@ Notes:
   are not supported (Starlark-go has no pause API); a soft breakpoint() builtin
   may come later.
   Starlark cells and IDE runs use the same builtins as the CLI; confirmations
-  follow -y / --yes.
+  follow -y / --yes. Notebook/IDE pick a tenant and optional auth pin (same as
+  --tenant / --user); empty auth auto-picks for the tenant.
   Bind address must be localhost (127.0.0.1, localhost, or ::1).
 
 Examples:
   buddy serve --open
+  buddy --tenant=sandbox serve --open
   buddy serve --addr=127.0.0.1:9000
 `
 
@@ -42,7 +44,7 @@ Notes:
   Speaks Model Context Protocol over stdin/stdout (for Cursor mcp.json).
   Exposes curated read-oriented tools plus starlark_eval, docs (embedded
   knowledge catalog), and buddy://docs/... resources.
-  Uses the active credential from config (override with --user).
+  Uses the active tenant/auth from config (override with --tenant / --user).
 
   Every tool returns a JSON object {ok, value, error?, count?} — never a bare
   array (Cursor requires object structuredContent). auth_test defaults to a

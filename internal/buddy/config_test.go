@@ -50,7 +50,7 @@ func TestResolveCredential_Found(t *testing.T) {
 
 func TestMarshalConfig_OmitsEmptyAuthFields(t *testing.T) {
 	cfg := &Config{
-		Tenant: "oauth1",
+		Tenant: TenantSelection{Default: "oauth1"},
 		Tenants: map[string]TenantConfig{
 			"oauth1": {URL: "https://example.jamfcloud.com"},
 			"basic1": {URL: "https://example.jamfcloud.com"},
@@ -121,7 +121,7 @@ auths:
         tenants: [alpha]
 `)
 	cfg := &Config{
-		Tenant: "zebra",
+		Tenant: TenantSelection{Default: "zebra"},
 		Tenants: map[string]TenantConfig{
 			"alpha": {URL: "https://a.example.com"},
 			"zebra": {URL: "https://z.example.com"},
@@ -171,8 +171,8 @@ func TestMigrateCredentialsToTenantsAuths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Tenant != "gw" {
-		t.Fatalf("tenant = %q", cfg.Tenant)
+	if cfg.Tenant.Default != "gw" {
+		t.Fatalf("tenant = %q", cfg.Tenant.Default)
 	}
 	gw := cfg.Tenants["gw"]
 	if gw.TenantID != "e77c1408-10c8-4007-b177-abc9157fbcaa" {
@@ -192,7 +192,7 @@ func TestMigrateCredentialsToTenantsAuths(t *testing.T) {
 
 func TestMultiTenantAuth(t *testing.T) {
 	cfg := &Config{
-		Tenant: "t1",
+		Tenant: TenantSelection{Default: "t1"},
 		Tenants: map[string]TenantConfig{
 			"t1": {Region: "us", TenantID: "11111111-1111-1111-1111-111111111111"},
 			"t2": {Region: "us", TenantID: "22222222-2222-2222-2222-222222222222"},
@@ -220,7 +220,7 @@ func TestMultiTenantAuth(t *testing.T) {
 
 func TestPickAuthReadonlyPrefer(t *testing.T) {
 	cfg := &Config{
-		Tenant: "t",
+		Tenant: TenantSelection{Default: "t"},
 		Tenants: map[string]TenantConfig{
 			"t": {URL: "https://example.jamfcloud.com"},
 		},

@@ -89,8 +89,9 @@ type AuthEntry struct {
 	ClientID     string   `yaml:"clientId,omitempty"`
 	ClientSecret string   `yaml:"clientSecret,omitempty"`
 	Tenants      []string `yaml:"tenants"`
-	Access       string   `yaml:"access,omitempty"`  // readonly | full (default full)
-	Surface      string   `yaml:"surface,omitempty"` // platform | instance | any (default any)
+	Access       string   `yaml:"access,omitempty"`   // readonly | full (default full)
+	Surface      string   `yaml:"surface,omitempty"`  // platform | instance | any (default any)
+	Channels     []string `yaml:"channels,omitempty"` // buddy clients cli|mcp|serve; empty = all
 }
 
 // AuthConfig returns the secret/type block for this entry.
@@ -133,6 +134,93 @@ func (a AuthEntry) LinkedTo(tenantName string) bool {
 		}
 	}
 	return false
+}
+
+// ChannelAllowed reports whether this auth may be used on channel.
+// Empty Channels means all buddy clients (cli/mcp/serve). ide maps to serve.
+func (a AuthEntry) ChannelAllowed(channel string) bool {
+	channel = normalizeBuddyChannel(channel)
+	if channel == "" {
+		return true
+	}
+	list := a.normalizedChannels()
+	if len(list) == 0 {
+		return true
+	}
+	for _, c := range list {
+		if c == channel {
+			return true
+		}
+	}
+	return false
+}
+
+func (a AuthEntry) normalizedChannels() []string {
+	if len(a.Channels) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, c := range a.Channels {
+		c = normalizeBuddyChannel(c)
+		if c == "" || seen[c] {
+			continue
+		}
+		seen[c] = true
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	if len(out) == 3 && seen[ChannelCLI] && seen[ChannelMCP] && seen[ChannelServe] {
+		return nil // all = unrestricted
+	}
+	return out
+}
+
+func normalizeBuddyChannel(channel string) string {
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	if channel == ChannelIDE {
+		return ChannelServe
+	}
+	switch channel {
+	case ChannelCLI, ChannelMCP, ChannelServe:
+		return channel
+	default:
+		return channel
+	}
+}
+
+// ParseAuthChannels parses a comma-separated channels list.
+// "all" or empty clears restriction (nil). Invalid names return an error.
+func ParseAuthChannels(s string) ([]string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.EqualFold(s, "all") {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p == "" {
+			continue
+		}
+		if p == ChannelIDE {
+			p = ChannelServe
+		}
+		switch p {
+		case ChannelCLI, ChannelMCP, ChannelServe:
+			if !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		default:
+			return nil, fmt.Errorf("unknown channel %q (want cli, mcp, serve, or all)", p)
+		}
+	}
+	sort.Strings(out)
+	if len(out) == 3 {
+		return nil, nil
+	}
+	return out, nil
 }
 
 // CredentialConfig is a resolved tenant+auth view used by the HTTP/auth stack.
@@ -399,24 +487,111 @@ func (c CredentialConfig) Validate() error {
 	return nil
 }
 
+// Buddy client channel names (distinct from Jamf auth surface).
+const (
+	ChannelCLI   = "cli"
+	ChannelMCP   = "mcp"
+	ChannelServe = "serve"
+	ChannelIDE   = "ide" // tenant selection only; shares serve for auth channels
+)
+
+// TenantSelection holds the global default tenant and optional per-channel overrides.
+type TenantSelection struct {
+	Default string `yaml:"default"`
+	CLI     string `yaml:"cli,omitempty"`
+	MCP     string `yaml:"mcp,omitempty"`
+	Serve   string `yaml:"serve,omitempty"`
+	IDE     string `yaml:"ide,omitempty"`
+}
+
+// UnmarshalYAML accepts either a string (legacy `tenant: name`) or a mapping.
+func (t *TenantSelection) UnmarshalYAML(value *yaml.Node) error {
+	if value == nil {
+		return nil
+	}
+	if value.Kind == yaml.ScalarNode {
+		t.Default = strings.TrimSpace(value.Value)
+		return nil
+	}
+	type plain TenantSelection
+	var p plain
+	if err := value.Decode(&p); err != nil {
+		return err
+	}
+	*t = TenantSelection(p)
+	return nil
+}
+
+// ForChannel returns the tenant name for channel (cli|mcp|ide|serve), falling
+// back to serve (for ide) then Default.
+func (t TenantSelection) ForChannel(channel string) string {
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	var override string
+	switch channel {
+	case ChannelCLI:
+		override = t.CLI
+	case ChannelMCP:
+		override = t.MCP
+	case ChannelServe:
+		override = t.Serve
+	case ChannelIDE:
+		override = t.IDE
+		if strings.TrimSpace(override) == "" {
+			override = t.Serve
+		}
+	}
+	if s := strings.TrimSpace(override); s != "" {
+		return s
+	}
+	if s := strings.TrimSpace(t.Default); s != "" {
+		return s
+	}
+	return DefaultTenant
+}
+
+// SetChannel sets default or a per-channel override.
+func (t *TenantSelection) SetChannel(channel, name string) error {
+	name = strings.TrimSpace(name)
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	switch channel {
+	case "", "default":
+		t.Default = name
+	case ChannelCLI:
+		t.CLI = name
+	case ChannelMCP:
+		t.MCP = name
+	case ChannelServe:
+		t.Serve = name
+	case ChannelIDE:
+		t.IDE = name
+	default:
+		return fmt.Errorf("unknown tenant selection key %q (want default, cli, mcp, serve, ide)", channel)
+	}
+	return nil
+}
+
 // Config holds buddy CLI configuration (tenants + auths).
 type Config struct {
-	Tenant  string                  `yaml:"tenant"`
+	Tenant  TenantSelection         `yaml:"tenant"`
 	Tenants map[string]TenantConfig `yaml:"tenants"`
 	Auths   map[string]AuthEntry    `yaml:"auths"`
 
 	// Legacy fields — populated only while unmarshaling old configs; cleared after migrate.
 	Cred        string                      `yaml:"cred,omitempty"`
 	Credentials map[string]CredentialConfig `yaml:"credentials,omitempty"`
+	Defaults    map[string]string           `yaml:"defaults,omitempty"`    // migrated away
+	AllowAuths  map[string][]string         `yaml:"allow_auths,omitempty"` // migrated away
 }
 
-// legacyConfigFile is used to detect and migrate the pre-tenant credentials: shape.
+// legacyConfigFile is used to detect and migrate older config shapes.
 type legacyConfigFile struct {
 	Cred        string                      `yaml:"cred"`
 	Credentials map[string]CredentialConfig `yaml:"credentials"`
-	Tenant      string                      `yaml:"tenant"`
+	Tenant      TenantSelection             `yaml:"tenant"`
 	Tenants     map[string]TenantConfig     `yaml:"tenants"`
 	Auths       map[string]AuthEntry        `yaml:"auths"`
+	Defaults    map[string]string           `yaml:"defaults"`
+	AllowAuths  map[string][]string         `yaml:"allow_auths"`
 }
 
 // ComposeCredential builds a resolved CredentialConfig for the given tenant+auth
@@ -506,6 +681,88 @@ func (cfg *Config) AuthsForTenant(tenantName string) []string {
 	return out
 }
 
+// DefaultTenant returns the selected tenant for channel (cli|mcp|ide|serve).
+func (cfg *Config) DefaultTenant(channel string) string {
+	if cfg == nil {
+		return DefaultTenant
+	}
+	return cfg.Tenant.ForChannel(channel)
+}
+
+// AuthAllowed reports whether authName may be used on channel (via auth.channels).
+func (cfg *Config) AuthAllowed(channel, authName string) bool {
+	if cfg == nil || authName == "" {
+		return true
+	}
+	a, ok := cfg.Auths[authName]
+	if !ok {
+		return true
+	}
+	return a.ChannelAllowed(channel)
+}
+
+// FilterAuths returns names allowed on channel (preserves order).
+func (cfg *Config) FilterAuths(channel string, names []string) []string {
+	if cfg == nil || len(names) == 0 {
+		return names
+	}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if cfg.AuthAllowed(channel, n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// ValidateTenantSelectionAndChannels checks tenant: selection and auth channels.
+func (cfg *Config) ValidateTenantSelectionAndChannels() error {
+	if cfg == nil {
+		return nil
+	}
+	checkName := func(key, name string) error {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil
+		}
+		if _, ok := cfg.Tenants[name]; !ok {
+			return fmt.Errorf("tenant.%s: unknown tenant %q", key, name)
+		}
+		return nil
+	}
+	if len(cfg.Tenants) > 0 && strings.TrimSpace(cfg.Tenant.Default) == "" {
+		return fmt.Errorf("tenant.default is required when tenants are configured")
+	}
+	for _, pair := range []struct{ k, v string }{
+		{"default", cfg.Tenant.Default},
+		{"cli", cfg.Tenant.CLI},
+		{"mcp", cfg.Tenant.MCP},
+		{"serve", cfg.Tenant.Serve},
+		{"ide", cfg.Tenant.IDE},
+	} {
+		if err := checkName(pair.k, pair.v); err != nil {
+			return err
+		}
+	}
+	for name, a := range cfg.Auths {
+		for _, c := range a.Channels {
+			c = strings.ToLower(strings.TrimSpace(c))
+			if c == "" {
+				continue
+			}
+			if c == ChannelIDE {
+				c = ChannelServe
+			}
+			switch c {
+			case ChannelCLI, ChannelMCP, ChannelServe:
+			default:
+				return fmt.Errorf("auth %q: unknown channel %q (want cli, mcp, or serve)", name, c)
+			}
+		}
+	}
+	return nil
+}
+
 // ResolveCredential resolves an auth name (with optional active tenant) into a
 // CredentialConfig view. Prefer ResolveSession for operation-aware picking.
 func (cfg *Config) ResolveCredential(authName string) (CredentialConfig, error) {
@@ -530,7 +787,7 @@ func configPath() (string, error) {
 }
 
 // LoadConfig loads config from ~/.config/buddy/config.yaml (or XDG_CONFIG_HOME).
-// Old credentials: configs are migrated in-memory to tenants/auths and rewritten on disk.
+// Older shapes (credentials:, string tenant:, defaults:, allow_auths:) migrate in-memory and rewrite on disk.
 func LoadConfig() (*Config, error) {
 	path, err := configPath()
 	if err != nil {
@@ -539,50 +796,169 @@ func LoadConfig() (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &Config{Tenant: DefaultTenant}, nil
+			return &Config{Tenant: TenantSelection{Default: DefaultTenant}}, nil
 		}
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
+
+	// Detect string-form tenant: before typed unmarshal (TenantSelection accepts both).
+	stringTenant := tenantKeyIsString(data)
+
 	var raw legacyConfigFile
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
 
 	cfg := &Config{
-		Tenant:  raw.Tenant,
-		Tenants: raw.Tenants,
-		Auths:   raw.Auths,
+		Tenant:     raw.Tenant,
+		Tenants:    raw.Tenants,
+		Auths:      raw.Auths,
+		Defaults:   raw.Defaults,
+		AllowAuths: raw.AllowAuths,
 	}
-	migrated := false
+	var notes []string
 	if len(raw.Credentials) > 0 && len(raw.Tenants) == 0 {
 		cfg, err = migrateCredentialsToTenantsAuths(&raw)
 		if err != nil {
 			return nil, fmt.Errorf("migrate config %s: %w", path, err)
 		}
-		migrated = true
+		cfg.Defaults = raw.Defaults
+		cfg.AllowAuths = raw.AllowAuths
+		notes = append(notes, "credentials: to tenants:/auths:")
 	}
-	if cfg.Tenant == "" {
+	if migrated := migrateLegacyTenantDefaultsAllow(cfg, stringTenant); migrated {
+		notes = append(notes, "tenant:/defaults:/allow_auths: to tenant: object + auth channels")
+	}
+	if strings.TrimSpace(cfg.Tenant.Default) == "" {
 		if raw.Cred != "" && cfg.Tenants != nil {
 			if _, ok := cfg.Tenants[raw.Cred]; ok {
-				cfg.Tenant = raw.Cred
+				cfg.Tenant.Default = raw.Cred
+			} else if a, ok := cfg.Auths[raw.Cred]; ok && len(a.Tenants) > 0 {
+				cfg.Tenant.Default = a.Tenants[0]
 			}
 		}
 	}
-	if cfg.Tenant == "" {
-		cfg.Tenant = DefaultTenant
+	if strings.TrimSpace(cfg.Tenant.Default) == "" {
+		cfg.Tenant.Default = DefaultTenant
 	}
 	cfg.Cred = ""
 	cfg.Credentials = nil
+	cfg.Defaults = nil
+	cfg.AllowAuths = nil
+	normalizeAuthChannels(cfg)
 
-	if migrated {
+	if err := cfg.ValidateTenantSelectionAndChannels(); err != nil {
+		return nil, fmt.Errorf("config %s: %w", path, err)
+	}
+
+	if len(notes) > 0 {
 		if err := SaveConfig(cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: migrated credentials: to tenants:/auths: in memory but could not rewrite %s: %v\n", path, err)
-			fmt.Fprintf(os.Stderr, "note: fix permissions and re-run buddy (or save via 'buddy cred use') so the new shape is persisted\n")
+			fmt.Fprintf(os.Stderr, "warning: migrated config in memory (%s) but could not rewrite %s: %v\n", strings.Join(notes, "; "), path, err)
+			fmt.Fprintf(os.Stderr, "note: fix permissions and re-run buddy (or 'buddy cred use') so the new shape is persisted\n")
 		} else {
-			fmt.Fprintf(os.Stderr, "note: migrated config.yaml from credentials: to tenants:/auths: (breaking change; see 'buddy cred help')\n")
+			fmt.Fprintf(os.Stderr, "note: migrated config.yaml (%s); see 'buddy cred help'\n", strings.Join(notes, "; "))
 		}
 	}
 	return cfg, nil
+}
+
+func tenantKeyIsString(data []byte) bool {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return false
+	}
+	root := &doc
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		root = doc.Content[0]
+	}
+	if root.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "tenant" {
+			return root.Content[i+1].Kind == yaml.ScalarNode
+		}
+	}
+	return false
+}
+
+// migrateLegacyTenantDefaultsAllow folds string tenant / defaults / allow_auths into the new shape.
+// Returns true when a rewrite is needed.
+func migrateLegacyTenantDefaultsAllow(cfg *Config, stringTenant bool) bool {
+	if cfg == nil {
+		return false
+	}
+	changed := stringTenant || len(cfg.Defaults) > 0 || len(cfg.AllowAuths) > 0
+	if !changed {
+		return false
+	}
+	if len(cfg.Defaults) > 0 {
+		if v := strings.TrimSpace(cfg.Defaults[ChannelCLI]); v != "" {
+			cfg.Tenant.CLI = v
+		}
+		if v := strings.TrimSpace(cfg.Defaults[ChannelMCP]); v != "" {
+			cfg.Tenant.MCP = v
+		}
+		if v := strings.TrimSpace(cfg.Defaults[ChannelServe]); v != "" {
+			cfg.Tenant.Serve = v
+		}
+		if v := strings.TrimSpace(cfg.Defaults[ChannelIDE]); v != "" {
+			cfg.Tenant.IDE = v
+		}
+	}
+	if len(cfg.AllowAuths) > 0 {
+		applyAllowAuthsToChannels(cfg, cfg.AllowAuths)
+	}
+	cfg.Defaults = nil
+	cfg.AllowAuths = nil
+	return true
+}
+
+func applyAllowAuthsToChannels(cfg *Config, allow map[string][]string) {
+	if cfg == nil || len(allow) == 0 {
+		return
+	}
+	surfaces := []string{ChannelCLI, ChannelMCP, ChannelServe}
+	allowSets := map[string]map[string]bool{}
+	for _, s := range surfaces {
+		list := allow[s]
+		if len(list) == 0 {
+			continue // unrestricted for this surface
+		}
+		set := map[string]bool{}
+		for _, n := range list {
+			n = strings.TrimSpace(n)
+			if n != "" {
+				set[n] = true
+			}
+		}
+		allowSets[s] = set
+	}
+	for name, a := range cfg.Auths {
+		var kept []string
+		for _, s := range surfaces {
+			set, restricted := allowSets[s]
+			if !restricted || set[name] {
+				kept = append(kept, s)
+			}
+		}
+		if len(kept) == 3 {
+			a.Channels = nil
+		} else {
+			a.Channels = kept
+		}
+		cfg.Auths[name] = a
+	}
+}
+
+func normalizeAuthChannels(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	for name, a := range cfg.Auths {
+		a.Channels = a.normalizedChannels()
+		cfg.Auths[name] = a
+	}
 }
 
 // ConfigFromCredentialMap builds a tenants/auths config from a legacy-style
@@ -594,7 +970,7 @@ func ConfigFromCredentialMap(defaultName string, creds map[string]CredentialConf
 		Credentials: creds,
 	})
 	if err != nil || cfg == nil {
-		return &Config{Tenant: DefaultTenant, Tenants: map[string]TenantConfig{}, Auths: map[string]AuthEntry{}}
+		return &Config{Tenant: TenantSelection{Default: DefaultTenant}, Tenants: map[string]TenantConfig{}, Auths: map[string]AuthEntry{}}
 	}
 	return cfg
 }
@@ -680,13 +1056,13 @@ func migrateCredentialsToTenantsAuths(raw *legacyConfigFile) (*Config, error) {
 	}
 	if raw.Cred != "" {
 		if a, ok := cfg.Auths[raw.Cred]; ok && len(a.Tenants) > 0 {
-			cfg.Tenant = a.Tenants[0]
+			cfg.Tenant = TenantSelection{Default: a.Tenants[0]}
 		} else if _, ok := cfg.Tenants[raw.Cred]; ok {
-			cfg.Tenant = raw.Cred
+			cfg.Tenant = TenantSelection{Default: raw.Cred}
 		}
 	}
-	if cfg.Tenant == "" {
-		cfg.Tenant = DefaultTenant
+	if strings.TrimSpace(cfg.Tenant.Default) == "" {
+		cfg.Tenant = TenantSelection{Default: DefaultTenant}
 	}
 	return cfg, nil
 }
@@ -713,6 +1089,12 @@ func normalizeConfigForSave(cfg *Config) {
 	}
 	cfg.Cred = ""
 	cfg.Credentials = nil
+	cfg.Defaults = nil
+	cfg.AllowAuths = nil
+	if strings.TrimSpace(cfg.Tenant.Default) == "" {
+		cfg.Tenant.Default = DefaultTenant
+	}
+	normalizeAuthChannels(cfg)
 	for name, t := range cfg.Tenants {
 		if strings.TrimSpace(t.Region) == "" {
 			if inferred := RegionFromGatewayURL(t.URL); inferred != "" {
@@ -857,16 +1239,42 @@ func marshalConfig(cfg *Config, existing []byte) ([]byte, error) {
 		if a.Surface != "" && a.Surface != SurfaceAny {
 			addStr("surface", a.Surface, true)
 		}
+		if ch := a.normalizedChannels(); len(ch) > 0 {
+			seq := &yaml.Node{Kind: yaml.SequenceNode}
+			for _, c := range ch {
+				seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: c})
+			}
+			entry.Content = append(entry.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "channels"},
+				seq,
+			)
+		}
 		authsNode.Content = append(authsNode.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name},
 			entry,
 		)
 	}
 
+	tenantNode := &yaml.Node{Kind: yaml.MappingNode}
+	addTenantKey := func(k, v string, force bool) {
+		if !force && strings.TrimSpace(v) == "" {
+			return
+		}
+		tenantNode.Content = append(tenantNode.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: strings.TrimSpace(v)},
+		)
+	}
+	addTenantKey("default", cfg.Tenant.Default, true)
+	addTenantKey("cli", cfg.Tenant.CLI, false)
+	addTenantKey("mcp", cfg.Tenant.MCP, false)
+	addTenantKey("serve", cfg.Tenant.Serve, false)
+	addTenantKey("ide", cfg.Tenant.IDE, false)
+
 	root := &yaml.Node{Kind: yaml.MappingNode}
 	root.Content = append(root.Content,
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenant"},
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: cfg.Tenant},
+		tenantNode,
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenants"},
 		tenantsNode,
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "auths"},

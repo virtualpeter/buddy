@@ -35,6 +35,7 @@ var activeSelection struct {
 	mu         sync.RWMutex
 	tenant     string
 	authPin    string // empty = auto-pick
+	channel    string // cli | mcp | serve
 }
 
 // SetActiveSelection sets the process default tenant and optional auth pin.
@@ -53,6 +54,28 @@ func ActiveSelection() (tenant, authPin string) {
 	return activeSelection.tenant, activeSelection.authPin
 }
 
+// SetActiveChannel sets the process buddy client channel (cli|mcp|serve) for
+// tenant selection and auth channels enforcement.
+func SetActiveChannel(channel string) {
+	activeSelection.mu.Lock()
+	defer activeSelection.mu.Unlock()
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	if channel == "" {
+		channel = ChannelCLI
+	}
+	activeSelection.channel = channel
+}
+
+// ActiveChannel returns the process surface channel (default cli).
+func ActiveChannel() string {
+	activeSelection.mu.RLock()
+	defer activeSelection.mu.RUnlock()
+	if activeSelection.channel == "" {
+		return ChannelCLI
+	}
+	return activeSelection.channel
+}
+
 // ResolveSession picks tenant+auth for an operation.
 //
 //	tenantName: override (empty → active selection / config default)
@@ -66,12 +89,13 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 		op = OpAny
 	}
 
+	channel := ActiveChannel()
 	selTenant, selAuth := ActiveSelection()
 	if tenantName == "" {
 		tenantName = selTenant
 	}
 	if tenantName == "" {
-		tenantName = cfg.Tenant
+		tenantName = cfg.DefaultTenant(channel)
 	}
 	if authName == "" {
 		authName = selAuth
@@ -79,6 +103,9 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 
 	// Pinned auth: tenant may be implied by the auth's tenant list.
 	if authName != "" {
+		if !cfg.AuthAllowed(channel, authName) {
+			return nil, fmt.Errorf("auth %q is not allowed for %s (see auth channels in config)", authName, channel)
+		}
 		auth, err := cfg.ResolveAuth(authName)
 		if err != nil {
 			return nil, err
@@ -122,9 +149,12 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 	if err != nil {
 		return nil, err
 	}
-	candidates := cfg.AuthsForTenant(tenantName)
+	candidates := cfg.FilterAuths(channel, cfg.AuthsForTenant(tenantName))
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("tenant %q has no linked auths — run 'buddy cred set auth' (see 'buddy cred help')", tenantName)
+		if len(cfg.AuthsForTenant(tenantName)) == 0 {
+			return nil, fmt.Errorf("tenant %q has no linked auths — run 'buddy cred set auth' (see 'buddy cred help')", tenantName)
+		}
+		return nil, fmt.Errorf("tenant %q has no auths allowed for %s (see auth channels in config)", tenantName, channel)
 	}
 	bestName, bestAuth, surface, err := pickAuth(cfg, tenantName, tenant, candidates, op)
 	if err != nil {

@@ -145,7 +145,7 @@ func TestCredentialValidate_InstanceRequiresURL(t *testing.T) {
 
 func TestNormalizeConfigForSave_InfersRegionDropsDefaultURL(t *testing.T) {
 	cfg := &Config{
-		Tenant: "gw",
+		Tenant: TenantSelection{Default: "gw"},
 		Tenants: map[string]TenantConfig{
 			"gw": {
 				URL:      "https://us.apigw.jamf.com",

@@ -2,13 +2,13 @@ package serve
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,12 +17,13 @@ import (
 
 // Options configures the local buddy web server.
 type Options struct {
-	Addr     string // e.g. "127.0.0.1:8742"
-	DocsRoot string // optional override
-	Open     bool
-	CredName string
-	Opts     buddy.Opts
-	Logger   *slog.Logger
+	Addr       string // e.g. "127.0.0.1:8742"
+	DocsRoot   string // optional override
+	Open       bool
+	TenantName string // default tenant (empty → config / ActiveSelection)
+	CredName   string // optional auth pin (empty → auto-pick); Starlark cred=
+	Opts       buddy.Opts
+	Logger     *slog.Logger
 }
 
 // Run starts the HTTP server and blocks until the context is cancelled or Listen fails.
@@ -46,7 +47,7 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	md := newMarkdown()
-	store := newSessionStore(o.CredName, o.Opts, o.Logger)
+	store := newSessionStore(o.TenantName, o.CredName, o.Opts, o.Logger)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -67,10 +68,10 @@ func Run(ctx context.Context, o Options) error {
 		serveDocsHTML(w, r, pages, md)
 	})
 	mux.HandleFunc("/notebook", func(w http.ResponseWriter, r *http.Request) {
-		serveNotebookHTML(w, r, o.CredName)
+		serveNotebookHTML(w, r)
 	})
 	mux.HandleFunc("/ide", func(w http.ResponseWriter, r *http.Request) {
-		serveIDEHTML(w, r, o.CredName)
+		serveIDEHTML(w, r)
 	})
 	mux.HandleFunc("/api/pages", func(w http.ResponseWriter, r *http.Request) {
 		type item struct {
@@ -107,18 +108,7 @@ func Run(ctx context.Context, o Options) error {
 		})
 	})
 	mux.HandleFunc("/api/creds", func(w http.ResponseWriter, r *http.Request) {
-		cfg := buddy.GetActiveConfig()
-		names := []string{}
-		active := o.CredName
-		if cfg != nil {
-			for name := range cfg.Credentials {
-				names = append(names, name)
-			}
-			if active == "" {
-				active = cfg.Cred
-			}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"active": active, "creds": names})
+		writeJSON(w, http.StatusOK, sessionSelectionJSON(o.TenantName, o.CredName))
 	})
 	mux.HandleFunc("/api/libraries", handleLibrariesList)
 	mux.HandleFunc("/api/libraries/", handleLibraryDetail)
@@ -209,8 +199,70 @@ func openBrowser(url string) error {
 	return cmd.Start()
 }
 
-// CredNamesJSON is used by tests.
-func CredNamesJSON(names []string, active string) string {
-	b, _ := json.Marshal(map[string]any{"active": active, "creds": names})
-	return string(b)
+type authInfo struct {
+	Name    string   `json:"name"`
+	Tenants []string `json:"tenants"`
+	Access  string   `json:"access,omitempty"`
+	Surface string   `json:"surface,omitempty"`
+	Type    string   `json:"type,omitempty"`
+}
+
+// sessionSelectionJSON builds the /api/creds payload (tenants + auths).
+func sessionSelectionJSON(defaultTenant, defaultAuth string) map[string]any {
+	cfg := buddy.GetActiveConfig()
+	tenant, authPin := buddy.ActiveSelection()
+	if defaultTenant != "" {
+		tenant = defaultTenant
+	}
+	if defaultAuth != "" {
+		authPin = defaultAuth
+	}
+	ideTenant := tenant
+	tenants := []string{}
+	auths := []authInfo{}
+	if cfg != nil {
+		if tenant == "" {
+			tenant = cfg.DefaultTenant(buddy.ChannelServe)
+		}
+		ideTenant = cfg.DefaultTenant(buddy.ChannelIDE)
+		for name := range cfg.Tenants {
+			tenants = append(tenants, name)
+		}
+		sort.Strings(tenants)
+		authNames := make([]string, 0, len(cfg.Auths))
+		for name := range cfg.Auths {
+			authNames = append(authNames, name)
+		}
+		sort.Strings(authNames)
+		authNames = cfg.FilterAuths(buddy.ChannelServe, authNames)
+		for _, name := range authNames {
+			a := cfg.Auths[name]
+			ts := append([]string(nil), a.Tenants...)
+			sort.Strings(ts)
+			auths = append(auths, authInfo{
+				Name:    name,
+				Tenants: ts,
+				Access:  a.EffectiveAccess(),
+				Surface: a.EffectiveSurface(),
+				Type:    a.Type,
+			})
+		}
+		if authPin != "" && !cfg.AuthAllowed(buddy.ChannelServe, authPin) {
+			authPin = ""
+		}
+	}
+	// Legacy keys: active/creds were flat credential names; now auth pins.
+	credNames := make([]string, 0, len(auths))
+	for _, a := range auths {
+		credNames = append(credNames, a.Name)
+	}
+	return map[string]any{
+		"tenant":     tenant,
+		"ide_tenant": ideTenant,
+		"auth":       authPin,
+		"tenants":    tenants,
+		"auths":      auths,
+		"active":     authPin,
+		"creds":      credNames,
+	}
 }

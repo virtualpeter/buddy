@@ -26,6 +26,8 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) 
 		return runCredDelete(cfg, opts, args[1:])
 	case "use":
 		return runCredUse(cfg, args[1:])
+	case "allow":
+		return fmt.Errorf("'cred allow' was removed; set auth channels with 'buddy cred set auth <name> --channels=cli,mcp,serve' (or --channels=all)")
 	case "store":
 		return runCredStore()
 	case "migrate":
@@ -112,20 +114,71 @@ func runCredDelete(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 }
 
 func runCredUse(cfg *buddy.Config, args []string) error {
-	if len(args) == 0 {
-		fmt.Println(cfg.Tenant)
+	surface, rest, err := parseCredSurfaceFlags(args, true)
+	if err != nil {
+		return err
+	}
+	key := "default"
+	if surface != "" {
+		key = surface
+	}
+	if len(rest) == 0 {
+		if surface == "" {
+			fmt.Println(cfg.Tenant.Default)
+		} else {
+			fmt.Println(cfg.DefaultTenant(surface))
+		}
 		return nil
 	}
-	name := args[0]
+	if len(rest) != 1 {
+		return fmt.Errorf("usage: buddy cred use [tenant] or buddy cred use --cli|--mcp|--ide|--serve [tenant]")
+	}
+	name := rest[0]
 	if _, ok := cfg.Tenants[name]; !ok {
 		return fmt.Errorf("tenant %q not found; run 'buddy cred list'", name)
 	}
-	cfg.Tenant = name
+	if err := cfg.Tenant.SetChannel(key, name); err != nil {
+		return err
+	}
 	if err := buddy.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
-	fmt.Printf("Default tenant set to %q\n", name)
+	fmt.Printf("tenant.%s set to %q\n", key, name)
 	return nil
+}
+
+// parseCredSurfaceFlags extracts --cli|--mcp|--ide|--serve.
+func parseCredSurfaceFlags(args []string, allowIDE bool) (surface string, rest []string, err error) {
+	for _, a := range args {
+		switch a {
+		case "--cli":
+			if surface != "" {
+				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--serve allowed")
+			}
+			surface = buddy.ChannelCLI
+		case "--mcp":
+			if surface != "" {
+				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--serve allowed")
+			}
+			surface = buddy.ChannelMCP
+		case "--serve":
+			if surface != "" {
+				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--serve allowed")
+			}
+			surface = buddy.ChannelServe
+		case "--ide":
+			if !allowIDE {
+				return "", nil, fmt.Errorf("--ide is only valid for 'buddy cred use'")
+			}
+			if surface != "" {
+				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--serve allowed")
+			}
+			surface = buddy.ChannelIDE
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return surface, rest, nil
 }
 
 func runCredList(cfg *buddy.Config) error {
@@ -144,7 +197,7 @@ func runCredList(cfg *buddy.Config) error {
 	for _, name := range tnames {
 		t := cfg.Tenants[name]
 		marker := ""
-		if name == cfg.Tenant {
+		if name == cfg.Tenant.Default {
 			marker = " *"
 		}
 		url := t.InstanceBaseURL()
@@ -166,8 +219,8 @@ func runCredList(cfg *buddy.Config) error {
 	}
 	fmt.Printf("\n* = default tenant\n\n")
 	fmt.Println("AUTHS")
-	fmt.Printf("%-18s  %-8s  %-10s  %-10s  %s\n", "NAME", "TYPE", "ACCESS", "SURFACE", "TENANTS")
-	fmt.Printf("%-18s  %-8s  %-10s  %-10s  %s\n", "------------------", "--------", "----------", "----------", "-------")
+	fmt.Printf("%-18s  %-8s  %-10s  %-10s  %-14s  %s\n", "NAME", "TYPE", "ACCESS", "SURFACE", "CHANNELS", "TENANTS")
+	fmt.Printf("%-18s  %-8s  %-10s  %-10s  %-14s  %s\n", "------------------", "--------", "----------", "----------", "--------------", "-------")
 	anames := make([]string, 0, len(cfg.Auths))
 	for n := range cfg.Auths {
 		anames = append(anames, n)
@@ -175,7 +228,28 @@ func runCredList(cfg *buddy.Config) error {
 	sort.Strings(anames)
 	for _, name := range anames {
 		a := cfg.Auths[name]
-		fmt.Printf("%-18s  %-8s  %-10s  %-10s  %s\n", name, a.Type, a.EffectiveAccess(), a.EffectiveSurface(), strings.Join(a.Tenants, ","))
+		ch := "all"
+		if len(a.Channels) > 0 {
+			ch = strings.Join(a.Channels, ",")
+		}
+		fmt.Printf("%-18s  %-8s  %-10s  %-10s  %-14s  %s\n", name, a.Type, a.EffectiveAccess(), a.EffectiveSurface(), ch, strings.Join(a.Tenants, ","))
+	}
+	sel := cfg.Tenant
+	if sel.CLI != "" || sel.MCP != "" || sel.Serve != "" || sel.IDE != "" {
+		fmt.Printf("\nTENANT SELECTION\n")
+		fmt.Printf("  default  %s\n", sel.Default)
+		if sel.CLI != "" {
+			fmt.Printf("  cli      %s\n", sel.CLI)
+		}
+		if sel.MCP != "" {
+			fmt.Printf("  mcp      %s\n", sel.MCP)
+		}
+		if sel.Serve != "" {
+			fmt.Printf("  serve    %s\n", sel.Serve)
+		}
+		if sel.IDE != "" {
+			fmt.Printf("  ide      %s\n", sel.IDE)
+		}
 	}
 	if buddy.SecretStoreAvailable() {
 		var inline []string
@@ -211,7 +285,7 @@ func runCredShowTenant(cfg *buddy.Config, name string) error {
 	if tid := t.EffectiveTenantID(); tid != "" {
 		fmt.Printf("tenantId: %s\n", tid)
 	}
-	fmt.Printf("default:  %v\n", name == cfg.Tenant)
+	fmt.Printf("default:  %v\n", name == cfg.Tenant.Default)
 	linked := cfg.AuthsForTenant(name)
 	sort.Strings(linked)
 	fmt.Printf("auths:    %s\n", strings.Join(linked, ", "))
@@ -227,6 +301,11 @@ func runCredShowAuth(cfg *buddy.Config, name string) error {
 	fmt.Printf("type:     %s\n", a.Type)
 	fmt.Printf("access:   %s\n", a.EffectiveAccess())
 	fmt.Printf("surface:  %s\n", a.EffectiveSurface())
+	if len(a.Channels) == 0 {
+		fmt.Printf("channels: all\n")
+	} else {
+		fmt.Printf("channels: %s\n", strings.Join(a.Channels, ", "))
+	}
 	fmt.Printf("tenants:  %s\n", strings.Join(a.Tenants, ", "))
 	storeAvailable := buddy.SecretStoreAvailable()
 	inlineWarn := false
@@ -289,8 +368,8 @@ func runCredSetTenant(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 		cfg.Tenants = map[string]buddy.TenantConfig{}
 	}
 	cfg.Tenants[parsed.Name] = parsed.Tenant
-	if cfg.Tenant == "" {
-		cfg.Tenant = parsed.Name
+	if strings.TrimSpace(cfg.Tenant.Default) == "" {
+		cfg.Tenant.Default = parsed.Name
 	}
 	if err := buddy.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
@@ -316,7 +395,7 @@ func runCredSetAuth(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 			return fmt.Errorf("tenant %q not found — create it with 'buddy cred set tenant %s …' first", tn, tn)
 		}
 	}
-	_, existing := cfg.Auths[parsed.Name]
+	prev, existing := cfg.Auths[parsed.Name]
 	if existing && !parsed.SkipConfirm {
 		fmt.Printf("Auth %q already exists. Overwrite? [y/N] ", parsed.Name)
 		var response string
@@ -325,6 +404,9 @@ func runCredSetAuth(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 			fmt.Println("Aborted.")
 			return nil
 		}
+	}
+	if existing && !parsed.ChannelsSet {
+		parsed.Auth.Channels = prev.Channels
 	}
 	if cfg.Auths == nil {
 		cfg.Auths = map[string]buddy.AuthEntry{}
@@ -479,12 +561,14 @@ type authSetParsed struct {
 	Name        string
 	Auth        buddy.AuthEntry
 	SkipConfirm bool
+	ChannelsSet bool
 }
 
 func parseCredSetAuthArgs(args []string, skipConfirm bool) (authSetParsed, error) {
 	var (
 		name, authType, runCommand, username, password, clientID, clientSecret string
-		tenants, access, surface                                               string
+		tenants, access, surface, channels                                     string
+		channelsSet                                                            bool
 	)
 	stringFlags := map[string]*string{
 		"name":          &name,
@@ -497,6 +581,7 @@ func parseCredSetAuthArgs(args []string, skipConfirm bool) (authSetParsed, error
 		"tenants":       &tenants,
 		"access":        &access,
 		"surface":       &surface,
+		"channels":      &channels,
 	}
 	pos := ""
 	posSet := false
@@ -522,11 +607,26 @@ func parseCredSetAuthArgs(args []string, skipConfirm bool) (authSetParsed, error
 			return authSetParsed{}, fmt.Errorf("unknown flag --%s", fname)
 		}
 		if !hasVal {
+			// Allow --channels= / --channels with empty next → all
+			if fname == "channels" {
+				if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+					i++
+					val = args[i]
+				} else {
+					val = "all"
+				}
+				channelsSet = true
+				*dest = val
+				continue
+			}
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
 				return authSetParsed{}, fmt.Errorf("flag --%s requires a value", fname)
 			}
 			i++
 			val = args[i]
+		}
+		if fname == "channels" {
+			channelsSet = true
 		}
 		*dest = val
 	}
@@ -553,6 +653,13 @@ func parseCredSetAuthArgs(args []string, skipConfirm bool) (authSetParsed, error
 		Access:  strings.TrimSpace(access),
 		Surface: strings.TrimSpace(surface),
 	}
+	if channelsSet {
+		ch, err := buddy.ParseAuthChannels(channels)
+		if err != nil {
+			return authSetParsed{}, err
+		}
+		entry.Channels = ch
+	}
 	switch authType {
 	case "command":
 		if runCommand == "" {
@@ -574,7 +681,7 @@ func parseCredSetAuthArgs(args []string, skipConfirm bool) (authSetParsed, error
 	default:
 		return authSetParsed{}, fmt.Errorf("unknown auth type %q", authType)
 	}
-	return authSetParsed{Name: name, Auth: entry, SkipConfirm: skipConfirm}, nil
+	return authSetParsed{Name: name, Auth: entry, SkipConfirm: skipConfirm, ChannelsSet: channelsSet}, nil
 }
 
 func parseFlag(a string) (name, val string, hasVal bool, err error) {
@@ -618,9 +725,25 @@ func runCredDeleteTenant(cfg *buddy.Config, opts buddy.Opts, name string) error 
 		}
 	}
 	delete(cfg.Tenants, name)
-	if cfg.Tenant == name {
-		cfg.Tenant = buddy.DefaultTenant
-		fmt.Printf("Note: default tenant was %q; reset to %q\n", name, buddy.DefaultTenant)
+	cleared := false
+	if cfg.Tenant.Default == name {
+		cfg.Tenant.Default = buddy.DefaultTenant
+		cleared = true
+	}
+	if cfg.Tenant.CLI == name {
+		cfg.Tenant.CLI = ""
+	}
+	if cfg.Tenant.MCP == name {
+		cfg.Tenant.MCP = ""
+	}
+	if cfg.Tenant.Serve == name {
+		cfg.Tenant.Serve = ""
+	}
+	if cfg.Tenant.IDE == name {
+		cfg.Tenant.IDE = ""
+	}
+	if cleared {
+		fmt.Printf("Note: tenant.default was %q; reset to %q\n", name, buddy.DefaultTenant)
 	}
 	if err := buddy.SaveConfig(cfg); err != nil {
 		return err

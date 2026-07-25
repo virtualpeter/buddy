@@ -63,7 +63,8 @@ Config is **tenants** + **auths** (breaking change from flat `credentials:` — 
 
 - **Tenant** — Jamf environment: instance `url` and/or Platform `region` + `tenantId`.
 - **Auth** — secret-bearing principal (`command` / `basic` / `oauth`) linked to one or more tenants via `tenants: […]`. A platform clientId may list multiple tenants. Optional `access` (`full`|`readonly`) and `surface` (`any`|`platform`|`instance`).
-- **Default pointer** — `tenant:` (not a single cred). Global `--tenant` selects tenant (auto-picks auth by operation); `--user` / `--auth` pins an auth. Starlark/MCP `cred=` still means auth pin.
+- **Tenant selection** — structured `tenant:` object with `default` plus optional `cli` / `mcp` / `serve` / `ide`. Global `--tenant` still wins; `--user` / `--auth` pins an auth. Starlark/MCP `cred=` still means auth pin.
+- **Auth channels** — optional `channels: [cli, mcp, serve]` on each auth (omit = all). Filters auto-pick and rejects pins / UI choices. IDE/notebook use the `serve` channel.
 
 | `auth.type` | Config fields | Secret storage |
 |-------------|---------------|----------------|
@@ -89,7 +90,7 @@ Selected by platform or `BUDDY_SECRET_STORE`:
 | `pass` | any | `buddy/<cred>/password`, `buddy/<cred>/client-secret` |
 | `keychain` | macOS only | Explicit Keychain |
 
-CLI: `buddy cred set tenant|auth|secret …`, `buddy cred use <tenant>`, `buddy cred store`, `buddy cred migrate`. `buddy setup configure-oauth` stores client secret under a new auth name.
+CLI: `buddy cred set tenant|auth|secret …` (auth supports `--channels=`), `buddy cred use <tenant>`, `buddy cred use --cli|--mcp|--ide|--serve <tenant>`, `buddy cred store`, `buddy cred migrate`. `buddy setup configure-oauth` stores client secret under a new auth name.
 
 ## Token caching
 

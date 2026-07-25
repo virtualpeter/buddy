@@ -44,7 +44,12 @@ make help     # show all targets
 Config file: `~/.config/buddy/config.yaml`
 
 ```yaml
-tenant: sandbox                    # default tenant
+tenant:
+  default: sandbox                 # global fallback
+  cli: prod                        # optional per-client overrides
+  mcp: sandbox
+  serve: sandbox
+  ide: sandbox                     # notebook + IDE dropdown preselect
 
 tenants:
   sandbox:
@@ -57,13 +62,15 @@ auths:
     type: oauth
     clientId: your_client_id
     tenants: [sandbox]
+    channels: [cli, serve]         # omit = all (cli/mcp/serve)
     # clientSecret: buddy cred set secret sandbox-admin --client-secret
   sandbox-platform-ro:
     type: oauth
     clientId: your_integration_client_id
-    tenants: [sandbox]                # a clientId may list multiple tenants
+    tenants: [sandbox]
     access: readonly
     surface: platform
+    channels: [mcp]                # restrict MCP to this readonly auth
 ```
 
 **Storage:** Tenants hold host identity; auths hold type/username/clientId and link to tenants. Passwords and OAuth client secrets can stay inline for **dev/test**, or be stored outside the file (keyed by **auth name**):
@@ -75,13 +82,15 @@ auths:
 
 ```sh
 buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=us --tenant-id=…
-buddy cred set auth sandbox-admin --type=oauth --client-id=abc --tenants=sandbox
+buddy cred set auth sandbox-admin --type=oauth --client-id=abc --tenants=sandbox --channels=cli,serve
+buddy cred set auth sandbox-platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp
 buddy cred set secret sandbox-admin --client-secret
 buddy cred use sandbox
+buddy cred use --mcp sandbox
 buddy cred store
 ```
 
-Legacy `credentials:` configs migrate automatically on load to `tenants:`/`auths:` (breaking change; old shape is not written back). Inline secrets: `buddy cred migrate`. Selection: `--tenant` (auto-pick auth by operation) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked.
+Legacy shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auths:`) migrate automatically on load (breaking; only the new form is written back). Inline secrets: `buddy cred migrate`. Selection: `--tenant` (auto-pick auth by operation) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all).
 
 ### Setting up a role and client for buddy
 

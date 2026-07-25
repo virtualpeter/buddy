@@ -4,10 +4,9 @@ import (
 	"net/http"
 )
 
-func serveIDEHTML(w http.ResponseWriter, _ *http.Request, defaultCred string) {
+func serveIDEHTML(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(ideHTML))
-	_ = defaultCred
 }
 
 const ideHTML = `<!DOCTYPE html>
@@ -176,8 +175,11 @@ dialog .row .spacer { flex: 1; }
   <button type="button" id="btn-save-as">Save As</button>
   <span id="path" title="">(untitled)</span>
   <div class="spacer"></div>
-  <label>cred
-    <select id="cred"></select>
+  <label>tenant
+    <select id="tenant"></select>
+  </label>
+  <label>user
+    <select id="auth"></select>
   </label>
   <button type="button" id="btn-reset">Reset</button>
   <span id="status"></span>
@@ -286,7 +288,8 @@ async function ensureSession(force) {
   if (state.sessionId) {
     try { await fetch("/api/session/" + state.sessionId, { method: "DELETE" }); } catch (_) {}
   }
-  const cred = document.getElementById("cred").value;
+  const tenant = document.getElementById("tenant").value;
+  const cred = document.getElementById("auth").value;
   const trace = document.getElementById("trace").checked;
   let args = [];
   try { args = parseArgs(document.getElementById("args").value); }
@@ -294,7 +297,7 @@ async function ensureSession(force) {
   const res = await jfetch("/api/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cred, trace, args }),
+    body: JSON.stringify({ tenant, cred, auth: cred, trace, args }),
   });
   state.sessionId = res.id;
   return state.sessionId;
@@ -536,21 +539,58 @@ async function saveAs() {
   await savePathDlg();
 }
 
-async function loadCreds() {
-  const res = await jfetch("/api/creds");
-  const sel = document.getElementById("cred");
+let authCatalog = [];
+
+function fillAuthSelect(selected) {
+  const tenant = document.getElementById("tenant").value;
+  const sel = document.getElementById("auth");
+  const prev = selected !== undefined ? selected : sel.value;
   sel.innerHTML = "";
-  (res.creds || []).forEach(c => {
+  const auto = document.createElement("option");
+  auto.value = "";
+  auto.textContent = "(auto)";
+  sel.appendChild(auto);
+  (authCatalog || []).forEach(a => {
+    const linked = !tenant || !(a.tenants || []).length || (a.tenants || []).includes(tenant);
+    if (!linked) return;
     const o = document.createElement("option");
-    o.value = c; o.textContent = c;
-    if (c === res.active) o.selected = true;
+    o.value = a.name;
+    let label = a.name;
+    if (a.access && a.access !== "full") label += " · " + a.access;
+    if (a.surface && a.surface !== "any") label += " · " + a.surface;
+    o.textContent = label;
     sel.appendChild(o);
   });
-  if (!sel.options.length) {
+  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  else sel.value = "";
+}
+
+async function loadCreds() {
+  const res = await jfetch("/api/creds");
+  authCatalog = res.auths || [];
+  const tsel = document.getElementById("tenant");
+  tsel.innerHTML = "";
+  (res.tenants || []).forEach(t => {
     const o = document.createElement("option");
-    o.value = ""; o.textContent = "(default)";
-    sel.appendChild(o);
+    o.value = t; o.textContent = t;
+    if (t === res.tenant) o.selected = true;
+    tsel.appendChild(o);
+  });
+  if (!tsel.options.length) {
+    const o = document.createElement("option");
+    o.value = res.tenant || "";
+    o.textContent = o.value || "(no tenants)";
+    tsel.appendChild(o);
   }
+  const preselect = res.ide_tenant || res.tenant || "";
+  if (preselect && [...tsel.options].some(o => o.value === preselect)) {
+    tsel.value = preselect;
+  }
+  fillAuthSelect(res.auth || "");
+  tsel.addEventListener("change", () => {
+    fillAuthSelect("");
+    ensureSession(true).catch(e => setStatus(e.message));
+  });
 }
 
 document.getElementById("btn-run").onclick = () => run();
@@ -584,7 +624,7 @@ document.getElementById("editor").addEventListener("keydown", (e) => {
 document.getElementById("dlg-form").addEventListener("submit", (ev) => {
   onDlgSubmit(ev).catch(e => setStatus(e.message));
 });
-document.getElementById("cred").addEventListener("change", () => {
+document.getElementById("auth").addEventListener("change", () => {
   ensureSession(true).catch(e => setStatus(e.message));
 });
 document.getElementById("trace").addEventListener("change", () => {

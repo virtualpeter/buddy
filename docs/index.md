@@ -10,7 +10,7 @@ Use the sidebar to browse. Start with the [reference manual](/docs/docs/referenc
 | [Starlark builtins](/docs/builtins) | Every built-in function (signatures, params, return values) |
 | [API endpoints](/docs/docs/api-endpoints) | Jamf HTTP APIs buddy calls |
 | [MCP for Cursor](/docs/docs/mcp) | Use buddy as an MCP server from Cursor |
-| [Notebook](/notebook) | Interactive Starlark cells against your Jamf credential |
+| [Notebook](/notebook) | Interactive Starlark cells against your Jamf tenant/auth |
 | [Script IDE](/ide) | Single-buffer runner (open/save, args, trace, Run as file) |
 
 ```sh

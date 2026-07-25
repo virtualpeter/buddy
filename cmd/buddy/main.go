@@ -72,7 +72,20 @@ func main() {
 		os.Exit(1)
 	}
 	buddy.SetActiveConfig(cfg)
-	tenantName := cfg.Tenant
+
+	args := os.Args[1:]
+	channel := buddy.ChannelCLI
+	if len(args) > 0 {
+		switch args[0] {
+		case "mcp":
+			channel = buddy.ChannelMCP
+		case "serve":
+			channel = buddy.ChannelServe
+		}
+	}
+	buddy.SetActiveChannel(channel)
+
+	tenantName := cfg.DefaultTenant(channel)
 	if globals.tenant != "" {
 		tenantName = globals.tenant
 	}
@@ -85,8 +98,6 @@ func main() {
 	buddy.SetActiveSelection(tenantName, authPin)
 	// credName is the auth pin passed into commands (empty → auto-pick for tenant).
 	credName := authPin
-
-	args := os.Args[1:]
 
 	buddy.InitLogger()
 	buddy.SetVerbose(globals.verbose || globals.trace)
@@ -2267,13 +2278,15 @@ func runServe(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	tenant, _ := buddy.ActiveSelection()
 	return serve.Run(ctx, serve.Options{
-		Addr:     addr,
-		DocsRoot: docsRoot,
-		Open:     open,
-		CredName: credName,
-		Opts:     opts,
-		Logger:   log,
+		Addr:       addr,
+		DocsRoot:   docsRoot,
+		Open:       open,
+		TenantName: tenant,
+		CredName:   credName,
+		Opts:       opts,
+		Logger:     log,
 	})
 }
 
