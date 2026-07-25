@@ -1,18 +1,18 @@
 # Buddy MCP server
 
-**buddy** can run as a [Model Context Protocol](https://modelcontextprotocol.io/) server so Cursor (and other MCP hosts) call Jamf helpers as tools instead of shelling out.
+**buddy** can run as a [Model Context Protocol](https://modelcontextprotocol.io/) server so AI tools (Cursor, Claude Desktop, and other MCP hosts) call Jamf helpers as tools instead of shelling out.
 
 ```sh
 buddy mcp
 ```
 
-Uses stdio JSON-RPC. The active tenant/auth comes from `~/.config/buddy/config.yaml` (override with `--tenant=<name>` and/or `--user=<auth>` on the command in mcp.json). MCP inherits that session’s Jamf privileges—treat it like the CLI.
+Uses stdio JSON-RPC. The active tenant/auth comes from `~/.config/buddy/config.yaml` (override with `--tenant=<name>` and/or `--user=<auth>` on the command in the host’s MCP config). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 
 A Platform-capable tenant (`region`/`url` + `tenantId`) with a linked oauth auth works the same way: Pro tools and first-class Platform tools (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) route through the gateway.
 
 ---
 
-## Cursor setup
+## Setup
 
 ### 1. Install a current buddy
 
@@ -29,10 +29,7 @@ buddy --version
 buddy help mcp
 ```
 
-### 2. Add an MCP server entry
-
-**Project** (this repo): [`.cursor/mcp.json`](../.cursor/mcp.json)  
-**User-wide**: `~/.cursor/mcp.json`
+### 2. Register buddy with your AI host
 
 Prefer an **absolute path** to the binary. MCP subprocesses often do not inherit your interactive shell `PATH`.
 
@@ -49,16 +46,35 @@ Prefer an **absolute path** to the binary. MCP subprocesses often do not inherit
 
 | Field | Why |
 |-------|-----|
-| `command` | Absolute path avoids “command not found” when Cursor spawns the server |
+| `command` | Absolute path avoids “command not found” when the host spawns the server |
 | `args: ["mcp"]` | Starts the stdio MCP server |
 
-Docs, `AGENTS.md`, examples, and Cursor rules are **embedded in the buddy binary** and exposed as `buddy://docs/...` resources. `BUDDY_DOCS_ROOT` is optional (live override while editing sources). After changing docs/rules, run `make sync-docfs` (or `make buddy`) and reload MCP.
+**Discover / write well-known configs:**
+
+```sh
+buddy mcp setup                     # list paths + whether buddy is configured
+buddy mcp setup --write             # merge into existing files (confirms each)
+buddy -y mcp setup --write --create # also create missing well-known files
+buddy mcp setup --host=cursor
+buddy mcp setup --host=claude-desktop
+buddy mcp setup --path=/custom/mcp.json --write
+```
+
+| Host | Well-known path |
+|------|-----------------|
+| Cursor (user) | `~/.cursor/mcp.json` |
+| Cursor (project) | `./.cursor/mcp.json` (cwd) |
+| Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Claude Desktop (Linux) | `~/.config/Claude/claude_desktop_config.json` |
+| Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
 
 A minimal example also lives at [`examples/mcp.json`](../examples/mcp.json).
 
-### 3. Reload MCP in Cursor
+Docs, `AGENTS.md`, examples, and editor rules are **embedded in the buddy binary** and exposed as `buddy://docs/...` resources. `BUDDY_DOCS_ROOT` is optional (live override while editing sources). After changing docs/rules, run `make sync-docfs` (or `make buddy`) and reload MCP in the host.
 
-Open **Cursor Settings → MCP**, enable **buddy**, and refresh (or restart Cursor). The server should show as ready with tools such as `auth_test`, `smart_groups`, `starlark_eval`.
+### 3. Reload the AI host
+
+Restart or refresh MCP in your client so it picks up the new server. The server should show as ready with tools such as `auth_test`, `smart_groups`, `starlark_eval`.
 
 ### 4. Use it in chat
 
@@ -112,7 +128,7 @@ MCP also exposes the **full agent knowledge** catalog as `buddy://docs/...` reso
 | `buddy://docs/docs/*` | User docs + `builtins-v3` migration map |
 | `buddy://docs/agents` | `AGENTS.md` (auth, secrets, contributor context) |
 | `buddy://docs/readme` | `README.md` |
-| `buddy://docs/rules/*` | Cursor rules (CLI, builtins, auth-secrets) |
+| `buddy://docs/rules/*` | Editor rules (CLI, builtins, auth-secrets) |
 | `buddy://docs/examples/*` | Example scripts and mcp.json |
 | `buddy://docs/help/*` | CLI help (root, shell, starlark) |
 | `buddy://docs/*.md` | Legacy aliases for former disk filenames |
@@ -142,7 +158,7 @@ On failure:
 }
 ```
 
-**Why:** Some MCP hosts (including Cursor) validate `structuredContent` as an object. Returning a raw list caused errors such as `expected record, received array`. List payloads always live under `value`, with optional `count`.
+**Why:** Some MCP hosts validate `structuredContent` as an object. Returning a raw list caused errors such as `expected record, received array`. List payloads always live under `value`, with optional `count`.
 
 This mirrors Starlark builtins (`{"ok", "value"}` / `{"ok", "error"}`).
 
@@ -186,7 +202,7 @@ Learn endpoints from the Jamf host schemas plus the embedded Platform specs:
 
 ### `docs` tips
 
-Read embedded buddy documentation and Cursor rules (same data as `buddy://docs/...` resources):
+Read embedded buddy documentation and editor rules (same data as `buddy://docs/...` resources):
 
 | `action` | Args | Returns |
 |----------|------|---------|

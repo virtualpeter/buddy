@@ -47,14 +47,16 @@ token_command:
 
 Build: `make buddy` → `./buddy`. Tests: `go test ./...`. Docs UI: `make docs-serve`. Extension VSIX: `make extension-package` (`PUBLISHER` defaults to `virtualpete`).
 
-## MCP (Cursor)
+## MCP (AI tools)
 
-See **[docs/mcp.md](docs/mcp.md)** for Cursor setup. Summary:
+See **[docs/mcp.md](docs/mcp.md)** for MCP host setup. Summary:
 
-- Config: `.cursor/mcp.json` or `~/.cursor/mcp.json` with absolute `command` path and `args: ["mcp"]`.
-- Docs/AGENTS/examples/Cursor rules are embedded in the binary (`docfs/`; refresh with `make sync-docfs`). `BUDDY_DOCS_ROOT` is an optional live override. Agents should use the MCP `docs` tool (list/get); the same pages are also `buddy://docs/...` resources.
-- Tool results are always `{ok, value, ...}` objects (lists under `value`) so Cursor accepts `structuredContent`.
-- Reload MCP in Cursor Settings after changing config or rebuilding buddy.
+- `buddy mcp` speaks stdio MCP for AI hosts (Cursor, Claude Desktop, etc.).
+- `buddy mcp setup` lists well-known config paths and can `--write` a `mcpServers.buddy` entry (`--create` for missing files). Cursor: `~/.cursor/mcp.json` / `.cursor/mcp.json`; Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS).
+- Prefer an absolute `command` path and `args: ["mcp"]`.
+- Docs/AGENTS/examples/editor rules are embedded in the binary (`docfs/`; refresh with `make sync-docfs`). `BUDDY_DOCS_ROOT` is an optional live override. Agents should use the MCP `docs` tool (list/get); the same pages are also `buddy://docs/...` resources.
+- Tool results are always `{ok, value, ...}` objects (lists under `value`) so hosts accept `structuredContent`.
+- Reload or restart the AI host after changing MCP config or rebuilding buddy.
 
 
 ## Authentication model

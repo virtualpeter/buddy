@@ -180,7 +180,8 @@ buddy help starlark   # language subset
 buddy help builtins   # full builtin reference (canonical)
 buddy help lsp        # language server for the editor extension
 make docs-serve       # local docs + Starlark notebook (buddy serve --open)
-buddy mcp             # MCP stdio server (docs/AGENTS/rules embedded; see docs/mcp.md)
+buddy mcp             # MCP stdio server for AI tools (see docs/mcp.md)
+buddy mcp setup       # discover/write well-known MCP host configs
 make sync-docfs       # refresh embedded knowledge after editing docs/rules/AGENTS
 ```
 

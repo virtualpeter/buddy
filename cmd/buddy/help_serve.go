@@ -35,27 +35,46 @@ Examples:
   buddy serve --addr=127.0.0.1:9000
 `
 
-const helpMCP = `buddy mcp - MCP stdio server for Cursor agents
+const helpMCP = `buddy mcp - MCP stdio server for AI tools
 
 Usage:
   buddy [global-flags] mcp
+  buddy [global-flags] mcp setup [args...]
+
+Subcommands:
+  setup   Discover well-known MCP host configs; optionally write a buddy entry
+
+Flags for 'setup':
+  --write              Merge mcpServers.buddy into selected configs
+  --create             Also create missing well-known files (with --write)
+  --path=<file>        Inspect/write a specific MCP config JSON file
+  --host=<name>        Filter: cursor | claude-desktop (default: all well-known)
 
 Notes:
-  Speaks Model Context Protocol over stdin/stdout (for Cursor mcp.json).
-  Exposes curated read-oriented tools plus starlark_eval, docs (embedded
-  knowledge catalog), and buddy://docs/... resources.
+  Speaks Model Context Protocol over stdin/stdout for AI hosts (Cursor,
+  Claude Desktop, and other MCP clients). Exposes curated Jamf tools plus
+  starlark_eval, docs (embedded knowledge catalog), and buddy://docs/... resources.
   Uses the active tenant/auth from config (override with --tenant / --user).
 
   Every tool returns a JSON object {ok, value, error?, count?} — never a bare
-  array (Cursor requires object structuredContent). auth_test defaults to a
+  array (hosts require object structuredContent). auth_test defaults to a
   compact summary; pass verbose=true for the full privileges payload.
 
-  Docs, AGENTS.md, examples, and Cursor rules are embedded in the binary and
+  Docs, AGENTS.md, examples, and editor rules are embedded in the binary and
   exposed as buddy://docs/... resources (no BUDDY_DOCS_ROOT required). Set
   BUDDY_DOCS_ROOT only to override with live files while developing. See
   docs/mcp.md and make sync-docfs after editing knowledge sources.
 
-Example Cursor mcp.json entry:
+  mcp setup (no flags) lists well-known paths and whether buddy is configured.
+  Prefer an absolute command path — host subprocesses often omit shell PATH.
+
+Well-known config paths:
+  Cursor (user)       ~/.cursor/mcp.json
+  Cursor (project)    ./.cursor/mcp.json
+  Claude Desktop      ~/Library/Application Support/Claude/claude_desktop_config.json
+                      (macOS; Linux ~/.config/Claude/...; Windows %APPDATA%\Claude\...)
+
+Example mcpServers entry:
   {
     "mcpServers": {
       "buddy": {
@@ -64,6 +83,12 @@ Example Cursor mcp.json entry:
       }
     }
   }
+
+Examples:
+  buddy mcp
+  buddy mcp setup
+  buddy mcp setup --write
+  buddy -y mcp setup --write --create --host=cursor
 `
 
 const helpLSP = `buddy lsp - Language server for buddy Starlark (.buddy)

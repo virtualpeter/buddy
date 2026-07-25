@@ -30,7 +30,7 @@ Commands:
   script   Manage Jamf scripts (list/get/create/upload/download/delete/set)
   setup    Write setup script (role + client for buddy)
   serve    Local docs + notebook + script IDE web UI
-  mcp      MCP stdio server for Cursor agents
+  mcp      MCP stdio server for AI tools (setup discovers host configs)
   lsp      Language server for buddy Starlark (editor integration)
 
 Global flags:

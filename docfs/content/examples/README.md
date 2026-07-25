@@ -16,7 +16,7 @@ Arguments after `--` appear in the global `args` list inside the script.
 | File | Purpose |
 |------|---------|
 | [bump-release.buddy](bump-release.buddy) | Illustrative workflow: resolve a policy by trigger, then update package install params (adjust IDs and names to your Jamf instance). |
-| [mcp.json](mcp.json) | Example Cursor MCP config for `buddy mcp` (use absolute paths; see [docs/mcp.md](../docs/mcp.md)). |
+| [mcp.json](mcp.json) | Example MCP host config for `buddy mcp` (use absolute paths; or run `buddy mcp setup` — see [docs/mcp.md](../docs/mcp.md)). |
 
 ## Full documentation
 

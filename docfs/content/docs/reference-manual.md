@@ -130,7 +130,7 @@ buddy help [command] [subcommand]
 | `benchmark` | Platform compliance benchmarks (beta) |
 | `setup` | Generate setup scripts and OAuth config helpers |
 | `serve` | Local docs browser + Starlark notebook + script IDE |
-| `mcp` | MCP stdio server for Cursor agents |
+| `mcp` | MCP stdio server for AI tools (`mcp setup` writes host configs) |
 | `lsp` | Language server for the Cursor/VS Code buddy extension |
 
 ### CLI help
@@ -170,17 +170,19 @@ Open the printed URL in Cursor’s Simple Browser for an in-editor experience.
 
 ## MCP server
 
-Full guide: **[MCP server (Cursor setup)](mcp.md)**.
+Full guide: **[MCP server (AI tools)](mcp.md)**.
 
 ```sh
-buddy mcp
+buddy mcp              # stdio MCP server
+buddy mcp setup        # discover well-known host configs
+buddy mcp setup --write --create --host=cursor
 ```
 
 Speaks [Model Context Protocol](https://modelcontextprotocol.io/) over **stdio**.
 
-**Cursor:** add an entry to `.cursor/mcp.json` or `~/.cursor/mcp.json` with an **absolute path** to `buddy` and args `["mcp"]`. Docs resources are embedded (no `BUDDY_DOCS_ROOT` required). See [`examples/mcp.json`](../examples/mcp.json) and reload MCP in Cursor Settings.
+Add a `mcpServers.buddy` entry (absolute `command` path, `args: ["mcp"]`) to your AI host’s MCP config. `buddy mcp setup` knows Cursor (`~/.cursor/mcp.json`, `.cursor/mcp.json`) and Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS). Docs resources are embedded (no `BUDDY_DOCS_ROOT` required). See [`examples/mcp.json`](../examples/mcp.json); reload/restart the host after changes.
 
-**Response shape:** every tool returns a JSON **object** `{ok, value, error?, count?}`—never a bare array—so hosts that require object `structuredContent` (e.g. Cursor) accept list results. `auth_test` defaults to a compact summary (`verbose: true` for full privileges).
+**Response shape:** every tool returns a JSON **object** `{ok, value, error?, count?}`—never a bare array—so hosts that require object `structuredContent` accept list results. `auth_test` defaults to a compact summary (`verbose: true` for full privileges).
 
 Curated tools: `auth_test`, `smart_groups`, `static_groups`, `computers`, `scripts`, `packages`, `policy`, `jamf_schema`, `starlark_eval`, `docs`. Resources under `buddy://docs/...` (agents should prefer the `docs` tool).
 

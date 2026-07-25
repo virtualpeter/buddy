@@ -143,7 +143,7 @@ var humanDocEntries = []struct {
 	{"docs/index", "Overview", "Start here", "index.md"},
 	{"docs/reference-manual", "Reference manual", "Guides", "reference-manual.md"},
 	{"docs/api-endpoints", "API endpoints", "Guides", "api-endpoints.md"},
-	{"docs/mcp", "MCP for Cursor", "Guides", "mcp.md"},
+	{"docs/mcp", "MCP for AI tools", "Guides", "mcp.md"},
 }
 
 func loadHumanFromDisk(docsRoot string) ([]Page, error) {
