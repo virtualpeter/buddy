@@ -205,7 +205,7 @@ buddy [global-flags] [--trace] <script.buddy> [-- args...]
 
 ```sh
 buddy lsp
-make extension-package   # PUBLISHER=virtualpeter by default → editors/vscode/*.vsix
+make extension-package   # PUBLISHER=virtualpete by default → editors/vscode/*.vsix
 ```
 
 `buddy lsp` speaks LSP over stdio (diagnostics, completions, hover, signature help). The thin editor client lives in [`editors/vscode`](../editors/vscode); see that README for install settings and build-time `PUBLISHER`.

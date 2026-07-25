@@ -3,7 +3,7 @@
   "displayName": "Buddy Starlark",
   "description": "Language support for buddy Starlark scripts (.buddy)",
   "version": "0.1.0",
-  "publisher": "virtualpeter",
+  "publisher": "virtualpete",
   "engines": {
     "vscode": "^1.85.0"
   },

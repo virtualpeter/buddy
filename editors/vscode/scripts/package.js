@@ -3,9 +3,9 @@
  * Package the buddy VS Code/Cursor extension as a VSIX.
  * Publisher is configurable at build time:
  *
- *   PUBLISHER=virtualpeter npm run package
+ *   PUBLISHER=virtualpete npm run package
  *
- * Default publisher: virtualpeter (extension id virtualpeter.buddy).
+ * Default publisher: virtualpete (extension id virtualpete.buddy).
  */
 const fs = require("fs");
 const path = require("path");
@@ -14,7 +14,7 @@ const { spawnSync } = require("child_process");
 const root = path.join(__dirname, "..");
 const pkgPath = path.join(root, "package.json");
 
-const publisher = (process.env.PUBLISHER || "virtualpeter").trim();
+const publisher = (process.env.PUBLISHER || "virtualpete").trim();
 if (!publisher) {
   console.error("PUBLISHER must be a non-empty string");
   process.exit(1);

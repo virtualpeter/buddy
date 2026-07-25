@@ -25,13 +25,13 @@ Editor support for buddy Starlark scripts using the `.buddy` file extension.
 
 ## Package a VSIX
 
-Publisher is set at package time (default `virtualpeter`):
+Publisher is set at package time (default `virtualpete`):
 
 ```sh
 cd editors/vscode
 npm install
 npm run package
-# → virtualpeter.buddy-0.1.0.vsix
+# → virtualpete.buddy-0.1.0.vsix
 
 PUBLISHER=otherorg npm run package
 # → otherorg.buddy-0.1.0.vsix
@@ -40,9 +40,9 @@ PUBLISHER=otherorg npm run package
 Install in Cursor/VS Code:
 
 ```sh
-code --install-extension virtualpeter.buddy-0.1.0.vsix
+code --install-extension virtualpete.buddy-0.1.0.vsix
 # or
-cursor --install-extension virtualpeter.buddy-0.1.0.vsix
+cursor --install-extension virtualpete.buddy-0.1.0.vsix
 ```
 
 ## Development
