@@ -12,8 +12,8 @@ Usage:
   buddy help [command] [subcommand]
 
 Commands:
-  auth     Test authentication for a credential
-  cred     Manage credentials in the config file
+  auth     Test authentication for the active tenant/auth
+  cred     Manage tenants, auths, and secrets in the config file
   policy   Manage Jamf policies (get/set/clone/create/delete/find)
   group    Manage computer groups (list/get/set/create/delete; static membership)
   profile  Manage configuration profiles (list/get/set/clone/redeploy)
@@ -36,7 +36,9 @@ Global flags:
   -v, --verbose       Verbose output
   -t, --trace         Trace HTTP requests and responses to stderr (headers and bodies; Authorization/Cookie redacted)
   --script-trace      Trace Starlark builtin calls and print() in scripts and the interactive shell
-  --user <name>       Credential/user name from config (default: from ~/.config/buddy/config.yaml)
+  --tenant <name>     Tenant from config (default: config.tenant); auto-picks auth
+  --user <name>       Pin an auth name (--auth alias; --cred deprecated)
+  --auth <name>       Pin an auth name (same as --user)
 
 Use 'buddy help starlark' or 'buddy help builtins' for Starlark scripting reference.
 Use 'buddy help <command>' or 'buddy <command> help' for command details.

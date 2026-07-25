@@ -145,17 +145,19 @@ func TestCredentialValidate_InstanceRequiresURL(t *testing.T) {
 
 func TestNormalizeConfigForSave_InfersRegionDropsDefaultURL(t *testing.T) {
 	cfg := &Config{
-		Cred: "gw",
-		Credentials: map[string]CredentialConfig{
+		Tenant: "gw",
+		Tenants: map[string]TenantConfig{
 			"gw": {
 				URL:      "https://us.apigw.jamf.com",
 				TenantID: "tid",
-				Auth:     AuthConfig{Type: "oauth", ClientID: "c"},
 			},
+		},
+		Auths: map[string]AuthEntry{
+			"gw": {Type: "oauth", ClientID: "c", Tenants: []string{"gw"}, Surface: SurfacePlatform},
 		},
 	}
 	normalizeConfigForSave(cfg)
-	c := cfg.Credentials["gw"]
+	c := cfg.Tenants["gw"]
 	if c.Region != "us" {
 		t.Fatalf("Region = %q", c.Region)
 	}

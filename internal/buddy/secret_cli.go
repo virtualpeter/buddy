@@ -60,32 +60,32 @@ type CredentialSecretStatus struct {
 	ClientSecretInStore  bool
 }
 
-// CredentialSecretStatusFor returns secret storage status for display.
-func CredentialSecretStatusFor(cfg *Config, credName string) (CredentialSecretStatus, error) {
-	cred, err := cfg.ResolveCredential(credName)
+// CredentialSecretStatusFor returns secret storage status for an auth name.
+func CredentialSecretStatusFor(cfg *Config, authName string) (CredentialSecretStatus, error) {
+	auth, err := cfg.ResolveAuth(authName)
 	if err != nil {
 		return CredentialSecretStatus{}, err
 	}
 	st := CredentialSecretStatus{
-		PasswordInConfig:     cred.Auth.Password != "",
-		ClientSecretInConfig: cred.Auth.ClientSecret != "",
+		PasswordInConfig:     auth.Password != "",
+		ClientSecretInConfig: auth.ClientSecret != "",
 	}
-	if pw, err := HasCredentialSecret(credName, secrets.KindPassword); err == nil {
+	if pw, err := HasCredentialSecret(authName, secrets.KindPassword); err == nil {
 		st.PasswordInStore = pw
 	}
-	if cs, err := HasCredentialSecret(credName, secrets.KindClientSecret); err == nil {
+	if cs, err := HasCredentialSecret(authName, secrets.KindClientSecret); err == nil {
 		st.ClientSecretInStore = cs
 	}
 	return st, nil
 }
 
-// PrintCredentialSecretStatus prints secret status for a credential.
-func PrintCredentialSecretStatus(cfg *Config, credName string, w io.Writer) error {
-	st, err := CredentialSecretStatusFor(cfg, credName)
+// PrintCredentialSecretStatus prints secret status for an auth.
+func PrintCredentialSecretStatus(cfg *Config, authName string, w io.Writer) error {
+	st, err := CredentialSecretStatusFor(cfg, authName)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "credential: %s\n", credName)
+	fmt.Fprintf(w, "auth: %s\n", authName)
 	fmt.Fprintf(w, "  password in config:       %t\n", st.PasswordInConfig)
 	fmt.Fprintf(w, "  password in store:        %t\n", st.PasswordInStore)
 	fmt.Fprintf(w, "  clientSecret in config:   %t\n", st.ClientSecretInConfig)

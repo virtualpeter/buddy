@@ -136,12 +136,9 @@ func TestFetchJamfSchemaClassic(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	SetActiveConfig(&Config{
-		Cred: "t",
-		Credentials: map[string]CredentialConfig{
+	SetActiveConfig(ConfigFromCredentialMap("t", map[string]CredentialConfig{
 			"t": {URL: srv.URL, Auth: AuthConfig{Type: "command", RunCommand: "printf tok"}},
-		},
-	})
+	}))
 	t.Cleanup(func() { SetActiveConfig(nil) })
 
 	res, err := FetchJamfSchema("t", "classic", "delete policy", false)
@@ -183,12 +180,9 @@ func TestFetchJamfSchemaPro(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	SetActiveConfig(&Config{
-		Cred: "t",
-		Credentials: map[string]CredentialConfig{
+	SetActiveConfig(ConfigFromCredentialMap("t", map[string]CredentialConfig{
 			"t": {URL: srv.URL, Auth: AuthConfig{Type: "command", RunCommand: "printf tok"}},
-		},
-	})
+	}))
 	t.Cleanup(func() { SetActiveConfig(nil) })
 
 	res, err := FetchJamfSchema("t", "pro", "scripts", false)
@@ -221,12 +215,9 @@ func TestFetchJamfSchemaUnauthenticated(t *testing.T) {
 
 	// Basic credential with no stored secret: an authenticated request would fail
 	// to resolve the password, but schema fetch must not need it.
-	SetActiveConfig(&Config{
-		Cred: "t",
-		Credentials: map[string]CredentialConfig{
+	SetActiveConfig(ConfigFromCredentialMap("t", map[string]CredentialConfig{
 			"t": {URL: srv.URL, Auth: AuthConfig{Type: "basic", Username: "admin"}},
-		},
-	})
+	}))
 	t.Cleanup(func() { SetActiveConfig(nil) })
 
 	res, err := FetchJamfSchema("t", "pro", "scripts", false)
@@ -257,12 +248,9 @@ func TestFetchJamfSchemaBoth(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	SetActiveConfig(&Config{
-		Cred: "t",
-		Credentials: map[string]CredentialConfig{
+	SetActiveConfig(ConfigFromCredentialMap("t", map[string]CredentialConfig{
 			"t": {URL: srv.URL, Auth: AuthConfig{Type: "command", RunCommand: "printf tok"}},
-		},
-	})
+	}))
 	t.Cleanup(func() { SetActiveConfig(nil) })
 
 	res, err := FetchJamfSchema("t", "both", "policy", false)

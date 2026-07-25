@@ -46,25 +46,26 @@ Or run `./buddy` from the build directory.
 
 Default config path: `~/.config/buddy/config.yaml` (override config root with `XDG_CONFIG_HOME`).
 
-A minimal file defines a default credential name and one or more named credentials (each with a Jamf Pro base URL and auth: `command`, `basic`, or `oauth`). Use:
+Config is split into **tenants** (instance URL and/or Platform `region`+`tenantId`) and **auths** (command/basic/oauth principals linked to one or more tenants). Default pointer is a tenant. Legacy `credentials:` files migrate on load.
 
-- `buddy cred help` — set, list, get, delete credentials; manage secrets; set the default (`cred use`)
-- `buddy cred set secret <name>` — store password/client secret in Keychain, file, or pass
+- `buddy cred help` — set/list/get/delete tenants and auths; manage secrets; set default tenant (`cred use`)
+- `buddy cred set secret <auth>` — store password/client secret in Keychain, file, or pass
 - `buddy cred migrate` — move inline config.yaml secrets into the secure store
-- `buddy auth test` — verify the active credential
-- `buddy --user <name> ...` — override the default credential for one invocation (`--cred` is deprecated)
+- `buddy auth test` — verify the active tenant/auth session
+- `buddy --tenant <name> ...` — select tenant (auto-picks auth); `--user`/`--auth` pins an auth
 
 For `basic` auth, buddy exchanges username/password for a Bearer token via Jamf’s `POST /api/v1/auth/token`.
 
-**Platform API Gateway:** set a `region` (e.g. `us`, `eu`, `apac`) and a `tenantId` to route Pro (and Blueprints) calls through the Jamf Platform API Gateway. Region-based credentials imply `oauth` and derive the base URL as `https://{region}.apigw.jamf.com` (pass `url` only to override, e.g. a proxy). Example:
+**Platform API Gateway:** put `region` + `tenantId` on the **tenant**, and link an oauth auth with `surface: platform` (or `any`). Example:
 
 ```sh
-buddy cred set gateway --region=us --tenant-id=<tenant-id> --client-id=<client-id>
+buddy cred set tenant gateway --region=us --tenant-id=<tenant-id>
+buddy cred set auth gateway --type=oauth --client-id=<client-id> --tenants=gateway --surface=platform
 ```
 
-Classic (`/JSSResource/…`) calls are rewritten for the gateway, but Jamf does not yet expose Classic permissions to Platform integrations — expect `403` on Classic until it does. Use an instance credential for Classic-heavy work.
+Classic (`/JSSResource/…`) calls are rewritten for the gateway, but Jamf does not yet expose Classic permissions to Platform integrations — expect `403` on Classic until it does. Prefer an instance-surface auth for Classic-heavy work.
 
-**Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate` to move existing inline secrets). macOS defaults to Keychain; Linux defaults to `~/.config/buddy/secrets/`. Override with `BUDDY_SECRET_STORE=file|pass|keychain`. Inline secrets in config remain supported for dev/test. Never commit credentials to source control.
+**Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate`). macOS defaults to Keychain; Linux defaults to `~/.config/buddy/secrets/`. Override with `BUDDY_SECRET_STORE=file|pass|keychain`. Never commit secrets to source control.
 
 Full YAML shape and field descriptions are in the [README](../README.md#configuration).
 
@@ -103,14 +104,15 @@ buddy help [command] [subcommand]
 | `-y` | Skip confirmation prompts (destructive MDM actions still use extra checks where required) |
 | `-v`, `--verbose` | Verbose output |
 | `-t`, `--trace` | Trace HTTP to stderr (headers and bodies; secrets redacted) |
-| `--user <name>` | Use a named credential from config (`--cred` deprecated) |
+| `--tenant <name>` | Tenant from config (auto-picks auth) |
+| `--user <name>` | Pin an auth (`--auth` alias; `--cred` deprecated) |
 
 **Commands** (high level)
 
 | Command | Role |
 |---------|------|
 | `auth` | Test auth; print token material |
-| `cred` | Manage `config.yaml` credentials and platform secrets |
+| `cred` | Manage `config.yaml` tenants, auths, and platform secrets |
 | *(path)* | Execute a script: `buddy script.buddy` (`.buddy` preferred; `.star` still works) |
 | `policy` | Policies (get/set/clone/create/delete/find) |
 | `group` | Smart/static computer groups (list/get/set/create/delete; static membership) |
@@ -178,7 +180,7 @@ Speaks [Model Context Protocol](https://modelcontextprotocol.io/) over **stdio**
 
 Curated tools: `auth_test`, `smart_groups`, `static_groups`, `computers`, `scripts`, `packages`, `policy`, `jamf_schema`, `starlark_eval`, `docs`. Resources under `buddy://docs/...` (agents should prefer the `docs` tool).
 
-Uses the active credential (`--user` to override). MCP inherits that credential’s Jamf privileges—treat it like the CLI.
+Uses the active tenant/auth (`--tenant` / `--user` to override). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 
 ---
 

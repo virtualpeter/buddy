@@ -19,6 +19,9 @@ type JamfRequestOpts struct {
 	// host serves publicly (e.g. /api/schema, /classicapi/doc/swagger.yaml); the
 	// credential is then used solely to resolve the base URL.
 	Unauthenticated bool
+	// Op selects which linked auth to use when the process default is a tenant
+	// (empty → OpAny, or OpSchema when Unauthenticated).
+	Op OpClass
 }
 
 // JamfResponse is the raw HTTP outcome of JamfRequest (including non-2xx).
@@ -40,6 +43,35 @@ func DefaultJamfMedia(path string) (contentType, accept string) {
 }
 
 // NormalizeJamfPath validates a Jamf API path (must be absolute, no scheme/host, no "..").
+// opClassForPath infers a default OpClass from method + path.
+// Recognizes both instance-relative paths and already-rewritten gateway paths.
+func opClassForPath(method, path string) OpClass {
+	if strings.HasPrefix(path, "/JSSResource") || strings.Contains(path, "/proclassic/") {
+		if method == http.MethodGet || method == http.MethodHead {
+			return OpClassic
+		}
+		return OpMutate
+	}
+	// Blueprints (instance-relative or gateway-rewritten).
+	if strings.Contains(path, "/blueprints") || strings.HasPrefix(path, "/api/blueprints") {
+		if method == http.MethodGet || method == http.MethodHead {
+			return OpPlatform
+		}
+		return OpPlatformWrite
+	}
+	// Already rewritten Pro gateway paths — keep platform auth/surface.
+	if strings.HasPrefix(path, "/api/pro/") || strings.Contains(path, "/api/pro/") {
+		if method == http.MethodGet || method == http.MethodHead {
+			return OpPlatform
+		}
+		return OpPlatformWrite
+	}
+	if method == http.MethodGet || method == http.MethodHead {
+		return OpRead
+	}
+	return OpMutate
+}
+
 func NormalizeJamfPath(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -86,7 +118,15 @@ func JamfRequest(credName string, opts JamfRequestOpts) (*JamfResponse, error) {
 		contentType = defCT
 	}
 
-	endpoint, err := ResolveEndpoint(credName, path)
+	op := opts.Op
+	if op == "" {
+		if opts.Unauthenticated {
+			op = OpSchema
+		} else {
+			op = opClassForPath(method, path)
+		}
+	}
+	endpoint, err := ResolveEndpointOp(credName, path, op)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +148,7 @@ func JamfRequest(credName string, opts JamfRequestOpts) (*JamfResponse, error) {
 	if opts.Unauthenticated {
 		resp, err = PerformRequestNoAuth(req)
 	} else {
-		resp, err = PerformRequest(nil, req, credName)
+		resp, err = PerformRequestOp(req, credName, op)
 	}
 	if err != nil {
 		return nil, err

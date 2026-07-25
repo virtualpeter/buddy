@@ -69,45 +69,49 @@ func SetVerbose(verbose bool) {
 	}
 }
 
-// resolveURL returns the base URL for the named credential.
-// Panics if activeConfig has not been set via SetActiveConfig.
+// resolveURL returns the base URL for the named auth pin (or active session).
 func resolveURL(credName string) (string, error) {
-	if activeConfig == nil {
-		return "", fmt.Errorf("internal error: config not loaded (SetActiveConfig not called)")
-	}
-	cred, err := activeConfig.ResolveCredential(credName)
+	return resolveURLOp(credName, OpAny)
+}
+
+func resolveURLOp(credName string, op OpClass) (string, error) {
+	sess, err := ResolveSessionForCred(credName, op)
 	if err != nil {
 		return "", err
 	}
-	base := cred.EffectiveBaseURL()
+	base := sess.Credential.EffectiveBaseURL()
 	if base == "" {
-		return "", fmt.Errorf("credential %q has no URL or region configured", credName)
+		return "", fmt.Errorf("tenant %q / auth %q has no URL or region configured", sess.TenantName, sess.AuthName)
 	}
-	// Normalize: no trailing slash so path concatenation never produces "//".
 	return base, nil
 }
 
-// resolveAuthHeader returns the Authorization header value for the named credential.
-// For command and oauth types this is "Bearer <token>".
-// For basic type this is "Basic <base64(user:pass)>".
+// resolveAuthHeader returns the Authorization header for the named auth pin (or active session).
 func resolveAuthHeader(credName string) (string, error) {
-	if activeConfig == nil {
-		return "", fmt.Errorf("internal error: config not loaded (SetActiveConfig not called)")
-	}
-	cred, err := activeConfig.ResolveCredential(credName)
+	return resolveAuthHeaderOp(credName, OpAny)
+}
+
+func resolveAuthHeaderOp(credName string, op OpClass) (string, error) {
+	sess, err := ResolveSessionForCred(credName, op)
 	if err != nil {
 		return "", err
 	}
+	cred := sess.Credential
+	cacheName := sessionCacheName(sess)
 	switch cred.Auth.Type {
 	case "command":
-		return resolveCommandToken(credName, cred.Auth)
+		return resolveCommandToken(sess.AuthName, cred.Auth)
 	case "basic", "oauth":
-		return resolveCachedBearerToken(credName, cred)
+		return resolveCachedBearerToken(cacheName, sess.AuthName, cred)
 	case "":
-		return "", fmt.Errorf("credential %q has no auth type configured (use 'buddy cred get %s' to inspect)", credName, credName)
+		return "", fmt.Errorf("auth %q has no type configured (use 'buddy cred get auth %s' to inspect)", sess.AuthName, sess.AuthName)
 	default:
-		return "", fmt.Errorf("credential %q has unknown auth type %q (supported: command, basic, oauth)", credName, cred.Auth.Type)
+		return "", fmt.Errorf("auth %q has unknown type %q (supported: command, basic, oauth)", sess.AuthName, cred.Auth.Type)
 	}
+}
+
+func sessionCacheName(sess *Session) string {
+	return sess.AuthName + "@" + sess.TenantName
 }
 
 // resolveCommandToken runs the configured command and returns the trimmed stdout
@@ -141,31 +145,33 @@ func init() {
 	credAuthCache.byCred = make(map[string]*tokenauth.Authenticator)
 }
 
-func cachedAuthenticator(credName string, cred CredentialConfig) (*tokenauth.Authenticator, error) {
+// cachedAuthenticator builds or returns a cached Authenticator.
+// cacheName is the process-cache key (auth@tenant); secretName is the secret-store key (auth name).
+func cachedAuthenticator(cacheName, secretName string, cred CredentialConfig) (*tokenauth.Authenticator, error) {
 	credAuthCache.mu.Lock()
 	defer credAuthCache.mu.Unlock()
-	if a, ok := credAuthCache.byCred[credName]; ok {
+	if a, ok := credAuthCache.byCred[cacheName]; ok {
 		return a, nil
 	}
 	if err := cred.Validate(); err != nil {
-		return nil, fmt.Errorf("credential %q: %w", credName, err)
+		return nil, fmt.Errorf("auth %q: %w", secretName, err)
 	}
-	resolved, err := cred.ResolveAuthWithSecrets(credName)
+	resolved, err := cred.ResolveAuthWithSecrets(secretName)
 	if err != nil {
 		return nil, err
 	}
 	baseURL := cred.EffectiveBaseURL()
 	if baseURL == "" {
-		return nil, fmt.Errorf("credential %q has no URL or region configured", credName)
+		return nil, fmt.Errorf("auth %q has no URL or region configured", secretName)
 	}
-	cacheKey := credName
+	diskKey := cacheName
 	if cred.IsPlatform() {
-		cacheKey = credName + "@platform:" + cred.EffectiveTenantID()
+		diskKey = cacheName + "@platform:" + cred.EffectiveTenantID()
 	}
 	cfg := tokenauth.Config{
-		Name:     credName,
+		Name:     secretName,
 		BaseURL:  baseURL,
-		CacheKey: cacheKey,
+		CacheKey: diskKey,
 		Platform: cred.UsesPlatformAuth(),
 		Logger:   GetLogger(),
 	}
@@ -180,12 +186,12 @@ func cachedAuthenticator(credName string, cred CredentialConfig) (*tokenauth.Aut
 		return nil, fmt.Errorf("internal: cachedAuthenticator for auth type %q", resolved.Type)
 	}
 	a := tokenauth.NewAuthenticator(cfg)
-	credAuthCache.byCred[credName] = a
+	credAuthCache.byCred[cacheName] = a
 	return a, nil
 }
 
-func resolveCachedBearerToken(credName string, cred CredentialConfig) (string, error) {
-	a, err := cachedAuthenticator(credName, cred)
+func resolveCachedBearerToken(cacheName, secretName string, cred CredentialConfig) (string, error) {
+	a, err := cachedAuthenticator(cacheName, secretName, cred)
 	if err != nil {
 		return "", err
 	}
@@ -209,8 +215,24 @@ func resolveRawToken(credName string) (string, error) {
 }
 
 // PerformRequest makes an authenticated HTTP request using the credential resolved from credName.
+// Auth/surface are chosen from the request path (same rules as JamfRequest).
 func PerformRequest(_ interface{}, req *http.Request, credName string) (*http.Response, error) {
-	authHeader, err := resolveAuthHeader(credName)
+	path := ""
+	method := http.MethodGet
+	if req != nil {
+		if req.URL != nil {
+			path = req.URL.Path
+		}
+		if req.Method != "" {
+			method = req.Method
+		}
+	}
+	return PerformRequestOp(req, credName, opClassForPath(method, path))
+}
+
+// PerformRequestOp is like PerformRequest with an operation class for auth picking.
+func PerformRequestOp(req *http.Request, credName string, op OpClass) (*http.Response, error) {
+	authHeader, err := resolveAuthHeaderOp(credName, op)
 	if err != nil {
 		return nil, fmt.Errorf("get auth for %q: %w", credName, err)
 	}

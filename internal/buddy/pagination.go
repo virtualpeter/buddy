@@ -53,7 +53,9 @@ func fetchJamfPaged(credName, apiPath string, extra url.Values, opts PageOpts, o
 		q := cloneURLValues(extra)
 		q.Set("page", fmt.Sprintf("%d", page))
 		q.Set("page-size", fmt.Sprintf("%d", opts.PageSize))
-		endpoint, err := ResolveEndpoint(credName, apiPath)
+		// Match JamfRequest: pick auth/surface from the path (e.g. blueprints → platform).
+		op := opClassForPath(http.MethodGet, apiPath)
+		endpoint, err := ResolveEndpointOp(credName, apiPath, op)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -63,7 +65,7 @@ func fetchJamfPaged(credName, apiPath string, extra url.Values, opts PageOpts, o
 			return 0, 0, fmt.Errorf("create request: %w", err)
 		}
 		req.Header.Set("Accept", "application/json")
-		resp, err := PerformRequest(nil, req, credName)
+		resp, err := PerformRequestOp(req, credName, op)
 		if err != nil {
 			return 0, 0, fmt.Errorf("list %s (page %d): %w", apiPath, page, err)
 		}

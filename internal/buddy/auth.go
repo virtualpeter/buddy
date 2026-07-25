@@ -192,17 +192,16 @@ func PrintRawToken(credName string, direct DirectAuthOpts, log *slog.Logger) err
 // With renew=true, discards any cached token and obtains a fresh one first.
 // Does not include the raw bearer token.
 func AuthInfo(credName string, renew bool, log *slog.Logger) (map[string]interface{}, error) {
-	if activeConfig == nil {
-		return nil, fmt.Errorf("internal error: config not loaded (SetActiveConfig not called)")
-	}
-	cred, err := activeConfig.ResolveCredential(credName)
+	sess, err := ResolveSessionForCred(credName, OpAny)
 	if err != nil {
 		return nil, err
 	}
+	cred := sess.Credential
+	cacheName := sessionCacheName(sess)
 	if renew {
 		switch cred.Auth.Type {
 		case "basic", "oauth":
-			a, err := cachedAuthenticator(credName, cred)
+			a, err := cachedAuthenticator(cacheName, sess.AuthName, cred)
 			if err != nil {
 				return nil, err
 			}
@@ -212,9 +211,9 @@ func AuthInfo(credName string, renew bool, log *slog.Logger) (map[string]interfa
 		case "command":
 			// command auth is not disk-cached; AuthTestValue re-runs the command
 		case "":
-			return nil, fmt.Errorf("credential %q has no auth type configured", credName)
+			return nil, fmt.Errorf("auth %q has no type configured", sess.AuthName)
 		default:
-			return nil, fmt.Errorf("credential %q has unknown auth type %q", credName, cred.Auth.Type)
+			return nil, fmt.Errorf("auth %q has unknown type %q", sess.AuthName, cred.Auth.Type)
 		}
 	}
 
@@ -223,12 +222,14 @@ func AuthInfo(credName string, renew bool, log *slog.Logger) (map[string]interfa
 		return nil, err
 	}
 	out := CompactAuthInfo(raw)
-	out["cred"] = credName
-	out["url"] = strings.TrimRight(cred.URL, "/")
+	out["cred"] = sess.AuthName
+	out["auth"] = sess.AuthName
+	out["tenant"] = sess.TenantName
+	out["url"] = strings.TrimRight(cred.EffectiveBaseURL(), "/")
 	out["authType"] = cred.Auth.Type
 	out["renewed"] = renew
 	if cred.Auth.Type == "basic" || cred.Auth.Type == "oauth" {
-		if a, err := cachedAuthenticator(credName, cred); err == nil {
+		if a, err := cachedAuthenticator(cacheName, sess.AuthName, cred); err == nil {
 			if exp := a.TokenExpiry(); !exp.IsZero() {
 				out["expiresAt"] = exp.UTC().Format(time.RFC3339)
 			}
@@ -310,14 +311,12 @@ func AuthTestValue(credName string, log *slog.Logger) (map[string]interface{}, e
 func authTestPlatform(credName string, log *slog.Logger) (map[string]interface{}, error) {
 	// Force a fresh platform token so disk-cached tokens from a prior endpoint
 	// (e.g. /oauth2/token) cannot mask gateway REQUEST_CONTEXT failures.
-	if activeConfig == nil {
-		return nil, fmt.Errorf("internal error: config not loaded (SetActiveConfig not called)")
-	}
-	cred, err := activeConfig.ResolveCredential(credName)
+	sess, err := ResolveSessionForCred(credName, OpPlatform)
 	if err != nil {
 		return nil, err
 	}
-	a, err := cachedAuthenticator(credName, cred)
+	cred := sess.Credential
+	a, err := cachedAuthenticator(sessionCacheName(sess), sess.AuthName, cred)
 	if err != nil {
 		return nil, fmt.Errorf("platform auth token: %w", err)
 	}

@@ -40,18 +40,15 @@ func TestJamfGetBuiltin(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	buddy.SetActiveConfig(&buddy.Config{
-		Cred: "t",
-		Credentials: map[string]buddy.CredentialConfig{
-			"t": {
-				URL: srv.URL,
-				Auth: buddy.AuthConfig{
-					Type:       "command",
-					RunCommand: "printf tok",
-				},
+	buddy.SetActiveConfig(buddy.ConfigFromCredentialMap("t", map[string]buddy.CredentialConfig{
+		"t": {
+			URL: srv.URL,
+			Auth: buddy.AuthConfig{
+				Type:       "command",
+				RunCommand: "printf tok",
 			},
 		},
-	})
+	}))
 	t.Cleanup(func() { buddy.SetActiveConfig(nil) })
 
 	thread, predeclared, err := newThread("t", buddy.Opts{}, slog.Default(), false, nil)
@@ -94,15 +91,12 @@ func TestJamfGetClassicDefaultAccept(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	buddy.SetActiveConfig(&buddy.Config{
-		Cred: "t",
-		Credentials: map[string]buddy.CredentialConfig{
-			"t": {
-				URL:  srv.URL,
-				Auth: buddy.AuthConfig{Type: "command", RunCommand: "printf tok"},
-			},
+	buddy.SetActiveConfig(buddy.ConfigFromCredentialMap("t", map[string]buddy.CredentialConfig{
+		"t": {
+			URL:  srv.URL,
+			Auth: buddy.AuthConfig{Type: "command", RunCommand: "printf tok"},
 		},
-	})
+	}))
 	t.Cleanup(func() { buddy.SetActiveConfig(nil) })
 
 	thread, predeclared, err := newThread("t", buddy.Opts{}, slog.Default(), false, nil)

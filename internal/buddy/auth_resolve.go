@@ -41,7 +41,7 @@ func (c CredentialConfig) ResolveAuthWithSecrets(credName string) (ResolvedAuth,
 		}
 		pw, err := store.Get(credName, secrets.KindPassword)
 		if err != nil {
-			return ResolvedAuth{}, fmt.Errorf("password missing for credential %q — run 'buddy cred set secret %s' (or 'buddy cred migrate %s' to move an inline secret): %w", credName, credName, credName, err)
+			return ResolvedAuth{}, fmt.Errorf("password missing for auth %q — run 'buddy cred set secret %s' (or 'buddy cred migrate %s' to move an inline secret): %w", credName, credName, credName, err)
 		}
 		resolved.Password = pw
 		return resolved, nil
@@ -55,7 +55,7 @@ func (c CredentialConfig) ResolveAuthWithSecrets(credName string) (ResolvedAuth,
 		}
 		secret, err := store.Get(credName, secrets.KindClientSecret)
 		if err != nil {
-			return ResolvedAuth{}, fmt.Errorf("client secret missing for credential %q — run 'buddy cred set secret %s' (or 'buddy cred migrate %s' to move an inline secret): %w", credName, credName, credName, err)
+			return ResolvedAuth{}, fmt.Errorf("client secret missing for auth %q — run 'buddy cred set secret %s' (or 'buddy cred migrate %s' to move an inline secret): %w", credName, credName, credName, err)
 		}
 		resolved.ClientSecret = secret
 		return resolved, nil

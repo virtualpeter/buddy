@@ -109,26 +109,32 @@ func SetupConfigureOAuth(cfg *Config, credNameForAPI, clientDisplayName, newCred
 	if clientID == "" && clientSecret == "" {
 		return "", nil // user declined confirmation
 	}
-	baseURL, err := GetBaseURL(credNameForAPI)
+	sess, err := ResolveSessionForCred(credNameForAPI, OpAny)
 	if err != nil {
 		return "", err
 	}
+	tenantName := sess.TenantName
 	finalCredName = newCredName
-	if existing, ok := cfg.Credentials[newCredName]; ok {
-		if existing.Auth.ClientID != clientID {
-			finalCredName = uniqueCredentialName(cfg, newCredName)
+	if existing, ok := cfg.Auths[newCredName]; ok {
+		if existing.ClientID != clientID {
+			finalCredName = uniqueAuthName(cfg, newCredName)
 		}
 	}
-	if cfg.Credentials == nil {
-		cfg.Credentials = make(map[string]CredentialConfig)
+	if cfg.Auths == nil {
+		cfg.Auths = make(map[string]AuthEntry)
 	}
-	cfg.Credentials[finalCredName] = CredentialConfig{
-		URL: baseURL,
-		Auth: AuthConfig{
-			Type:     "oauth",
-			ClientID: clientID,
-		},
+	surface := SurfaceInstance
+	if sess.Tenant.HasPlatform() {
+		surface = SurfaceAny
 	}
+	cfg.Auths[finalCredName] = AuthEntry{
+		Type:     "oauth",
+		ClientID: clientID,
+		Tenants:  []string{tenantName},
+		Access:   AccessFull,
+		Surface:  surface,
+	}
+	_ = tenantName // tenant already exists from the API session
 	if err := SetCredentialSecret(finalCredName, secrets.KindClientSecret, clientSecret); err != nil {
 		return "", fmt.Errorf("store client secret: %w", err)
 	}
@@ -138,10 +144,10 @@ func SetupConfigureOAuth(cfg *Config, credNameForAPI, clientDisplayName, newCred
 	return finalCredName, nil
 }
 
-func uniqueCredentialName(cfg *Config, base string) string {
+func uniqueAuthName(cfg *Config, base string) string {
 	for i := 2; ; i++ {
 		candidate := fmt.Sprintf("%s-%d", base, i)
-		if _, exists := cfg.Credentials[candidate]; !exists {
+		if _, exists := cfg.Auths[candidate]; !exists {
 			return candidate
 		}
 	}

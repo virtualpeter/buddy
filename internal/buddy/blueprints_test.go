@@ -41,9 +41,7 @@ func TestBlueprintList_RewritesPath(t *testing.T) {
 	defer srv.Close()
 
 	tid := "tenant-uuid-1"
-	SetActiveConfig(&Config{
-		Cred: "gw",
-		Credentials: map[string]CredentialConfig{
+	SetActiveConfig(ConfigFromCredentialMap("gw", map[string]CredentialConfig{
 			"gw": {
 				URL:      srv.URL,
 				TenantID: tid,
@@ -53,8 +51,7 @@ func TestBlueprintList_RewritesPath(t *testing.T) {
 					ClientSecret: "sec",
 				},
 			},
-		},
-	})
+	}))
 	clearCredAuthCache()
 	t.Cleanup(func() {
 		clearCredAuthCache()
@@ -75,15 +72,12 @@ func TestBlueprintList_RewritesPath(t *testing.T) {
 }
 
 func TestBlueprintRequirePlatform(t *testing.T) {
-	SetActiveConfig(&Config{
-		Cred: "inst",
-		Credentials: map[string]CredentialConfig{
+	SetActiveConfig(ConfigFromCredentialMap("inst", map[string]CredentialConfig{
 			"inst": {
 				URL:  "https://example.jamfcloud.com",
 				Auth: AuthConfig{Type: "oauth", ClientID: "c", ClientSecret: "s"},
 			},
-		},
-	})
+	}))
 	t.Cleanup(func() { SetActiveConfig(nil) })
 	_, err := BlueprintListValues("inst", BlueprintListOpts{}, slog.Default())
 	if err == nil || !strings.Contains(err.Error(), "Platform API Gateway") {
@@ -109,16 +103,13 @@ func TestJamfRequest_PlatformRewrite(t *testing.T) {
 	defer srv.Close()
 
 	tid := "t-1"
-	SetActiveConfig(&Config{
-		Cred: "gw",
-		Credentials: map[string]CredentialConfig{
+	SetActiveConfig(ConfigFromCredentialMap("gw", map[string]CredentialConfig{
 			"gw": {
 				URL:      srv.URL,
 				TenantID: tid,
 				Auth:     AuthConfig{Type: "oauth", ClientID: "c", ClientSecret: "s"},
 			},
-		},
-	})
+	}))
 	clearCredAuthCache()
 	t.Cleanup(func() {
 		clearCredAuthCache()

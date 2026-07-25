@@ -64,41 +64,56 @@ func RewriteJamfPath(tenantID, path string) (string, error) {
 	}
 }
 
-// tenantIDForCred returns the Platform tenant ID for a credential, or "" for instance mode.
+// tenantIDForCred returns the Platform tenant ID for the resolved session, or "" for instance mode.
 func tenantIDForCred(credName string) (string, error) {
-	if activeConfig == nil {
-		return "", fmt.Errorf("internal error: config not loaded (SetActiveConfig not called)")
-	}
-	cred, err := activeConfig.ResolveCredential(credName)
+	return tenantIDForCredOp(credName, OpAny)
+}
+
+func tenantIDForCredOp(credName string, op OpClass) (string, error) {
+	sess, err := ResolveSessionForCred(credName, op)
 	if err != nil {
 		return "", err
 	}
-	return cred.EffectiveTenantID(), nil
+	if sess.Surface == SurfaceInstance {
+		return "", nil
+	}
+	return sess.Credential.EffectiveTenantID(), nil
 }
 
-// RewritePathForCred applies RewriteJamfPath using the credential's tenantId.
+// RewritePathForCred applies RewriteJamfPath using the session's tenantId.
 func RewritePathForCred(credName, path string) (string, error) {
-	tenantID, err := tenantIDForCred(credName)
+	return RewritePathForCredOp(credName, path, OpAny)
+}
+
+// RewritePathForCredOp is like RewritePathForCred with an operation class.
+func RewritePathForCredOp(credName, path string, op OpClass) (string, error) {
+	tenantID, err := tenantIDForCredOp(credName, op)
 	if err != nil {
 		return "", err
 	}
 	return RewriteJamfPath(tenantID, path)
 }
 
-// ResolveEndpoint returns the full request URL (base + rewritten path) for a credential.
+// ResolveEndpoint returns the full request URL (base + rewritten path) for a credential/session.
+// Auth/surface are chosen from the path (same rules as JamfRequest).
 func ResolveEndpoint(credName, path string) (string, error) {
-	baseURL, err := resolveURL(credName)
+	return ResolveEndpointOp(credName, path, opClassForPath("GET", path))
+}
+
+// ResolveEndpointOp resolves the endpoint using an operation class for auth picking.
+func ResolveEndpointOp(credName, path string, op OpClass) (string, error) {
+	baseURL, err := resolveURLOp(credName, op)
 	if err != nil {
 		return "", err
 	}
-	rewritten, err := RewritePathForCred(credName, path)
+	rewritten, err := RewritePathForCredOp(credName, path, op)
 	if err != nil {
 		return "", err
 	}
 	return baseURL + rewritten, nil
 }
 
-// IsPlatformCred reports whether the named credential uses Platform API Gateway mode.
+// IsPlatformCred reports whether the resolved session uses Platform API Gateway mode.
 func IsPlatformCred(credName string) (bool, error) {
 	tenantID, err := tenantIDForCred(credName)
 	if err != nil {

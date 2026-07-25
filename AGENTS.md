@@ -59,19 +59,23 @@ See **[docs/mcp.md](docs/mcp.md)** for Cursor setup. Summary:
 
 ## Authentication model
 
-Each named credential in config has `url` + `auth`:
+Config is **tenants** + **auths** (breaking change from flat `credentials:` — migrated automatically on load).
+
+- **Tenant** — Jamf environment: instance `url` and/or Platform `region` + `tenantId`.
+- **Auth** — secret-bearing principal (`command` / `basic` / `oauth`) linked to one or more tenants via `tenants: […]`. A platform clientId may list multiple tenants. Optional `access` (`full`|`readonly`) and `surface` (`any`|`platform`|`instance`).
+- **Default pointer** — `tenant:` (not a single cred). Global `--tenant` selects tenant (auto-picks auth by operation); `--user` / `--auth` pins an auth. Starlark/MCP `cred=` still means auth pin.
 
 | `auth.type` | Config fields | Secret storage |
 |-------------|---------------|----------------|
-| `command` | `runCommand` (shell string) | N/A — command prints token |
-| `basic` | `username`; password inline or in store | `buddy cred set secret <cred>` |
-| `oauth` | `clientId`; secret inline or in store | `buddy cred set secret <cred> --client-secret` |
+| `command` | `runCommand` | N/A — command prints token |
+| `basic` | `username`; password inline or in store | `buddy cred set secret <auth>` |
+| `oauth` | `clientId`; secret inline or in store | `buddy cred set secret <auth> --client-secret` |
 
-Optional credential fields `region` (e.g. `us`) and/or gateway `url`, plus `tenantId`, enable Platform API Gateway mode: OAuth only, path rewrite for Pro/Classic, and Blueprints. With `region` set, the base URL defaults to `https://{region}.apigw.jamf.com` unless `url` overrides it (proxy).
+`ResolveSession` (`internal/buddy/session.go`) picks auth by operation class (prefer readonly for reads; require full for mutates; platform for blueprints; instance for classic/schema). Path rewrite uses the tenant’s `tenantId`; base URL comes from the composed surface.
 
-**Classic parity:** path rewrite for `/JSSResource/…` is implemented, but Platform integrations do not yet offer Classic permissions in Jamf Account — expect `403` on Classic until Jamf exposes them. Use an instance credential for Classic-heavy work; Pro + Blueprints are the supported gateway surfaces today.
+**Classic parity:** path rewrite for `/JSSResource/…` is implemented, but Platform integrations do not yet offer Classic permissions in Jamf Account — expect `403` on Classic until Jamf exposes them. Prefer an instance-surface auth for Classic-heavy work.
 
-Resolution order for secrets: **inline config → platform store → error** (`ResolveAuthWithSecrets` in `internal/buddy/auth_resolve.go`).
+Resolution order for secrets: **inline config → platform store → error** (`ResolveAuthWithSecrets`; store keys are **auth names**).
 
 ### Secret backends
 
@@ -85,15 +89,15 @@ Selected by platform or `BUDDY_SECRET_STORE`:
 | `pass` | any | `buddy/<cred>/password`, `buddy/<cred>/client-secret` |
 | `keychain` | macOS only | Explicit Keychain |
 
-CLI: `buddy cred set|get|delete secret <cred>`, `buddy cred store`, `buddy cred migrate`. `buddy setup configure-oauth` stores client secret in the platform store automatically.
+CLI: `buddy cred set tenant|auth|secret …`, `buddy cred use <tenant>`, `buddy cred store`, `buddy cred migrate`. `buddy setup configure-oauth` stores client secret under a new auth name.
 
 ## Token caching
 
 Three layers:
 
-1. **Process-local cache** — `credAuthCache` in `internal/buddy/common.go` holds one `tokenauth.Authenticator` per credential name for the lifetime of the buddy process.
+1. **Process-local cache** — `credAuthCache` in `internal/buddy/common.go` holds one `tokenauth.Authenticator` per `auth@tenant` for the lifetime of the buddy process.
 2. **In-authenticator cache** — each `Authenticator` stores `token` + `tokenExpiry`.
-3. **On-disk cache** — `~/.config/buddy/tokens/<cache-key>.json` (mode `0600`), keyed by credential name (or a `direct-…` key for one-off auth flags). Reused across CLI invocations when expiry is more than ~3 minutes away. Skipped for `command` auth. Invalidated on failed refresh / full re-auth.
+3. **On-disk cache** — `~/.config/buddy/tokens/<cache-key>.json` (mode `0600`), keyed by auth@tenant (platform adds `@platform:{tenantId}`). Reused across CLI invocations when expiry is more than ~3 minutes away. Skipped for `command` auth. Invalidated on failed refresh / full re-auth.
 
 `GetToken()` flow (`internal/buddy/tokenauth/auth.go`):
 
@@ -108,14 +112,14 @@ Three layers:
 CLI surfaces:
 
 ```sh
-buddy auth test                         # verify credential
-buddy auth token [--raw] [--user=NAME]  # print Authorization header or raw bearer
-buddy auth refresh --url=URL [TOKEN]    # keep-alive refresh (instance; direct flags supported)
+buddy auth test                              # verify active tenant/auth session
+buddy auth token [--raw] [--tenant=T] [--user=A]  # Authorization header or raw bearer
+buddy auth refresh --url=URL [TOKEN]         # keep-alive refresh (instance; direct flags supported)
 ```
 
-Direct auth flags (`--url`, `--tenant-id`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for one-off use.
+Direct auth flags (`--url`, `--tenant-id`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for one-offs.
 
-When `tenantId` is set, request paths are rewritten via `RewriteJamfPath` / `ResolveEndpoint` (Pro → `/api/pro/vN/tenant/{id}/…`, Classic → `/api/proclassic/tenant/{id}/JSSResource/…`). Blueprints: `buddy blueprint`, Starlark `blueprints` / `blueprint_*`, and first-class MCP `blueprint*` tools (gateway credential required).
+When the resolved session uses a platform surface, paths are rewritten via `RewriteJamfPath` / `ResolveEndpoint` (Pro → `/api/pro/vN/tenant/{id}/…`, Classic → `/api/proclassic/tenant/{id}/JSSResource/…`). Blueprints require a platform-capable tenant+auth (`buddy blueprint`, Starlark `blueprints` / `blueprint_*`, MCP `blueprint*` tools).
 
 ## Jamf Pro API versions (groups / inventory)
 
@@ -165,6 +169,7 @@ Use `secrets.SetStore(mock)` in tests to override the platform store.
 - Do not recreate `protoken` / `protok` / `jamftoken` — extend buddy `auth` subcommands instead.
 - Do not put production secrets only in `config.yaml` when platform storage exists.
 - Do not break `buddy auth token --raw` stdout contract (meliorate and other tools depend on it).
+- Do not put org-specific tenant/auth names, hostnames, or client IDs in docs, help examples, tests, or **commit messages** — use generics (`sandbox`, `prod`, `example.jamfcloud.com`).
 
 ## Open follow-ups (optional)
 

@@ -44,9 +44,7 @@ func TestJamfRequest(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	SetActiveConfig(&Config{
-		Cred: "t",
-		Credentials: map[string]CredentialConfig{
+	SetActiveConfig(ConfigFromCredentialMap("t", map[string]CredentialConfig{
 			"t": {
 				URL: srv.URL,
 				Auth: AuthConfig{
@@ -54,8 +52,7 @@ func TestJamfRequest(t *testing.T) {
 					RunCommand: "printf Bearer-test-token",
 				},
 			},
-		},
-	})
+	}))
 	t.Cleanup(func() { SetActiveConfig(nil) })
 
 	resp, err := JamfRequest("t", JamfRequestOpts{
@@ -90,9 +87,7 @@ func TestJamfRequestNon2xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	SetActiveConfig(&Config{
-		Cred: "t",
-		Credentials: map[string]CredentialConfig{
+	SetActiveConfig(ConfigFromCredentialMap("t", map[string]CredentialConfig{
 			"t": {
 				URL: srv.URL,
 				Auth: AuthConfig{
@@ -100,8 +95,7 @@ func TestJamfRequestNon2xx(t *testing.T) {
 					RunCommand: "printf tok",
 				},
 			},
-		},
-	})
+	}))
 	t.Cleanup(func() { SetActiveConfig(nil) })
 
 	resp, err := JamfRequest("t", JamfRequestOpts{Method: "GET", Path: "/api/v1/nope"})

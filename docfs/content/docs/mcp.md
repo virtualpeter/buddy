@@ -6,9 +6,9 @@
 buddy mcp
 ```
 
-Uses stdio JSON-RPC. The active credential comes from `~/.config/buddy/config.yaml` (override with global `--user=<name>` on the command in mcp.json). MCP inherits that credential’s Jamf privileges—treat it like the CLI.
+Uses stdio JSON-RPC. The active tenant/auth comes from `~/.config/buddy/config.yaml` (override with `--tenant=<name>` and/or `--user=<auth>` on the command in mcp.json). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 
-A Platform API Gateway credential (`region`/`url` + `tenantId`) works the same way: Pro tools and the first-class `blueprint*` tools route through the gateway.
+A Platform-capable tenant (`region`/`url` + `tenantId`) with a linked oauth auth works the same way: Pro tools and the first-class `blueprint*` tools route through the gateway.
 
 ---
 
@@ -71,7 +71,7 @@ Ask in natural language; the agent calls tools for you:
 - “List Platform blueprints” (calls `blueprints`; needs a gateway credential)
 - “Show buddy builtin conventions / AGENTS.md via docs”
 
-Optional tool argument `cred` selects a named credential from config.
+Optional tool argument `cred` pins a named **auth** from config (same as CLI `--user`).
 
 ---
 

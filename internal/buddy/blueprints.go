@@ -17,14 +17,30 @@ const (
 	uriBlueprintComponents = "/api/blueprints/v1/blueprint-components"
 )
 
-// requirePlatformCred returns an error unless the credential uses Platform API Gateway mode.
+// requirePlatformCred ensures a platform-capable session can be resolved for credName
+// (auth pin or active tenant). Auto-picks a platform-linked auth when possible.
 func requirePlatformCred(credName string) error {
-	ok, err := IsPlatformCred(credName)
+	sess, err := ResolveSessionForCred(credName, OpPlatform)
+	if err != nil {
+		return fmt.Errorf("blueprints require a Platform API Gateway tenant+auth (set tenantId on the tenant and link an oauth auth); see 'buddy cred help': %w", err)
+	}
+	if sess.Credential.EffectiveTenantID() == "" {
+		return fmt.Errorf("blueprints require a Platform API Gateway tenant (tenantId); see 'buddy cred help'")
+	}
+	return nil
+}
+
+// requirePlatformMutate is like requirePlatformCred but rejects readonly auths.
+func requirePlatformMutate(credName string) error {
+	if err := requirePlatformCred(credName); err != nil {
+		return err
+	}
+	sess, err := ResolveSessionForCred(credName, OpPlatform)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return fmt.Errorf("blueprints require a Platform API Gateway credential (set tenantId on the credential); see 'buddy cred help'")
+	if sess.Auth.EffectiveAccess() == AccessReadonly {
+		return fmt.Errorf("auth %q is readonly; blueprints mutations require a full-access auth", sess.AuthName)
 	}
 	return nil
 }
@@ -128,7 +144,7 @@ func BlueprintGet(credName, blueprintID string, logger *slog.Logger) error {
 
 // BlueprintCreateValue creates a blueprint from a JSON body and returns the response object.
 func BlueprintCreateValue(credName string, opts Opts, bodyJSON []byte, logger *slog.Logger) (map[string]interface{}, error) {
-	if err := requirePlatformCred(credName); err != nil {
+	if err := requirePlatformMutate(credName); err != nil {
 		return nil, err
 	}
 	if len(bodyJSON) == 0 {
@@ -171,7 +187,7 @@ func BlueprintCreate(credName string, opts Opts, bodyJSON []byte, logger *slog.L
 
 // BlueprintSetValue PATCHes a blueprint (merge-patch+json).
 func BlueprintSetValue(credName, blueprintID string, opts Opts, bodyJSON []byte, logger *slog.Logger) error {
-	if err := requirePlatformCred(credName); err != nil {
+	if err := requirePlatformMutate(credName); err != nil {
 		return err
 	}
 	if strings.TrimSpace(blueprintID) == "" {
@@ -214,7 +230,7 @@ func BlueprintSet(credName, blueprintID string, opts Opts, bodyJSON []byte, logg
 
 // BlueprintDeleteValue deletes a blueprint.
 func BlueprintDeleteValue(credName, blueprintID string, opts Opts, logger *slog.Logger) error {
-	if err := requirePlatformCred(credName); err != nil {
+	if err := requirePlatformMutate(credName); err != nil {
 		return err
 	}
 	if strings.TrimSpace(blueprintID) == "" {
@@ -234,7 +250,7 @@ func BlueprintDelete(credName, blueprintID string, opts Opts, logger *slog.Logge
 }
 
 func blueprintPostAction(credName, blueprintID, action string, opts Opts, logger *slog.Logger) error {
-	if err := requirePlatformCred(credName); err != nil {
+	if err := requirePlatformMutate(credName); err != nil {
 		return err
 	}
 	if strings.TrimSpace(blueprintID) == "" {

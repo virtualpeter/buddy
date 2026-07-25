@@ -44,75 +44,62 @@ Examples:
   buddy --user dev auth refresh --token=eyJhbGciOiJIUzI1NiJ9...
 `
 
-const helpCred = `buddy cred - Manage credentials and their secrets
+const helpCred = `buddy cred - Manage tenants, auths, and secrets
+
+Config is split into tenants (Jamf host / platform tenantId) and auths (secret-bearing
+principals linked to one or more tenants). Global --tenant selects a tenant (auto-picks
+auth); --user / --auth pins a specific auth. Default pointer is a tenant (cred use).
 
 Usage:
   buddy cred <subcommand> [args...]
 
 Subcommands:
-  list                           List all credentials (name, URL, auth type, region, tenant)
-  get <name>                     Show one credential's details (secrets redacted)
-  get secret <name>              Show where a credential's secrets are stored (values hidden)
-  set <name> [args...]           Add or replace a credential (upsert)
-  set secret <name> [args...]    Store password / client secret in the secure store
-  delete <name>                  Remove a credential
-  delete secret <name> [args...] Remove stored secrets from the secure store
-  use [name]                     Show the default credential, or set it
-  store                          Show the active secret backend and location
-  migrate [name]                 Move inline config.yaml secrets into the secure store (confirms each)
+  list                              List tenants and linked auths
+  get tenant <name>                 Show tenant details
+  get auth <name>                   Show auth details (secrets redacted)
+  get secret <auth>                 Show where secrets are stored (values hidden)
+  set tenant <name> [args...]       Add or update a tenant
+  set auth <name> [args...]         Add or update an auth (link to tenants)
+  set secret <auth> [args...]       Store password / client secret in the secure store
+  delete tenant|auth|secret <name>  Remove a tenant, auth, or stored secrets
+  use [tenant]                      Show or set the default tenant
+  store                             Show the active secret backend
+  migrate [auth]                    Move inline config.yaml secrets into the secure store
 
-Arguments:
-  <name>                         Credential name (first positional for get/set/delete/use)
+Flags for 'set tenant':
+  --url=<url>                       Jamf Pro instance URL (and/or platform gateway URL)
+  --region=<region>                 Platform API Gateway region (us|eu|apac|…)
+  --tenant-id=<tenant-id>           Platform tenant id (with region)
 
-Flags for 'set':
-  --url=<url>                    Jamf Pro instance or gateway URL (required unless --region)
-  --region=<region>              Platform API Gateway region (us|eu|apac|…); implies oauth + gateway
-  --type=command|basic|oauth     Auth type (required unless --region, which defaults to oauth)
-  --run=<cmd>                    Command to run; stdout is used as the Bearer token (type: command)
-  --username=<username>          Username (type: basic)
-  --password=<password>          Password inline in config (type: basic; dev/test)
-  --client-id=<client-id>        OAuth client ID (type: oauth)
-  --client-secret=<secret>       OAuth client secret inline in config (type: oauth; dev/test)
-  --tenant-id=<tenant-id>        Platform tenant id (required with --region or a gateway --url)
-  --name=<name>                  Credential name (alternative to the positional)
+Flags for 'set auth':
+  --type=command|basic|oauth        Auth type (required)
+  --tenants=<a,b>                   Comma-separated tenant names this auth may use (required)
+  --access=full|readonly            Default full; readonly preferred for reads
+  --surface=any|platform|instance   Default any; platform requires oauth
+  --run=<cmd>                       Command auth
+  --username=<user>                 Basic auth
+  --password=<password>             Basic password inline (dev/test)
+  --client-id=<id>                  OAuth client id
+  --client-secret=<secret>          OAuth secret inline (dev/test)
 
 Flags for 'set secret':
-  --password[=value]             Store basic-auth password (no-echo prompt if value omitted)
-  --client-secret[=value]        Store OAuth client secret (no-echo prompt if value omitted)
-  --secret-from-stdin            Read the secret value from stdin
-  When neither flag is given, buddy prompts for the secret matching the credential's auth type.
-
-Flags for 'delete secret':
-  --password                     Delete stored password only
-  --client-secret                Delete stored client secret only
+  --password[=value]                Store basic-auth password (no-echo prompt if omitted)
+  --client-secret[=value]           Store OAuth client secret
+  --secret-from-stdin               Read the secret value from stdin
 
 Notes:
-  Flags accept --flag=value or --flag value. 'set' takes the name as the first positional.
-  Secrets are stored outside config.yaml in a secure store: macOS Keychain, or
-  ~/.config/buddy/secrets/ on Linux (override with BUDDY_SECRET_STORE=file|pass|keychain).
-  After 'cred set' for a basic/oauth credential, buddy offers to store the secret immediately
-  (no echo). Inline --password / --client-secret still work for dev/test; 'cred migrate' moves
-  them into the secure store. Never commit secrets.
-  Platform credentials: prefer --region=us --tenant-id=<tenant-id> --client-id=<client-id> (url is
-  built as https://{region}.apigw.jamf.com). Pass --url only to override (e.g. a proxy). Gateway
-  mode is oauth-only; tenantId is required.
+  A platform clientId may list multiple tenants under --tenants.
+  Old credentials: configs migrate automatically on load to tenants:/auths: (breaking change).
+  Secrets are keyed by auth name in the platform store.
 
 Examples:
-  buddy cred list
-  buddy cred get default
-  buddy cred set sandbox --url=https://example-sandbox.jamfcloud.com --type=oauth --client-id=abc
-  buddy cred set gateway --region=us --tenant-id=e77c1408-10c8-4007-b177-abc9157fbcaa --client-id=abc
-  buddy cred set gateway --region=us --url=https://proxy.example.com --tenant-id=e77c1408-10c8-4007-b177-abc9157fbcaa --client-id=abc
-  buddy cred set secret sandbox --client-secret
-  buddy cred set staging --url=https://example-staging.jamfcloud.com --type=basic --username=admin
-  buddy cred set secret staging --password
-  echo 'my-secret' | buddy cred set secret sandbox --client-secret --secret-from-stdin
-  buddy cred get secret sandbox
-  buddy cred delete secret sandbox --client-secret
-  buddy cred migrate
-  buddy cred store
-  buddy cred use dev
-  buddy cred delete staging
+  buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=apac --tenant-id=…
+  buddy cred set auth platform-ro --type=oauth --client-id=… --tenants=sandbox,prod --access=readonly --surface=platform
+  buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox --surface=instance
+  buddy cred set secret platform-ro --client-secret
+  buddy cred use sandbox
+  buddy --tenant=sandbox policy list
+  buddy --user=sandbox-admin policy set …
 `
 
 const helpPolicy = `buddy policy - Manage Jamf policies

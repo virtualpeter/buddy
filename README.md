@@ -44,50 +44,44 @@ make help     # show all targets
 Config file: `~/.config/buddy/config.yaml`
 
 ```yaml
-cred: default
+tenant: sandbox                    # default tenant
 
-credentials:
-  default:
-    url: https://your-instance.jamfcloud.com
-    auth:
-      type: oauth
-      clientId: your_client_id
-      # clientSecret stored via: buddy cred set secret default --client-secret
-
-  # Optional: Jamf Platform API Gateway (Pro JSON + Blueprints; Classic not yet usable —
-  # Jamf Account integrations do not expose Classic/proclassic permissions yet)
-  gateway:
-    region: us
+tenants:
+  sandbox:
+    url: https://your-instance.jamfcloud.com   # instance (Pro/Classic)
+    region: us                                  # optional Platform gateway
     tenantId: e77c1408-10c8-4007-b177-abc9157fbcaa
-    auth:
-      type: oauth
-      clientId: your_integration_client_id
+
+auths:
+  sandbox-admin:
+    type: oauth
+    clientId: your_client_id
+    tenants: [sandbox]
+    # clientSecret: buddy cred set secret sandbox-admin --client-secret
+  sandbox-platform-ro:
+    type: oauth
+    clientId: your_integration_client_id
+    tenants: [sandbox]                # a clientId may list multiple tenants
+    access: readonly
+    surface: platform
 ```
 
-**Credential storage:** Config holds URL and/or `region` (Platform API Gateway), optional `tenantId`, auth type, username, and client ID. Passwords and OAuth client secrets can stay inline for **dev/test**, or be stored outside the file:
+**Storage:** Tenants hold host identity; auths hold type/username/clientId and link to tenants. Passwords and OAuth client secrets can stay inline for **dev/test**, or be stored outside the file (keyed by **auth name**):
 
 | Platform | Default store | Override |
 |----------|---------------|----------|
 | macOS | Keychain (service `buddy`) | `BUDDY_SECRET_STORE=keychain` |
-| Linux | `~/.config/buddy/secrets/<name>.json` (mode 0600) | `BUDDY_SECRET_STORE=file` or `pass` |
+| Linux | `~/.config/buddy/secrets/<auth>.json` (mode 0600) | `BUDDY_SECRET_STORE=file` or `pass` |
 
 ```sh
-buddy cred set sandbox --url=https://example.jamfcloud.com --type=oauth --client-id=abc
-buddy cred set gateway --region=us --tenant-id=e77c1408-10c8-4007-b177-abc9157fbcaa --client-id=abc
-buddy cred set secret sandbox --client-secret
+buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=us --tenant-id=…
+buddy cred set auth sandbox-admin --type=oauth --client-id=abc --tenants=sandbox
+buddy cred set secret sandbox-admin --client-secret
+buddy cred use sandbox
 buddy cred store
 ```
 
-Inline `password` / `clientSecret` in YAML still works; move them into the secure store with `buddy cred migrate`. `buddy setup configure-oauth` stores the client secret in the platform store automatically. Set `BUDDY_SECRET_STORE=pass` on Linux to use [pass](https://www.passwordstore.org/) (`buddy/<cred>/password`, `buddy/<cred>/client-secret`).
-
-| Field         | Description                              | Default     |
-|---------------|------------------------------------------|-------------|
-| `cred`        | Active credential name                   | `default`   |
-| `credentials` | Map of named credentials (`url` and/or `region`, auth; optional `tenantId` for Platform API Gateway) | — |
-
-Override the active credential per-invocation with `--user <name>` (`--cred` is a deprecated alias).
-
-Each credential specifies its own URL (or Platform `region`) and authentication method (`command`, `basic`, or `oauth`). Use `buddy cred help` to manage credentials, and `buddy auth test` to verify a credential works. For `basic` (username/password), buddy exchanges credentials for a Bearer token via Jamf's `/api/v1/auth/token` so API calls succeed. Credentials with `region`/`tenantId` (or a gateway URL) target the Platform API Gateway (OAuth only; token via `/auth/token`). Pro JSON and Blueprints work through the gateway; Classic (`/JSSResource`) is rewritten but not practically usable yet because Platform integrations lack Classic permissions.
+Legacy `credentials:` configs migrate automatically on load to `tenants:`/`auths:` (breaking change; old shape is not written back). Inline secrets: `buddy cred migrate`. Selection: `--tenant` (auto-pick auth by operation) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked.
 
 ### Setting up a role and client for buddy
 
@@ -119,7 +113,8 @@ buddy [flags] <command> <subcommand> [args...]
 |-----------------|---------------------------------|
 | `-y`            | Skip confirmation prompts       |
 | `-v, --verbose` | Verbose output (show payloads)  |
-| `--user <name>` | Credential/user name from config (`--cred` deprecated) |
+| `--tenant <name>` | Tenant from config (auto-picks auth) |
+| `--user <name>` | Pin an auth (`--auth` alias; `--cred` deprecated) |
 | `--script-trace` | Trace Starlark builtin calls in scripts and the shell |
 
 ### Policy Commands
