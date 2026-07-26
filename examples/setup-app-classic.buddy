@@ -1,0 +1,67 @@
+#!/usr/bin/env buddy
+# Example: Classic greenfield “new app” change batch (prefs + PPPC + cache/install).
+#
+# Usage:
+#   buddy examples/setup-app-classic.buddy              # plan only (default)
+#   buddy examples/setup-app-classic.buddy -- apply     # plan + apply (after approval)
+#   buddy -y examples/setup-app-classic.buddy -- apply  # apply without prompts
+#
+# Adjust app/version/package_pattern and FDA code requirement for your tenant.
+# Created profile/policy IDs appear only in Outcomes after apply.
+
+load("stdlib/app_setup.buddy", "setup_app_classic")
+
+def main():
+    mode = "plan"
+    if len(args) > 0 and args[0] in ("apply", "run"):
+        mode = "apply"
+
+    app = "example"
+    version = "1.0.0"
+
+    prefs = prefs_payload(
+        domain = "com.example.app",
+        settings = {"ExampleKey": True},
+    )
+    if not prefs["ok"]:
+        fail(prefs["error"])
+
+    fda = pppc_fda(
+        bundle_id = "com.example.app",
+        code_requirement = 'identifier "com.example.app" and anchor apple generic',
+        comment = "Full Disk Access for Example",
+    )
+    if not fda["ok"]:
+        fail(fda["error"])
+
+    change = change_batch(
+        title = "Example app Classic greenfield setup",
+        summary = """Create prefs + PPPC profiles, cache and install policies for Example 1.0.0.
+Optional Self Service omitted; install trigger is install-example-next.""",
+        risk = "medium",
+        window = "sandbox / lab first",
+    )
+
+    steps = setup_app_classic(
+        app = app,
+        version = version,
+        prefs_content = [prefs["value"]],
+        pppc_services = {
+            "SystemPolicyAllFiles": [fda["value"]],
+        },
+        package_pattern = "*example*1.0.0*",
+        create_ss = False,
+        scope_all = True,
+    )
+
+    planned = plan_change(change = change, steps = steps)
+    if not planned["ok"]:
+        fail(planned["error"])
+
+    if mode != "apply":
+        print("Plan only. Re-run with: buddy examples/setup-app-classic.buddy -- apply")
+        return
+
+    r = run_change(change = change, steps = steps, planned = planned["value"])
+    if not r["ok"]:
+        fail(r["error"])

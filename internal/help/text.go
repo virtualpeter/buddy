@@ -227,9 +227,11 @@ STDLIB
     if not r["ok"]:
       fail(r["error"])
 
-  Modules compose the builtins below and return the same {"ok","value","error"} dicts.
+  Modules compose the builtins below and return the same {"ok","value","error"} dicts
+  (except setup_app_classic, which returns a list of step dicts for plan_change).
   Browse modules and builtins in the notebook Libraries drawer (buddy serve → /notebook).
-  Current modules: stdlib/release.buddy (bump_release).
+  Current modules: stdlib/release.buddy (bump_release), stdlib/app_setup.buddy
+  (setup_app_classic).
 
 POLICY
   policies(keywords, exclude_ids?, force_refresh?, ids?=False, cred?)
@@ -250,11 +252,23 @@ POLICY
                 force_view?, feature?, self_service?, cred?)
       → None
   policy_set_install(policy_id, version, cred?) → None
-  policy_set_package(app, version, policy_id?, trigger?, package_pattern?, cred?) → None
+  policy_set_package(app, version, policy_id?, trigger?, package_pattern?,
+                     disable_source?, keep_source?, cred?) → None
+      Params: prefer trigger= or policy_id= for the source Install/Cache policy;
+        omit both to use app-name heuristic (highest version). disable_source?/
+        keep_source?: optional bool overrides (mutually exclusive). Default:
+        disable source only when creating a same-trigger replacement.
   policy_set_scope_all(policy_id, cred?) → None
-  policy_clone(policy_id, version, cred?) → None
+  policy_clone(policy_id, version, keep_source?, cred?) → None
+      Params: keep_source?: bool — if True, leave source enabled (default disables).
   policy_create_ss(trigger, display_name, category?, scope_group_id?, script_id?, cred?)
       → value: int (new policy ID)
+  policy_create_package(app, version, action?, scope_all?, scope_group_ids?,
+                        category?, package_pattern?, cred?)
+      → value: dict {id, name, trigger}
+      Params: action?: "install" (default) or "cache". Defaults match CLI triggers:
+        install-<app>-next / cache-<app>-<version>. scope_all defaults true when
+        no scope_group_ids. package_pattern?: optional package name glob.
   policy_delete(policy_ids, cred?) → None
 
 GROUP
@@ -353,6 +367,11 @@ PROFILE
   profile(id=?) | profile(name=?, cred?)
       → value: XML str (id=) or {id, name} (name=)
   profile_xml(id, cred?) → value: str (raw profile XML)
+  profile_create(name, payloads_plist_str?, content?, category?,
+                 scope_all?, scope_group_ids?, redeploy_on_update?, cred?)
+      → value: int (new profile ID)
+      Params: name: str; pass payloads_plist_str and/or content (list of payload
+        dicts). scope_all defaults true when scope_group_ids omitted. Classic POST.
   profile_clone(profile_id, name, cred?) → value: dict
   profile_redeploy(profile_id) → None
   profile_get_payloads(profile_id) → value: str
@@ -399,6 +418,17 @@ PROFILE — component
   plist_normalise_dict(data_str)
       → value: str (bare <dict>…</dict>)
       Params: data_str: str (bare dict fragment or full plist).
+  pppc_fda(bundle_id, code_requirement, comment?)
+      → value: dict (SystemPolicyAllFiles service entry)
+      Params: bundle_id: str; code_requirement: str; comment?: str. Offline; no API.
+  pppc_payload(services, payload_identifier?, payload_uuid?, payload_display_name?)
+      → value: dict (com.apple.TCC.configuration-profile-policy payload)
+      Params: services: dict of service name → list of app entries (e.g. from
+        pppc_fda). Compose Accessibility etc. as additional service keys. Offline.
+  prefs_payload(domain, settings, payload_identifier?, payload_uuid?,
+                payload_display_name?)
+      → value: dict (preference-domain payload; PayloadType == domain)
+      Params: domain: str; settings: dict of preference keys. Offline.
 
 SCRIPT (Jamf Pro scripts)
   scripts(filter?, page?, page_size?, cred?)
@@ -592,12 +622,22 @@ FILE I/O (local filesystem)
 
 DECLARATIVE WORKFLOW (step constructors + executor)
   Build a list of steps then pass to run_workflow(). Each step_* returns a step dict.
+  run_workflow resolves set_package / clone_policy against Jamf before Confirm
+  (source id/name/trigger, package, modify-vs-create, disable yes/no + reason).
 
-  step_set_package(app, version, from_trigger, package_pattern?)
-      Params: app: str; version: str; from_trigger: str; package_pattern?: str. Returns: step dict.
+  For enterprise change records, prefer change_batch + plan_change + run_change
+  (human notes, markdown plan without predicted create IDs, outcomes after apply).
+
+  step_set_package(app, version, from_trigger, package_pattern?,
+                   disable_source?, keep_source?, note?)
+      Params: app: str; version: str; from_trigger: str (required source selector);
+        package_pattern?, disable_source?, keep_source?, note?: optional. Returns: step dict.
   step_clone_policy(from_trigger, version, app?, old_version?,
-                    package_pattern?, params?)
-      Params: from_trigger: str; version: str; app?, old_version?, package_pattern?, params?: optional. Returns: step dict.
+                    package_pattern?, params?, keep_source?, note?)
+      Params: from_trigger: str; version: str; app?, old_version?, package_pattern?,
+        params?, keep_source?, note?: optional. Returns: step dict.
+  step_note(note) → step dict (prose-only; no Jamf write)
+  step_with_note(step, note) → step dict (attach note to any step)
   step_set_ss(policy_id, version, group_ids?)
       Params: policy_id: int; version?: str; group_ids?: list of int. Returns: step dict.
   step_set_group_version(group_id, version)
@@ -620,6 +660,16 @@ DECLARATIVE WORKFLOW (step constructors + executor)
       Params: profile_id: int; domain: str; dict_file: str; redeploy?: bool. Returns: step dict.
   step_set_profile_xml(profile_id, xml_file, redeploy?)
       Params: profile_id: int; xml_file: str; redeploy?: bool. Returns: step dict.
+  step_create_package_policy(app, version, action?, scope_all?, scope_group_ids?,
+                             category?, package_pattern?, note?)
+      Params: app/version: str; action?: "install"|"cache". Plan resolves package;
+        created policy ID only in Outcomes. Returns: step dict.
+  step_create_profile(name, payloads_plist_str?, content?, category?,
+                      scope_all?, scope_group_ids?, redeploy_on_update?, note?)
+      Params: name: str; payloads_plist_str and/or content. Plan lists payload
+        domains (no new profile ID). Returns: step dict.
+  step_create_ss(trigger, display_name, category?, scope_group_id?, script_id?, note?)
+      Params: trigger: str (script parameter4); display_name: str. Returns: step dict.
   step_create_policy(template, version)
       Params: template: dict (from policy_template); version: str. Returns: step dict.
 
@@ -632,7 +682,24 @@ DECLARATIVE WORKFLOW (step constructors + executor)
 
   run_workflow(steps)
       → value: None on success; on failure returns {ok: False, error: str}
-      Params: steps: list of step dicts. Executes in order; stops on first failure.
+      Params: steps: list of step dicts. Resolves package/clone plans first, prints
+        a detailed plan, then one Proceed? confirm (skipped with -y). Executes in
+        order; stops on first failure.
+
+CHANGE BATCH (plan document + apply with outcomes)
+  change_batch(title, summary?, risk?, window?) → change dict
+  plan_change(change, steps)
+      → value: {markdown: str, fingerprints: list[str]}
+      Params: change: from change_batch; steps: list of step dicts.
+        Resolves against Jamf (no writes). Prints markdown. Created policy/profile
+        IDs are NOT predicted (unknown until apply). Pass the return value to
+        run_change as planned= for drift detection. See docs/change-batches.md for
+        version-bump vs Classic new-app setup (setup_app_classic).
+  run_change(change, steps, planned?)
+      → value: str (full markdown: plan + outcomes)
+      Params: planned?: dict from plan_change. Re-resolves; if planned fingerprints
+        differ, warns and confirms (warn+confirm). Then confirms apply, executes,
+        and appends Outcomes with created/updated policy and profile IDs.
 
 MISC
   auth(renew?=False, cred?)

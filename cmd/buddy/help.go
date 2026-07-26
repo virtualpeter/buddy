@@ -106,7 +106,7 @@ Examples:
   buddy cred set secret platform-ro --client-secret
   buddy cred use sandbox
   buddy cred use --mcp sandbox
-  buddy --tenant=sandbox policy list
+  buddy --tenant=sandbox policy find chrome
   buddy --user=sandbox-admin policy set …
 `
 
@@ -146,6 +146,11 @@ Flags for '--trigger' lookup:
   --trigger=<name>     Custom trigger name (also: --trigger <name>)
   -f, --force-refresh   Bypass local policy cache
 
+Notes:
+  --trigger looks up the policy whose custom trigger (trigger_other) matches
+  (with name heuristics as fallback). Prints the policy ID. Prefer this over
+  guessing IDs when scripting clone / set package.
+
 Examples:
   buddy policy get --trigger=install-chrome
   buddy policy get --trigger install-chrome -f
@@ -169,8 +174,25 @@ Usage:
   buddy policy set frequency <policy-id> <frequency>
   buddy policy set icon <policy-id> <image-file>
   buddy policy set install <policy-id> <version> [--param=4,5,6]
-  buddy policy set package <app> <version> [policy-id] [--trigger=<trigger>] [--package=<pattern>]
+  buddy policy set package <app> <version> [policy-id] [flags]
+        Flags: [--trigger=<trigger>] [--package=<pattern>]
+               [--disable-source|--keep-source]
   buddy policy set xml <policy-id>
+
+Notes:
+  Source policy for 'set package' (prefer explicit):
+    --trigger=<custom-trigger>  Resolve by custom trigger (recommended)
+    <policy-id>                 Use this Install/Cache policy directly
+    (neither)                   Heuristic: name contains <app>, single Install/Cache
+                                package, pick highest version (can be wrong)
+  Disable source (shown in confirm plan):
+    Default: disable only when creating a replacement that keeps the same
+             custom trigger (unversioned). Versioned trigger change leaves
+             the old policy enabled. Same version = in-place update (no disable).
+    --disable-source            Always disable the source after create
+    --keep-source               Never disable the source
+  New triggers when creating: install|cache-<app>-<version> if the source
+  trigger was versioned; otherwise the source trigger is reused (replacement).
 
 Examples:
   buddy policy set enable 42
@@ -181,7 +203,8 @@ Examples:
   buddy policy set trigger 42 install-chrome
   buddy policy set frequency 42 "Once per computer"
   buddy policy set install 42 121.0 --param=4,5
-  buddy policy set package chrome 121.0
+  buddy policy set package chrome 121.0 --trigger=install-chrome
+  buddy policy set package chrome 121.0 42 --keep-source
   buddy policy set xml 42 < policy.xml
 `
 
@@ -191,21 +214,39 @@ Usage:
   buddy policy create package <app> <version> [flags]
         Flags: [--action=install|cache] [--scope=all|<group-id>[,<group-id>...]]
                [--category=<name>] [--package=<pattern>]
-  buddy policy create ss <trigger> <display-name> [--category=<name>]
+  buddy policy create ss <trigger> <display-name> [--category=<name>] [--script-id=<id>]
+
+Notes:
+  create package invents triggers: install → install-<app>-next;
+  cache → cache-<app>-<version>.
+  create ss defaults to no script (--script-id omitted / 0). Pass --script-id
+  to attach a Jamf script (parameter4 = <trigger>). Scope is all computers.
 
 Examples:
   buddy policy create package chrome 121.0
   buddy policy create package chrome 121.0 --action=install --scope=all
   buddy policy create ss install-chrome "Install Chrome" --category="Mac Apps"
+  buddy policy create ss install-chrome "Install Chrome" --script-id=12
 `
 
 const helpPolicyClone = `buddy policy clone - Clone a policy with a new version
 
 Usage:
-  buddy policy clone <policy-id> <version> [--param=4,5,6] [--package=<pattern>]
+  buddy policy clone <policy-id> <version> [flags]
+  buddy policy clone --trigger=<trigger> <version> [flags]
+        Flags: [--param=4,5,6] [--package=<pattern>]
+               [--disable-source|--keep-source]
+
+Notes:
+  Source: <policy-id> or --trigger=<custom-trigger> (same lookup as
+  'policy get --trigger' / 'set package --trigger').
+  Default: disable the source after a successful create. Override with
+  --keep-source (or --disable-source to force disable). Confirm plan lists
+  source name/ID/trigger and the disable decision.
 
 Examples:
   buddy policy clone 42 121.0
+  buddy policy clone --trigger=install-chrome 121.0 --keep-source
   buddy policy clone 42 121.0 --param=4,5
   buddy policy clone 42 121.0 --package=Chrome
 `
@@ -216,13 +257,17 @@ Usage:
   buddy policy find <keyword> [keyword...] [--exclude-ids=1,2,3] [-f|--force-refresh]
 
 Arguments:
-  <keyword>             One or more keywords to match against policy names/triggers
+  <keyword>             Match policy names (all keywords required). Hyphenated
+                        forms of names are also tried. A single trigger-like
+                        keyword (e.g. install-app-next) also resolves via
+                        custom trigger lookup.
   --exclude-ids=1,2,3   Exclude specific policy IDs from results
   -f, --force-refresh   Bypass local cache and re-fetch from Jamf
 
 Examples:
   buddy policy find chrome
   buddy policy find chrome install
+  buddy policy find install-chrome-next
   buddy policy find chrome --exclude-ids=100,101 -f
 `
 

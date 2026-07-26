@@ -11,6 +11,8 @@ Includes a Starlark scripting engine for composing multi-step workflows.
 | [AGENTS.md](AGENTS.md) | Agent/contributor context: auth, secrets, token caching, meliorate integration |
 | [docs/index.md](docs/index.md) | Short index of the docs in this folder |
 | [docs/reference-manual.md](docs/reference-manual.md) | Full reference: config, CLI, scripting, builtins overview, API doc link |
+| [docs/change-batches.md](docs/change-batches.md) | Plan → approve → apply change-record workflows |
+| [docs/mcp.md](docs/mcp.md) | MCP server setup for AI hosts |
 | [docs/builtins-v3.md](docs/builtins-v3.md) | Starlark v3 plural/singular rename map (breaking) |
 | [docs/api-endpoints.md](docs/api-endpoints.md) | Jamf HTTP endpoints used by buddy |
 | [examples/](examples/) | Runnable `.buddy` examples and index |

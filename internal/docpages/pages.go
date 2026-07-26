@@ -142,8 +142,10 @@ var humanDocEntries = []struct {
 }{
 	{"docs/index", "Overview", "Start here", "index.md"},
 	{"docs/reference-manual", "Reference manual", "Guides", "reference-manual.md"},
+	{"docs/change-batches", "Change batches", "Guides", "change-batches.md"},
 	{"docs/api-endpoints", "API endpoints", "Guides", "api-endpoints.md"},
 	{"docs/mcp", "MCP for AI tools", "Guides", "mcp.md"},
+	{"docs/builtins-v3", "Builtins v3 rename map", "Guides", "builtins-v3.md"},
 }
 
 func loadHumanFromDisk(docsRoot string) ([]Page, error) {
@@ -162,12 +164,19 @@ func loadHumanFromDisk(docsRoot string) ([]Page, error) {
 	}
 	pages = append(pages, builtinsPage())
 	for _, p := range loadExamplesDir(filepath.Join(repoRoot, "examples")) {
-		if strings.HasSuffix(p.ID, ".buddy") || strings.HasSuffix(p.ID, ".star") {
+		if humanExampleID(p.ID) {
 			p.Section = "Examples"
 			pages = append(pages, p)
 		}
 	}
 	return pages, nil
+}
+
+func humanExampleID(id string) bool {
+	return strings.HasSuffix(id, ".buddy") ||
+		strings.HasSuffix(id, ".star") ||
+		strings.HasSuffix(id, ".md") ||
+		strings.HasSuffix(id, ".json")
 }
 
 func loadHumanFromEmbedded() ([]Page, error) {
@@ -187,7 +196,7 @@ func loadHumanFromEmbedded() ([]Page, error) {
 	ents, err := fs.ReadDir(docfs.Content, "content/examples")
 	if err == nil {
 		for _, ent := range ents {
-			if ent.IsDir() || (!strings.HasSuffix(ent.Name(), ".buddy") && !strings.HasSuffix(ent.Name(), ".star")) {
+			if ent.IsDir() || !humanExampleID("examples/"+ent.Name()) {
 				continue
 			}
 			name := ent.Name()
@@ -220,6 +229,7 @@ func loadAgentFromDisk(docsRoot string) ([]Page, error) {
 	entries := []struct{ id, title, path string }{
 		{"docs/index", "Documentation index", filepath.Join(docsRoot, "index.md")},
 		{"docs/reference-manual", "Reference manual", filepath.Join(docsRoot, "reference-manual.md")},
+		{"docs/change-batches", "Change batches", filepath.Join(docsRoot, "change-batches.md")},
 		{"docs/api-endpoints", "API endpoints", filepath.Join(docsRoot, "api-endpoints.md")},
 		{"docs/builtins-v3", "Builtins v3 rename map", filepath.Join(docsRoot, "builtins-v3.md")},
 		{"docs/mcp", "MCP server", filepath.Join(docsRoot, "mcp.md")},
@@ -255,6 +265,7 @@ func loadAgentFromEmbedded() ([]Page, error) {
 	entries := []struct{ id, title, path string }{
 		{"docs/index", "Documentation index", "content/docs/index.md"},
 		{"docs/reference-manual", "Reference manual", "content/docs/reference-manual.md"},
+		{"docs/change-batches", "Change batches", "content/docs/change-batches.md"},
 		{"docs/api-endpoints", "API endpoints", "content/docs/api-endpoints.md"},
 		{"docs/builtins-v3", "Builtins v3 rename map", "content/docs/builtins-v3.md"},
 		{"docs/mcp", "MCP server", "content/docs/mcp.md"},
@@ -392,7 +403,11 @@ func examplePage(id, name, body, source string) Page {
 		md = "```json\n" + body + "\n```"
 		title = "Example: " + name
 	case strings.HasSuffix(name, ".md"):
-		title = "Example: " + name
+		if name == "README.md" {
+			title = "Examples index"
+		} else {
+			title = "Example: " + strings.TrimSuffix(name, ".md")
+		}
 	}
 	return Page{ID: id, Title: title, Markdown: md, Source: source}
 }

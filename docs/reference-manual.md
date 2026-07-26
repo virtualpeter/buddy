@@ -17,9 +17,10 @@ This manual describes how the pieces fit together. For behavior that must stay i
 7. [MCP server](#mcp-server)
 8. [Starlark shell and scripts](#starlark-shell-and-scripts)
 9. [Built-in functions](#built-in-functions)
-10. [HTTP API usage](#http-api-usage)
-11. [Examples](#examples)
-12. [Environment variables](#environment-variables)
+10. [Change batches](#change-batches)
+11. [HTTP API usage](#http-api-usage)
+12. [Examples](#examples)
+13. [Environment variables](#environment-variables)
 
 ---
 
@@ -241,7 +242,7 @@ Always check `ok` before using `value`. Helpers like `fail()` (if exposed) or ex
 
 ## Built-in functions
 
-Buddy registers many functions for policies, groups, profiles, packages, scripts, computers, MDM, roles, clients, JSON/plist/XML transforms (`xml_escape` / `xml_unescape` / `xml_sort`, payload builders), RSQL filter builders (`rsql_*`), local file I/O, and a **declarative workflow** layer (`step_*` + `run_workflow`).
+Buddy registers many functions for policies, groups, profiles, packages, scripts, computers, MDM, roles, clients, JSON/plist/XML transforms (`xml_escape` / `xml_unescape` / `xml_sort`, payload builders), RSQL filter builders (`rsql_*`), local file I/O, a **declarative workflow** layer (`step_*` + `run_workflow`), and **change batches** (`change_batch` / `plan_change` / `run_change`) for approval-oriented multi-step changes.
 
 **Canonical reference** (always matches your installed `buddy` binary):
 
@@ -261,6 +262,15 @@ That output lists every builtin with parameter names, types, and return shapes. 
 
 ---
 
+## Change batches
+
+For CAB / change-record workflows (author a batch with human notes → resolve a markdown plan with no writes → apply after approval and record outcomes), see:
+
+- [**Change batches howto**](change-batches.md)
+- Example: [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy)
+
+---
+
 ## HTTP API usage
 
 Which Jamf Pro URLs buddy calls (Classic XML vs JSON APIs, pagination, notes) is documented separately:
@@ -276,8 +286,8 @@ Use it when correlating buddy behavior with Jamf’s API or troubleshooting perm
 Runnable Star scripts and a short index live under [**examples/**](../examples/README.md):
 
 - [`examples/bump-release.buddy`](../examples/bump-release.buddy) — minimal pattern: `policy(trigger=…)`, then updates (edit triggers/IDs for your tenant).
+- [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy) — `plan_change` / `run_change` for an approval-oriented batch ([howto](change-batches.md)).
 - [`docs/builtins-v3.md`](builtins-v3.md) — Starlark plural/singular rename map (v3).
-- For broad integration testing against a non-production Jamf instance, see [`scripts/integration_test.buddy`](../scripts/integration_test.buddy) (creates and tears down test resources; read before running).
 
 ---
 
@@ -296,3 +306,4 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 
 - [README](../README.md) — quick start, configuration table, command cheat sheet
 - [`docs/index.md`](index.md) — index of documentation files
+- [Change batches howto](change-batches.md) — plan / approve / apply for change records

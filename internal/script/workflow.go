@@ -1,9 +1,7 @@
 package script
 
 import (
-	"bufio"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -27,17 +25,21 @@ const (
 	stepTypeSetScopeAll     = "set_scope_all"
 	stepTypeDeletePolicy    = "delete_policy"
 	stepTypeCreatePolicy    = "create_policy"
-	stepTypeSetProfilePayload = "set_profile_payload"
-	stepTypeSetProfileXML     = "set_profile_xml"
+	stepTypeSetProfilePayload   = "set_profile_payload"
+	stepTypeSetProfileXML       = "set_profile_xml"
+	stepTypeCreatePackagePolicy = "create_package_policy"
+	stepTypeCreateProfile       = "create_profile"
+	stepTypeCreateSS            = "create_ss"
+	stepTypeNote                = "note"
 )
 
 // Step is a validated, typed workflow step descriptor.
 type Step struct {
 	Type string
-	// set_package
+	// set_package / create_package_policy
 	App         string
 	FromTrigger string
-	// set_package, clone_policy, set_ss, set_group_version, set_install
+	// set_package, clone_policy, set_ss, set_group_version, set_install, create_package_policy
 	Version string
 	// set_ss, set_install, enable_policy, disable_policy, set_trigger, set_scope, set_scope_all
 	PolicyID int
@@ -49,13 +51,15 @@ type Step struct {
 	Params []int
 	// clone_policy (package-carrying policies)
 	OldVersion string
-	// set_package, clone_policy
+	// set_package, clone_policy, create_package_policy
 	PackagePattern string
-	// set_trigger
+	// set_package / clone_policy disable-source control
+	DisableMode buddy.DisableSourceMode
+	// set_trigger / create_ss
 	Trigger string
 	// delete_policy
 	PolicyIDs []int
-	// create_policy (template-based)
+	// create_policy (template-based) / create_ss display name / create_profile name
 	PolicyName        string
 	PolicyTrigger     string
 	ScriptID          int
@@ -67,12 +71,34 @@ type Step struct {
 	ScopeAll          bool
 	Recon             bool
 	DistributionPoint string
-	// set_profile_payload / set_profile_xml
+	// create_package_policy: "install" or "cache"
+	Action string
+	// create_ss: optional single scope group
+	ScopeGroupID int
+	// create_ss
+	DisplayName string
+	// set_profile_payload / set_profile_xml / create_profile
 	ProfileID int
 	Domain    string
 	DictFile  string
 	XMLFile   string
 	Redeploy  bool
+	// create_profile
+	PayloadsPlist    string
+	PayloadDomains   []string // plan-time summary (optional)
+	RedeployOnUpdate string
+	// Human-readable note for change records (any step, including step_note)
+	Note string
+}
+
+// resolvedStep pairs a validated step with a pre-resolved plan (when applicable).
+type resolvedStep struct {
+	step           *Step
+	planLines      []string
+	pkgPlan        *buddy.PolicyPackagePlan
+	clonePlan      *buddy.PolicyClonePlan
+	createPkgPlan  *buddy.PolicyCreatePackagePlan
+	createProfile  *buddy.ProfileCreateSpec // filled at resolve for create_profile
 }
 
 // planLine returns a human-readable description of the step for the plan output.
@@ -112,6 +138,18 @@ func (s *Step) planLine() string {
 		return fmt.Sprintf("delete_policy      ids %v", s.PolicyIDs)
 	case stepTypeCreatePolicy:
 		return fmt.Sprintf("create_policy      %q  trigger=%s", s.PolicyName, s.PolicyTrigger)
+	case stepTypeCreatePackagePolicy:
+		return fmt.Sprintf("create_package_policy  %s %s  action=%s", s.App, s.Version, s.Action)
+	case stepTypeCreateProfile:
+		domains := strings.Join(s.PayloadDomains, ",")
+		if domains == "" {
+			domains = "?"
+		}
+		return fmt.Sprintf("create_profile      %q  domains=%s", s.PolicyName, domains)
+	case stepTypeCreateSS:
+		return fmt.Sprintf("create_ss          %q  trigger=%s", s.DisplayName, s.Trigger)
+	case stepTypeNote:
+		return fmt.Sprintf("note               %s", s.Note)
 	case stepTypeSetProfilePayload:
 		redeployStr := ""
 		if s.Redeploy {
@@ -228,8 +266,16 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 	}
 
 	s := &Step{Type: typVal}
+	if s.Note, _, err = getStr("note"); err != nil {
+		return nil, err
+	}
 
 	switch typVal {
+	case stepTypeNote:
+		if s.Note == "" {
+			return nil, fmt.Errorf("step_note requires note text")
+		}
+
 	case stepTypeSetPackage:
 		if s.App, _, err = getStr("app"); err != nil {
 			return nil, err
@@ -244,6 +290,10 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 			return nil, fmt.Errorf("step_set_package requires app, version, from_trigger")
 		}
 		s.PackagePattern, _, _ = getStr("package_pattern")
+		s.DisableMode, err = disableModeFromStepDict(d, true)
+		if err != nil {
+			return nil, err
+		}
 
 	case stepTypeClonePolicy:
 		if s.FromTrigger, _, err = getStr("from_trigger"); err != nil {
@@ -268,6 +318,10 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		}
 		if len(s.Params) == 0 {
 			s.Params = []int{4, 5, 6}
+		}
+		s.DisableMode, err = disableModeFromStepDict(d, false)
+		if err != nil {
+			return nil, err
 		}
 
 	case stepTypeSetSS:
@@ -463,6 +517,92 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 			return nil, err
 		}
 
+	case stepTypeCreatePackagePolicy:
+		if s.App, _, err = getStr("app"); err != nil {
+			return nil, err
+		}
+		if s.Version, _, err = getStr("version"); err != nil {
+			return nil, err
+		}
+		if s.Action, _, err = getStr("action"); err != nil {
+			return nil, err
+		}
+		if s.Action == "" {
+			s.Action = "install"
+		}
+		if s.App == "" || s.Version == "" {
+			return nil, fmt.Errorf("step_create_package_policy requires app and version")
+		}
+		if s.PackagePattern, _, err = getStr("package_pattern"); err != nil {
+			return nil, err
+		}
+		if s.Category, _, err = getStr("category"); err != nil {
+			return nil, err
+		}
+		if s.ScopeGroupIDs, _, err = getIntList("scope_group_ids"); err != nil {
+			return nil, err
+		}
+		if scopeAll, found, err := getBool("scope_all"); err != nil {
+			return nil, err
+		} else if found {
+			s.ScopeAll = scopeAll
+		} else {
+			s.ScopeAll = len(s.ScopeGroupIDs) == 0
+		}
+
+	case stepTypeCreateProfile:
+		if s.PolicyName, _, err = getStr("name"); err != nil {
+			return nil, err
+		}
+		if s.PolicyName == "" {
+			return nil, fmt.Errorf("step_create_profile requires name")
+		}
+		if s.PayloadsPlist, _, err = getStr("payloads_plist_str"); err != nil {
+			return nil, err
+		}
+		if s.Category, _, err = getStr("category"); err != nil {
+			return nil, err
+		}
+		if s.RedeployOnUpdate, _, err = getStr("redeploy_on_update"); err != nil {
+			return nil, err
+		}
+		if s.ScopeGroupIDs, _, err = getIntList("scope_group_ids"); err != nil {
+			return nil, err
+		}
+		if scopeAll, found, err := getBool("scope_all"); err != nil {
+			return nil, err
+		} else if found {
+			s.ScopeAll = scopeAll
+		} else {
+			s.ScopeAll = len(s.ScopeGroupIDs) == 0
+		}
+		if s.PayloadsPlist == "" {
+			return nil, fmt.Errorf("step_create_profile requires payloads_plist_str")
+		}
+		if ids, idErr := buddy.PlistPayloadIdentifiers(s.PayloadsPlist); idErr == nil {
+			s.PayloadDomains = ids
+		}
+
+	case stepTypeCreateSS:
+		if s.Trigger, _, err = getStr("trigger"); err != nil {
+			return nil, err
+		}
+		if s.DisplayName, _, err = getStr("display_name"); err != nil {
+			return nil, err
+		}
+		if s.Trigger == "" || s.DisplayName == "" {
+			return nil, fmt.Errorf("step_create_ss requires trigger and display_name")
+		}
+		if s.Category, _, err = getStr("category"); err != nil {
+			return nil, err
+		}
+		if s.ScopeGroupID, _, err = getInt("scope_group_id"); err != nil {
+			return nil, err
+		}
+		if s.ScriptID, _, err = getInt("script_id"); err != nil {
+			return nil, err
+		}
+
 	default:
 		return nil, fmt.Errorf("unknown workflow step type %q", typVal)
 	}
@@ -470,9 +610,36 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 	return s, nil
 }
 
-// runWorkflow validates all steps, prints a plan, optionally confirms, then executes.
+// disableModeFromStepDict reads disable_source / keep_source from a step dict.
+// When allowDisableSource is false (clone), only keep_source is accepted.
+func disableModeFromStepDict(d *starlark.Dict, allowDisableSource bool) (buddy.DisableSourceMode, error) {
+	getOptBool := func(key string) (starlark.Value, error) {
+		val, found, err := d.Get(starlark.String(key))
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return starlark.None, nil
+		}
+		return val, nil
+	}
+	keep, err := getOptBool("keep_source")
+	if err != nil {
+		return buddy.DisableSourceAuto, err
+	}
+	if !allowDisableSource {
+		return disableModeFromKeepSource(keep)
+	}
+	disable, err := getOptBool("disable_source")
+	if err != nil {
+		return buddy.DisableSourceAuto, err
+	}
+	return disableModeFromPackageKwargs(disable, keep)
+}
+
+// runWorkflow validates all steps, resolves package/clone plans, prints a plan,
+// optionally confirms, then executes (reusing resolved plans when present).
 func runWorkflow(credName string, stepVals []starlark.Value, logger *slog.Logger) error {
-	// Validate all steps upfront before executing any.
 	steps := make([]*Step, 0, len(stepVals))
 	for i, v := range stepVals {
 		s, err := stepFromStarlark(v)
@@ -485,56 +652,159 @@ func runWorkflow(credName string, stepVals []starlark.Value, logger *slog.Logger
 		return fmt.Errorf("run_workflow: no steps provided")
 	}
 
-	// Print plan.
-	fmt.Println("Workflow plan:")
+	opts := buddy.Opts{SkipConfirm: true, Verbose: scriptOpts.Verbose}
+
+	resolved := make([]resolvedStep, 0, len(steps))
 	for i, s := range steps {
-		fmt.Printf("  %d. %s\n", i+1, s.planLine())
+		rs, err := resolveWorkflowStep(credName, s, opts, logger)
+		if err != nil {
+			return fmt.Errorf("step %d (%s): %w", i+1, s.Type, err)
+		}
+		resolved = append(resolved, rs)
+	}
+
+	fmt.Println("Workflow plan:")
+	for i, rs := range resolved {
+		if len(rs.planLines) == 0 {
+			fmt.Printf("  %d. %s\n", i+1, rs.step.planLine())
+			continue
+		}
+		fmt.Printf("  %d. %s\n", i+1, rs.planLines[0])
+		for _, line := range rs.planLines[1:] {
+			fmt.Printf("      %s\n", line)
+		}
 	}
 	fmt.Println()
 
-	// Confirm unless the user passed -y to buddy.
 	if !runnerOpts.SkipConfirm {
-		fmt.Print("Proceed? [y/N]: ")
-		reader := bufio.NewReader(os.Stdin)
-		line, err := reader.ReadString('\n')
-		if err != nil && err != io.EOF {
-			return fmt.Errorf("read confirmation: %w", err)
-		}
-		line = strings.TrimSpace(strings.ToLower(line))
-		if line != "y" && line != "yes" {
-			fmt.Println("Aborted.")
+		if !buddy.ConfirmPrompt("", logger) {
 			return nil
 		}
 	}
 
-	opts := buddy.Opts{SkipConfirm: true, Verbose: scriptOpts.Verbose}
-
-	// Execute steps in order.
-	for i, s := range steps {
-		if err := executeStep(credName, s, opts, logger); err != nil {
-			return fmt.Errorf("step %d (%s): %w", i+1, s.Type, err)
+	for i, rs := range resolved {
+		if err := executeResolvedStep(credName, rs, opts, logger); err != nil {
+			return fmt.Errorf("step %d (%s): %w", i+1, rs.step.Type, err)
 		}
 	}
 	return nil
 }
 
+func resolveWorkflowStep(credName string, s *Step, opts buddy.Opts, logger *slog.Logger) (resolvedStep, error) {
+	rs := resolvedStep{step: s}
+	switch s.Type {
+	case stepTypeSetPackage:
+		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, false, logger)
+		if err != nil {
+			return rs, fmt.Errorf("find source policy %q: %w", s.FromTrigger, err)
+		}
+		plan, err := buddy.PlanPolicyPackage(credName, opts, s.App, s.Version, srcID, "", s.PackagePattern, s.DisableMode, logger)
+		if err != nil {
+			return rs, err
+		}
+		rs.pkgPlan = plan
+		rs.planLines = append([]string{fmt.Sprintf("set_package        %s %s", s.App, s.Version)}, plan.Actions...)
+		return rs, nil
+	case stepTypeClonePolicy:
+		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, false, logger)
+		if err != nil {
+			return rs, fmt.Errorf("find source policy %q: %w", s.FromTrigger, err)
+		}
+		plan, err := buddy.PlanPolicyClone(credName, opts, srcID, s.App, s.OldVersion, s.Version, s.PackagePattern, s.Params, s.DisableMode, logger)
+		if err != nil {
+			return rs, err
+		}
+		rs.clonePlan = plan
+		rs.planLines = append([]string{fmt.Sprintf("clone_policy       %s -> %s", s.FromTrigger, s.Version)}, plan.Actions...)
+		return rs, nil
+	case stepTypeCreatePackagePolicy:
+		plan, err := buddy.PlanPolicyCreatePackage(credName, opts, s.App, s.Version, s.Action, s.ScopeAll, s.ScopeGroupIDs, s.Category, s.PackagePattern, logger)
+		if err != nil {
+			return rs, err
+		}
+		rs.createPkgPlan = plan
+		rs.planLines = append([]string{s.planLine()}, plan.Actions...)
+		return rs, nil
+	case stepTypeCreateProfile:
+		spec := &buddy.ProfileCreateSpec{
+			Name:             s.PolicyName,
+			PayloadsPlist:    s.PayloadsPlist,
+			Category:         s.Category,
+			ScopeAll:         s.ScopeAll,
+			ScopeGroupIDs:    s.ScopeGroupIDs,
+			RedeployOnUpdate: s.RedeployOnUpdate,
+		}
+		rs.createProfile = spec
+		domains := s.PayloadDomains
+		if len(domains) == 0 {
+			if ids, err := buddy.PlistPayloadIdentifiers(s.PayloadsPlist); err == nil {
+				domains = ids
+				s.PayloadDomains = ids
+			}
+		}
+		scopeDesc := "all computers"
+		if !s.ScopeAll && len(s.ScopeGroupIDs) > 0 {
+			scopeDesc = fmt.Sprintf("groups %v", s.ScopeGroupIDs)
+		}
+		rs.planLines = []string{
+			fmt.Sprintf("create_profile      %q", s.PolicyName),
+			fmt.Sprintf("Payload domains: %s", strings.Join(domains, ", ")),
+			fmt.Sprintf("Scope: %s", scopeDesc),
+		}
+		return rs, nil
+	default:
+		rs.planLines = []string{s.planLine()}
+		return rs, nil
+	}
+}
+
+func executeResolvedStep(credName string, rs resolvedStep, opts buddy.Opts, logger *slog.Logger) error {
+	switch rs.step.Type {
+	case stepTypeSetPackage:
+		if rs.pkgPlan != nil {
+			_, err := buddy.ApplyPolicyPackagePlan(credName, opts, rs.pkgPlan, logger)
+			return err
+		}
+	case stepTypeClonePolicy:
+		if rs.clonePlan != nil {
+			_, err := buddy.ApplyPolicyClonePlan(credName, opts, rs.clonePlan, logger)
+			return err
+		}
+	case stepTypeCreatePackagePolicy:
+		if rs.createPkgPlan != nil {
+			_, err := buddy.ApplyPolicyCreatePackagePlan(credName, opts, rs.createPkgPlan, logger)
+			return err
+		}
+	case stepTypeCreateProfile:
+		if rs.createProfile != nil {
+			_, err := buddy.ProfileCreate(credName, opts, *rs.createProfile, logger)
+			return err
+		}
+	case stepTypeNote:
+		return nil
+	}
+	return executeStep(credName, rs.step, opts, logger)
+}
+
 // executeStep dispatches a validated Step to the appropriate buddy function.
 func executeStep(credName string, s *Step, opts buddy.Opts, logger *slog.Logger) error {
 	switch s.Type {
+	case stepTypeNote:
+		return nil
+
 	case stepTypeSetPackage:
-		// Find the source policy ID by trigger, then set the package.
 		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, false, logger)
 		if err != nil {
 			return fmt.Errorf("find source policy %q: %w", s.FromTrigger, err)
 		}
-		return buddy.PolicyPackage(credName, opts, s.App, s.Version, srcID, "", s.PackagePattern, logger)
+		return buddy.PolicyPackage(credName, opts, s.App, s.Version, srcID, "", s.PackagePattern, s.DisableMode, logger)
 
 	case stepTypeClonePolicy:
 		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, false, logger)
 		if err != nil {
 			return fmt.Errorf("find source policy %q: %w", s.FromTrigger, err)
 		}
-		return buddy.PolicyClone(credName, opts, srcID, s.App, s.OldVersion, s.Version, s.PackagePattern, s.Params, logger)
+		return buddy.PolicyClone(credName, opts, srcID, s.App, s.OldVersion, s.Version, s.PackagePattern, s.Params, s.DisableMode, logger)
 
 	case stepTypeSetSS:
 		return buddy.PolicySS(credName, opts, s.PolicyID, s.Version, s.GroupIDs, logger)
@@ -591,6 +861,25 @@ func executeStep(credName string, s *Step, opts buddy.Opts, logger *slog.Logger)
 		}
 		defer f.Close()
 		return buddy.ProfileSetXML(credName, opts, s.ProfileID, f, s.Redeploy, logger)
+
+	case stepTypeCreatePackagePolicy:
+		_, err := buddy.PolicyCreatePackage(credName, opts, s.App, s.Version, s.Action, s.ScopeAll, s.ScopeGroupIDs, s.Category, s.PackagePattern, logger)
+		return err
+
+	case stepTypeCreateProfile:
+		_, err := buddy.ProfileCreate(credName, opts, buddy.ProfileCreateSpec{
+			Name:             s.PolicyName,
+			PayloadsPlist:    s.PayloadsPlist,
+			Category:         s.Category,
+			ScopeAll:         s.ScopeAll,
+			ScopeGroupIDs:    s.ScopeGroupIDs,
+			RedeployOnUpdate: s.RedeployOnUpdate,
+		}, logger)
+		return err
+
+	case stepTypeCreateSS:
+		_, err := buddy.PolicyCreateSS(credName, opts, s.Trigger, s.DisplayName, s.Category, s.ScopeGroupID, s.ScriptID, logger)
+		return err
 
 	default:
 		return fmt.Errorf("unknown step type %q", s.Type)

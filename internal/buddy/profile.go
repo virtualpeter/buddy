@@ -2,6 +2,7 @@ package buddy
 
 import (
 	"bytes"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -777,6 +779,208 @@ const emptyScopeXML = `<scope>
     <jss_users/><jss_user_groups/>
   </exclusions>
 </scope>`
+
+// ProfileCreateSpec describes a greenfield macOS configuration profile POST.
+type ProfileCreateSpec struct {
+	Name              string
+	PayloadsPlist     string // unescaped payloads plist XML
+	Category          string
+	ScopeAll          bool
+	ScopeGroupIDs     []int
+	RedeployOnUpdate  string // "Newly Assigned" (default) or "All"
+}
+
+// ProfileCreateOutcome is returned after a successful profile create.
+type ProfileCreateOutcome struct {
+	ProfileID int
+	Name      string
+}
+
+// BuildProfileCreateXML assembles Classic os_x_configuration_profile XML for POST (no API call).
+func BuildProfileCreateXML(spec ProfileCreateSpec) ([]byte, error) {
+	name := strings.TrimSpace(spec.Name)
+	if name == "" {
+		return nil, fmt.Errorf("profile name is required")
+	}
+	payloads := strings.TrimSpace(spec.PayloadsPlist)
+	if payloads == "" {
+		return nil, fmt.Errorf("payloads plist is required")
+	}
+	redeploy := strings.TrimSpace(spec.RedeployOnUpdate)
+	if redeploy == "" {
+		redeploy = "Newly Assigned"
+	}
+	scopeAll := spec.ScopeAll
+	if !scopeAll && len(spec.ScopeGroupIDs) == 0 {
+		scopeAll = true
+	}
+	puuid := uuid.New().String()
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
+	b.WriteString(`<os_x_configuration_profile><general>`)
+	b.WriteString("<name>" + xmlEncodePayload(name) + "</name>")
+	b.WriteString("<uuid>" + puuid + "</uuid>")
+	b.WriteString(`<site><id>-1</id><name>None</name></site>`)
+	if strings.TrimSpace(spec.Category) != "" {
+		b.WriteString("<category><name>" + xmlEncodePayload(spec.Category) + "</name></category>")
+	} else {
+		b.WriteString(`<category><id>-1</id><name>No category assigned</name></category>`)
+	}
+	b.WriteString(`<distribution_method>Install Automatically</distribution_method>`)
+	b.WriteString(`<user_removable>false</user_removable>`)
+	b.WriteString(`<level>computer</level>`)
+	b.WriteString("<redeploy_on_update>" + xmlEncodePayload(redeploy) + "</redeploy_on_update>")
+	b.WriteString("<payloads>" + xmlEncodePayload(payloads) + "</payloads>")
+	b.WriteString(`</general>`)
+	b.WriteString(buildProfileScopeXML(scopeAll, spec.ScopeGroupIDs))
+	b.WriteString(`</os_x_configuration_profile>`)
+	return []byte(b.String()), nil
+}
+
+func buildProfileScopeXML(scopeAll bool, groupIDs []int) string {
+	if scopeAll || len(groupIDs) == 0 {
+		return `<scope>
+  <all_computers>true</all_computers>
+  <all_jss_users>false</all_jss_users>
+  <computers/>
+  <buildings/>
+  <departments/>
+  <computer_groups/>
+  <jss_users/>
+  <jss_user_groups/>
+  <limitations>
+    <users/><user_groups/><network_segments/><ibeacons/>
+  </limitations>
+  <exclusions>
+    <computers/><buildings/><departments/><computer_groups/>
+    <users/><user_groups/><network_segments/><ibeacons/>
+    <jss_users/><jss_user_groups/>
+  </exclusions>
+</scope>`
+	}
+	var groups strings.Builder
+	groups.WriteString("<computer_groups>")
+	for _, id := range groupIDs {
+		groups.WriteString(fmt.Sprintf("<computer_group><id>%d</id></computer_group>", id))
+	}
+	groups.WriteString("</computer_groups>")
+	return `<scope>
+  <all_computers>false</all_computers>
+  <all_jss_users>false</all_jss_users>
+  <computers/>
+  <buildings/>
+  <departments/>
+  ` + groups.String() + `
+  <jss_users/>
+  <jss_user_groups/>
+  <limitations>
+    <users/><user_groups/><network_segments/><ibeacons/>
+  </limitations>
+  <exclusions>
+    <computers/><buildings/><departments/><computer_groups/>
+    <users/><user_groups/><network_segments/><ibeacons/>
+    <jss_users/><jss_user_groups/>
+  </exclusions>
+</scope>`
+}
+
+func parseProfileIDFromPostBody(body []byte) int {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return 0
+	}
+	var wrap struct {
+		ID int `xml:"id"`
+	}
+	if err := xml.Unmarshal(body, &wrap); err == nil && wrap.ID > 0 {
+		return wrap.ID
+	}
+	re := regexp.MustCompile(`(?i)<id>\s*(\d+)\s*</id>`)
+	if m := re.FindSubmatch(body); len(m) == 2 {
+		id, _ := strconv.Atoi(string(m[1]))
+		return id
+	}
+	var j map[string]interface{}
+	if err := json.Unmarshal(body, &j); err == nil {
+		if id := jsonIntID(j["id"]); id > 0 {
+			return id
+		}
+		if p, ok := j["os_x_configuration_profile"].(map[string]interface{}); ok {
+			if id := jsonIntID(p["id"]); id > 0 {
+				return id
+			}
+			if g, ok := p["general"].(map[string]interface{}); ok {
+				if id := jsonIntID(g["id"]); id > 0 {
+					return id
+				}
+			}
+		}
+	}
+	return 0
+}
+
+func resolveCreatedProfileID(credName string, opts Opts, postBody []byte, profileName string, logger *slog.Logger) (int, error) {
+	_ = opts
+	if id := parseProfileIDFromPostBody(postBody); id > 0 {
+		return id, nil
+	}
+	id, foundName, err := ProfileFindID(credName, profileName, logger)
+	if err != nil {
+		return 0, fmt.Errorf("created profile %q but could not resolve ID: %w", profileName, err)
+	}
+	if id > 0 && (foundName == "" || strings.EqualFold(foundName, profileName)) {
+		return id, nil
+	}
+	if id > 0 {
+		return id, nil
+	}
+	return 0, fmt.Errorf("created profile %q but could not resolve its ID", profileName)
+}
+
+// ProfileCreate POSTs a new macOS configuration profile and returns its ID.
+func ProfileCreate(credName string, opts Opts, spec ProfileCreateSpec, logger *slog.Logger) (*ProfileCreateOutcome, error) {
+	xmlBody, err := BuildProfileCreateXML(spec)
+	if err != nil {
+		return nil, err
+	}
+	if !opts.SkipConfirm {
+		scopeMsg := "all computers"
+		if !spec.ScopeAll && len(spec.ScopeGroupIDs) > 0 {
+			scopeMsg = fmt.Sprintf("groups %v", spec.ScopeGroupIDs)
+		}
+		msg := fmt.Sprintf("\nCreate configuration profile %q (scope: %s)?", spec.Name, scopeMsg)
+		if !ConfirmPrompt(msg, logger) {
+			return nil, nil
+		}
+	}
+	if opts.Verbose {
+		fmt.Fprintf(os.Stderr, "\n--- POST payload (JSSResource/osxconfigurationprofiles/id/0) ---\n%s\n--- end payload ---\n\n", xmlBody)
+	}
+	postURL, err := ResolveEndpoint(credName, "/JSSResource/osxconfigurationprofiles/id/0")
+	if err != nil {
+		return nil, err
+	}
+	postReq, err := http.NewRequest(http.MethodPost, postURL, bytes.NewReader(xmlBody))
+	if err != nil {
+		return nil, fmt.Errorf("create post request: %w", err)
+	}
+	postReq.Header.Set("Content-Type", "application/xml")
+	postResp, err := PerformRequest(nil, postReq, credName)
+	if err != nil {
+		return nil, fmt.Errorf("create profile: %w", err)
+	}
+	defer postResp.Body.Close()
+	body, _ := io.ReadAll(postResp.Body)
+	if postResp.StatusCode != http.StatusOK && postResp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("create profile status %d: %s", postResp.StatusCode, string(body))
+	}
+	id, err := resolveCreatedProfileID(credName, opts, body, spec.Name, logger)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("Created configuration profile %q (ID %d)\n", spec.Name, id)
+	return &ProfileCreateOutcome{ProfileID: id, Name: spec.Name}, nil
+}
 
 // ProfileClone creates a copy of a configuration profile with the given name and no scope.
 func ProfileClone(credName string, opts Opts, sourceProfileID int, newName string, logger *slog.Logger) error {

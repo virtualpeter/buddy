@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"buddy/internal/buddy"
+
 	"go.starlark.net/starlark"
 )
 
@@ -48,6 +50,85 @@ func TestStepFromStarlark_SetPackage_Valid(t *testing.T) {
 	}
 	if s.Type != stepTypeSetPackage || s.App != "MyApp" || s.Version != "1.0.0" || s.FromTrigger != "Enroll" {
 		t.Errorf("got Type=%q App=%q Version=%q FromTrigger=%q", s.Type, s.App, s.Version, s.FromTrigger)
+	}
+	if s.DisableMode != buddy.DisableSourceAuto {
+		t.Errorf("DisableMode = %v, want Auto", s.DisableMode)
+	}
+}
+
+func TestStepFromStarlark_SetPackage_KeepSource(t *testing.T) {
+	d := stepDict(stepTypeSetPackage, "app", "MyApp", "version", "1.0.0", "from_trigger", "install-app")
+	_ = d.SetKey(starlark.String("keep_source"), starlark.True)
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.DisableMode != buddy.DisableSourceKeep {
+		t.Fatalf("DisableMode = %v, want Keep", s.DisableMode)
+	}
+}
+
+func TestStepFromStarlark_SetPackage_DisableSource(t *testing.T) {
+	d := stepDict(stepTypeSetPackage, "app", "MyApp", "version", "1.0.0", "from_trigger", "install-app")
+	_ = d.SetKey(starlark.String("disable_source"), starlark.True)
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.DisableMode != buddy.DisableSourceForce {
+		t.Fatalf("DisableMode = %v, want Force", s.DisableMode)
+	}
+}
+
+func TestStepFromStarlark_SetPackage_ConflictingDisableFlags(t *testing.T) {
+	d := stepDict(stepTypeSetPackage, "app", "MyApp", "version", "1.0.0", "from_trigger", "install-app")
+	_ = d.SetKey(starlark.String("disable_source"), starlark.True)
+	_ = d.SetKey(starlark.String("keep_source"), starlark.True)
+	_, err := stepFromStarlark(d)
+	if err == nil {
+		t.Fatal("expected error for conflicting flags")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestStepFromStarlark_ClonePolicy_KeepSource(t *testing.T) {
+	d := stepDict(stepTypeClonePolicy, "from_trigger", "install-app", "version", "2.0")
+	_ = d.SetKey(starlark.String("keep_source"), starlark.True)
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.DisableMode != buddy.DisableSourceKeep {
+		t.Fatalf("DisableMode = %v, want Keep", s.DisableMode)
+	}
+}
+
+func TestResolvedWorkflowPlanLines_IncludeDisable(t *testing.T) {
+	// Mirror how runWorkflow builds plan lines from a package plan (no Jamf call).
+	plan := &buddy.PolicyPackagePlan{
+		SourceID: 12, SourceName: "Install Foo", SourceTrigger: "install-foo",
+		IsModify: false, NewName: "Install Foo 2", NewTrigger: "install-foo-2.0",
+		PkgID: 99, PkgName: "Foo-2.pkg",
+		DisableSource: false, DisableReason: "trigger changes",
+	}
+	plan.Actions = []string{
+		`Source policy "Install Foo" (ID 12, trigger install-foo)`,
+		`Create policy "Install Foo 2" with trigger install-foo-2.0, package Foo-2.pkg (ID 99)`,
+		buddy.FormatDisableAction(plan.DisableSource, plan.DisableReason),
+	}
+	lines := append([]string{"set_package        Foo 2.0"}, plan.Actions...)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"set_package",
+		`Source policy "Install Foo" (ID 12, trigger install-foo)`,
+		"Create policy",
+		"Disable source: no (trigger changes)",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("plan missing %q\n%s", want, joined)
+		}
 	}
 }
 
@@ -160,5 +241,39 @@ func TestStepFromStarlark_SetProfilePayload_MissingField(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "profile_id, domain, dict_file") {
 		t.Errorf("error = %v", err)
+	}
+}
+
+func TestStepFromStarlark_CreatePackagePolicy(t *testing.T) {
+	d := stepDict(stepTypeCreatePackagePolicy, "app", "example", "version", "1.0", "action", "cache", "note", "n")
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.Type != stepTypeCreatePackagePolicy || s.App != "example" || s.Action != "cache" || !s.ScopeAll {
+		t.Errorf("got %+v", s)
+	}
+}
+
+func TestStepFromStarlark_CreateProfile(t *testing.T) {
+	plist := `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>PayloadContent</key><array><dict><key>PayloadIdentifier</key><string>com.example.app</string></dict></array></dict></plist>`
+	d := stepDict(stepTypeCreateProfile, "name", "Prefs", "payloads_plist_str", plist, "scope_all", true)
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.Type != stepTypeCreateProfile || s.PolicyName != "Prefs" || len(s.PayloadDomains) != 1 {
+		t.Errorf("got %+v", s)
+	}
+}
+
+func TestStepFromStarlark_CreateSS(t *testing.T) {
+	d := stepDict(stepTypeCreateSS, "trigger", "install-example-next", "display_name", "Install Example")
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.Type != stepTypeCreateSS || s.Trigger != "install-example-next" || s.DisplayName != "Install Example" {
+		t.Errorf("got %+v", s)
 	}
 }

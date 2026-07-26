@@ -587,17 +587,27 @@ func runPolicySet(credName string, opts buddy.Opts, subcommand string, args []st
 
 	case "package":
 		var triggerFlag, packageFlag string
+		var disableSource, keepSource bool
 		var filtered []string
 		for _, a := range args {
-			if strings.HasPrefix(a, "--trigger=") {
+			switch {
+			case strings.HasPrefix(a, "--trigger="):
 				triggerFlag = strings.TrimPrefix(a, "--trigger=")
-			} else if strings.HasPrefix(a, "--package=") {
+			case strings.HasPrefix(a, "--package="):
 				packageFlag = strings.TrimPrefix(a, "--package=")
-			} else {
+			case a == "--disable-source":
+				disableSource = true
+			case a == "--keep-source":
+				keepSource = true
+			default:
 				filtered = append(filtered, a)
 			}
 		}
 		args = filtered
+		disableMode, err := parseDisableSourceFlags(disableSource, keepSource)
+		if err != nil {
+			return err
+		}
 		if len(args) < 2 {
 			return fmt.Errorf("missing app or version; run 'buddy policy set help' for usage")
 		}
@@ -605,7 +615,6 @@ func runPolicySet(credName string, opts buddy.Opts, subcommand string, args []st
 		newVersion := strings.TrimSpace(args[1])
 		policyIDOverride := 0
 		if len(args) >= 3 {
-			var err error
 			policyIDOverride, err = parseInt(args[2], "policy-id")
 			if err != nil {
 				return err
@@ -614,11 +623,24 @@ func runPolicySet(credName string, opts buddy.Opts, subcommand string, args []st
 		if opts.Verbose && triggerFlag != "" {
 			fmt.Fprintf(os.Stderr, "Using --trigger=%s to resolve policy\n", triggerFlag)
 		}
-		return buddy.PolicyPackage(credName, opts, appName, newVersion, policyIDOverride, triggerFlag, packageFlag, log)
+		return buddy.PolicyPackage(credName, opts, appName, newVersion, policyIDOverride, triggerFlag, packageFlag, disableMode, log)
 
 	default:
 		return fmt.Errorf("unknown policy set subcommand: %q (use: ss, scope, enable, disable, trigger, install, name, frequency, icon, package, xml)", subcommand)
 	}
+}
+
+func parseDisableSourceFlags(disableSource, keepSource bool) (buddy.DisableSourceMode, error) {
+	if disableSource && keepSource {
+		return buddy.DisableSourceAuto, fmt.Errorf("--disable-source and --keep-source are mutually exclusive")
+	}
+	if disableSource {
+		return buddy.DisableSourceForce, nil
+	}
+	if keepSource {
+		return buddy.DisableSourceKeep, nil
+	}
+	return buddy.DisableSourceAuto, nil
 }
 
 func runPolicyClone(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
@@ -626,30 +648,58 @@ func runPolicyClone(credName string, opts buddy.Opts, args []string, log *slog.L
 		fmt.Print(helpPolicyClone)
 		return nil
 	}
-	var packageFlag string
+	var packageFlag, triggerFlag string
+	var keepSource, disableSource bool
 	var cloneFiltered []string
 	for _, a := range args {
-		if strings.HasPrefix(a, "--package=") {
+		switch {
+		case strings.HasPrefix(a, "--package="):
 			packageFlag = strings.TrimPrefix(a, "--package=")
-		} else {
+		case strings.HasPrefix(a, "--trigger="):
+			triggerFlag = strings.TrimPrefix(a, "--trigger=")
+		case a == "--keep-source":
+			keepSource = true
+		case a == "--disable-source":
+			disableSource = true
+		default:
 			cloneFiltered = append(cloneFiltered, a)
 		}
 	}
 	args = cloneFiltered
+	disableMode, err := parseDisableSourceFlags(disableSource, keepSource)
+	if err != nil {
+		return err
+	}
 	paramIndices, filtered, err := parseParamArgs(args)
 	if err != nil {
 		return err
 	}
 	args = filtered
-	if len(args) < 2 {
-		return fmt.Errorf("missing policy-id or version; run 'buddy policy clone help' for usage")
+	var policyID int
+	var newVersion string
+	if triggerFlag != "" {
+		if len(args) < 1 {
+			return fmt.Errorf("missing version; run 'buddy policy clone help' for usage")
+		}
+		newVersion = strings.TrimSpace(args[0])
+		policyID, err = buddy.PolicyFind(credName, opts, triggerFlag, false, log)
+		if err != nil {
+			return err
+		}
+		if opts.Verbose {
+			fmt.Fprintf(os.Stderr, "Resolved --trigger=%s -> policy ID %d\n", triggerFlag, policyID)
+		}
+	} else {
+		if len(args) < 2 {
+			return fmt.Errorf("missing policy-id or version; run 'buddy policy clone help' for usage")
+		}
+		policyID, err = parseInt(args[0], "policy-id")
+		if err != nil {
+			return err
+		}
+		newVersion = strings.TrimSpace(args[1])
 	}
-	policyID, err := parseInt(args[0], "policy-id")
-	if err != nil {
-		return err
-	}
-	newVersion := strings.TrimSpace(args[1])
-	return buddy.PolicyClone(credName, opts, policyID, "", "", newVersion, packageFlag, paramIndices, log)
+	return buddy.PolicyClone(credName, opts, policyID, "", "", newVersion, packageFlag, paramIndices, disableMode, log)
 }
 
 func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {
@@ -706,14 +756,23 @@ func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args [
 				}
 			}
 		}
-		return buddy.PolicyCreatePackage(credName, opts, appName, version, pkgAction, scopeAll, scopeGroupIDs, categoryFlag, packageFlag, log)
+		_, err := buddy.PolicyCreatePackage(credName, opts, appName, version, pkgAction, scopeAll, scopeGroupIDs, categoryFlag, packageFlag, log)
+		return err
 	case "ss":
 		var categoryFlag string
+		scriptID := 0
 		var filtered []string
 		for _, a := range args {
-			if strings.HasPrefix(a, "--category=") {
+			switch {
+			case strings.HasPrefix(a, "--category="):
 				categoryFlag = strings.TrimPrefix(a, "--category=")
-			} else {
+			case strings.HasPrefix(a, "--script-id="):
+				id, err := parseInt(strings.TrimPrefix(a, "--script-id="), "script-id")
+				if err != nil {
+					return err
+				}
+				scriptID = id
+			default:
 				filtered = append(filtered, a)
 			}
 		}
@@ -726,8 +785,7 @@ func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args [
 		if displayName == "" {
 			return fmt.Errorf("missing display-name; run 'buddy policy create help' for usage")
 		}
-		// Default to all-computers scope and legacy script ID 51 for CLI.
-		_, err := buddy.PolicyCreateSS(credName, opts, trigger, displayName, categoryFlag, 0, 51, log)
+		_, err := buddy.PolicyCreateSS(credName, opts, trigger, displayName, categoryFlag, 0, scriptID, log)
 		return err
 	default:
 		return fmt.Errorf("unknown policy create subcommand: %q (use: package, ss)", subcommand)

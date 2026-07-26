@@ -511,109 +511,291 @@ func PolicyInstall(credName string, opts Opts, policyID int, newVersion string, 
 	return nil
 }
 
-// PolicyClone clones a policy via POST, then disables the source. If newVersion is non-empty, updates script params.
-func PolicyClone(credName string, opts Opts, policyID int, appName, oldVersion, newVersion, packageOverride string, paramIndices []int, logger *slog.Logger) error {
+// DisableSourceMode controls whether a source policy is disabled after create/clone.
+type DisableSourceMode int
+
+const (
+	// DisableSourceAuto uses the operation default (clone: yes; set package: only when triggers match).
+	DisableSourceAuto DisableSourceMode = iota
+	// DisableSourceForce always disables the source.
+	DisableSourceForce
+	// DisableSourceKeep never disables the source.
+	DisableSourceKeep
+)
+
+// PolicyClonePlan is a resolved clone operation ready to confirm and apply.
+type PolicyClonePlan struct {
+	SourceID      int
+	SourceName    string
+	SourceTrigger string
+	NewName       string
+	NewTrigger    string
+	PkgID         int
+	PkgName       string
+	OldPkgName    string
+	IsScriptOnly  bool
+	DisableSource bool
+	DisableReason string
+	Actions       []string
+
+	sourcePolicy  *resourcePolicy
+	installPay    *policyInstallPayload
+	packagePay    *policyPackagePayload
+	paramIndices  []int
+	swapIdx       int
+}
+
+// PolicyPackagePlan is a resolved set-package operation ready to confirm and apply.
+type PolicyPackagePlan struct {
+	SourceID      int
+	SourceName    string
+	SourceTrigger string
+	SourceVersion string
+	IsModify      bool
+	NewName       string
+	NewTrigger    string
+	PkgID         int
+	PkgName       string
+	DisableSource bool
+	DisableReason string
+	Actions       []string
+
+	sourcePolicy  *resourcePolicy
+	createPayload *policyPackagePayload
+}
+
+// ResolveCloneDisable returns whether to disable the source and a short reason.
+// Clone default is to disable; Force/Keep override.
+func ResolveCloneDisable(mode DisableSourceMode) (disable bool, reason string) {
+	switch mode {
+	case DisableSourceKeep:
+		return false, "keep-source"
+	case DisableSourceForce:
+		return true, "disable-source"
+	default:
+		return true, "clone default"
+	}
+}
+
+// ResolvePackageDisable returns whether to disable the source and a short reason.
+// Auto: no for in-place modify; yes only when creating with the same trigger (replacement).
+func ResolvePackageDisable(isModify bool, newTrigger, sourceTrigger string, mode DisableSourceMode) (disable bool, reason string) {
+	switch mode {
+	case DisableSourceKeep:
+		return false, "keep-source"
+	case DisableSourceForce:
+		return true, "disable-source"
+	}
+	if isModify {
+		return false, "same version — in-place update"
+	}
+	if strings.EqualFold(newTrigger, sourceTrigger) {
+		return true, "same trigger — replacement"
+	}
+	return false, "trigger changes"
+}
+
+// FormatDisableAction returns a confirm-plan line for the disable decision.
+func FormatDisableAction(disable bool, reason string) string {
+	yn := "no"
+	if disable {
+		yn = "yes"
+	}
+	return fmt.Sprintf("Disable source: %s (%s)", yn, reason)
+}
+
+// PrintConfirmActions prints a numbered action list for ConfirmPrompt.
+func PrintConfirmActions(actions []string) {
+	fmt.Print("\nThe following changes will be made:\n\n")
+	for i, a := range actions {
+		fmt.Printf("  %d. %s\n", i+1, a)
+	}
+}
+
+func sourceSummaryLine(name string, id int, trigger string) string {
+	if trigger != "" {
+		return fmt.Sprintf("Source policy %q (ID %d, trigger %s)", name, id, trigger)
+	}
+	return fmt.Sprintf("Source policy %q (ID %d)", name, id)
+}
+
+// PlanPolicyClone resolves a clone (script-only or package) without writing.
+func PlanPolicyClone(credName string, opts Opts, policyID int, appName, oldVersion, newVersion, packageOverride string, paramIndices []int, disableMode DisableSourceMode, logger *slog.Logger) (*PolicyClonePlan, error) {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return nil, fmt.Errorf("fetch policy %d: %w", policyID, err)
 	}
 
 	pkgs := policy.PackageConfiguration.Packages
 	trigger := policy.General.TriggerOther
+	disable, disableReason := ResolveCloneDisable(disableMode)
+
+	plan := &PolicyClonePlan{
+		SourceID:      policy.General.ID,
+		SourceName:    policy.General.Name,
+		SourceTrigger: trigger,
+		NewTrigger:    trigger,
+		DisableSource: disable,
+		DisableReason: disableReason,
+		sourcePolicy:  policy,
+		paramIndices:  paramIndices,
+		swapIdx:       -1,
+	}
 
 	if len(pkgs) == 0 {
-		// Script-only path (unchanged).
 		if len(policy.Scripts) == 0 {
-			return fmt.Errorf("policy %d has no scripts and no packages", policyID)
+			return nil, fmt.Errorf("policy %d has no scripts and no packages", policyID)
 		}
 		baseName := replaceVersionInString(policy.General.Name, newVersion)
 		newName, err := uniquePolicyName(credName, baseName, logger)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		payload := buildPolicyInstallPayload(policy, newName, trigger, newVersion, paramIndices)
-		actions := []string{
+		plan.IsScriptOnly = true
+		plan.NewName = newName
+		plan.installPay = buildPolicyInstallPayload(policy, newName, trigger, newVersion, paramIndices)
+		plan.Actions = []string{
+			sourceSummaryLine(plan.SourceName, plan.SourceID, plan.SourceTrigger),
 			fmt.Sprintf("Create policy %q with trigger %s", newName, trigger),
-			fmt.Sprintf("Disable source policy %q (ID %d)", policy.General.Name, policy.General.ID),
+			FormatDisableAction(disable, disableReason),
 		}
-		if !opts.SkipConfirm {
-			fmt.Print("\nThe following changes will be made:\n\n")
-			for i, a := range actions {
-				fmt.Printf("  %d. %s\n", i+1, a)
-			}
-			if !ConfirmPrompt("", logger) {
-				return nil
-			}
-		}
-		if opts.Verbose {
-			xmlPayload, _ := xml.MarshalIndent(payload, "", "  ")
-			fmt.Fprintf(os.Stderr, "\n--- POST payload (JSSResource/policies/id/0) ---\n%s\n--- end payload ---\n\n", xmlPayload)
-		}
-		if err := postPolicyInstall(credName, payload, logger); err != nil {
-			return err
-		}
-		fmt.Printf("Created policy %q with trigger %s\n", newName, trigger)
-		disablePayload := buildPolicyInstallPayload(policy, policy.General.Name, trigger, extractInstallSourceVersion(policy, paramIndices), paramIndices)
-		disablePayload.General.Enabled = false
-		if err := putPolicyInstall(credName, policy.General.ID, disablePayload, logger); err != nil {
-			return fmt.Errorf("disable source policy: %w", err)
-		}
-		fmt.Printf("Disabled source policy %q (ID %d)\n", policy.General.Name, policy.General.ID)
-		return nil
+		return plan, nil
 	}
 
-	// Package-clone path.
 	if appName == "" {
 		appName, _, _ = parseTrigger(trigger)
 	}
 	swapIdx, detectedOldVersion, err := findAppPackageIdx(pkgs, appName, oldVersion)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if oldVersion == "" {
 		oldVersion = detectedOldVersion
 	}
 	newPkgID, newPkgName, err := findPackage(credName, appName, newVersion, packageOverride, logger)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if newPkgID == 0 {
-		return fmt.Errorf("no package found for %s version %s", appName, newVersion)
+		return nil, fmt.Errorf("no package found for %s version %s", appName, newVersion)
 	}
 	baseName := replaceVersionInString(policy.General.Name, newVersion)
 	newName, err := uniquePolicyName(credName, baseName, logger)
 	if err != nil {
+		return nil, err
+	}
+	plan.NewName = newName
+	plan.PkgID = newPkgID
+	plan.PkgName = newPkgName
+	plan.OldPkgName = pkgs[swapIdx].Name
+	plan.swapIdx = swapIdx
+	plan.packagePay = buildPolicyPackagePayloadClone(policy, newName, trigger, swapIdx, newPkgID, newPkgName)
+	plan.Actions = []string{
+		sourceSummaryLine(plan.SourceName, plan.SourceID, plan.SourceTrigger),
+		fmt.Sprintf("Create policy %q with trigger %s, replacing package %s with %s (ID %d)", newName, trigger, pkgs[swapIdx].Name, newPkgName, newPkgID),
+		FormatDisableAction(disable, disableReason),
+	}
+	return plan, nil
+}
+
+// PolicyMutationOutcome describes what a package/clone apply actually did.
+// Created policy IDs are filled after POST (not known at plan time).
+type PolicyMutationOutcome struct {
+	Kind               string // "update" or "create"
+	PolicyID           int
+	PolicyName         string
+	Trigger            string
+	PackageID          int
+	PackageName        string
+	DisabledSourceID   int
+	DisabledSourceName string
+}
+
+// ApplyPolicyClonePlan performs the writes for a resolved clone plan.
+func ApplyPolicyClonePlan(credName string, opts Opts, plan *PolicyClonePlan, logger *slog.Logger) (*PolicyMutationOutcome, error) {
+	if plan == nil {
+		return nil, fmt.Errorf("nil clone plan")
+	}
+	policy := plan.sourcePolicy
+	trigger := plan.SourceTrigger
+	out := &PolicyMutationOutcome{
+		Kind:       "create",
+		PolicyName: plan.NewName,
+		Trigger:    trigger,
+		PackageID:  plan.PkgID,
+		PackageName: plan.PkgName,
+	}
+
+	if plan.IsScriptOnly {
+		if opts.Verbose {
+			xmlPayload, _ := xml.MarshalIndent(plan.installPay, "", "  ")
+			fmt.Fprintf(os.Stderr, "\n--- POST payload (JSSResource/policies/id/0) ---\n%s\n--- end payload ---\n\n", xmlPayload)
+		}
+		body, err := postPolicyInstall(credName, plan.installPay, logger)
+		if err != nil {
+			return nil, err
+		}
+		id, err := resolveCreatedPolicyID(credName, opts, body, plan.NewName, logger)
+		if err != nil {
+			return nil, err
+		}
+		out.PolicyID = id
+		fmt.Printf("Created policy %q (ID %d) with trigger %s\n", plan.NewName, id, trigger)
+		if plan.DisableSource {
+			disablePayload := buildPolicyInstallPayload(policy, policy.General.Name, trigger, extractInstallSourceVersion(policy, plan.paramIndices), plan.paramIndices)
+			disablePayload.General.Enabled = false
+			if err := putPolicyInstall(credName, policy.General.ID, disablePayload, logger); err != nil {
+				return out, fmt.Errorf("disable source policy: %w", err)
+			}
+			out.DisabledSourceID = policy.General.ID
+			out.DisabledSourceName = policy.General.Name
+			fmt.Printf("Disabled source policy %q (ID %d)\n", policy.General.Name, policy.General.ID)
+		}
+		return out, nil
+	}
+
+	if opts.Verbose {
+		xmlPayload, _ := xml.MarshalIndent(plan.packagePay, "", "  ")
+		fmt.Fprintf(os.Stderr, "\n--- POST payload (JSSResource/policies/id/0) ---\n%s\n--- end payload ---\n\n", xmlPayload)
+	}
+	body, err := postPolicyPackage(credName, plan.packagePay, logger)
+	if err != nil {
+		return nil, err
+	}
+	id, err := resolveCreatedPolicyID(credName, opts, body, plan.NewName, logger)
+	if err != nil {
+		return nil, err
+	}
+	out.PolicyID = id
+	fmt.Printf("Created policy %q (ID %d) with trigger %s, package %s (ID %d)\n", plan.NewName, id, trigger, plan.PkgName, plan.PkgID)
+	if plan.DisableSource {
+		disablePayload := buildPolicyPackagePayloadClone(policy, policy.General.Name, trigger, -1, 0, "")
+		disablePayload.General.Enabled = false
+		if err := putPolicyPackage(credName, policy.General.ID, disablePayload, logger); err != nil {
+			return out, fmt.Errorf("disable source policy: %w", err)
+		}
+		out.DisabledSourceID = policy.General.ID
+		out.DisabledSourceName = policy.General.Name
+		fmt.Printf("Disabled source policy %q (ID %d)\n", policy.General.Name, policy.General.ID)
+	}
+	return out, nil
+}
+
+// PolicyClone clones a policy via POST, then optionally disables the source.
+// If newVersion is non-empty, updates script params (script-only) or swaps the app package.
+func PolicyClone(credName string, opts Opts, policyID int, appName, oldVersion, newVersion, packageOverride string, paramIndices []int, disableMode DisableSourceMode, logger *slog.Logger) error {
+	plan, err := PlanPolicyClone(credName, opts, policyID, appName, oldVersion, newVersion, packageOverride, paramIndices, disableMode, logger)
+	if err != nil {
 		return err
 	}
-	payload := buildPolicyPackagePayloadClone(policy, newName, trigger, swapIdx, newPkgID, newPkgName)
-	actions := []string{
-		fmt.Sprintf("Create policy %q with trigger %s, replacing package %s with %s (ID %d)", newName, trigger, pkgs[swapIdx].Name, newPkgName, newPkgID),
-		fmt.Sprintf("Disable source policy %q (ID %d)", policy.General.Name, policy.General.ID),
-	}
 	if !opts.SkipConfirm {
-		fmt.Print("\nThe following changes will be made:\n\n")
-		for i, a := range actions {
-			fmt.Printf("  %d. %s\n", i+1, a)
-		}
+		PrintConfirmActions(plan.Actions)
 		if !ConfirmPrompt("", logger) {
 			return nil
 		}
 	}
-	if opts.Verbose {
-		xmlPayload, _ := xml.MarshalIndent(payload, "", "  ")
-		fmt.Fprintf(os.Stderr, "\n--- POST payload (JSSResource/policies/id/0) ---\n%s\n--- end payload ---\n\n", xmlPayload)
-	}
-	if err := postPolicyPackage(credName, payload, logger); err != nil {
-		return err
-	}
-	fmt.Printf("Created policy %q with trigger %s, package %s (ID %d)\n", newName, trigger, newPkgName, newPkgID)
-	disablePayload := buildPolicyPackagePayloadClone(policy, policy.General.Name, trigger, -1, 0, "")
-	disablePayload.General.Enabled = false
-	if err := putPolicyPackage(credName, policy.General.ID, disablePayload, logger); err != nil {
-		return fmt.Errorf("disable source policy: %w", err)
-	}
-	fmt.Printf("Disabled source policy %q (ID %d)\n", policy.General.Name, policy.General.ID)
-	return nil
+	_, err = ApplyPolicyClonePlan(credName, opts, plan, logger)
+	return err
 }
 
 // findAppPackageIdx finds the index of the package to swap in a multi-package policy.
@@ -734,15 +916,15 @@ func uniquePolicyName(credName string, baseName string, logger *slog.Logger) (st
 	return fmt.Sprintf("%s %d", baseName, maxN+1), nil
 }
 
-// PolicyPackage updates package policy version.
-func PolicyPackage(credName string, opts Opts, appName, newVersion string, policyIDOverride int, triggerOverride, packageOverride string, logger *slog.Logger) error {
+// PlanPolicyPackage resolves a set-package operation without writing.
+func PlanPolicyPackage(credName string, opts Opts, appName, newVersion string, policyIDOverride int, triggerOverride, packageOverride string, disableMode DisableSourceMode, logger *slog.Logger) (*PolicyPackagePlan, error) {
 	if triggerOverride != "" {
 		if opts.Verbose {
 			fmt.Fprintf(os.Stderr, "Resolving policy from trigger %q...\n", triggerOverride)
 		}
 		id, err := PolicyFind(credName, opts, triggerOverride, false, logger)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		policyIDOverride = id
 		if opts.Verbose {
@@ -751,24 +933,24 @@ func PolicyPackage(credName string, opts Opts, appName, newVersion string, polic
 	}
 	sourcePolicy, err := getPackageSourcePolicy(credName, appName, policyIDOverride, opts, logger)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if sourcePolicy == nil {
-		return fmt.Errorf("no install or cache policy found for app %q", appName)
+		return nil, fmt.Errorf("no install or cache policy found for app %q", appName)
 	}
 	if opts.Verbose {
 		fmt.Fprintf(os.Stderr, "Looking up package for %s %s...\n", appName, newVersion)
 	}
 	pkgID, pkgName, err := findPackage(credName, appName, newVersion, packageOverride, logger)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if pkgID == 0 {
-		return fmt.Errorf("no package found for %s version %s", appName, newVersion)
+		return nil, fmt.Errorf("no package found for %s version %s", appName, newVersion)
 	}
 	action := getPackageAction(sourcePolicy)
 	if action == "" {
-		return fmt.Errorf("source policy has no package or invalid action")
+		return nil, fmt.Errorf("source policy has no package or invalid action")
 	}
 	isInstall := strings.EqualFold(action, "Install")
 	sourceVersion := extractVersionFromTrigger(strings.ToLower(sourcePolicy.General.TriggerOther), appName)
@@ -777,64 +959,180 @@ func PolicyPackage(credName string, opts Opts, appName, newVersion string, polic
 	}
 	isModify := sourceVersion != "" && compareVersions(sourceVersion, newVersion) == 0
 
-	var createPayload *policyPackagePayload
-	var newTrigger, newPolicyName string
-	var actions []string
-	var toDisable *resourcePolicy
+	plan := &PolicyPackagePlan{
+		SourceID:      sourcePolicy.General.ID,
+		SourceName:    sourcePolicy.General.Name,
+		SourceTrigger: sourcePolicy.General.TriggerOther,
+		SourceVersion: sourceVersion,
+		IsModify:      isModify,
+		PkgID:         pkgID,
+		PkgName:       pkgName,
+		sourcePolicy:  sourcePolicy,
+	}
 
 	if isModify {
-		newPolicyName = sourcePolicy.General.Name
-		newTrigger = sourcePolicy.General.TriggerOther
-		createPayload = buildPolicyPackagePayload(sourcePolicy, newPolicyName, newTrigger, pkgID, pkgName, action)
-		actions = []string{fmt.Sprintf("Update policy %q (ID %d): set package to %s (ID %d)", newPolicyName, sourcePolicy.General.ID, pkgName, pkgID)}
+		plan.NewName = sourcePolicy.General.Name
+		plan.NewTrigger = sourcePolicy.General.TriggerOther
+		plan.createPayload = buildPolicyPackagePayload(sourcePolicy, plan.NewName, plan.NewTrigger, pkgID, pkgName, action)
 	} else {
-		_, newTrigger, newPolicyName = buildNewPackagePolicy(sourcePolicy, appName, newVersion, pkgID, pkgName, isInstall)
-		createPayload = buildPolicyPackagePayload(sourcePolicy, newPolicyName, newTrigger, pkgID, pkgName, action)
-		// Only disable the source when the new policy uses the same custom trigger (replacement).
-		// When the trigger changes (e.g. versioned cache-app-1.0 → cache-app-2.0), leave the source
-		// enabled so both policies remain available.
-		if strings.EqualFold(newTrigger, sourcePolicy.General.TriggerOther) {
-			toDisable = sourcePolicy
-		}
-		actions = buildPackageActions(toDisable, newPolicyName, newTrigger, pkgName, pkgID)
+		_, newTrigger, newPolicyName := buildNewPackagePolicy(sourcePolicy, appName, newVersion, pkgID, pkgName, isInstall)
+		plan.NewName = newPolicyName
+		plan.NewTrigger = newTrigger
+		plan.createPayload = buildPolicyPackagePayload(sourcePolicy, newPolicyName, newTrigger, pkgID, pkgName, action)
 	}
 
-	if !opts.SkipConfirm {
-		fmt.Print("\nThe following changes will be made:\n\n")
-		for i, a := range actions {
-			fmt.Printf("  %d. %s\n", i+1, a)
-		}
-		if !ConfirmPrompt("", logger) {
-			return nil
-		}
+	plan.DisableSource, plan.DisableReason = ResolvePackageDisable(isModify, plan.NewTrigger, plan.SourceTrigger, disableMode)
+	plan.Actions = buildPackagePlanActions(plan)
+	return plan, nil
+}
+
+func buildPackagePlanActions(plan *PolicyPackagePlan) []string {
+	actions := []string{sourceSummaryLine(plan.SourceName, plan.SourceID, plan.SourceTrigger)}
+	if plan.IsModify {
+		actions = append(actions, fmt.Sprintf("Update policy %q (ID %d): set package to %s (ID %d)", plan.NewName, plan.SourceID, plan.PkgName, plan.PkgID))
+	} else {
+		actions = append(actions, fmt.Sprintf("Create policy %q with trigger %s, package %s (ID %d)", plan.NewName, plan.NewTrigger, plan.PkgName, plan.PkgID))
 	}
-	if toDisable != nil {
+	actions = append(actions, FormatDisableAction(plan.DisableSource, plan.DisableReason))
+	return actions
+}
+
+// ApplyPolicyPackagePlan performs the writes for a resolved set-package plan.
+func ApplyPolicyPackagePlan(credName string, opts Opts, plan *PolicyPackagePlan, logger *slog.Logger) (*PolicyMutationOutcome, error) {
+	if plan == nil {
+		return nil, fmt.Errorf("nil package plan")
+	}
+	out := &PolicyMutationOutcome{
+		PolicyName:  plan.NewName,
+		Trigger:     plan.NewTrigger,
+		PackageID:   plan.PkgID,
+		PackageName: plan.PkgName,
+	}
+	if plan.DisableSource {
 		disablePayload := &policyEnablePayload{}
 		disablePayload.General.Enabled = false
-		if err := putPolicyGeneric(credName, toDisable.General.ID, disablePayload, logger); err != nil {
-			return fmt.Errorf("disable policy: %w", err)
+		if err := putPolicyGeneric(credName, plan.SourceID, disablePayload, logger); err != nil {
+			return nil, fmt.Errorf("disable policy: %w", err)
 		}
+		out.DisabledSourceID = plan.SourceID
+		out.DisabledSourceName = plan.SourceName
+		fmt.Printf("Disabled source policy %q (ID %d)\n", plan.SourceName, plan.SourceID)
 	}
 	if opts.Verbose {
-		xmlPayload, _ := xml.MarshalIndent(createPayload, "", "  ")
-		if isModify {
-			fmt.Fprintf(os.Stderr, "\n--- PUT payload (JSSResource/policies/id/%d) ---\n%s\n--- end payload ---\n\n", sourcePolicy.General.ID, xmlPayload)
+		xmlPayload, _ := xml.MarshalIndent(plan.createPayload, "", "  ")
+		if plan.IsModify {
+			fmt.Fprintf(os.Stderr, "\n--- PUT payload (JSSResource/policies/id/%d) ---\n%s\n--- end payload ---\n\n", plan.SourceID, xmlPayload)
 		} else {
 			fmt.Fprintf(os.Stderr, "\n--- POST payload (JSSResource/policies/id/0) ---\n%s\n--- end payload ---\n\n", xmlPayload)
 		}
 	}
-	if isModify {
-		if err := putPolicyPackage(credName, sourcePolicy.General.ID, createPayload, logger); err != nil {
-			return err
+	if plan.IsModify {
+		if err := putPolicyPackage(credName, plan.SourceID, plan.createPayload, logger); err != nil {
+			return nil, err
 		}
-		fmt.Printf("Updated policy %q (ID %d) with package %s (ID %d)\n", newPolicyName, sourcePolicy.General.ID, pkgName, pkgID)
-	} else {
-		if err := postPolicyPackage(credName, createPayload, logger); err != nil {
-			return err
-		}
-		fmt.Printf("Created policy %q with trigger %s, package %s (ID %d)\n", newPolicyName, newTrigger, pkgName, pkgID)
+		out.Kind = "update"
+		out.PolicyID = plan.SourceID
+		fmt.Printf("Updated policy %q (ID %d) with package %s (ID %d)\n", plan.NewName, plan.SourceID, plan.PkgName, plan.PkgID)
+		return out, nil
 	}
-	return nil
+	body, err := postPolicyPackage(credName, plan.createPayload, logger)
+	if err != nil {
+		return nil, err
+	}
+	id, err := resolveCreatedPolicyID(credName, opts, body, plan.NewName, logger)
+	if err != nil {
+		return nil, err
+	}
+	out.Kind = "create"
+	out.PolicyID = id
+	fmt.Printf("Created policy %q (ID %d) with trigger %s, package %s (ID %d)\n", plan.NewName, id, plan.NewTrigger, plan.PkgName, plan.PkgID)
+	return out, nil
+}
+
+// PolicyPackage updates package policy version (in-place or create + optional disable source).
+func PolicyPackage(credName string, opts Opts, appName, newVersion string, policyIDOverride int, triggerOverride, packageOverride string, disableMode DisableSourceMode, logger *slog.Logger) error {
+	plan, err := PlanPolicyPackage(credName, opts, appName, newVersion, policyIDOverride, triggerOverride, packageOverride, disableMode, logger)
+	if err != nil {
+		return err
+	}
+	if !opts.SkipConfirm {
+		PrintConfirmActions(plan.Actions)
+		if !ConfirmPrompt("", logger) {
+			return nil
+		}
+	}
+	_, err = ApplyPolicyPackagePlan(credName, opts, plan, logger)
+	return err
+}
+
+// parsePolicyIDFromPostBody extracts a policy id from a Classic POST response body.
+func parsePolicyIDFromPostBody(body []byte) int {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return 0
+	}
+	// XML: <policy><id>123</id>… or bare <id>123</id>
+	var wrap struct {
+		ID int `xml:"id"`
+	}
+	if err := xml.Unmarshal(body, &wrap); err == nil && wrap.ID > 0 {
+		return wrap.ID
+	}
+	re := regexp.MustCompile(`(?i)<id>\s*(\d+)\s*</id>`)
+	if m := re.FindSubmatch(body); len(m) == 2 {
+		id, _ := strconv.Atoi(string(m[1]))
+		return id
+	}
+	// JSON: {"id":123} or {"policy":{"id":123}}
+	var j map[string]interface{}
+	if err := json.Unmarshal(body, &j); err == nil {
+		if id := jsonIntID(j["id"]); id > 0 {
+			return id
+		}
+		if pol, ok := j["policy"].(map[string]interface{}); ok {
+			if id := jsonIntID(pol["id"]); id > 0 {
+				return id
+			}
+		}
+	}
+	return 0
+}
+
+func jsonIntID(v interface{}) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case string:
+		id, _ := strconv.Atoi(n)
+		return id
+	default:
+		return 0
+	}
+}
+
+func resolveCreatedPolicyID(credName string, opts Opts, postBody []byte, policyName string, logger *slog.Logger) (int, error) {
+	if id := parsePolicyIDFromPostBody(postBody); id > 0 {
+		return id, nil
+	}
+	ids, err := PolicyFindByKeywords(credName, opts, []string{policyName}, nil, true, logger)
+	if err != nil {
+		return 0, fmt.Errorf("created policy %q but could not resolve ID: %w", policyName, err)
+	}
+	for _, id := range ids {
+		pol, err := policyGetByID(credName, id)
+		if err != nil {
+			continue
+		}
+		if pol.General.Name == policyName {
+			return id, nil
+		}
+	}
+	if len(ids) == 1 {
+		return ids[0], nil
+	}
+	return 0, fmt.Errorf("created policy %q but could not resolve its ID", policyName)
 }
 
 // PolicyGetXML fetches a policy and writes the XML PUT payload to w (typically os.Stdout).
@@ -999,7 +1297,10 @@ type PolicySummary struct {
 	Name string
 }
 
-// PolicyFindSummariesByKeywords returns policies whose name contains all keywords (case-insensitive).
+// PolicyFindSummariesByKeywords returns policies matching all keywords (case-insensitive).
+// A policy matches when every keyword appears in its name, or in a hyphen-normalized form of
+// the name (spaces → hyphens). When there is a single non-empty keyword, an exact custom-trigger
+// match via PolicyFind is also included (so `find install-app-next` works).
 // ExcludeIDs are not included in the result.
 // If forceRefresh is true, the policy list cache is bypassed to avoid stale IDs (e.g. deleted policies).
 func PolicyFindSummariesByKeywords(credName string, opts Opts, keywords []string, excludeIDs []int, forceRefresh bool, logger *slog.Logger) ([]PolicySummary, error) {
@@ -1023,33 +1324,75 @@ func PolicyFindSummariesByKeywords(credName string, opts Opts, keywords []string
 		excludeSet[id] = true
 	}
 
+	seen := make(map[int]bool)
 	var result []PolicySummary
+	add := func(id int, name string) {
+		if excludeSet[id] || seen[id] {
+			return
+		}
+		seen[id] = true
+		result = append(result, PolicySummary{ID: id, Name: name})
+	}
+
+	var nonEmpty []string
+	for _, kw := range keywords {
+		k := strings.TrimSpace(kw)
+		if k != "" {
+			nonEmpty = append(nonEmpty, k)
+		}
+	}
+	if len(nonEmpty) == 0 {
+		return result, nil
+	}
+
 	for _, p := range policies {
 		if excludeSet[p.ID] {
 			continue
 		}
 		nameLower := strings.ToLower(p.Name)
+		nameAsTrigger := normalizeTriggerForMatch(p.Name)
 		matches := true
-		sawNonEmpty := false
-		for _, kw := range keywords {
-			k := strings.TrimSpace(kw)
-			if k == "" {
-				continue
-			}
-			sawNonEmpty = true
-			if !strings.Contains(nameLower, strings.ToLower(k)) {
+		for _, k := range nonEmpty {
+			kl := strings.ToLower(k)
+			kt := normalizeTriggerForMatch(k)
+			if !strings.Contains(nameLower, kl) && !strings.Contains(nameAsTrigger, kt) {
 				matches = false
 				break
 			}
 		}
-		if matches && sawNonEmpty {
-			result = append(result, PolicySummary{ID: p.ID, Name: p.Name})
+		if matches {
+			add(p.ID, p.Name)
 		}
 	}
+
+	// Single trigger-like keyword: also resolve via custom trigger (trigger_other).
+	if len(nonEmpty) == 1 && looksLikeTriggerKeyword(nonEmpty[0]) {
+		if id, err := PolicyFind(credName, opts, nonEmpty[0], forceRefresh, logger); err == nil {
+			name := ""
+			for _, p := range policies {
+				if p.ID == id {
+					name = p.Name
+					break
+				}
+			}
+			if name == "" {
+				if pol, err := policyGetByID(credName, id); err == nil {
+					name = pol.General.Name
+				}
+			}
+			add(id, name)
+		}
+	}
+
 	return result, nil
 }
 
-// PolicyFindByKeywords returns policy IDs whose name contains all keywords (case-insensitive).
+func looksLikeTriggerKeyword(s string) bool {
+	// Require a hyphen so bare words like "install" / "chrome" do not invoke PolicyFind heuristics.
+	return strings.Contains(strings.TrimSpace(s), "-")
+}
+
+// PolicyFindByKeywords returns policy IDs matching keywords (see PolicyFindSummariesByKeywords).
 func PolicyFindByKeywords(credName string, opts Opts, keywords []string, excludeIDs []int, forceRefresh bool, logger *slog.Logger) ([]int, error) {
 	summaries, err := PolicyFindSummariesByKeywords(credName, opts, keywords, excludeIDs, forceRefresh, logger)
 	if err != nil {
@@ -1597,14 +1940,13 @@ func putPolicyInstall(credName string, policyID int, payload *policyInstallPaylo
 	return jamfPUT(credName, path, body, "application/xml")
 }
 
-func postPolicyInstall(credName string, payload *policyInstallPayload, logger *slog.Logger) error {
+func postPolicyInstall(credName string, payload *policyInstallPayload, logger *slog.Logger) ([]byte, error) {
 	path := uriPolicies + "/id/0"
 	body, err := xml.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal policy: %w", err)
+		return nil, fmt.Errorf("marshal policy: %w", err)
 	}
-	_, err = jamfPOST(credName, path, body, "application/xml")
-	return err
+	return jamfPOST(credName, path, body, "application/xml")
 }
 
 // --- setpackage ---
@@ -1913,15 +2255,6 @@ func buildPolicyPackagePayload(source *resourcePolicy, name, trigger string, pkg
 	return p
 }
 
-func buildPackageActions(toDisable *resourcePolicy, newPolicyName, newTrigger, pkgName string, pkgID int) []string {
-	var actions []string
-	if toDisable != nil {
-		actions = append(actions, fmt.Sprintf("Disable policy %q (ID %d)", toDisable.General.Name, toDisable.General.ID))
-	}
-	actions = append(actions, fmt.Sprintf("Create policy %q with trigger %s, package %s (ID %d)", newPolicyName, newTrigger, pkgName, pkgID))
-	return actions
-}
-
 func putPolicyPackage(credName string, policyID int, payload *policyPackagePayload, logger *slog.Logger) error {
 	path := fmt.Sprintf("%s/id/%d", uriPolicies, policyID)
 	body, err := xml.Marshal(payload)
@@ -1931,14 +2264,13 @@ func putPolicyPackage(credName string, policyID int, payload *policyPackagePaylo
 	return jamfPUT(credName, path, body, "application/xml")
 }
 
-func postPolicyPackage(credName string, payload *policyPackagePayload, logger *slog.Logger) error {
+func postPolicyPackage(credName string, payload *policyPackagePayload, logger *slog.Logger) ([]byte, error) {
 	path := uriPolicies + "/id/0"
 	body, err := xml.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal policy: %w", err)
+		return nil, fmt.Errorf("marshal policy: %w", err)
 	}
-	_, err = jamfPOST(credName, path, body, "application/xml")
-	return err
+	return jamfPOST(credName, path, body, "application/xml")
 }
 
 // buildPolicyPackagePayloadFromScratch builds a minimal policyPackagePayload without a source policy.
@@ -1979,22 +2311,41 @@ func buildPolicyPackagePayloadFromScratch(name, trigger string, pkgID int, pkgNa
 	return p
 }
 
-// PolicyCreatePackage creates a new package policy from scratch (no source policy required).
-func PolicyCreatePackage(credName string, opts Opts, appName, version string, action string, scopeAll bool, scopeGroupIDs []int, category, packageOverride string, logger *slog.Logger) error {
+// PolicyCreatePackagePlan is a resolved greenfield package policy create (no source policy).
+type PolicyCreatePackagePlan struct {
+	App            string
+	Version        string
+	Action         string // "install" or "cache"
+	NewName        string
+	NewTrigger     string
+	PkgID          int
+	PkgName        string
+	ScopeAll       bool
+	ScopeGroupIDs  []int
+	Category       string
+	Actions        []string
+	createPayload  *policyPackagePayload
+}
+
+// PlanPolicyCreatePackage resolves package + unique name/trigger for a from-scratch create.
+func PlanPolicyCreatePackage(credName string, opts Opts, appName, version, action string, scopeAll bool, scopeGroupIDs []int, category, packageOverride string, logger *slog.Logger) (*PolicyCreatePackagePlan, error) {
 	pkgIDStr, pkgName, err := PackageFindID(credName, appName, version, packageOverride, logger)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if pkgIDStr == "" {
-		return fmt.Errorf("no package found for %s version %s", appName, version)
+		return nil, fmt.Errorf("no package found for %s version %s", appName, version)
 	}
 	var pkgID int
 	if _, err := fmt.Sscanf(pkgIDStr, "%d", &pkgID); err != nil {
-		return fmt.Errorf("invalid package ID: %w", err)
+		return nil, fmt.Errorf("invalid package ID: %w", err)
 	}
 	actionNorm := strings.ToLower(strings.TrimSpace(action))
+	if actionNorm == "" {
+		actionNorm = "install"
+	}
 	if actionNorm != "install" && actionNorm != "cache" {
-		return fmt.Errorf("action must be install or cache, got %q", action)
+		return nil, fmt.Errorf("action must be install or cache, got %q", action)
 	}
 	actionAPI := "Install"
 	if actionNorm == "cache" {
@@ -2015,33 +2366,88 @@ func PolicyCreatePackage(credName string, opts Opts, appName, version string, ac
 	}
 	policyName, err := uniquePolicyName(credName, baseName, logger)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var catID int
 	var catName string
 	if category != "" {
 		idStr, err := categoryGetByName(credName, category)
 		if err != nil {
-			return fmt.Errorf("look up category %q: %w", category, err)
+			return nil, fmt.Errorf("look up category %q: %w", category, err)
 		}
 		catID, _ = strconv.Atoi(idStr)
 		catName = category
 	}
+	if !scopeAll && len(scopeGroupIDs) == 0 {
+		scopeAll = true
+	}
 	payload := buildPolicyPackagePayloadFromScratch(policyName, trigger, pkgID, pkgName, actionAPI, scopeAll, scopeGroupIDs, catID, catName)
+	plan := &PolicyCreatePackagePlan{
+		App:           appName,
+		Version:       version,
+		Action:        actionNorm,
+		NewName:       policyName,
+		NewTrigger:    trigger,
+		PkgID:         pkgID,
+		PkgName:       pkgName,
+		ScopeAll:      scopeAll,
+		ScopeGroupIDs: scopeGroupIDs,
+		Category:      category,
+		createPayload: payload,
+	}
+	scopeDesc := "all computers"
+	if !scopeAll && len(scopeGroupIDs) > 0 {
+		scopeDesc = fmt.Sprintf("groups %v", scopeGroupIDs)
+	}
+	plan.Actions = []string{
+		fmt.Sprintf("Create %s policy %q with trigger %s", actionNorm, policyName, trigger),
+		fmt.Sprintf("Package: %s (ID %d)", pkgName, pkgID),
+		fmt.Sprintf("Scope: %s", scopeDesc),
+	}
+	return plan, nil
+}
+
+// ApplyPolicyCreatePackagePlan POSTs a greenfield package policy and returns the created ID.
+func ApplyPolicyCreatePackagePlan(credName string, opts Opts, plan *PolicyCreatePackagePlan, logger *slog.Logger) (*PolicyMutationOutcome, error) {
+	if plan == nil || plan.createPayload == nil {
+		return nil, fmt.Errorf("nil create-package plan")
+	}
 	if !opts.SkipConfirm {
-		if !ConfirmPrompt(fmt.Sprintf("\nCreate policy %q with trigger %q, package %s (ID %d)", policyName, trigger, pkgName, pkgID), logger) {
-			return nil
+		if !ConfirmPrompt(fmt.Sprintf("\nCreate policy %q with trigger %q, package %s (ID %d)", plan.NewName, plan.NewTrigger, plan.PkgName, plan.PkgID), logger) {
+			return nil, nil
 		}
 	}
 	if opts.Verbose {
-		xmlPayload, _ := xml.MarshalIndent(payload, "", "  ")
+		xmlPayload, _ := xml.MarshalIndent(plan.createPayload, "", "  ")
 		fmt.Fprintf(os.Stderr, "\n--- POST payload (JSSResource/policies/id/0) ---\n%s\n--- end payload ---\n\n", xmlPayload)
 	}
-	if err := postPolicyPackage(credName, payload, logger); err != nil {
-		return err
+	body, err := postPolicyPackage(credName, plan.createPayload, logger)
+	if err != nil {
+		return nil, err
 	}
-	fmt.Printf("Created policy %q with trigger %s, package %s (ID %d)\n", policyName, trigger, pkgName, pkgID)
-	return nil
+	id, err := resolveCreatedPolicyID(credName, opts, body, plan.NewName, logger)
+	if err != nil {
+		return nil, err
+	}
+	out := &PolicyMutationOutcome{
+		Kind:        "create",
+		PolicyID:    id,
+		PolicyName:  plan.NewName,
+		Trigger:     plan.NewTrigger,
+		PackageID:   plan.PkgID,
+		PackageName: plan.PkgName,
+	}
+	fmt.Printf("Created policy %q (ID %d) with trigger %s, package %s (ID %d)\n", plan.NewName, id, plan.NewTrigger, plan.PkgName, plan.PkgID)
+	return out, nil
+}
+
+// PolicyCreatePackage creates a new package policy from scratch (no source policy required).
+func PolicyCreatePackage(credName string, opts Opts, appName, version string, action string, scopeAll bool, scopeGroupIDs []int, category, packageOverride string, logger *slog.Logger) (*PolicyMutationOutcome, error) {
+	plan, err := PlanPolicyCreatePackage(credName, opts, appName, version, action, scopeAll, scopeGroupIDs, category, packageOverride, logger)
+	if err != nil {
+		return nil, err
+	}
+	return ApplyPolicyCreatePackagePlan(credName, opts, plan, logger)
 }
 
 // --- create ss ---
@@ -2490,7 +2896,7 @@ func PolicyCreateFromTemplate(credName string, opts Opts, tmpl PolicyTemplate, v
 		xmlPayload, _ := xml.MarshalIndent(payload, "", "  ")
 		fmt.Fprintf(os.Stderr, "\n--- POST payload (JSSResource/policies/id/0) ---\n%s\n--- end payload ---\n\n", xmlPayload)
 	}
-	if err := postPolicyInstall(credName, payload, logger); err != nil {
+	if _, err := postPolicyInstall(credName, payload, logger); err != nil {
 		return err
 	}
 	fmt.Printf("Created policy %q with trigger %s\n", name, trigger)

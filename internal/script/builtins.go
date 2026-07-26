@@ -165,6 +165,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "policy_set_install", policySetInstall(credName, logger))
 	putBuiltin(dict, "policy_clone", policyClone(credName, logger))
 	putBuiltin(dict, "policy_create_ss", policyCreateSS(credName, logger))
+	putBuiltin(dict, "policy_create_package", policyCreatePackage(credName, logger))
 	putBuiltin(dict, "policy_set_package", policySetPackage(credName, logger))
 	putBuiltin(dict, "policy_set_scope_all", policySetScopeAll(credName, logger))
 	putBuiltin(dict, "policy_delete", policyDelete(credName, logger))
@@ -242,12 +243,18 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "step_delete_policy", stepDeletePolicyBuiltin)
 	putBuiltin(dict, "policy_template", policyTemplateBuiltin)
 	putBuiltin(dict, "step_create_policy", stepCreatePolicyBuiltin)
+	putBuiltin(dict, "step_note", stepNoteBuiltin)
+	putBuiltin(dict, "step_with_note", stepWithNoteBuiltin)
+	putBuiltin(dict, "change_batch", changeBatchBuiltin)
+	putBuiltin(dict, "plan_change", planChangeBuiltin(credName, logger))
+	putBuiltin(dict, "run_change", runChangeBuiltin(credName, logger))
 	putBuiltin(dict, "run_workflow", runWorkflowBuiltin(credName, logger))
 
 	putBuiltin(dict, "package_upload", packageUpload(credName, logger))
 	putBuiltin(dict, "package_delete", packageDelete(credName, logger))
 	putBuiltin(dict, "package_put", packagePut(credName, logger))
 
+	putBuiltin(dict, "profile_create", profileCreate(credName, logger))
 	putBuiltin(dict, "profile_clone", profileClone(credName, logger))
 	putBuiltin(dict, "profile_redeploy", profileRedeploy(credName, logger))
 	putBuiltin(dict, "profile_get_payloads", profileGetPayloads(credName, logger))
@@ -268,8 +275,14 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "payloads_add_payload", payloadsAddPayloadBuiltin)
 	putBuiltin(dict, "payloads_remove_payload", payloadsRemovePayloadBuiltin)
 	putBuiltin(dict, "plist_normalise_dict", plistNormaliseDictBuiltin)
+	putBuiltin(dict, "pppc_fda", pppcFDABuiltin)
+	putBuiltin(dict, "pppc_payload", pppcPayloadBuiltin)
+	putBuiltin(dict, "prefs_payload", prefsPayloadBuiltin)
 	putBuiltin(dict, "step_set_profile_payload", stepSetProfilePayloadBuiltin)
 	putBuiltin(dict, "step_set_profile_xml", stepSetProfileXMLBuiltin)
+	putBuiltin(dict, "step_create_package_policy", stepCreatePackagePolicyBuiltin)
+	putBuiltin(dict, "step_create_profile", stepCreateProfileBuiltin)
+	putBuiltin(dict, "step_create_ss", stepCreateSSBuiltin)
 
 	putBuiltin(dict, "script_get_contents", scriptGetContents(credName, logger))
 	putBuiltin(dict, "script_update", scriptUpdate(credName, logger))
@@ -614,7 +627,12 @@ func policyClone(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var policyID starlark.Int
 		var version, cred starlark.String
-		if err := starlark.UnpackArgs("policy_clone", args, kwargs, "policy_id", &policyID, "version", &version, "cred?", &cred); err != nil {
+		keepSource := starlark.Value(starlark.None)
+		if err := starlark.UnpackArgs("policy_clone", args, kwargs,
+			"policy_id", &policyID, "version", &version,
+			"keep_source?", &keepSource,
+			"cred?", &cred,
+		); err != nil {
 			return nil, err
 		}
 		pid, _ := policyID.Int64()
@@ -622,13 +640,60 @@ func policyClone(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		if cred != "" {
 			c = string(cred)
 		}
+		disableMode, err := disableModeFromKeepSource(keepSource)
+		if err != nil {
+			return nil, err
+		}
 		paramIndices := []int{4, 5, 6}
-		err := buddy.PolicyClone(getCred(thread, c), scriptOpts, int(pid), "", "", string(version), "", paramIndices, logger)
+		err = buddy.PolicyClone(getCred(thread, c), scriptOpts, int(pid), "", "", string(version), "", paramIndices, disableMode, logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
 		return resultOK(starlark.None), nil
 	}
+}
+
+func disableModeFromKeepSource(keepSource starlark.Value) (buddy.DisableSourceMode, error) {
+	if keepSource == nil || keepSource == starlark.None {
+		return buddy.DisableSourceAuto, nil
+	}
+	b, ok := keepSource.(starlark.Bool)
+	if !ok {
+		return buddy.DisableSourceAuto, fmt.Errorf("keep_source must be a bool")
+	}
+	if bool(b) {
+		return buddy.DisableSourceKeep, nil
+	}
+	return buddy.DisableSourceForce, nil
+}
+
+func disableModeFromPackageKwargs(disableSource, keepSource starlark.Value) (buddy.DisableSourceMode, error) {
+	hasDisable := disableSource != nil && disableSource != starlark.None
+	hasKeep := keepSource != nil && keepSource != starlark.None
+	if hasDisable && hasKeep {
+		return buddy.DisableSourceAuto, fmt.Errorf("disable_source and keep_source are mutually exclusive")
+	}
+	if hasKeep {
+		b, ok := keepSource.(starlark.Bool)
+		if !ok {
+			return buddy.DisableSourceAuto, fmt.Errorf("keep_source must be a bool")
+		}
+		if bool(b) {
+			return buddy.DisableSourceKeep, nil
+		}
+		return buddy.DisableSourceForce, nil
+	}
+	if hasDisable {
+		b, ok := disableSource.(starlark.Bool)
+		if !ok {
+			return buddy.DisableSourceAuto, fmt.Errorf("disable_source must be a bool")
+		}
+		if bool(b) {
+			return buddy.DisableSourceForce, nil
+		}
+		return buddy.DisableSourceKeep, nil
+	}
+	return buddy.DisableSourceAuto, nil
 }
 
 func policyCreateSS(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
@@ -659,11 +724,76 @@ func policyCreateSS(credName string, logger *slog.Logger) func(*starlark.Thread,
 	}
 }
 
+func policyCreatePackage(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var app, version, action, category, packagePattern, cred starlark.String
+		var scopeAll starlark.Value = starlark.None
+		var scopeGroupIDs *starlark.List
+		if err := starlark.UnpackArgs("policy_create_package", args, kwargs,
+			"app", &app, "version", &version,
+			"action?", &action,
+			"scope_all?", &scopeAll,
+			"scope_group_ids?", &scopeGroupIDs,
+			"category?", &category,
+			"package_pattern?", &packagePattern,
+			"cred?", &cred,
+		); err != nil {
+			return nil, err
+		}
+		act := string(action)
+		if act == "" {
+			act = "install"
+		}
+		var groupIDs []int
+		if scopeGroupIDs != nil {
+			for i := 0; i < scopeGroupIDs.Len(); i++ {
+				n, ok := scopeGroupIDs.Index(i).(starlark.Int)
+				if !ok {
+					return resultErr("scope_group_ids must be a list of ints"), nil
+				}
+				v64, _ := n.Int64()
+				groupIDs = append(groupIDs, int(v64))
+			}
+		}
+		all := len(groupIDs) == 0
+		if scopeAll != nil && scopeAll != starlark.None {
+			b, ok := scopeAll.(starlark.Bool)
+			if !ok {
+				return resultErr("scope_all must be a bool"), nil
+			}
+			all = bool(b)
+		}
+		c := credName
+		if cred != "" {
+			c = string(cred)
+		}
+		out, err := buddy.PolicyCreatePackage(getCred(thread, c), scriptOpts, string(app), string(version), act, all, groupIDs, string(category), string(packagePattern), logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		if out == nil {
+			return resultOK(starlark.None), nil
+		}
+		d := new(starlark.Dict)
+		_ = d.SetKey(starlark.String("id"), starlark.MakeInt(out.PolicyID))
+		_ = d.SetKey(starlark.String("name"), starlark.String(out.PolicyName))
+		_ = d.SetKey(starlark.String("trigger"), starlark.String(out.Trigger))
+		return resultOK(d), nil
+	}
+}
+
 func policySetPackage(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var app, version, trigger, packagePattern, cred starlark.String
 		var policyID starlark.Int = starlark.MakeInt(0)
-		if err := starlark.UnpackArgs("policy_set_package", args, kwargs, "app", &app, "version", &version, "policy_id?", &policyID, "trigger?", &trigger, "package_pattern?", &packagePattern, "cred?", &cred); err != nil {
+		disableSource := starlark.Value(starlark.None)
+		keepSource := starlark.Value(starlark.None)
+		if err := starlark.UnpackArgs("policy_set_package", args, kwargs,
+			"app", &app, "version", &version,
+			"policy_id?", &policyID, "trigger?", &trigger, "package_pattern?", &packagePattern,
+			"disable_source?", &disableSource, "keep_source?", &keepSource,
+			"cred?", &cred,
+		); err != nil {
 			return nil, err
 		}
 		pid, _ := policyID.Int64()
@@ -679,7 +809,11 @@ func policySetPackage(credName string, logger *slog.Logger) func(*starlark.Threa
 		if packagePattern != "" {
 			packageOverride = string(packagePattern)
 		}
-		err := buddy.PolicyPackage(getCred(thread, c), scriptOpts, strings.ToLower(string(app)), string(version), int(pid), triggerOverride, packageOverride, logger)
+		disableMode, err := disableModeFromPackageKwargs(disableSource, keepSource)
+		if err != nil {
+			return nil, err
+		}
+		err = buddy.PolicyPackage(getCred(thread, c), scriptOpts, strings.ToLower(string(app)), string(version), int(pid), triggerOverride, packageOverride, disableMode, logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -2665,10 +2799,78 @@ func fileWriteBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tup
 // Each returns a Starlark dict describing the step; no side effects.
 // ---------------------------------------------------------------------------
 
+func attachStepNote(d *starlark.Dict, note starlark.String) *starlark.Dict {
+	if string(note) != "" {
+		_ = d.SetKey(starlark.String("note"), note)
+	}
+	return d
+}
+
+func stepNoteBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var note starlark.String
+	if err := starlark.UnpackArgs("step_note", args, kwargs, "note", &note); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(string(note)) == "" {
+		return nil, fmt.Errorf("step_note requires non-empty note")
+	}
+	return stepDict(stepTypeNote, "note", string(note)), nil
+}
+
+func stepWithNoteBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var step *starlark.Dict
+	var note starlark.String
+	if err := starlark.UnpackArgs("step_with_note", args, kwargs, "step", &step, "note", &note); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(string(note)) == "" {
+		return nil, fmt.Errorf("step_with_note requires non-empty note")
+	}
+	_ = step.SetKey(starlark.String("note"), note)
+	return step, nil
+}
+
+func changeBatchBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var title, summary, risk, window starlark.String
+	if err := starlark.UnpackArgs("change_batch", args, kwargs,
+		"title", &title,
+		"summary?", &summary,
+		"risk?", &risk,
+		"window?", &window,
+	); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(string(title)) == "" {
+		return nil, fmt.Errorf("change_batch requires title")
+	}
+	d := new(starlark.Dict)
+	_ = d.SetKey(starlark.String("type"), starlark.String("change_batch"))
+	_ = d.SetKey(starlark.String("title"), title)
+	if string(summary) != "" {
+		_ = d.SetKey(starlark.String("summary"), summary)
+	}
+	if string(risk) != "" {
+		_ = d.SetKey(starlark.String("risk"), risk)
+	}
+	if string(window) != "" {
+		_ = d.SetKey(starlark.String("window"), window)
+	}
+	return d, nil
+}
+
 func stepSetPackageBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var app, version, fromTrigger, packagePattern starlark.String
+	var app, version, fromTrigger, packagePattern, note starlark.String
+	disableSource := starlark.Value(starlark.None)
+	keepSource := starlark.Value(starlark.None)
 	if err := starlark.UnpackArgs("step_set_package", args, kwargs,
-		"app", &app, "version", &version, "from_trigger", &fromTrigger, "package_pattern?", &packagePattern); err != nil {
+		"app", &app, "version", &version, "from_trigger", &fromTrigger,
+		"package_pattern?", &packagePattern,
+		"disable_source?", &disableSource, "keep_source?", &keepSource,
+		"note?", &note,
+	); err != nil {
+		return nil, err
+	}
+	if _, err := disableModeFromPackageKwargs(disableSource, keepSource); err != nil {
 		return nil, err
 	}
 	d := stepDict(stepTypeSetPackage,
@@ -2679,15 +2881,28 @@ func stepSetPackageBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 	if string(packagePattern) != "" {
 		_ = d.SetKey(starlark.String("package_pattern"), packagePattern)
 	}
-	return d, nil
+	if disableSource != nil && disableSource != starlark.None {
+		_ = d.SetKey(starlark.String("disable_source"), disableSource)
+	}
+	if keepSource != nil && keepSource != starlark.None {
+		_ = d.SetKey(starlark.String("keep_source"), keepSource)
+	}
+	return attachStepNote(d, note), nil
 }
 
 func stepClonePolicyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var fromTrigger, version, app, oldVersion, packagePattern starlark.String
+	var fromTrigger, version, app, oldVersion, packagePattern, note starlark.String
 	var params *starlark.List
+	keepSource := starlark.Value(starlark.None)
 	if err := starlark.UnpackArgs("step_clone_policy", args, kwargs,
 		"from_trigger", &fromTrigger, "version", &version,
-		"app?", &app, "old_version?", &oldVersion, "package_pattern?", &packagePattern, "params?", &params); err != nil {
+		"app?", &app, "old_version?", &oldVersion, "package_pattern?", &packagePattern, "params?", &params,
+		"keep_source?", &keepSource,
+		"note?", &note,
+	); err != nil {
+		return nil, err
+	}
+	if _, err := disableModeFromKeepSource(keepSource); err != nil {
 		return nil, err
 	}
 	d := stepDict(stepTypeClonePolicy,
@@ -2706,7 +2921,10 @@ func stepClonePolicyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starla
 	if params != nil {
 		_ = d.SetKey(starlark.String("params"), params)
 	}
-	return d, nil
+	if keepSource != nil && keepSource != starlark.None {
+		_ = d.SetKey(starlark.String("keep_source"), keepSource)
+	}
+	return attachStepNote(d, note), nil
 }
 
 func stepSetSSBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -3082,6 +3300,84 @@ func profileSetXML(logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin
 	}
 }
 
+func profileCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var name, payloadsPlist, category, redeployOnUpdate, cred starlark.String
+		var content *starlark.List
+		var scopeAll starlark.Value = starlark.None
+		var scopeGroupIDs *starlark.List
+		if err := starlark.UnpackArgs("profile_create", args, kwargs,
+			"name", &name,
+			"payloads_plist_str?", &payloadsPlist,
+			"content?", &content,
+			"category?", &category,
+			"scope_all?", &scopeAll,
+			"scope_group_ids?", &scopeGroupIDs,
+			"redeploy_on_update?", &redeployOnUpdate,
+			"cred?", &cred,
+		); err != nil {
+			return nil, err
+		}
+		plistStr := string(payloadsPlist)
+		if content != nil {
+			items := make([]interface{}, 0, content.Len())
+			for i := 0; i < content.Len(); i++ {
+				g, err := StarlarkValueToGo(content.Index(i))
+				if err != nil {
+					return resultErr(fmt.Sprintf("content[%d]: %v", i, err)), nil
+				}
+				items = append(items, g)
+			}
+			updated, err := buddy.PlistSetPayloadContent(plistStr, items)
+			if err != nil {
+				return resultErr(err.Error()), nil
+			}
+			plistStr = updated
+		}
+		if strings.TrimSpace(plistStr) == "" {
+			return resultErr("profile_create requires payloads_plist_str or content"), nil
+		}
+		var groupIDs []int
+		if scopeGroupIDs != nil {
+			for i := 0; i < scopeGroupIDs.Len(); i++ {
+				n, ok := scopeGroupIDs.Index(i).(starlark.Int)
+				if !ok {
+					return resultErr("scope_group_ids must be a list of ints"), nil
+				}
+				v64, _ := n.Int64()
+				groupIDs = append(groupIDs, int(v64))
+			}
+		}
+		all := len(groupIDs) == 0
+		if scopeAll != nil && scopeAll != starlark.None {
+			b, ok := scopeAll.(starlark.Bool)
+			if !ok {
+				return resultErr("scope_all must be a bool"), nil
+			}
+			all = bool(b)
+		}
+		c := credName
+		if cred != "" {
+			c = string(cred)
+		}
+		out, err := buddy.ProfileCreate(getCred(thread, c), scriptOpts, buddy.ProfileCreateSpec{
+			Name:             string(name),
+			PayloadsPlist:    plistStr,
+			Category:         string(category),
+			ScopeAll:         all,
+			ScopeGroupIDs:    groupIDs,
+			RedeployOnUpdate: string(redeployOnUpdate),
+		}, logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		if out == nil {
+			return resultOK(starlark.None), nil
+		}
+		return resultOK(starlark.MakeInt(out.ProfileID)), nil
+	}
+}
+
 func profileClone(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var profileID starlark.Int
@@ -3452,6 +3748,216 @@ func stepSetProfileXMLBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args star
 		"redeploy", bool(redeploy),
 	)
 	return d, nil
+}
+
+func stepCreatePackagePolicyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var app, version, action, category, packagePattern, note starlark.String
+	var scopeAll starlark.Value = starlark.None
+	var scopeGroupIDs *starlark.List
+	if err := starlark.UnpackArgs("step_create_package_policy", args, kwargs,
+		"app", &app, "version", &version,
+		"action?", &action,
+		"scope_all?", &scopeAll,
+		"scope_group_ids?", &scopeGroupIDs,
+		"category?", &category,
+		"package_pattern?", &packagePattern,
+		"note?", &note,
+	); err != nil {
+		return nil, err
+	}
+	act := string(action)
+	if act == "" {
+		act = "install"
+	}
+	d := stepDict(stepTypeCreatePackagePolicy,
+		"app", string(app),
+		"version", string(version),
+		"action", act,
+	)
+	if scopeAll != nil && scopeAll != starlark.None {
+		_ = d.SetKey(starlark.String("scope_all"), scopeAll)
+	}
+	if scopeGroupIDs != nil {
+		_ = d.SetKey(starlark.String("scope_group_ids"), scopeGroupIDs)
+	}
+	if string(category) != "" {
+		_ = d.SetKey(starlark.String("category"), category)
+	}
+	if string(packagePattern) != "" {
+		_ = d.SetKey(starlark.String("package_pattern"), packagePattern)
+	}
+	return attachStepNote(d, note), nil
+}
+
+func stepCreateProfileBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name, payloadsPlist, category, redeployOnUpdate, note starlark.String
+	var content *starlark.List
+	var scopeAll starlark.Value = starlark.None
+	var scopeGroupIDs *starlark.List
+	if err := starlark.UnpackArgs("step_create_profile", args, kwargs,
+		"name", &name,
+		"payloads_plist_str?", &payloadsPlist,
+		"content?", &content,
+		"category?", &category,
+		"scope_all?", &scopeAll,
+		"scope_group_ids?", &scopeGroupIDs,
+		"redeploy_on_update?", &redeployOnUpdate,
+		"note?", &note,
+	); err != nil {
+		return nil, err
+	}
+	plistStr := string(payloadsPlist)
+	if content != nil {
+		items := make([]interface{}, 0, content.Len())
+		for i := 0; i < content.Len(); i++ {
+			g, err := StarlarkValueToGo(content.Index(i))
+			if err != nil {
+				return nil, fmt.Errorf("content[%d]: %v", i, err)
+			}
+			items = append(items, g)
+		}
+		updated, err := buddy.PlistSetPayloadContent(plistStr, items)
+		if err != nil {
+			return nil, err
+		}
+		plistStr = updated
+	}
+	if strings.TrimSpace(plistStr) == "" {
+		return nil, fmt.Errorf("step_create_profile requires payloads_plist_str or content")
+	}
+	d := stepDict(stepTypeCreateProfile,
+		"name", string(name),
+		"payloads_plist_str", plistStr,
+	)
+	if scopeAll != nil && scopeAll != starlark.None {
+		_ = d.SetKey(starlark.String("scope_all"), scopeAll)
+	}
+	if scopeGroupIDs != nil {
+		_ = d.SetKey(starlark.String("scope_group_ids"), scopeGroupIDs)
+	}
+	if string(category) != "" {
+		_ = d.SetKey(starlark.String("category"), category)
+	}
+	if string(redeployOnUpdate) != "" {
+		_ = d.SetKey(starlark.String("redeploy_on_update"), redeployOnUpdate)
+	}
+	return attachStepNote(d, note), nil
+}
+
+func stepCreateSSBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var trigger, displayName, category, note starlark.String
+	var scopeGroupID starlark.Int = starlark.MakeInt(0)
+	var scriptID starlark.Int = starlark.MakeInt(0)
+	if err := starlark.UnpackArgs("step_create_ss", args, kwargs,
+		"trigger", &trigger, "display_name", &displayName,
+		"category?", &category,
+		"scope_group_id?", &scopeGroupID,
+		"script_id?", &scriptID,
+		"note?", &note,
+	); err != nil {
+		return nil, err
+	}
+	sgid, _ := scopeGroupID.Int64()
+	sid, _ := scriptID.Int64()
+	d := stepDict(stepTypeCreateSS,
+		"trigger", string(trigger),
+		"display_name", string(displayName),
+		"scope_group_id", int(sgid),
+		"script_id", int(sid),
+	)
+	if string(category) != "" {
+		_ = d.SetKey(starlark.String("category"), category)
+	}
+	return attachStepNote(d, note), nil
+}
+
+func pppcFDABuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var bundleID, codeRequirement, comment starlark.String
+	if err := starlark.UnpackArgs("pppc_fda", args, kwargs,
+		"bundle_id", &bundleID, "code_requirement", &codeRequirement, "comment?", &comment,
+	); err != nil {
+		return nil, err
+	}
+	entry := buddy.PPPCFDA(string(bundleID), string(codeRequirement), string(comment))
+	v, err := GoValueToStarlark(entry)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(v), nil
+}
+
+func pppcPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var services *starlark.Dict
+	var payloadIdentifier, payloadUUID, displayName starlark.String
+	if err := starlark.UnpackArgs("pppc_payload", args, kwargs,
+		"services", &services,
+		"payload_identifier?", &payloadIdentifier,
+		"payload_uuid?", &payloadUUID,
+		"payload_display_name?", &displayName,
+	); err != nil {
+		return nil, err
+	}
+	g, err := StarlarkValueToGo(services)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	svcMap, ok := g.(map[string]interface{})
+	if !ok {
+		return resultErr("services must be a dict"), nil
+	}
+	payload, err := buddy.PPPCPayload(svcMap, buddy.PayloadMetaOpts{
+		PayloadIdentifier:  string(payloadIdentifier),
+		PayloadUUID:        string(payloadUUID),
+		PayloadDisplayName: string(displayName),
+	})
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	v, err := GoValueToStarlark(payload)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(v), nil
+}
+
+func prefsPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var domain starlark.String
+	var settings *starlark.Dict
+	var payloadIdentifier, payloadUUID, displayName starlark.String
+	if err := starlark.UnpackArgs("prefs_payload", args, kwargs,
+		"domain", &domain,
+		"settings", &settings,
+		"payload_identifier?", &payloadIdentifier,
+		"payload_uuid?", &payloadUUID,
+		"payload_display_name?", &displayName,
+	); err != nil {
+		return nil, err
+	}
+	var settingsMap map[string]interface{}
+	if settings != nil {
+		g, err := StarlarkValueToGo(settings)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		m, ok := g.(map[string]interface{})
+		if !ok {
+			return resultErr("settings must be a dict"), nil
+		}
+		settingsMap = m
+	}
+	payload, err := buddy.PrefsPayload(string(domain), settingsMap, buddy.PayloadMetaOpts{
+		PayloadIdentifier:  string(payloadIdentifier),
+		PayloadUUID:        string(payloadUUID),
+		PayloadDisplayName: string(displayName),
+	})
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	v, err := GoValueToStarlark(payload)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(v), nil
 }
 
 // script_fetch(script_id, cred?) → {ok, value: dict}
@@ -4019,7 +4525,7 @@ func mdmFetchCommands(credName string, logger *slog.Logger) func(*starlark.Threa
 }
 
 // ---------------------------------------------------------------------------
-// run_workflow builtin
+// run_workflow / change-batch builtins
 // ---------------------------------------------------------------------------
 
 func runWorkflowBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
@@ -4037,5 +4543,86 @@ func runWorkflowBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 			return nil, err
 		}
 		return starlark.None, nil
+	}
+}
+
+func planChangeBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var change starlark.Value
+		var steps *starlark.List
+		if err := starlark.UnpackArgs("plan_change", args, kwargs, "change", &change, "steps", &steps); err != nil {
+			return nil, err
+		}
+		cred := getCred(thread, credName)
+		stepVals := make([]starlark.Value, steps.Len())
+		for i := 0; i < steps.Len(); i++ {
+			stepVals[i] = steps.Index(i)
+		}
+		md, fps, err := planChange(cred, change, stepVals, logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		fpList := starlark.NewList(nil)
+		for _, fp := range fps {
+			_ = fpList.Append(starlark.String(fp))
+		}
+		val := new(starlark.Dict)
+		_ = val.SetKey(starlark.String("markdown"), starlark.String(md))
+		_ = val.SetKey(starlark.String("fingerprints"), fpList)
+		fmt.Print(md)
+		return resultOK(val), nil
+	}
+}
+
+func runChangeBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var change starlark.Value
+		var steps *starlark.List
+		planned := starlark.Value(starlark.None)
+		if err := starlark.UnpackArgs("run_change", args, kwargs,
+			"change", &change, "steps", &steps, "planned?", &planned,
+		); err != nil {
+			return nil, err
+		}
+		cred := getCred(thread, credName)
+		stepVals := make([]starlark.Value, steps.Len())
+		for i := 0; i < steps.Len(); i++ {
+			stepVals[i] = steps.Index(i)
+		}
+		var fps []string
+		if planned != nil && planned != starlark.None {
+			pd, ok := planned.(*starlark.Dict)
+			if !ok {
+				return nil, fmt.Errorf("planned must be the dict returned by plan_change")
+			}
+			// Accept either the raw plan_change value dict or a result wrapper.
+			if v, found, _ := pd.Get(starlark.String("value")); found {
+				if inner, ok := v.(*starlark.Dict); ok {
+					pd = inner
+				}
+			}
+			fpVal, found, err := pd.Get(starlark.String("fingerprints"))
+			if err != nil {
+				return nil, err
+			}
+			if found {
+				lst, ok := fpVal.(*starlark.List)
+				if !ok {
+					return nil, fmt.Errorf("planned.fingerprints must be a list")
+				}
+				for i := 0; i < lst.Len(); i++ {
+					s, ok := lst.Index(i).(starlark.String)
+					if !ok {
+						return nil, fmt.Errorf("planned.fingerprints[%d] must be a string", i)
+					}
+					fps = append(fps, string(s))
+				}
+			}
+		}
+		md, err := runChange(cred, change, stepVals, fps, logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(starlark.String(md)), nil
 	}
 }

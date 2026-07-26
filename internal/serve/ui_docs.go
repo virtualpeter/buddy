@@ -3,6 +3,7 @@ package serve
 import (
 	"html/template"
 	"net/http"
+	"path"
 	"strings"
 
 	"buddy/internal/docpages"
@@ -19,12 +20,26 @@ func serveDocsHTML(w http.ResponseWriter, r *http.Request, pages []DocPage, md g
 			id = pages[0].ID
 		}
 	}
+	// Tolerate legacy / filename-style URLs: /docs/docs/foo.md → docs/foo
+	if strings.HasSuffix(id, ".md") {
+		trimmed := strings.TrimSuffix(id, ".md")
+		if pageByID(pages, trimmed) != nil {
+			http.Redirect(w, r, "/docs/"+trimmed, http.StatusFound)
+			return
+		}
+		// docs/change-batches.md vs change-batches.md
+		if base := path.Base(trimmed); pageByID(pages, "docs/"+base) != nil {
+			http.Redirect(w, r, "/docs/docs/"+base, http.StatusFound)
+			return
+		}
+	}
 	p := pageByID(pages, id)
 	if p == nil {
 		http.NotFound(w, r)
 		return
 	}
-	htmlBody, err := renderMarkdown(md, p.Markdown)
+	src := rewriteDocLinks(p.Markdown, pages)
+	htmlBody, err := renderMarkdown(md, src)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

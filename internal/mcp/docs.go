@@ -64,6 +64,8 @@ func docsGet(pages []docpages.Page, idOrURI string) (*docsPageValue, error) {
 		id = "docs/index"
 	case "reference-manual.md":
 		id = "docs/reference-manual"
+	case "change-batches.md":
+		id = "docs/change-batches"
 	case "api-endpoints.md":
 		id = "docs/api-endpoints"
 	case "mcp.md":

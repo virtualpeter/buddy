@@ -2,6 +2,7 @@ package serve
 
 import (
 	"bytes"
+	"path"
 	"regexp"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 )
 
 var headingRE = regexp.MustCompile(`(?m)^(#{1,3})\s+(.+)$`)
+var mdLinkRE = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 
 type tocEntry struct {
 	Level int
@@ -42,6 +44,99 @@ func renderMarkdown(md goldmark.Markdown, src string) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// rewriteDocLinks rewrites relative markdown / example links to /docs/<page-id>
+// so in-page navigation works in the docs UI (bare foo.md would otherwise 404).
+func rewriteDocLinks(markdown string, pages []DocPage) string {
+	byID := map[string]bool{}
+	byBase := map[string][]string{} // basename → page ids (may collide, e.g. README.md)
+	for _, p := range pages {
+		byID[p.ID] = true
+		base := path.Base(p.ID)
+		byBase[base] = append(byBase[base], p.ID)
+		if strings.HasSuffix(base, ".md") {
+			stem := strings.TrimSuffix(base, ".md")
+			byBase[stem] = append(byBase[stem], p.ID)
+		}
+	}
+	pick := func(candidates ...string) string {
+		seen := map[string]bool{}
+		var matches []string
+		for _, c := range candidates {
+			if c == "" || seen[c] {
+				continue
+			}
+			seen[c] = true
+			if byID[c] {
+				matches = append(matches, c)
+				continue
+			}
+			if ids := byBase[c]; len(ids) == 1 {
+				matches = append(matches, ids[0])
+			} else if len(ids) > 1 {
+				// Prefer docs/<name> over examples/README.md style collisions.
+				for _, id := range ids {
+					if strings.HasPrefix(id, "docs/") {
+						matches = append(matches, id)
+						break
+					}
+				}
+			}
+		}
+		if len(matches) == 0 {
+			return ""
+		}
+		return matches[0]
+	}
+
+	return mdLinkRE.ReplaceAllStringFunc(markdown, func(m string) string {
+		sub := mdLinkRE.FindStringSubmatch(m)
+		if len(sub) != 3 {
+			return m
+		}
+		text, dest := sub[1], sub[2]
+		dest = strings.TrimSpace(dest)
+		if dest == "" || strings.HasPrefix(dest, "#") ||
+			strings.HasPrefix(dest, "http://") || strings.HasPrefix(dest, "https://") ||
+			strings.HasPrefix(dest, "mailto:") || strings.HasPrefix(dest, "/docs/") {
+			return m
+		}
+		frag := ""
+		if i := strings.IndexByte(dest, '#'); i >= 0 {
+			frag = dest[i:]
+			dest = dest[:i]
+		}
+		dest = strings.TrimSpace(dest)
+		if dest == "" {
+			return m
+		}
+		// Normalize paths like ../examples/foo.buddy or ./change-batches.md
+		clean := path.Clean(strings.ReplaceAll(dest, "\\", "/"))
+		origClean := clean
+		clean = strings.TrimPrefix(clean, "./")
+		upCount := 0
+		for strings.HasPrefix(clean, "../") {
+			clean = strings.TrimPrefix(clean, "../")
+			upCount++
+		}
+		// Repo-root escapes (../README.md, ../scripts/…) are not docs pages.
+		// Do not leave bare ../ links: from /docs/examples/… the browser would
+		// resolve them under /docs/ and 404. Flatten to a code-styled path instead.
+		if upCount > 0 && !strings.Contains(origClean, "/docs/") && !strings.Contains(origClean, "/examples/") &&
+			!strings.HasPrefix(clean, "docs/") && !strings.HasPrefix(clean, "examples/") {
+			return "`" + strings.TrimPrefix(origClean, "../") + frag + "`"
+		}
+		base := path.Base(clean)
+		candidates := []string{clean, "docs/" + strings.TrimSuffix(base, ".md"), "examples/" + base, base}
+		if strings.HasSuffix(base, ".md") {
+			candidates = append(candidates, strings.TrimSuffix(base, ".md"))
+		}
+		if id := pick(candidates...); id != "" {
+			return "[" + text + "](/docs/" + id + frag + ")"
+		}
+		return m
+	})
 }
 
 func extractTOC(markdown string) []tocEntry {

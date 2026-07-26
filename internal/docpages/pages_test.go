@@ -14,16 +14,25 @@ func TestLoadHumanEmbedded(t *testing.T) {
 		t.Fatalf("source=%q", res.Source)
 	}
 	for _, id := range []string{
-		"docs/index", "docs/reference-manual", "docs/api-endpoints",
-		"docs/mcp", "builtins", "examples/bump-release.buddy",
+		"docs/index", "docs/reference-manual", "docs/change-batches", "docs/api-endpoints",
+		"docs/mcp", "docs/builtins-v3", "builtins",
+		"examples/bump-release.buddy", "examples/change-batch-santa.buddy",
+		"examples/setup-app-classic.buddy",
+		"examples/README.md", "examples/mcp.json",
 	} {
 		if ByID(res.Pages, id) == nil {
 			t.Errorf("missing human page %q", id)
 		}
 	}
-	for _, id := range []string{"agents", "readme", "rules/buddy-cli.mdc", "docs/builtins-v3", "help/root"} {
+	for _, id := range []string{"agents", "readme", "rules/buddy-cli.mdc", "help/root"} {
 		if ByID(res.Pages, id) != nil {
 			t.Errorf("agent-only page %q should not appear in human catalog", id)
+		}
+	}
+	// Every curated humanDocEntries file must be present under docs/.
+	for _, e := range humanDocEntries {
+		if ByID(res.Pages, e.id) == nil {
+			t.Errorf("humanDocEntries id %q missing from catalog", e.id)
 		}
 	}
 	secs := NavSections(res.Pages)
@@ -38,7 +47,7 @@ func TestLoadAgentEmbedded(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{
-		"docs/index", "docs/builtins-v3", "readme", "agents", "builtins",
+		"docs/index", "docs/change-batches", "docs/builtins-v3", "readme", "agents", "builtins",
 		"rules/buddy-cli.mdc", "rules/buddy-auth-secrets.mdc", "rules/buddy-builtins.mdc",
 		"help/root", "examples/bump-release.buddy",
 	} {

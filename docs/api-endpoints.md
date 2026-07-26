@@ -213,7 +213,7 @@ Base path: `/JSSResource/osxconfigurationprofiles`
 |--------|----------|---------|---------|
 | `GET` | `/JSSResource/osxconfigurationprofiles` | `ProfileList`, `ProfileSearch`, `ProfileFindID` | List all configuration profiles (id + name) |
 | `GET` | `/JSSResource/osxconfigurationprofiles/id/{id}` | `ProfileGetXML`, `ProfileGetPayloads`, `ProfileGetPayloadByDomain`, `ProfileListPayloads`, `ProfileSetPayload`, `ProfileRedeploy`, `ProfileClone` | Fetch full profile XML |
-| `POST` | `/JSSResource/osxconfigurationprofiles/id/0` | `ProfileClone` | Create a new profile (clone with new name, no scope) |
+| `POST` | `/JSSResource/osxconfigurationprofiles/id/0` | `ProfileClone`, `ProfileCreate` | Create a new profile (clone with empty scope, or greenfield create with payloads + scope) |
 | `PUT` | `/JSSResource/osxconfigurationprofiles/id/{id}` | `ProfileSetXML`, `ProfileSetPayload`, `ProfileRedeploy` | Replace full profile XML |
 
 ### Notes

@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -47,6 +48,15 @@ func TestLoadDocPages(t *testing.T) {
 	if pageByID(pages, "builtins") == nil {
 		t.Fatal("missing builtins")
 	}
+	if pageByID(pages, "docs/change-batches") == nil {
+		t.Fatal("missing docs/change-batches")
+	}
+	if pageByID(pages, "docs/builtins-v3") == nil {
+		t.Fatal("missing docs/builtins-v3")
+	}
+	if pageByID(pages, "examples/README.md") == nil {
+		t.Fatal("missing examples/README.md")
+	}
 	builtins := pageByID(pages, "builtins")
 	if !strings.Contains(builtins.Markdown, "### `policy`") {
 		t.Fatal("builtins page not structured")
@@ -56,5 +66,77 @@ func TestLoadDocPages(t *testing.T) {
 	}
 	if pageByID(pages, "rules/buddy-cli.mdc") != nil {
 		t.Fatal("Cursor rules must not appear in the human docs UI")
+	}
+}
+
+func TestRewriteDocLinks(t *testing.T) {
+	pages := []DocPage{
+		{ID: "docs/change-batches", Title: "Change batches"},
+		{ID: "docs/builtins-v3", Title: "v3"},
+		{ID: "examples/change-batch-santa.buddy", Title: "santa"},
+		{ID: "examples/README.md", Title: "Examples index"},
+	}
+	in := `[a](change-batches.md) [b](builtins-v3.md) [c](../examples/change-batch-santa.buddy) [d](../examples/README.md) [e](https://example.com) [f](#anchor) [g](../README.md#configuration) [h](../scripts/integration_test.buddy)`
+	got := rewriteDocLinks(in, pages)
+	for _, want := range []string{
+		"](/docs/docs/change-batches)",
+		"](/docs/docs/builtins-v3)",
+		"](/docs/examples/change-batch-santa.buddy)",
+		"](/docs/examples/README.md)",
+		"](https://example.com)",
+		"](#anchor)",
+		"`README.md#configuration`",
+		"`scripts/integration_test.buddy`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "/docs/scripts/") || strings.Contains(got, "](../README.md") {
+		t.Fatalf("should not leave clickable ../ repo links:\n%s", got)
+	}
+}
+
+func TestHumanDocRelativeLinksResolve(t *testing.T) {
+	pages, _, err := loadDocPages("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := map[string]bool{}
+	for _, p := range pages {
+		known[p.ID] = true
+	}
+	linkRE := regexp.MustCompile(`\]\(([^)]+)\)`)
+	var broken []string
+	for _, p := range pages {
+		rewritten := rewriteDocLinks(p.Markdown, pages)
+		for _, m := range linkRE.FindAllStringSubmatch(rewritten, -1) {
+			dest := m[1]
+			if i := strings.IndexByte(dest, '#'); i >= 0 {
+				dest = dest[:i]
+			}
+			if dest == "" || strings.HasPrefix(dest, "http") || strings.HasPrefix(dest, "mailto:") {
+				continue
+			}
+			if strings.HasPrefix(dest, "/docs/") {
+				id := strings.TrimPrefix(dest, "/docs/")
+				if !known[id] {
+					broken = append(broken, p.ID+" -> "+dest+" (unknown page)")
+				}
+				continue
+			}
+			// Repo-root escapes must be flattened (not left as ../ clickable links).
+			if strings.HasPrefix(dest, "../") {
+				broken = append(broken, p.ID+" dangling ../ link "+dest)
+				continue
+			}
+			if strings.HasSuffix(dest, ".md") || strings.HasSuffix(dest, ".buddy") ||
+				strings.HasSuffix(dest, ".json") || strings.Contains(dest, "examples/") {
+				broken = append(broken, p.ID+" unresolved "+dest)
+			}
+		}
+	}
+	if len(broken) > 0 {
+		t.Fatalf("unresolved docs UI links:\n  %s", strings.Join(broken, "\n  "))
 	}
 }

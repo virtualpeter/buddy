@@ -32,3 +32,30 @@ func TestCatalogRelease(t *testing.T) {
 		t.Fatalf("insert = %q", fn.Insert)
 	}
 }
+
+func TestCatalogAppSetup(t *testing.T) {
+	mods, err := Catalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mod *ModuleInfo
+	for i := range mods {
+		if mods[i].ID == "stdlib/app_setup" {
+			mod = &mods[i]
+			break
+		}
+	}
+	if mod == nil {
+		t.Fatalf("missing stdlib/app_setup in %#v", mods)
+	}
+	if len(mod.Functions) != 1 || mod.Functions[0].Name != "setup_app_classic" {
+		t.Fatalf("functions = %#v, want setup_app_classic only", mod.Functions)
+	}
+	fn := mod.Functions[0]
+	if fn.Summary == "" {
+		t.Fatal("expected summary")
+	}
+	if !strings.Contains(fn.Insert, `load("stdlib/app_setup.buddy", "setup_app_classic")`) {
+		t.Fatalf("insert = %q", fn.Insert)
+	}
+}

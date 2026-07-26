@@ -7,9 +7,12 @@ Use the sidebar to browse. Start with the [reference manual](/docs/docs/referenc
 | Guide | What it’s for |
 |-------|----------------|
 | [Reference manual](/docs/docs/reference-manual) | Install, config, credentials, CLI, Starlark, environment |
+| [Change batches](/docs/docs/change-batches) | Plan → approve → apply workflows for CAB/change records |
 | [Starlark builtins](/docs/builtins) | Every built-in function (signatures, params, return values) |
+| [Builtins v3 rename map](/docs/docs/builtins-v3) | Old → new Starlark names (plural/singular grammar) |
 | [API endpoints](/docs/docs/api-endpoints) | Jamf HTTP APIs buddy calls |
 | [MCP for AI tools](/docs/docs/mcp) | Use buddy as an MCP server from Cursor, Claude Desktop, and other hosts |
+| [Examples index](/docs/examples/README.md) | Runnable `.buddy` samples |
 | [Notebook](/notebook) | Interactive Starlark cells against your Jamf tenant/auth |
 | [Script IDE](/ide) | Single-buffer runner (open/save, args, trace, Run as file) |
 

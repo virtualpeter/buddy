@@ -16,6 +16,8 @@ Arguments after `--` appear in the global `args` list inside the script.
 | File | Purpose |
 |------|---------|
 | [bump-release.buddy](bump-release.buddy) | Illustrative workflow: resolve a policy by trigger, then update package install params (adjust IDs and names to your Jamf instance). |
+| [change-batch-santa.buddy](change-batch-santa.buddy) | Change-record style batch: `plan_change` markdown (no predicted create IDs), then optional `run_change` with outcomes. Howto: [docs/change-batches.md](../docs/change-batches.md). |
+| [setup-app-classic.buddy](setup-app-classic.buddy) | Classic greenfield new-app batch via `setup_app_classic` (prefs + PPPC profiles, cache/install). Howto: [docs/change-batches.md](../docs/change-batches.md#new-app-setup-classic). |
 | [mcp.json](mcp.json) | Example MCP host config for `buddy mcp` (use absolute paths; or run `buddy mcp setup` — see [docs/mcp.md](../docs/mcp.md)). |
 
 ## Full documentation
@@ -24,7 +26,3 @@ Arguments after `--` appear in the global `args` list inside the script.
 - [Starlark builtins v3 rename map](../docs/builtins-v3.md) — plural/singular grammar and old→new names.
 - Canonical **built-in function** list (always matches your installed binary): `buddy help builtins`
 - Starlark language subset: `buddy help starlark`
-
-## Advanced / integration testing
-
-The repository also contains [scripts/integration_test.buddy](../scripts/integration_test.buddy), a broad integration harness for Jamf test tenants (creates and tears down test policies and groups). It is not a minimal example; read and adapt carefully before running against production.
