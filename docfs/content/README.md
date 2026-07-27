@@ -90,23 +90,33 @@ buddy cred set secret sandbox-admin --client-secret
 buddy cred use sandbox
 buddy cred use --mcp sandbox
 buddy cred store
+buddy cred delete auth sandbox-admin   # also clears store secrets
+buddy cred clean secrets               # review/delete orphaned store entries
 ```
 
 Legacy shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auths:`) migrate automatically on load (breaking; only the new form is written back). Inline secrets: `buddy cred migrate`. Selection: `--tenant` (auto-pick auth by operation) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all).
 
 ### Setting up a role and client for buddy
 
-To create a Jamf API role with the permissions buddy needs and an API client (integration) scoped to that role:
+If you have **no config yet**, bootstrap an instance tenant + basic auth first:
+
+```sh
+buddy setup basic-setup               # prompts for tenant, URL, username, password
+buddy --user <admin-auth> auth test
+```
+
+Then (optional) create a Jamf Pro **instance** API role/client and store oauth (Platform gateway oauth cannot manage roles/integrations):
 
 ```sh
 buddy setup write-script              # writes setup_buddy_role.buddy (or specify a path)
-buddy setup_buddy_role.buddy -y    # create the role and client (idempotent: reuses existing "Buddy" role)
-buddy setup configure-oauth -y        # stores clientId in config and client secret in platform store
+buddy setup_buddy_role.buddy -y       # idempotent: reuses role "Buddy" and client "buddy-cli"
+buddy setup store-oauth               # rotate instance client secret; store/update oauth auth (surface=instance)
+buddy --user <auth-name> auth test
 ```
 
-Alternatively, after step 2 you can run `buddy client credentials <id>` to get the client secret (shown once) and add it to config manually.
+Alternatively, after the script you can run `buddy client credentials <id>` to get the client secret (shown once) and add an auth manually with `buddy cred set auth …`.
 
-The generated script fetches privilege names from your Jamf instance at runtime and reuses an existing role named "Buddy" if present.
+The generated script fetches privilege names from your Jamf instance at runtime and reuses an existing role named "Buddy" (and client "buddy-cli") if present.
 
 The role the script targets may include **destructive or high-impact privileges** (for example wiping a computer, sending erase MDM commands, or similar Jamf permissions buddy can use in automation). That keeps a single setup path flexible, but it is **not** always appropriate to grant every such privilege to the API client: for day-to-day or production use, review the role in Jamf and **remove privileges you do not actually need**, then narrow the role before distributing credentials.
 

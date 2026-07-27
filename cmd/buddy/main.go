@@ -2311,6 +2311,62 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 	subcommand := args[0]
 	args = args[1:]
 	switch subcommand {
+	case "basic-setup":
+		bopts := buddy.BasicSetupOpts{SkipConfirm: opts.SkipConfirm}
+		for _, a := range args {
+			switch {
+			case strings.HasPrefix(a, "--tenant="):
+				bopts.TenantName = strings.TrimSpace(strings.TrimPrefix(a, "--tenant="))
+			case strings.HasPrefix(a, "--url="):
+				bopts.URL = strings.TrimSpace(strings.TrimPrefix(a, "--url="))
+			case strings.HasPrefix(a, "--name="), strings.HasPrefix(a, "--auth="), strings.HasPrefix(a, "--user="):
+				// --user here means the new auth name (not API pin); setup is bootstrapping.
+				if strings.HasPrefix(a, "--name=") {
+					bopts.AuthName = strings.TrimSpace(strings.TrimPrefix(a, "--name="))
+				} else if strings.HasPrefix(a, "--auth=") {
+					bopts.AuthName = strings.TrimSpace(strings.TrimPrefix(a, "--auth="))
+				} else {
+					bopts.AuthName = strings.TrimSpace(strings.TrimPrefix(a, "--user="))
+				}
+			case strings.HasPrefix(a, "--username="):
+				bopts.Username = strings.TrimSpace(strings.TrimPrefix(a, "--username="))
+			case strings.HasPrefix(a, "--password="):
+				bopts.Password = strings.TrimPrefix(a, "--password=")
+			case a == "-y":
+				bopts.SkipConfirm = true
+			}
+		}
+		fmt.Println("buddy setup basic-setup")
+		fmt.Println()
+		fmt.Println("This configures your first Jamf Pro *instance* tenant and a basic")
+		fmt.Println("(username/password) auth in ~/.config/buddy/config.yaml.")
+		fmt.Println("The password is stored in the platform secret store (Keychain/file),")
+		fmt.Println("not inline in config. surface=instance (not Platform gateway oauth).")
+		fmt.Println()
+		fmt.Println("Afterward you can auth test with basic, and optionally create a Jamf")
+		fmt.Println("API role/client and store instance oauth (buddy setup write-script /")
+		fmt.Println("store-oauth).")
+		fmt.Println()
+		res, err := buddy.SetupBasic(cfg, bopts)
+		if err != nil {
+			return err
+		}
+		if res == nil {
+			return nil
+		}
+		fmt.Printf("Configured tenant %q (%s) and basic auth %q (user %s, surface=instance).\n",
+			res.TenantName, res.URL, res.AuthName, res.Username)
+		fmt.Printf("Password stored in the platform secret store. Default tenant is %q.\n", cfg.Tenant.Default)
+		fmt.Println()
+		fmt.Println("Try:")
+		fmt.Printf("  buddy --user %s auth test\n", res.AuthName)
+		fmt.Println()
+		fmt.Println("Optional — create a Jamf Pro instance API role/client and store oauth:")
+		fmt.Println("  buddy setup write-script")
+		fmt.Printf("  buddy setup_buddy_role.buddy -y   # uses auth %q\n", res.AuthName)
+		fmt.Println("  buddy setup store-oauth")
+		fmt.Println("  buddy --user <oauth-auth> auth test")
+		return nil
 	case "write-script":
 		path := "setup_buddy_role.buddy"
 		if len(args) > 0 {
@@ -2322,23 +2378,30 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		fmt.Printf("Wrote %s\n", path)
 		fmt.Printf("Run with: ./%s -y   (or: buddy %s -y)\n", path, path)
 		return nil
-	case "configure-oauth":
-		credNameForAPI := credName
+	case "store-oauth", "configure-oauth":
+		if subcommand == "configure-oauth" {
+			fmt.Fprintln(os.Stderr, "note: 'configure-oauth' is deprecated; use 'buddy setup store-oauth'")
+		}
+		apiAuth := credName
 		clientDisplayName := "buddy-cli"
-		newCredName := "buddy-oauth"
+		var authName, tenantName string
 		configureOpts := opts
 		usedSetupCred := false
 		for _, a := range args {
 			switch {
 			case strings.HasPrefix(a, "--user="):
-				credNameForAPI = strings.TrimPrefix(a, "--user=")
+				apiAuth = strings.TrimPrefix(a, "--user=")
 			case strings.HasPrefix(a, "--cred="):
-				credNameForAPI = strings.TrimPrefix(a, "--cred=")
+				apiAuth = strings.TrimPrefix(a, "--cred=")
 				usedSetupCred = true
 			case strings.HasPrefix(a, "--client-name="):
 				clientDisplayName = strings.TrimPrefix(a, "--client-name=")
 			case strings.HasPrefix(a, "--name="):
-				newCredName = strings.TrimPrefix(a, "--name=")
+				authName = strings.TrimSpace(strings.TrimPrefix(a, "--name="))
+			case strings.HasPrefix(a, "--auth="):
+				authName = strings.TrimSpace(strings.TrimPrefix(a, "--auth="))
+			case strings.HasPrefix(a, "--tenant="):
+				tenantName = strings.TrimSpace(strings.TrimPrefix(a, "--tenant="))
 			case a == "-y":
 				configureOpts.SkipConfirm = true
 			}
@@ -2346,21 +2409,29 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		if usedSetupCred {
 			fmt.Fprintln(os.Stderr, "note: '--cred' is deprecated; use '--user'")
 		}
-		finalCredName, err := buddy.SetupConfigureOAuth(cfg, credNameForAPI, clientDisplayName, newCredName, configureOpts, log)
+		res, err := buddy.SetupStoreOAuth(cfg, buddy.StoreOAuthOpts{
+			APIAuth:           apiAuth,
+			ClientDisplayName: clientDisplayName,
+			AuthName:          authName,
+			TenantName:        tenantName,
+			Opts:              configureOpts,
+		}, log)
 		if err != nil {
 			return err
 		}
-		if finalCredName == "" {
+		if res == nil {
 			return nil // user declined
 		}
-		if finalCredName == newCredName {
-			fmt.Printf("Added credential %q. Use: buddy --user %s ...\n", finalCredName, finalCredName)
+		if res.Updated {
+			fmt.Printf("Updated instance oauth auth %q on tenant %q (surface=instance; secret in platform store). Use: buddy --user %s ...\n",
+				res.AuthName, res.TenantName, res.AuthName)
 		} else {
-			fmt.Printf("Added credential %q (name %q in use). Use: buddy --user %s ...\n", finalCredName, newCredName, finalCredName)
+			fmt.Printf("Created instance oauth auth %q on tenant %q (surface=instance; secret in platform store). Use: buddy --user %s ...\n",
+				res.AuthName, res.TenantName, res.AuthName)
 		}
 		return nil
 	default:
-		return fmt.Errorf("unknown setup subcommand: %q (use: write-script, configure-oauth)", subcommand)
+		return fmt.Errorf("unknown setup subcommand: %q (use: basic-setup, write-script, store-oauth)", subcommand)
 	}
 }
 

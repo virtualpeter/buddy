@@ -51,6 +51,8 @@ Config is split into **tenant selection** (`tenant.default` plus optional `cli`/
 
 - `buddy cred help` — set/list/get/delete tenants and auths; manage secrets; set `tenant.*` (`cred use`); set auth `--channels`
 - `buddy cred set secret <auth>` — store password/client secret in Keychain, file, or pass
+- `buddy cred delete auth|tenant <name>` — remove auth (+store secrets) or tenant (cascades sole-linked auths)
+- `buddy cred clean secrets` — review secret-store entries and prompt to delete orphans
 - `buddy cred migrate` — move inline config.yaml secrets into the secure store
 - `buddy auth test` — verify the active tenant/auth session
 - `buddy --tenant <name> ...` — select tenant (auto-picks auth); `--user`/`--auth` pins an auth
@@ -74,15 +76,23 @@ Full YAML shape and field descriptions are in the [README](../README.md#configur
 
 ## First-time API setup
 
-To create a Jamf API role with the privileges buddy needs and an API client scoped to that role:
+If you have **no config yet**, start with instance basic auth:
+
+```sh
+buddy setup basic-setup               # prompts for tenant, URL, username, password
+buddy --user <admin-auth> auth test
+```
+
+Then (optional) create a Jamf Pro **instance** API role/client and store oauth (Platform gateway oauth cannot manage roles/integrations):
 
 ```sh
 buddy setup write-script              # writes setup_buddy_role.buddy (or pass a path)
-buddy setup_buddy_role.buddy -y   # idempotent: reuses an existing "Buddy" role when present
-buddy setup configure-oauth -y        # optional: store OAuth in config
+buddy setup_buddy_role.buddy -y       # idempotent: reuses role "Buddy" and client "buddy-cli"
+buddy setup store-oauth               # rotate instance client secret; store/update oauth auth (surface=instance)
+buddy --user <auth-name> auth test
 ```
 
-See `buddy setup help` for options. After creation, `buddy client credentials <id>` can reveal the client secret once for manual config.
+See `buddy setup help` for options. After creation, `buddy client credentials <id>` can reveal the client secret once for manual `buddy cred set auth` setup.
 
 The generated automation may request a **wide privilege set** so all buddy features are available. That does **not** mean your organization should keep every privilege on the production API client—especially **destructive** capabilities (wipe computer, erase device, or other Jamf permissions you only need occasionally). Review the **Buddy** (or equivalent) API role in Jamf after setup and **drop privileges** that are not justified for how you will use buddy.
 

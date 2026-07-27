@@ -42,6 +42,22 @@ func (m *mockSecretStore) Has(credName string, kind secrets.Kind) (bool, error) 
 	return ok && v != "", nil
 }
 
+func (m *mockSecretStore) List() ([]secrets.Entry, error) {
+	var out []secrets.Entry
+	for k := range m.values {
+		parts := strings.SplitN(k, "/", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		kind, err := secrets.ParseKind(parts[1])
+		if err != nil {
+			continue
+		}
+		out = append(out, secrets.Entry{AuthName: parts[0], Kind: kind})
+	}
+	return out, nil
+}
+
 func (m *mockSecretStore) Description() string { return "mock" }
 
 func TestParseInt_Valid(t *testing.T) {

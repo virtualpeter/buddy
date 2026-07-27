@@ -30,6 +30,8 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) 
 		return fmt.Errorf("'cred allow' was removed; set auth channels with 'buddy cred set auth <name> --channels=cli,mcp,serve' (or --channels=all)")
 	case "store":
 		return runCredStore()
+	case "clean":
+		return runCredClean(cfg, opts, args[1:])
 	case "migrate":
 		return runCredMigrate(cfg, opts, args[1:])
 	default:
@@ -710,13 +712,30 @@ func runCredDeleteTenant(cfg *buddy.Config, opts buddy.Opts, name string) error 
 	if _, ok := cfg.Tenants[name]; !ok {
 		return fmt.Errorf("tenant %q not found", name)
 	}
+	var deleteAuths []string
+	var unlinkAuths []string
 	for an, a := range cfg.Auths {
-		if a.LinkedTo(name) {
-			return fmt.Errorf("tenant %q is still linked from auth %q — unlink/delete that auth first", name, an)
+		if !a.LinkedTo(name) {
+			continue
+		}
+		if len(a.Tenants) == 1 {
+			deleteAuths = append(deleteAuths, an)
+		} else {
+			unlinkAuths = append(unlinkAuths, an)
 		}
 	}
+	sort.Strings(deleteAuths)
+	sort.Strings(unlinkAuths)
+
 	if !opts.SkipConfirm {
-		fmt.Printf("Delete tenant %q? [y/N] ", name)
+		fmt.Printf("Delete tenant %q?\n", name)
+		if len(deleteAuths) > 0 {
+			fmt.Printf("  Will delete auth(s) only linked here (and their store secrets): %s\n", strings.Join(deleteAuths, ", "))
+		}
+		if len(unlinkAuths) > 0 {
+			fmt.Printf("  Will unlink auth(s) that also cover other tenants: %s\n", strings.Join(unlinkAuths, ", "))
+		}
+		fmt.Print("Proceed? [y/N] ")
 		var response string
 		fmt.Scanln(&response)
 		if strings.ToLower(strings.TrimSpace(response)) != "y" {
@@ -724,6 +743,26 @@ func runCredDeleteTenant(cfg *buddy.Config, opts buddy.Opts, name string) error 
 			return nil
 		}
 	}
+
+	for _, an := range deleteAuths {
+		if err := deleteAuthRecord(cfg, an); err != nil {
+			return err
+		}
+		fmt.Printf("Deleted auth %q (and related secrets)\n", an)
+	}
+	for _, an := range unlinkAuths {
+		a := cfg.Auths[an]
+		var kept []string
+		for _, t := range a.Tenants {
+			if t != name {
+				kept = append(kept, t)
+			}
+		}
+		a.Tenants = kept
+		cfg.Auths[an] = a
+		fmt.Printf("Unlinked auth %q from tenant %q\n", an, name)
+	}
+
 	delete(cfg.Tenants, name)
 	cleared := false
 	if cfg.Tenant.Default == name {
@@ -757,7 +796,7 @@ func runCredDeleteAuth(cfg *buddy.Config, opts buddy.Opts, name string) error {
 		return fmt.Errorf("auth %q not found", name)
 	}
 	if !opts.SkipConfirm {
-		fmt.Printf("Delete auth %q? [y/N] ", name)
+		fmt.Printf("Delete auth %q and related secrets from the secure store? [y/N] ", name)
 		var response string
 		fmt.Scanln(&response)
 		if strings.ToLower(strings.TrimSpace(response)) != "y" {
@@ -765,11 +804,23 @@ func runCredDeleteAuth(cfg *buddy.Config, opts buddy.Opts, name string) error {
 			return nil
 		}
 	}
-	delete(cfg.Auths, name)
+	if err := deleteAuthRecord(cfg, name); err != nil {
+		return err
+	}
 	if err := buddy.SaveConfig(cfg); err != nil {
 		return err
 	}
-	fmt.Printf("Deleted auth %q\n", name)
+	fmt.Printf("Deleted auth %q (and related secrets)\n", name)
+	return nil
+}
+
+// deleteAuthRecord removes an auth from cfg and deletes password + client-secret from the store.
+func deleteAuthRecord(cfg *buddy.Config, name string) error {
+	delete(cfg.Auths, name)
+	if err := buddy.DeleteCredentialSecrets(name, true, true); err != nil {
+		// Store may be unavailable; still remove the auth record.
+		fmt.Fprintf(os.Stderr, "warning: could not delete secrets for %q: %v\n", name, err)
+	}
 	return nil
 }
 
@@ -882,6 +933,119 @@ func runCredStore() error {
 	fmt.Printf("store: %s\n", kind)
 	fmt.Printf("path:  %s\n", detail)
 	return nil
+}
+
+func runCredClean(cfg *buddy.Config, opts buddy.Opts, args []string) error {
+	if len(args) == 0 || args[0] == "help" {
+		fmt.Print(`buddy cred clean - Review and remove orphaned secrets
+
+Usage:
+  buddy [global-flags] cred clean secrets [-y]
+
+Subcommands:
+  secrets   List secret-store entries whose auth name is not in config; prompt to delete each
+
+Notes:
+  Compares the platform secret store to auths: in config.yaml. Orphans are usually
+  left behind after deleting an auth without clearing the store (older buddy) or
+  renaming an auth.
+
+Examples:
+  buddy cred clean secrets
+  buddy cred clean secrets -y
+`)
+		return nil
+	}
+	if args[0] != "secrets" {
+		return fmt.Errorf("unknown clean target %q; use: buddy cred clean secrets", args[0])
+	}
+	for _, a := range args[1:] {
+		if a == "-y" {
+			opts.SkipConfirm = true
+		}
+	}
+	return runCredCleanSecrets(cfg, opts)
+}
+
+func runCredCleanSecrets(cfg *buddy.Config, opts buddy.Opts) error {
+	if !buddy.SecretStoreAvailable() {
+		return fmt.Errorf("no secure secret store available (see 'buddy cred store')")
+	}
+	entries, err := buddy.ListCredentialSecrets()
+	if err != nil {
+		return fmt.Errorf("list secrets: %w", err)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].AuthName != entries[j].AuthName {
+			return entries[i].AuthName < entries[j].AuthName
+		}
+		return entries[i].Kind.String() < entries[j].Kind.String()
+	})
+
+	var linked []secretsEntryView
+	for _, e := range entries {
+		if _, ok := cfg.Auths[e.AuthName]; ok {
+			linked = append(linked, secretsEntryView{AuthName: e.AuthName, Kind: e.Kind.String()})
+		}
+	}
+	orphans, err := buddy.OrphanCredentialSecrets(cfg)
+	if err != nil {
+		return err
+	}
+	sort.Slice(orphans, func(i, j int) bool {
+		if orphans[i].AuthName != orphans[j].AuthName {
+			return orphans[i].AuthName < orphans[j].AuthName
+		}
+		return orphans[i].Kind.String() < orphans[j].Kind.String()
+	})
+
+	fmt.Printf("Secret store review (%d entries)\n", len(entries))
+	if len(linked) > 0 {
+		fmt.Println()
+		fmt.Println("Linked to an auth in config:")
+		for _, e := range linked {
+			fmt.Printf("  %-24s  %s\n", e.AuthName, e.Kind)
+		}
+	}
+	if len(orphans) == 0 {
+		fmt.Println()
+		fmt.Println("No orphaned secrets.")
+		return nil
+	}
+	fmt.Println()
+	fmt.Println("Orphaned (no matching auth in config):")
+	for _, e := range orphans {
+		fmt.Printf("  %-24s  %s\n", e.AuthName, e.Kind.String())
+	}
+	fmt.Println()
+
+	deleted := 0
+	for _, e := range orphans {
+		kindName := e.Kind.String()
+		if !opts.SkipConfirm {
+			fmt.Printf("Delete orphaned %s for %q? [y/N] ", kindName, e.AuthName)
+			var response string
+			fmt.Scanln(&response)
+			if strings.ToLower(strings.TrimSpace(response)) != "y" {
+				fmt.Println("  skipped")
+				continue
+			}
+		}
+		delPW := e.Kind == buddy.SecretKindPassword
+		delCS := e.Kind == buddy.SecretKindClientSecret
+		if err := buddy.DeleteCredentialSecrets(e.AuthName, delPW, delCS); err != nil {
+			return fmt.Errorf("delete %s for %q: %w", kindName, e.AuthName, err)
+		}
+		fmt.Printf("  deleted %s for %q\n", kindName, e.AuthName)
+		deleted++
+	}
+	fmt.Printf("\nRemoved %d orphaned secret(s).\n", deleted)
+	return nil
+}
+
+type secretsEntryView struct {
+	AuthName string
+	Kind     string
 }
 
 func runCredMigrate(cfg *buddy.Config, opts buddy.Opts, args []string) error {

@@ -26,12 +26,31 @@ func (k Kind) String() string {
 	}
 }
 
+// ParseKind parses a kind string ("password" or "client-secret").
+func ParseKind(s string) (Kind, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "password":
+		return KindPassword, nil
+	case "client-secret", "clientsecret", "client_secret":
+		return KindClientSecret, nil
+	default:
+		return 0, fmt.Errorf("unknown secret kind %q (use password or client-secret)", s)
+	}
+}
+
+// Entry is one stored secret identity (auth name + kind); values are never listed.
+type Entry struct {
+	AuthName string
+	Kind     Kind
+}
+
 // Store persists credential secrets outside config.yaml.
 type Store interface {
 	Get(credName string, kind Kind) (string, error)
 	Set(credName string, kind Kind, value string) error
 	Delete(credName string, kind Kind) error
 	Has(credName string, kind Kind) (bool, error)
+	List() ([]Entry, error)
 	Description() string
 }
 

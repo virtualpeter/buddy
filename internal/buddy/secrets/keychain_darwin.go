@@ -78,3 +78,64 @@ func (k *KeychainStore) Has(credName string, kind Kind) (bool, error) {
 	}
 	return true, nil
 }
+
+func (k *KeychainStore) List() ([]Entry, error) {
+	cmd := exec.Command("security", "dump-keychain")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// dump-keychain often writes to stderr even on success; still try parse.
+		if len(output) == 0 {
+			return nil, fmt.Errorf("keychain list: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+	}
+	return parseKeychainDump(string(output)), nil
+}
+
+// parseKeychainDump extracts buddy generic-password accounts (auth/kind).
+func parseKeychainDump(dump string) []Entry {
+	var out []Entry
+	seen := map[string]struct{}{}
+	var acct string
+	var isBuddy bool
+	inGenp := false
+	flush := func() {
+		if inGenp && isBuddy && acct != "" {
+			parts := strings.SplitN(acct, "/", 2)
+			if len(parts) == 2 {
+				if kind, err := ParseKind(parts[1]); err == nil {
+					key := parts[0] + "/" + kind.String()
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						out = append(out, Entry{AuthName: parts[0], Kind: kind})
+					}
+				}
+			}
+		}
+		acct = ""
+		isBuddy = false
+		inGenp = false
+	}
+	for _, line := range strings.Split(dump, "\n") {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, "class:") {
+			flush()
+			inGenp = strings.Contains(trim, `"genp"`)
+			continue
+		}
+		if !inGenp {
+			continue
+		}
+		if strings.Contains(trim, `"svce"<blob>="buddy"`) || strings.Contains(trim, `0x00000007 <blob>="buddy"`) {
+			isBuddy = true
+		}
+		const acctPrefix = `"acct"<blob>="`
+		if i := strings.Index(trim, acctPrefix); i >= 0 {
+			rest := trim[i+len(acctPrefix):]
+			if j := strings.Index(rest, `"`); j >= 0 {
+				acct = rest[:j]
+			}
+		}
+	}
+	flush()
+	return out
+}

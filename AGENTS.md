@@ -92,7 +92,7 @@ Selected by platform or `BUDDY_SECRET_STORE`:
 | `pass` | any | `buddy/<cred>/password`, `buddy/<cred>/client-secret` |
 | `keychain` | macOS only | Explicit Keychain |
 
-CLI: `buddy cred set tenant|auth|secret …` (auth supports `--channels=`), `buddy cred use <tenant>`, `buddy cred use --cli|--mcp|--ide|--serve <tenant>`, `buddy cred store`, `buddy cred migrate`. `buddy setup configure-oauth` stores client secret under a new auth name.
+CLI: `buddy cred set tenant|auth|secret …` (auth supports `--channels=`), `buddy cred delete tenant|auth|secret …` (auth delete clears store secrets; tenant delete cascades sole-linked auths), `buddy cred clean secrets` (review/delete orphaned store entries), `buddy cred use <tenant>`, `buddy cred use --cli|--mcp|--ide|--serve <tenant>`, `buddy cred store`, `buddy cred migrate`. `buddy setup basic-setup` bootstraps the first instance tenant + basic auth; `buddy setup store-oauth` rotates a Jamf Pro *instance* API client's secret into a buddy oauth auth with `surface=instance` (Platform gateway oauth cannot manage API roles/integrations).
 
 ## Token caching
 

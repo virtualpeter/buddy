@@ -35,3 +35,7 @@ func (k *KeychainStore) Delete(credName string, kind Kind) error {
 func (k *KeychainStore) Has(credName string, kind Kind) (bool, error) {
 	return false, keychainUnsupported()
 }
+
+func (k *KeychainStore) List() ([]Entry, error) {
+	return nil, keychainUnsupported()
+}

@@ -28,7 +28,7 @@ Commands:
   role     Manage API roles (list/get/create/update/delete/privileges)
   client   Manage API integrations (list/get/create/update/delete/credentials/set)
   script   Manage Jamf scripts (list/get/create/upload/download/delete/set)
-  setup    Write setup script (role + client for buddy)
+  setup    basic-setup (first tenant/auth); write-script; store-oauth (instance)
   serve    Local docs + notebook + script IDE web UI
   mcp      MCP stdio server for AI tools (setup discovers host configs)
   lsp      Language server for buddy Starlark (editor integration)

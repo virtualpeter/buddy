@@ -62,7 +62,9 @@ Subcommands:
   set tenant <name> [args...]       Add or update a tenant
   set auth <name> [args...]         Add or update an auth (link to tenants)
   set secret <auth> [args...]       Store password / client secret in the secure store
-  delete tenant|auth|secret <name>  Remove a tenant, auth, or stored secrets
+  delete tenant|auth|secret <name>  Remove a tenant (cascades sole-linked auths+secrets),
+                                    auth (+secrets), or stored secrets
+  clean secrets                     Review secret-store entries; prompt to delete orphans
   use [tenant]                      Show or set tenant.default
   use --cli|--mcp|--ide|--serve [tenant]
                                     Show or set tenant.<surface>
@@ -91,10 +93,13 @@ Flags for 'set secret':
   --client-secret[=value]           Store OAuth client secret
   --secret-from-stdin               Read the secret value from stdin
 
-Notes:
+  Notes:
   A platform clientId may list multiple tenants under --tenants.
   Old credentials: / string tenant: / defaults: / allow_auths: migrate on load.
   Secrets are keyed by auth name in the platform store.
+  Deleting an auth also removes its password/client-secret from the store.
+  Deleting a tenant deletes auths linked only to that tenant (with secrets) and
+  unlinks multi-tenant auths; use 'buddy cred clean secrets' for leftover orphans.
   Auth channels (cli/mcp/serve) default to all; restrict e.g. MCP to readonly by
   giving the readonly auth channels including mcp and omitting mcp from others.
   IDE/notebook use the serve channel; tenant.ide prefills the UI tenant.
@@ -104,6 +109,9 @@ Examples:
   buddy cred set auth platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp
   buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox --surface=instance --channels=cli,serve
   buddy cred set secret platform-ro --client-secret
+  buddy cred delete auth sandbox-admin
+  buddy cred delete tenant sandbox
+  buddy cred clean secrets
   buddy cred use sandbox
   buddy cred use --mcp sandbox
   buddy --tenant=sandbox policy find chrome
@@ -308,47 +316,89 @@ Examples:
   buddy mdm find --filter="status==Pending" --count
 `
 
-const helpSetup = `buddy setup - Write scripts and configure OAuth for buddy
+const helpSetup = `buddy setup - Bootstrap instance config; Jamf Pro role/client + instance oauth
 
 Usage:
-  buddy setup write-script [path]
-  buddy setup configure-oauth [--user=<name>] [--client-name=buddy-cli] [--name=buddy-oauth] [-y]
+  buddy [global-flags] setup basic-setup [--tenant=] [--url=] [--name=] [--username=] [--password=] [-y]
+  buddy [global-flags] setup write-script [path]
+  buddy [global-flags] setup store-oauth [--user=<auth>] [--tenant=<tenant>] [--client-name=buddy-cli] [--name=<auth>] [-y]
+
+Notes:
+  write-script and store-oauth target the Jamf Pro *instance* (API roles and
+  integrations). Platform gateway oauth cannot create roles or clients.
+  If you have no config yet, start with basic-setup (instance URL + basic auth).
+
+Subcommands:
+  basic-setup
+    Interactive bootstrap for the first tenant and a basic (username/password)
+    instance auth. Stores the password in the platform secret store and sets the
+    tenant as default when appropriate. Then prints next steps (auth test, and
+    optional write-script → store-oauth for day-to-day oauth).
+
+    Non-interactive: pass --tenant, --url, --username, and --password (and
+    optionally --name for the auth; default <tenant>-admin).
 
   write-script [path]
-    Writes a Starlark script that creates a Jamf API role with privileges needed
-    for buddy and an API client (integration) scoped to that role. Default path
-    is setup_buddy_role.buddy.
+    Writes a Starlark script that creates a Jamf Pro API role with privileges
+    needed for buddy and an API client (integration) scoped to that role.
+    Default path is setup_buddy_role.buddy.
+
+    Prerequisites: a tenant with an instance URL and an auth that can manage
+    API roles/integrations (typically the basic auth from basic-setup). The
+    script uses the active session (--tenant / --user).
 
     Run the generated script with:
       ./<path> -y
       buddy <path> -y
-    Then add an OAuth credential to config (see configure-oauth below), or get
-    the client secret (shown once) with:
+    Then rotate the instance client secret and store it as a buddy oauth auth
+    with surface=instance:
+      buddy setup store-oauth
+      buddy --user <auth-name> auth test
+    Or get the client secret once with:
       buddy client credentials <client-id>
+
+    The script is idempotent for role "Buddy" and client "buddy-cli".
 
     If role creation fails (e.g. privilege names differ on your Jamf version), run
     "buddy role privileges" to see your instance's list and edit the script.
 
     The role may include destructive privileges (e.g. wipe computer, erase) so a
     single script can cover all buddy features. After setup, review the role in Jamf
-    and remove API privileges you do not need before treating the credential as
+    and remove API privileges you do not need before treating the auth as
     production-ready.
 
-  configure-oauth
-    Finds the API integration by display name (default: buddy-cli), generates new
-    OAuth client credentials via the Jamf API, and adds a credential to
-    ~/.config/buddy/config.yaml with type oauth so you can use it without
-    storing the secret elsewhere.
+  store-oauth
+    Rotates OAuth client credentials on a Jamf Pro *instance* API integration
+    (invalidates the previous secret) and stores clientId + secret as a buddy
+    oauth auth with surface=instance, linked to a tenant. The secret goes in the
+    platform secret store (Keychain/file — not Platform API oauth).
 
-    Flags for 'configure-oauth':
-      --user=<name>         Credential to use for API calls (default: current/--user)
-      --client-name=<name>  API integration display name to find (default: buddy-cli)
-      --name=<name>         Name for the new config credential (default: buddy-oauth)
-      -y                    Skip confirmation (recommended in scripts)
+    Matching: if an oauth auth already exists for the target tenant with the same
+    clientId, that auth is updated in place. Otherwise you are prompted for a new
+    auth name (default <tenant>-oauth, or buddy-oauth).
 
-    Example:
-      buddy setup configure-oauth -y
-      buddy --user buddy-oauth auth test
+Flags for 'basic-setup':
+  --tenant=<name>     Tenant name (default: prompt, or "default")
+  --url=<url>         Jamf Pro instance URL
+  --name=<auth>       Basic auth name (--auth= / --user= aliases; default <tenant>-admin)
+  --username=<user>   Jamf username
+  --password=<pass>   Jamf password (prefer interactive prompt)
+  -y                  Overwrite existing tenant/auth without confirming
+
+Flags for 'store-oauth':
+  --user=<auth>         Instance-capable auth used to call Jamf (rotate credentials)
+  --tenant=<tenant>     Tenant to link the oauth auth to (default: session tenant)
+  --client-name=<name>  Jamf Pro API integration display name (default: buddy-cli)
+  --name=<auth>         Buddy auth to create/update (--auth= alias)
+  -y                    Skip confirmation when rotating the Jamf client secret
+
+Examples:
+  buddy setup basic-setup
+  buddy --user <admin-auth> auth test
+  buddy setup write-script
+  buddy setup_buddy_role.buddy -y
+  buddy setup store-oauth
+  buddy setup store-oauth --tenant=sandbox --name=sandbox-oauth -y
 `
 
 const helpGroup = `buddy group - Manage Jamf computer groups

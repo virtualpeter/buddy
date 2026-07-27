@@ -110,3 +110,32 @@ func DeleteCredentialSecrets(credName string, password, clientSecret bool) error
 	}
 	return nil
 }
+
+// ListCredentialSecrets lists secret identities in the platform store (no values).
+func ListCredentialSecrets() ([]secrets.Entry, error) {
+	store, err := secrets.DefaultStore()
+	if err != nil {
+		return nil, err
+	}
+	return store.List()
+}
+
+// OrphanCredentialSecrets returns store entries whose auth name is not in cfg.Auths.
+func OrphanCredentialSecrets(cfg *Config) ([]secrets.Entry, error) {
+	entries, err := ListCredentialSecrets()
+	if err != nil {
+		return nil, err
+	}
+	var orphans []secrets.Entry
+	for _, e := range entries {
+		if cfg == nil || cfg.Auths == nil {
+			orphans = append(orphans, e)
+			continue
+		}
+		if _, ok := cfg.Auths[e.AuthName]; !ok {
+			orphans = append(orphans, e)
+		}
+	}
+	return orphans, nil
+}
+
