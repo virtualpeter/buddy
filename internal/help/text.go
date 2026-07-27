@@ -560,7 +560,18 @@ SERIALIZATION
         only?: str (only reorder children with this tag); order?: "asc"|"desc" (default asc);
         ignore_case?: bool; numeric?: bool; recursive?: bool (all matching bare tags).
 
-RSQL (offline filter builders for Jamf list/find APIs)
+VERSION — dotted-numeric compare / extract / sort
+  version_extract(s)
+      → value: str
+      Params: s: str (bare version or freeform text like a package name). Returns extracted dotted version, or "" if none.
+  version_compare(a, b)
+      → value: int (-1, 0, 1)
+      Params: a, b: str (bare versions or freeform). Missing/empty versions sort lowest.
+  version_sort(items, key?, order?)
+      → value: list
+      Params: items: list of str or list of dict; key?: str (required for dicts — field to extract from, e.g. "packageName"); order?: "asc"|"desc" (default asc). Unversioned items sort after versioned (asc) / before (desc).
+
+RSQL — filter builders for Jamf list/find APIs
   rsql_escape(s)
       → value: str
       Params: s: str. Escapes \ and " for use inside an RSQL quoted value.
@@ -609,7 +620,7 @@ RSQL (offline filter builders for Jamf list/find APIs)
       → value: str (UTC ISO-8601)
       Params: hours: int or float.
 
-FILE I/O (local filesystem)
+FILE I/O — local filesystem
   file_read(path)
       → value: str (file contents as UTF-8 text)
       Params: path: str (filesystem path). Returns: full file contents. Fails if the file is not valid UTF-8 (use file_read_bytes).

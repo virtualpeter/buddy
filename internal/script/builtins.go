@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -208,6 +209,10 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "xml_escape", xmlEscapeBuiltin)
 	putBuiltin(dict, "xml_unescape", xmlUnescapeBuiltin)
 	putBuiltin(dict, "xml_sort", xmlSortBuiltin)
+
+	putBuiltin(dict, "version_extract", versionExtractBuiltin)
+	putBuiltin(dict, "version_compare", versionCompareBuiltin)
+	putBuiltin(dict, "version_sort", versionSortBuiltin)
 
 	putBuiltin(dict, "rsql_escape", rsqlEscapeBuiltin)
 	putBuiltin(dict, "rsql_quote", rsqlQuoteBuiltin)
@@ -2531,6 +2536,103 @@ func xmlSortBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple
 		return resultErr(err.Error()), nil
 	}
 	return resultOK(starlark.String(out)), nil
+}
+
+// ---------------------------------------------------------------------------
+// Version helpers (offline dotted-numeric compare / extract / sort)
+// ---------------------------------------------------------------------------
+
+// version_extract(s) → {ok, value: str}
+func versionExtractBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var s starlark.String
+	if err := starlark.UnpackArgs("version_extract", args, kwargs, "s", &s); err != nil {
+		return nil, err
+	}
+	return resultOK(starlark.String(buddy.ExtractVersion(string(s)))), nil
+}
+
+// version_compare(a, b) → {ok, value: int}  (-1, 0, 1)
+func versionCompareBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var a, b starlark.String
+	if err := starlark.UnpackArgs("version_compare", args, kwargs, "a", &a, "b", &b); err != nil {
+		return nil, err
+	}
+	return resultOK(starlark.MakeInt(buddy.CompareVersions(string(a), string(b)))), nil
+}
+
+// version_sort(items, key?, order?) → {ok, value: list}
+// items: list of str, or list of dict (key required for dicts).
+func versionSortBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var items *starlark.List
+	var key, order starlark.String
+	if err := starlark.UnpackArgs("version_sort", args, kwargs, "items", &items, "key?", &key, "order?", &order); err != nil {
+		return nil, err
+	}
+	if items == nil {
+		return resultErr("items is required"), nil
+	}
+	orderStr := strings.ToLower(strings.TrimSpace(string(order)))
+	if orderStr == "" {
+		orderStr = "asc"
+	}
+	if orderStr != "asc" && orderStr != "desc" {
+		return resultErr(fmt.Sprintf("order must be \"asc\" or \"desc\", got %q", string(order))), nil
+	}
+	desc := orderStr == "desc"
+	n := items.Len()
+	if n == 0 {
+		return resultOK(starlark.NewList(nil)), nil
+	}
+
+	vals := make([]starlark.Value, n)
+	sortKeys := make([]string, n)
+	keyName := string(key)
+	for i := 0; i < n; i++ {
+		v := items.Index(i)
+		vals[i] = v
+		switch tv := v.(type) {
+		case starlark.String:
+			if keyName != "" {
+				return resultErr("key is only valid when items are dicts"), nil
+			}
+			sortKeys[i] = string(tv)
+		case *starlark.Dict:
+			if keyName == "" {
+				return resultErr("key is required when items are dicts"), nil
+			}
+			fv, found, err := tv.Get(starlark.String(keyName))
+			if err != nil {
+				return resultErr(err.Error()), nil
+			}
+			if !found {
+				sortKeys[i] = ""
+				continue
+			}
+			switch fv := fv.(type) {
+			case starlark.String:
+				sortKeys[i] = string(fv)
+			case starlark.Int:
+				sortKeys[i] = fv.String()
+			default:
+				sortKeys[i] = fv.String()
+			}
+		default:
+			return resultErr("items must be a list of str or a list of dict"), nil
+		}
+	}
+
+	idxs := make([]int, n)
+	for i := range idxs {
+		idxs[i] = i
+	}
+	sort.SliceStable(idxs, func(i, j int) bool {
+		return buddy.VersionSortLess(sortKeys[idxs[i]], sortKeys[idxs[j]], desc)
+	})
+	out := make([]starlark.Value, n)
+	for i, idx := range idxs {
+		out[i] = vals[idx]
+	}
+	return resultOK(starlark.NewList(out)), nil
 }
 
 // ---------------------------------------------------------------------------

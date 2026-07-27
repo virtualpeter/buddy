@@ -22,6 +22,7 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 		"blueprint_delete", "blueprint_deploy", "blueprint_undeploy",
 		"blueprint_status", "blueprint_components", "blueprint_component",
 		"auth", "confirm", "error", "exit",
+		"version_extract", "version_compare", "version_sort",
 		// Deprecated aliases still registered during migration window.
 		"policy_find_ids", "package_list", "computer_find_ids", "group_list_smart",
 	} {

@@ -14,7 +14,7 @@ When adding or changing builtins in `internal/script/builtins.go` / `builtins_v3
 | **plural noun** | enumerate / search | `policies(...)`, `packages(...)`, `computers(...)` |
 | **singular noun** | load one resource | `policy(id=…)` / `policy(trigger=…)`, `package(id=…)` |
 | **singular + verb** | mutate or specialized action | `policy_set(...)`, `policy_put_xml(...)`, `computer_reboot(...)` |
-| **offline helpers** | unchanged | `rsql_*`, `plist_*`, `payloads_*`, `file_*` |
+| **offline helpers** | unchanged | `rsql_*`, `plist_*`, `payloads_*`, `file_*`, `version_*` |
 
 - Plural `value` is a **list of summary dicts** `{id, name, ...}` unless `ids=True` (policies/computers).
 - Singular load accepts **either** `id=` **or** a natural key (`trigger=`, `name=`, `app=`+`version=`), not both.
@@ -358,6 +358,29 @@ profile_put_xml(profile_id = 42, xml_str = xml)
     - `only?` (string): Only reorder children with this tag.
     - `order?` (string): `"asc"` (default) or `"desc"`.
     - `ignore_case?` / `numeric?` / `recursive?` (bool).
+
+## Version helpers (offline)
+
+Dotted-numeric version compare/extract/sort for package names, policy triggers, and bare versions
+(e.g. `1.2` vs `1.10`, `GoogleChrome-130.0.6723.59.pkg`). Not full SemVer prerelease/build.
+
+- `version_extract(s) → value: string`
+  - **Params**: `s` (string): bare version or freeform text. Returns extracted version, or `""`.
+- `version_compare(a, b) → value: int`
+  - **Params**: `a`, `b` (string). Returns `-1` / `0` / `1`. Empty/missing versions sort lowest.
+- `version_sort(items, key?, order?) → value: list`
+  - **Params**:
+    - `items` (list of str, or list of dict)
+    - `key?` (string): required when items are dicts — field to extract from (e.g. `"packageName"`)
+    - `order?` (string): `"asc"` (default) or `"desc"`
+  - Unversioned items sort after versioned (asc) / before (desc).
+
+```python
+pkgs = unwrap(packages(filter='packageName=="*Chrome*"'))
+ordered = unwrap(version_sort(pkgs, key="packageName", order="desc"))
+latest = ordered[0]
+old = ordered[1:]
+```
 
 ## RSQL helpers (offline)
 

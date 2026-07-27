@@ -957,7 +957,7 @@ func PlanPolicyPackage(credName string, opts Opts, appName, newVersion string, p
 	if sourceVersion == "" {
 		sourceVersion = extractVersionFromPackageName(sourcePolicy.PackageConfiguration.Packages[0].Name)
 	}
-	isModify := sourceVersion != "" && compareVersions(sourceVersion, newVersion) == 0
+	isModify := sourceVersion != "" && CompareVersions(sourceVersion, newVersion) == 0
 
 	plan := &PolicyPackagePlan{
 		SourceID:      sourcePolicy.General.ID,
@@ -1466,26 +1466,6 @@ func replaceVersionInString(s, newVersion string) string {
 	return verRe.ReplaceAllString(s, newVersion)
 }
 
-func compareVersions(a, b string) int {
-	pa := strings.Split(a, ".")
-	pb := strings.Split(b, ".")
-	for i := 0; i < len(pa) || i < len(pb); i++ {
-		var na, nb int
-		if i < len(pa) {
-			fmt.Sscanf(pa[i], "%d", &na)
-		}
-		if i < len(pb) {
-			fmt.Sscanf(pb[i], "%d", &nb)
-		}
-		if na < nb {
-			return -1
-		}
-		if na > nb {
-			return 1
-		}
-	}
-	return 0
-}
 
 // --- setss payloads ---
 
@@ -2090,7 +2070,7 @@ func findPackageSourcePolicy(credName, appName string, opts Opts, logger *slog.L
 		if vj == "" {
 			vj = extractVersionFromPackageName(candidates[j].PackageConfiguration.Packages[0].Name)
 		}
-		return compareVersions(vi, vj) > 0
+		return CompareVersions(vi, vj) > 0
 	})
 	return candidates[0], nil
 }
@@ -2104,27 +2084,10 @@ func extractVersionFromTrigger(trigger, appName string) string {
 	return ""
 }
 
+// extractVersionFromPackageName extracts a dotted version from a package filename.
+// Delegates to ExtractVersion.
 func extractVersionFromPackageName(pkgName string) string {
-	name := strings.ToLower(pkgName)
-	// Primary: -1.2.3.pkg, -1.2.3-arm64.pkg
-	if m := regexp.MustCompile(`-(\d+\.\d+(?:\.\d+)?)(?:-arm64|-amd64)?\.pkg$`).FindStringSubmatch(name); len(m) >= 2 {
-		return m[1]
-	}
-	// Space or underscore before version: " 1.2.3.pkg", "_1.2.3.pkg"
-	if m := regexp.MustCompile(`[\s_](\d+\.\d+(?:\.\d+)?)(?:-arm64|-amd64)?\.pkg$`).FindStringSubmatch(name); len(m) >= 2 {
-		return m[1]
-	}
-	// .dmg: -1.2.3.dmg, 1.2.3.dmg
-	if m := regexp.MustCompile(`[-_\s]?(\d+\.\d+(?:\.\d+)?)\.dmg$`).FindStringSubmatch(name); len(m) >= 2 {
-		return m[1]
-	}
-	// Fallback: last version-like pattern in filename (e.g. "AppName 1.2.3.pkg", "App_v1.2.3.pkg")
-	verRe := regexp.MustCompile(`(\d+\.\d+(?:\.\d+)?)`)
-	matches := verRe.FindAllString(name, -1)
-	if len(matches) > 0 {
-		return matches[len(matches)-1]
-	}
-	return ""
+	return ExtractVersion(pkgName)
 }
 
 // findPackage looks up a package by app name and version via PackageFindID (v1 API).

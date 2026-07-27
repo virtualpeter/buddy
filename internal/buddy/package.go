@@ -54,11 +54,17 @@ type packageDeleteRequest struct {
 }
 
 // PackageList fetches and prints packages, with an optional RSQL filter.
+// sortOrder is "" (no sort), "asc", or "desc" for client-side version sort of PackageName.
 // Example filter: packageName=="*Chrome*"
-func PackageList(credName, filter string, logger *slog.Logger) error {
+func PackageList(credName, filter, sortOrder string, logger *slog.Logger) error {
 	results, err := PackageSearch(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
+	}
+	if sortOrder != "" {
+		if err := SortPackageRecordsByVersion(results, sortOrder); err != nil {
+			return err
+		}
 	}
 	fmt.Printf("%-8s  %-40s  %s\n", "ID", "Package Name", "File Name")
 	fmt.Printf("%-8s  %-40s  %s\n", "--------", "----------------------------------------", "--------------------")
@@ -233,7 +239,7 @@ func packageFindByAppVersion(credName, appName, version string, logger *slog.Log
 	}
 	// Prefer exact version match extracted from the package name.
 	for _, c := range candidates {
-		if strings.EqualFold(extractPkgVersion(c.PackageName), version) {
+		if strings.EqualFold(ExtractVersion(c.PackageName), version) {
 			return c.ID, c.PackageName, nil
 		}
 	}
@@ -297,36 +303,6 @@ func extractRSQLHintFromRegex(rePattern string) string {
 		}
 	}
 	return b.String()
-}
-
-// extractPkgVersion extracts a semver string from a package name, e.g.
-// "GoogleChrome-130.0.6723.59.pkg" → "130.0.6723.59".
-// Mirrors extractVersionFromPackageName in policy.go.
-func extractPkgVersion(pkgName string) string {
-	// Reuse the same regex pattern as policy.go.
-	// Pattern: -<version>[-arm64|-amd64].pkg at end of name.
-	name := strings.ToLower(pkgName)
-	// Walk backwards from .pkg to find -<digits.digits...>
-	if !strings.HasSuffix(name, ".pkg") {
-		return ""
-	}
-	// Strip optional arch suffix then .pkg
-	for _, arch := range []string{"-arm64.pkg", "-amd64.pkg", ".pkg"} {
-		if strings.HasSuffix(name, arch) {
-			name = strings.TrimSuffix(name, arch)
-			break
-		}
-	}
-	idx := strings.LastIndex(name, "-")
-	if idx < 0 {
-		return ""
-	}
-	candidate := name[idx+1:]
-	// Validate it looks like a version number.
-	if len(candidate) == 0 || candidate[0] < '0' || candidate[0] > '9' {
-		return ""
-	}
-	return candidate
 }
 
 // PackageFull is the complete Package object required for PUT /api/v1/packages/{id}.

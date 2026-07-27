@@ -587,7 +587,7 @@ Usage:
   buddy [global-flags] package <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<rsql>]                              List packages
+  list [--filter=<rsql>] [--sort=version[:asc|desc]]  List packages
   get <package-id>                                    Show package record details
   history <package-id>                                Show recent change history (last 20 entries)
   delete <package-id> [package-id...]                Delete one or more package records
@@ -599,9 +599,14 @@ Subcommands:
   set category <package-id> <category-id>             Set category (-1 to clear)
   set reboot   <package-id> <true|false>              Set rebootRequired flag
 
+Notes:
+  --sort=version sorts client-side by a dotted version extracted from the package
+  name (latest first). Use --sort=version:asc for oldest first.
+
 Examples:
   buddy package list
   buddy package list --filter='packageName=="*Chrome*"'
+  buddy package list --filter='packageName=="*Chrome*"' --sort=version
   buddy package get 55
   buddy package history 55
   buddy package upload Chrome-121.pkg --name="Google Chrome 121" --category=3

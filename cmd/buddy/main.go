@@ -1409,16 +1409,23 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		return buddy.PackageUpload(credName, opts, filePath, nameOverride, categoryID, priority, log)
 	case "list":
 		var filter string
+		var sortSpec string
 		var filtered []string
 		for _, a := range args {
 			if strings.HasPrefix(a, "--filter=") {
 				filter = strings.TrimPrefix(a, "--filter=")
+			} else if strings.HasPrefix(a, "--sort=") {
+				sortSpec = strings.TrimPrefix(a, "--sort=")
 			} else {
 				filtered = append(filtered, a)
 			}
 		}
 		_ = filtered
-		return buddy.PackageList(credName, filter, log)
+		sortOrder, err := parsePackageListSort(sortSpec)
+		if err != nil {
+			return err
+		}
+		return buddy.PackageList(credName, filter, sortOrder, log)
 	case "get":
 		if len(args) < 1 {
 			return fmt.Errorf("missing package-id; run 'buddy package help' for usage")
@@ -1441,6 +1448,23 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		return buddy.PackageHistory(credName, args[0], 20, log)
 	default:
 		return fmt.Errorf("unknown package subcommand: %q (use: list, get, delete, set, history, upload)", subcommand)
+	}
+}
+
+// parsePackageListSort maps --sort= values to an order string for PackageList.
+// "" means no sort. "version" defaults to desc (latest first).
+func parsePackageListSort(spec string) (order string, err error) {
+	spec = strings.TrimSpace(strings.ToLower(spec))
+	if spec == "" {
+		return "", nil
+	}
+	switch spec {
+	case "version", "version:desc":
+		return "desc", nil
+	case "version:asc":
+		return "asc", nil
+	default:
+		return "", fmt.Errorf("invalid --sort=%s (use version, version:asc, or version:desc)", spec)
 	}
 }
 
