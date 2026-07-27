@@ -17,6 +17,37 @@ func TestSearchPages(t *testing.T) {
 	}
 }
 
+func TestSearchBuiltinsFragment(t *testing.T) {
+	pages := []DocPage{
+		{ID: "builtins", Title: "Builtins", Markdown: `<h3 id="policies"><code>policies</code></h3>` + "\n" + `<h3 id="policy_set"><code>policy_set</code></h3>`},
+	}
+	hits := searchPages(pages, "policy", 10)
+	if len(hits) < 1 {
+		t.Fatalf("hits=%+v", hits)
+	}
+	found := false
+	for _, h := range hits {
+		if h.Fragment == "policy_set" && h.PageID == "builtins" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected policy_set fragment in %+v", hits)
+	}
+}
+
+func TestExtractTOCHTMLHeadings(t *testing.T) {
+	md := "# Title\n\n<h2 id=\"section-policy\">POLICY</h2>\n\n<h3 id=\"policies\"><code>policies</code></h3>\n"
+	toc := extractTOC(md)
+	ids := map[string]bool{}
+	for _, e := range toc {
+		ids[e.ID] = true
+	}
+	if !ids["section-policy"] || !ids["policies"] {
+		t.Fatalf("toc=%+v", toc)
+	}
+}
+
 func TestSlugify(t *testing.T) {
 	if got := slugify("Hello World!"); got != "hello-world" {
 		t.Fatalf("got %q", got)
@@ -58,7 +89,7 @@ func TestLoadDocPages(t *testing.T) {
 		t.Fatal("missing examples/README.md")
 	}
 	builtins := pageByID(pages, "builtins")
-	if !strings.Contains(builtins.Markdown, "### `policy`") {
+	if !strings.Contains(builtins.Markdown, `<h3 id="policy"><code>policy</code></h3>`) {
 		t.Fatal("builtins page not structured")
 	}
 	if pageByID(pages, "agents") != nil {

@@ -138,11 +138,13 @@ h1,h2,h3 { line-height: 1.25; }
 pre, code { font-family: var(--mono); font-size: .88em; }
 pre { background: #1c1917; color: #f5f5f4; padding: 1rem; overflow: auto; border-radius: 4px; }
 .search { width: 100%; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 4px; font: inherit; margin: .75rem 0 1rem; background: #fff; }
+.page-filter { width: 100%; max-width: 28rem; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 4px; font: inherit; margin: 0 0 1.25rem; background: #fff; }
 .hits { font-size: .9rem; margin-bottom: 1rem; }
 .hits div { padding: .35rem 0; border-bottom: 1px solid var(--line); }
 .hits .snip { color: var(--muted); font-size: .82rem; }
 .topbar { display: flex; gap: 1rem; align-items: baseline; margin-bottom: 1rem; }
 .topbar a.nb { font-family: var(--mono); font-size: .85rem; }
+.fn-hidden { display: none !important; }
 </style>
 </head>
 <body>
@@ -162,12 +164,15 @@ pre { background: #1c1917; color: #f5f5f4; padding: 1rem; overflow: auto; border
     {{end}}
   </aside>
   <main>
+    {{if eq .ActiveID "builtins"}}
+    <input class="page-filter" id="pageFilter" type="search" placeholder="Filter builtins on this page…" autocomplete="off">
+    {{end}}
     {{.Body}}
   </main>
   <aside class="toc">
     <div class="section">On this page</div>
     {{range .TOC}}
-      <a href="#{{.ID}}" style="padding-left: {{indent .Level}}px">{{.Text}}</a>
+      <a href="#{{.ID}}" data-toc-id="{{.ID}}" style="padding-left: {{indent .Level}}px">{{.Text}}</a>
     {{end}}
   </aside>
 </div>
@@ -182,13 +187,67 @@ q.addEventListener('input', () => {
     if (!v) { hits.innerHTML = ''; return; }
     const r = await fetch('/api/search?q=' + encodeURIComponent(v));
     const data = await r.json();
-    hits.innerHTML = data.map(h =>
-      '<div><a href="/docs/' + h.pageId + '">' + h.title + '</a><div class="snip">' +
-      (h.snippet||'').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])) +
-      '</div></div>'
-    ).join('');
+    hits.innerHTML = data.map(h => {
+      const href = '/docs/' + h.pageId + (h.fragment ? ('#' + h.fragment) : '');
+      return '<div><a href="' + href + '">' + esc(h.title) + '</a><div class="snip">' +
+        esc(h.snippet||'') + '</div></div>';
+    }).join('');
   }, 150);
 });
+function esc(s) {
+  return String(s).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+}
+
+const pageFilter = document.getElementById('pageFilter');
+if (pageFilter) {
+  const main = document.querySelector('main');
+  const tocLinks = [...document.querySelectorAll('.toc a[data-toc-id]')];
+  function setHidden(el, hide) {
+    if (!el) return;
+    el.classList.toggle('fn-hidden', !!hide);
+  }
+  pageFilter.addEventListener('input', () => {
+    const q = (pageFilter.value || '').trim().toLowerCase();
+    const els = [...main.children].filter(el => el !== pageFilter);
+    // Function blocks
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      if (el.tagName !== 'H3' || !el.id) continue;
+      const show = !q || (el.id + ' ' + el.textContent).toLowerCase().includes(q);
+      setHidden(el, !show);
+      let j = i + 1;
+      while (j < els.length && els[j].tagName !== 'H2' && els[j].tagName !== 'H3') {
+        setHidden(els[j], !show);
+        j++;
+      }
+      const tocFn = tocLinks.find(a => a.getAttribute('data-toc-id') === el.id);
+      if (tocFn) setHidden(tocFn, !show);
+    }
+    // Sections
+    for (let i = 0; i < els.length; i++) {
+      if (els[i].tagName !== 'H2') continue;
+      let j = i + 1;
+      let hasFn = false, hasVisible = false;
+      while (j < els.length && els[j].tagName !== 'H2') {
+        if (els[j].tagName === 'H3' && els[j].id) {
+          hasFn = true;
+          if (!els[j].classList.contains('fn-hidden')) hasVisible = true;
+        }
+        j++;
+      }
+      const showSec = !q || !hasFn || hasVisible || els[i].textContent.toLowerCase().includes(q);
+      setHidden(els[i], !showSec);
+      // Section intro (before first h3)
+      let k = i + 1;
+      while (k < els.length && els[k].tagName !== 'H2' && els[k].tagName !== 'H3') {
+        setHidden(els[k], !showSec);
+        k++;
+      }
+      const tocSec = tocLinks.find(a => a.getAttribute('data-toc-id') === els[i].id);
+      if (tocSec) setHidden(tocSec, !showSec);
+    }
+  });
+}
 </script>
 </body>
 </html>

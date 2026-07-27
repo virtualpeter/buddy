@@ -10,19 +10,19 @@ func TestBuiltinsMarkdownHasSectionsAndFuncs(t *testing.T) {
 	if !strings.Contains(md, "# Starlark builtins") {
 		t.Fatal("missing title")
 	}
-	if !strings.Contains(md, "## POLICY") {
-		t.Fatalf("missing policy section:\n%s", md[:500])
+	if !strings.Contains(md, `<h2 id="section-policy">POLICY</h2>`) {
+		t.Fatalf("missing policy section:\n%s", md[:800])
 	}
-	if !strings.Contains(md, "### `policies`") {
+	if !strings.Contains(md, `<h3 id="policies"><code>policies</code></h3>`) {
 		t.Fatal("missing policies")
 	}
-	if !strings.Contains(md, "### `policy`") {
+	if !strings.Contains(md, `<h3 id="policy"><code>policy</code></h3>`) {
 		t.Fatal("missing policy")
 	}
-	if !strings.Contains(md, "### `smart_groups`") {
+	if !strings.Contains(md, `<h3 id="smart_groups"><code>smart_groups</code></h3>`) {
 		t.Fatal("missing smart_groups")
 	}
-	if !strings.Contains(md, "### `smart_group_create`") {
+	if !strings.Contains(md, `<h3 id="smart_group_create"><code>smart_group_create</code></h3>`) {
 		t.Fatal("missing smart_group_create")
 	}
 	if strings.Contains(md, "```\nbuddy built-in") {

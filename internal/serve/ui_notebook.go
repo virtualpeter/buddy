@@ -135,6 +135,12 @@ textarea {
   border: 1px solid #3a4a5c; background: #243040; color: var(--ink); cursor: pointer;
 }
 .fn-detail button.primary { background: var(--accent); border-color: var(--accent); color: #0b1220; }
+.fn-detail a.docs-link {
+  font: inherit; font-size: .72rem; padding: .2rem .5rem; border-radius: 4px;
+  border: 1px solid #3a4a5c; background: #243040; color: var(--ink); text-decoration: none;
+  display: inline-block;
+}
+.fn-detail a.docs-link:hover { border-color: var(--accent); color: var(--accent); }
 .drawer-empty { color: var(--muted); padding: .5rem; }
 @media (max-width: 900px) {
   .layout.libs-open .drawer { position: fixed; right: 0; top: 0; bottom: 0; z-index: 10; width: min(var(--drawer), 90vw); border-left-width: 1px; }
@@ -389,9 +395,12 @@ function showFnDetail(btn) {
   if (!body.trim()) body = '(no documentation)';
   const div = document.createElement('div');
   div.className = 'fn-detail';
+  const name = btn.dataset.name || '';
+  const docsHref = name ? ('/docs/builtins#' + encodeURIComponent(name)) : '/docs/builtins';
   div.innerHTML = '<div>' + body.trimEnd().replace(/\n/g, '<br>') + '</div>' +
     '<div class="actions">' +
     '<button type="button" class="primary" data-act="insert">Insert</button>' +
+    (name ? '<a class="docs-link" href="' + docsHref + '">Docs</a>' : '') +
     '<button type="button" data-act="close">Close</button>' +
     '</div>';
   btn.after(div);

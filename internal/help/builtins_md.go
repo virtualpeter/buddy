@@ -57,9 +57,11 @@ func formatBuiltinsMarkdown(src string) string {
 			continue
 		}
 		if isBuiltinsSection(line) {
-			b.WriteString("## ")
-			b.WriteString(line)
-			b.WriteString("\n\n")
+			b.WriteString("<h2 id=\"")
+			b.WriteString(sectionAnchorID(line))
+			b.WriteString("\">")
+			b.WriteString(htmlEscapeText(line))
+			b.WriteString("</h2>\n\n")
 			i++
 			continue
 		}
@@ -124,9 +126,11 @@ func formatBuiltinsMarkdown(src string) string {
 				// Unexpected — stop
 				break
 			}
-			b.WriteString("### `")
+			b.WriteString("<h3 id=\"")
 			b.WriteString(name)
-			b.WriteString("`\n\n")
+			b.WriteString("\"><code>")
+			b.WriteString(name)
+			b.WriteString("</code></h3>\n\n")
 			b.WriteString("```\n")
 			b.WriteString(strings.Join(sigLines, "\n"))
 			b.WriteString("\n```\n\n")
@@ -186,4 +190,32 @@ func isBuiltinsSection(line string) bool {
 		return true
 	}
 	return builtinsSectionRE.MatchString(line)
+}
+
+// sectionAnchorID builds a stable id for a builtins section heading (avoids
+// colliding with function names like policy vs POLICY).
+func sectionAnchorID(section string) string {
+	s := strings.ToLower(strings.TrimSpace(section))
+	var b strings.Builder
+	b.WriteString("section-")
+	prevDash := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevDash = false
+			continue
+		}
+		if !prevDash {
+			b.WriteByte('-')
+			prevDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+func htmlEscapeText(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	return s
 }

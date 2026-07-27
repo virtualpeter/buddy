@@ -15,7 +15,9 @@ import (
 )
 
 var headingRE = regexp.MustCompile(`(?m)^(#{1,3})\s+(.+)$`)
+var htmlHeadingRE = regexp.MustCompile(`(?is)<h([23])\s+[^>]*id="([^"]+)"[^>]*>(.*?)</h[23]>`)
 var mdLinkRE = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+var builtinsFnHeadingRE = regexp.MustCompile(`(?i)<h3\s+[^>]*id="([a-z_][a-z0-9_]*)"[^>]*>`)
 
 type tocEntry struct {
 	Level int
@@ -147,9 +149,41 @@ func extractTOC(markdown string) []tocEntry {
 		text = strings.Trim(text, "#")
 		text = strings.TrimSpace(text)
 		id := slugify(text)
+		out = append(out, tocEntry{Level: level, ID: id, Text: stripMDCode(text)})
+	}
+	for _, m := range htmlHeadingRE.FindAllStringSubmatch(markdown, -1) {
+		level := 0
+		switch m[1] {
+		case "2":
+			level = 2
+		case "3":
+			level = 3
+		}
+		id := m[2]
+		text := strings.TrimSpace(stripHTMLTags(m[3]))
 		out = append(out, tocEntry{Level: level, ID: id, Text: text})
 	}
 	return out
+}
+
+func stripMDCode(s string) string {
+	return strings.Trim(strings.TrimSpace(s), "`")
+}
+
+func stripHTMLTags(s string) string {
+	var b strings.Builder
+	inTag := false
+	for _, r := range s {
+		switch {
+		case r == '<':
+			inTag = true
+		case r == '>':
+			inTag = false
+		case !inTag:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func slugify(s string) string {
@@ -172,9 +206,10 @@ func slugify(s string) string {
 
 // searchHit is one match for client or server search.
 type searchHit struct {
-	PageID string `json:"pageId"`
-	Title  string `json:"title"`
-	Snippet string `json:"snippet"`
+	PageID   string `json:"pageId"`
+	Title    string `json:"title"`
+	Snippet  string `json:"snippet"`
+	Fragment string `json:"fragment,omitempty"`
 }
 
 func searchPages(pages []DocPage, q string, limit int) []searchHit {
@@ -184,6 +219,32 @@ func searchPages(pages []DocPage, q string, limit int) []searchHit {
 	}
 	var hits []searchHit
 	for _, p := range pages {
+		if p.ID == "builtins" {
+			fnHits := 0
+			for _, m := range builtinsFnHeadingRE.FindAllStringSubmatch(p.Markdown, -1) {
+				name := m[1]
+				if !strings.Contains(strings.ToLower(name), q) {
+					continue
+				}
+				hits = append(hits, searchHit{
+					PageID:   p.ID,
+					Title:    name,
+					Snippet:  "builtin · " + name,
+					Fragment: name,
+				})
+				fnHits++
+				if len(hits) >= limit {
+					return hits
+				}
+			}
+			if fnHits == 0 && (strings.Contains(strings.ToLower(p.Title), q) || strings.Contains(strings.ToLower(p.Markdown), q)) {
+				hits = append(hits, searchHit{PageID: p.ID, Title: p.Title, Snippet: p.Title})
+				if len(hits) >= limit {
+					return hits
+				}
+			}
+			continue
+		}
 		body := strings.ToLower(p.Markdown)
 		idx := strings.Index(body, q)
 		if idx < 0 {
