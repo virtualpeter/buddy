@@ -74,20 +74,20 @@ def main():
 	}
 }
 
-func TestAnalyzeDeprecatedAlias(t *testing.T) {
+func TestAnalyzeUnknownLegacyAliasIsError(t *testing.T) {
 	diags := Analyze("t.buddy", `
 def main():
     package_list()
 `, ModeFile)
 	found := false
 	for _, d := range diags {
-		if d.Severity == severityWarning && strings.Contains(d.Message, "deprecated") {
+		if d.Severity == severityError && strings.Contains(d.Message, "package_list") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected deprecation warning, got %#v", diags)
+		t.Fatalf("expected resolve error for removed alias, got %#v", diags)
 	}
 }
 
@@ -109,11 +109,14 @@ func TestCatalogHasPolicies(t *testing.T) {
 			found = true
 		}
 		if s.Name == "package_list" {
-			t.Fatal("deprecated alias should not be in completions")
+			t.Fatal("removed alias must not be in completions")
 		}
 	}
 	if !found {
 		t.Fatal("policies not in filtered completions")
+	}
+	if _, ok := cat.lookup("package_list"); ok {
+		t.Fatal("removed alias must not be in catalog")
 	}
 }
 

@@ -41,7 +41,7 @@ Global flags:
   -t, --trace         Trace HTTP requests and responses to stderr (headers and bodies; Authorization/Cookie redacted)
   --script-trace      Trace Starlark builtin calls and print() in scripts and the interactive shell
   --tenant <name>     Tenant from config (default: config.tenant); auto-picks auth
-  --user <name>       Pin an auth name (--auth alias; --cred deprecated)
+  --user <name>       Pin an auth name (--auth alias)
   --auth <name>       Pin an auth name (same as --user)
 
 Use 'buddy help starlark' or 'buddy help builtins' for Starlark scripting reference.
@@ -203,17 +203,21 @@ All functions return a result dict: {"ok": True, "value": ...}
                                  or {"ok": False, "error": "..."}
 Check ok before using value.
 
-Conventions (v3): plural nouns enumerate (policies, packages, computers);
+Conventions: plural nouns enumerate (policies, packages, computers);
 singular nouns load one resource (policy, package, computer); singular_verb
 mutates (policy_set, policy_put_xml, computer_reboot). Pass either id= or a
 natural key (trigger=/name=/app=+version=), not both. Resource IDs first;
-payload/options next; cred? always last. See docs/builtins-v3.md for the
-full old→new rename map. Deprecated aliases warn once on stderr.
+payload/options next; cred? always last.
+
+In the notebook (or shell), evaluate a bare builtin name (no parentheses) to
+print its signature, returns, and params. Prefer change_batch + plan_change +
+run_change for multi-step Jamf changes (see CHANGE BATCH below).
 
 Paginated list builtins accept page? (0-based) and page_size? (default 200).
 Omit page to fetch every page and return the full result set.
 Plural list value is usually a list of summary dicts {id, name, ...};
-use ids=True on policies/computers for a bare ID list.
+use ids=True on policies/computers for a bare ID list. policies() with no
+keywords returns every Classic policy summary.
 
 Each builtin lists its signature, then → value (or None). Indented "Params:"
 lines describe arguments; "Returns:" states the value shape when ok.
@@ -234,9 +238,11 @@ STDLIB
   (setup_app_classic).
 
 POLICY
-  policies(keywords, exclude_ids?, force_refresh?, ids?=False, cred?)
+  policies(keywords?, exclude_ids?, force_refresh?, ids?=False, cred?)
       → value: list of {id, name} (or list of int if ids=True)
-      Params: keywords: str or list of str; exclude_ids?: list of int; force_refresh?: bool; ids?: bool.
+      Params: keywords?: str or list of str — omit or empty to list all Classic
+        policies; otherwise filter by name/trigger keywords. exclude_ids?: list of
+        int; force_refresh?: bool; ids?: bool.
   policy(id=?) | policy(trigger=?, force_refresh?=, cred?)
       → value: details dict (id, name, enabled, trigger, frequency, scope, packages, scripts)
       Params: pass either id= (int/str) or trigger= (str), not both.
@@ -698,7 +704,11 @@ DECLARATIVE WORKFLOW (step constructors + executor)
         order; stops on first failure.
 
 CHANGE BATCH (plan document + apply with outcomes)
-  change_batch(title, summary?, risk?, window?) → change dict
+  Prefer this over ad-hoc mutates when applying several related Jamf changes.
+  change_batch(title, summary?, risk?, window?)
+      → value: change dict
+      Params: title: str (required); summary?/risk?/window?: optional str metadata
+        for the change record markdown.
   plan_change(change, steps)
       → value: {markdown: str, fingerprints: list[str]}
       Params: change: from change_batch; steps: list of step dicts.

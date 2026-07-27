@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"buddy/internal/help"
-	"buddy/internal/script"
 	"buddy/stdlib"
 
 	"github.com/qri-io/starlib/re"
@@ -14,18 +13,16 @@ import (
 
 // Symbol is a completable / hoverable name in the buddy dialect.
 type Symbol struct {
-	Name        string
-	Signature   string
-	Detail      string
-	Insert      string
-	Kind        string // "builtin", "predeclared", "stdlib", "universe"
-	Deprecated  bool
-	Replacement string // when Deprecated
+	Name      string
+	Signature string
+	Detail    string
+	Insert    string
+	Kind      string // "builtin", "predeclared", "stdlib", "universe"
 }
 
 type catalog struct {
 	byName      map[string]Symbol
-	completion  []Symbol // non-deprecated builtins + predeclared + stdlib helpers
+	completion  []Symbol // builtins + predeclared + stdlib helpers
 	predeclared map[string]bool
 	loadModules []string                     // "re", "stdlib/….buddy"
 	stdlibFuncs map[string][]stdlib.FuncInfo // module path → funcs
@@ -51,8 +48,6 @@ func buildCatalog() (*catalog, error) {
 		stdlibFuncs: make(map[string][]stdlib.FuncInfo),
 	}
 
-	deprecated := script.DeprecatedAliases()
-
 	_, flat := help.BuiltinsLibrary()
 	seen := make(map[string]bool)
 	for _, fn := range flat {
@@ -60,39 +55,26 @@ func buildCatalog() (*catalog, error) {
 			continue
 		}
 		seen[fn.Name] = true
+		detail := fn.Summary
+		if fn.Returns != "" {
+			detail = fn.Returns
+		}
+		if fn.Params != "" {
+			if detail != "" {
+				detail += " — "
+			}
+			detail += fn.Params
+		}
 		sym := Symbol{
 			Name:      fn.Name,
 			Signature: fn.Signature,
-			Detail:    fn.Summary,
+			Detail:    detail,
 			Insert:    fn.Insert,
 			Kind:      "builtin",
 		}
-		if repl, ok := deprecated[fn.Name]; ok {
-			sym.Deprecated = true
-			sym.Replacement = repl
-		}
 		c.byName[fn.Name] = sym
 		c.predeclared[fn.Name] = true
-		if !sym.Deprecated {
-			c.completion = append(c.completion, sym)
-		}
-	}
-
-	// Deprecated aliases may not appear in help catalog; still resolve them.
-	for old, repl := range deprecated {
-		if _, ok := c.byName[old]; ok {
-			continue
-		}
-		c.byName[old] = Symbol{
-			Name:        old,
-			Signature:   old + "(...)",
-			Detail:      "deprecated; use " + repl,
-			Insert:      old + "()",
-			Kind:        "builtin",
-			Deprecated:  true,
-			Replacement: repl,
-		}
-		c.predeclared[old] = true
+		c.completion = append(c.completion, sym)
 	}
 
 	for _, name := range []string{"cred", "args"} {

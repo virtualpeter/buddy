@@ -122,7 +122,19 @@ textarea {
 }
 .fn:hover { background: #243040; }
 .fn .name { color: var(--ok); }
+.fn .sig { display: block; color: var(--muted); font-size: .68rem; margin-top: .1rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fn .sum { display: block; color: var(--muted); font-size: .7rem; margin-top: .15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fn-detail {
+  margin: .15rem .4rem .5rem; padding: .45rem .55rem; border-radius: 4px;
+  background: #1a2330; border: 1px solid #2a3542; font-size: .72rem; color: var(--muted);
+  white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.fn-detail .actions { margin-top: .4rem; display: flex; gap: .4rem; }
+.fn-detail button {
+  font: inherit; font-size: .72rem; padding: .2rem .5rem; border-radius: 4px;
+  border: 1px solid #3a4a5c; background: #243040; color: var(--ink); cursor: pointer;
+}
+.fn-detail button.primary { background: var(--accent); border-color: var(--accent); color: #0b1220; }
 .drawer-empty { color: var(--muted); padding: .5rem; }
 @media (max-width: 900px) {
   .layout.libs-open .drawer { position: fixed; right: 0; top: 0; bottom: 0; z-index: 10; width: min(var(--drawer), 90vw); border-left-width: 1px; }
@@ -321,13 +333,17 @@ async function fetchLibrary(id) {
 
 function fnMatches(fn, q) {
   if (!q) return true;
-  const hay = (fn.name + ' ' + (fn.signature || '') + ' ' + (fn.summary || '') + ' ' + (fn.section || '')).toLowerCase();
+  const hay = (fn.name + ' ' + (fn.signature || '') + ' ' + (fn.summary || '') + ' ' +
+    (fn.params || '') + ' ' + (fn.returns || '') + ' ' + (fn.section || '') + ' ' + (fn.group || '')).toLowerCase();
   return hay.includes(q);
 }
+
+let libDetailEl = null;
 
 async function renderLibraries() {
   const body = document.getElementById('libBody');
   const q = (document.getElementById('libSearch').value || '').trim().toLowerCase();
+  libDetailEl = null;
   try {
     const listR = await fetch('/api/libraries');
     const list = await listR.json();
@@ -339,32 +355,64 @@ async function renderLibraries() {
         for (const sec of detail.sections) {
           const fns = (sec.functions || []).filter(f => fnMatches(f, q));
           if (!fns.length) continue;
-          parts.push(renderGroup('Builtins · ' + sec.title, fns));
+          const open = sec.title === 'Getting started' || !!q;
+          parts.push(renderGroup(sec.title, fns, open));
         }
       } else {
         const fns = (detail.functions || []).filter(f => fnMatches(f, q));
         if (!fns.length) continue;
         const title = item.kind === 'stdlib' ? 'stdlib / ' + item.title : item.title;
-        parts.push(renderGroup(title, fns));
+        parts.push(renderGroup(title, fns, true));
       }
     }
     body.innerHTML = parts.join('') || '<div class="drawer-empty">No matches</div>';
     body.querySelectorAll('.fn').forEach(btn => {
-      btn.onclick = () => insertAtCursor(btn.dataset.insert || btn.dataset.name + '()');
+      btn.onclick = () => showFnDetail(btn);
     });
   } catch (e) {
     body.innerHTML = '<div class="drawer-empty">' + esc(String(e)) + '</div>';
   }
 }
 
-function renderGroup(title, fns) {
+function showFnDetail(btn) {
+  if (libDetailEl) libDetailEl.remove();
+  const insert = btn.dataset.insert || (btn.dataset.name + '()');
+  const sig = btn.dataset.sig || '';
+  const ret = btn.dataset.returns || '';
+  const params = btn.dataset.params || '';
+  const sum = btn.dataset.summary || '';
+  let body = '';
+  if (sig) body += esc(sig) + '\n';
+  if (ret) body += '→ ' + esc(ret) + '\n';
+  if (params) body += 'Params: ' + esc(params) + '\n';
+  if (!ret && !params && sum) body += esc(sum) + '\n';
+  if (!body.trim()) body = '(no documentation)';
+  const div = document.createElement('div');
+  div.className = 'fn-detail';
+  div.innerHTML = '<div>' + body.trimEnd().replace(/\n/g, '<br>') + '</div>' +
+    '<div class="actions">' +
+    '<button type="button" class="primary" data-act="insert">Insert</button>' +
+    '<button type="button" data-act="close">Close</button>' +
+    '</div>';
+  btn.after(div);
+  libDetailEl = div;
+  div.querySelector('[data-act=insert]').onclick = () => insertAtCursor(insert);
+  div.querySelector('[data-act=close]').onclick = () => { div.remove(); libDetailEl = null; };
+}
+
+function renderGroup(title, fns, open) {
   const items = fns.map(f => {
     const insert = f.insert || (f.name + '()');
-    const sum = f.summary ? '<span class="sum">' + esc(f.summary) + '</span>' : '';
-    return '<button type="button" class="fn" data-insert="' + escAttr(insert) + '" data-name="' + escAttr(f.name) + '">' +
-      '<span class="name">' + esc(f.name) + '</span>' + sum + '</button>';
+    const sumText = f.returns || f.summary || '';
+    const sum = sumText ? '<span class="sum">' + esc(sumText) + '</span>' : '';
+    const sig = f.signature ? '<span class="sig">' + esc(f.signature) + '</span>' : '';
+    return '<button type="button" class="fn" data-insert="' + escAttr(insert) + '" data-name="' + escAttr(f.name) +
+      '" data-sig="' + escAttr(f.signature || '') + '" data-returns="' + escAttr(f.returns || '') +
+      '" data-params="' + escAttr(f.params || '') + '" data-summary="' + escAttr(f.summary || '') + '">' +
+      '<span class="name">' + esc(f.name) + '</span>' + sig + sum + '</button>';
   }).join('');
-  return '<details class="lib-group" open><summary>' + esc(title) + '</summary>' + items + '</details>';
+  const openAttr = open ? ' open' : '';
+  return '<details class="lib-group"' + openAttr + '><summary>' + esc(title) + '</summary>' + items + '</details>';
 }
 
 function escAttr(s) {

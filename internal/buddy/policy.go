@@ -1342,6 +1342,9 @@ func PolicyFindSummariesByKeywords(credName string, opts Opts, keywords []string
 		}
 	}
 	if len(nonEmpty) == 0 {
+		for _, p := range policies {
+			add(p.ID, p.Name)
+		}
 		return result, nil
 	}
 

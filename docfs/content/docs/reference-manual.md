@@ -49,6 +49,11 @@ Default config path: `~/.config/buddy/config.yaml` (override config root with `X
 
 Config is split into **tenant selection** (`tenant.default` plus optional `cli`/`mcp`/`serve`/`ide`), **tenants** (instance URL and/or Platform `region`+`tenantId`), and **auths** (command/basic/oauth principals linked to one or more tenants). Optional auth `channels:` (`cli`/`mcp`/`serve`; omit = all) limits which buddy clients may use that auth. Legacy shapes migrate on load.
 
+## Breaking changes (v4)
+
+- Removed Starlark aliases (`package_list`, `policy_find_ids`, …) — see [builtins-v3.md](builtins-v3.md).
+- Removed CLI `--cred`, `buddy config`, and `setup configure-oauth` (use `--user`, `cred`, `store-oauth`).
+
 - `buddy cred help` — set/list/get/delete tenants and auths; manage secrets; set `tenant.*` (`cred use`); set auth `--channels`
 - `buddy cred set secret <auth>` — store password/client secret in Keychain, file, or pass
 - `buddy cred delete auth|tenant <name>` — remove auth (+store secrets) or tenant (cascades sole-linked auths)
@@ -116,7 +121,7 @@ buddy help [command] [subcommand]
 | `-v`, `--verbose` | Verbose output |
 | `-t`, `--trace` | Trace HTTP to stderr (headers and bodies; secrets redacted) |
 | `--tenant <name>` | Tenant from config (auto-picks auth) |
-| `--user <name>` | Pin an auth (`--auth` alias; `--cred` deprecated) |
+| `--user <name>` | Pin an auth (`--auth` alias) |
 
 **Commands** (high level)
 
@@ -264,7 +269,8 @@ That output lists every builtin with parameter names, types, and return shapes. 
 
 **Conventions** (from the builtins help header):
 
-- **v3 grammar:** plural nouns enumerate (`policies`, `smart_groups`, `computers`); singular nouns load one (`policy(id=…)` or `policy(trigger=…)`, `smart_group(name=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). See [builtins-v3.md](builtins-v3.md).
+- **Grammar:** plural nouns enumerate (`policies`, `smart_groups`, `computers`); singular nouns load one (`policy(id=…)` or `policy(trigger=…)`, `smart_group(name=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). See [builtins-v3.md](builtins-v3.md).
+- **Notebook:** Libraries drawer shows Getting started / Advanced; bare builtin names print help; `policies()` lists all.
 - Resource IDs come first on mutate helpers (`policy_id`, `group_id`, …); singular loaders use `id=` or a natural key; then options; optional `cred?` last.
 - Use `cred="name"` to override the active credential for a single call.
 - Paginated list builtins take `page?` (0-based) and `page_size?` (default 200). **Omit `page`** to walk every page and return the full list.
@@ -297,7 +303,7 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 
 - [`examples/bump-release.buddy`](../examples/bump-release.buddy) — minimal pattern: `policy(trigger=…)`, then updates (edit triggers/IDs for your tenant).
 - [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy) — `plan_change` / `run_change` for an approval-oriented batch ([howto](change-batches.md)).
-- [`docs/builtins-v3.md`](builtins-v3.md) — Starlark plural/singular rename map (v3).
+- [`docs/builtins-v3.md`](builtins-v3.md) — Starlark grammar + v3→v4 migration (removed aliases).
 
 ---
 

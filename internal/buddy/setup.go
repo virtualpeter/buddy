@@ -275,23 +275,6 @@ func SetupStoreOAuth(cfg *Config, so StoreOAuthOpts, logger *slog.Logger) (*Stor
 	}, nil
 }
 
-// SetupConfigureOAuth is a deprecated wrapper around SetupStoreOAuth.
-func SetupConfigureOAuth(cfg *Config, credNameForAPI, clientDisplayName, newAuthName string, opts Opts, logger *slog.Logger) (finalAuthName string, err error) {
-	res, err := SetupStoreOAuth(cfg, StoreOAuthOpts{
-		APIAuth:           credNameForAPI,
-		ClientDisplayName: clientDisplayName,
-		AuthName:          newAuthName,
-		Opts:              opts,
-	}, logger)
-	if err != nil {
-		return "", err
-	}
-	if res == nil {
-		return "", nil
-	}
-	return res.AuthName, nil
-}
-
 func defaultOAuthAuthName(tenantName string) string {
 	t := strings.TrimSpace(tenantName)
 	if t != "" && t != DefaultTenant {

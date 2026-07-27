@@ -266,10 +266,20 @@ func TestExtractGlobalFlags(t *testing.T) {
 		t.Fatalf("rest = %v, want %v", rest, want)
 	}
 
+	argv = []string{"buddy", "auth", "token", "--raw", "--user=default"}
+	g, rest = extractGlobalFlags(argv)
+	if g.user != "default" {
+		t.Fatalf("user = %q, want default", g.user)
+	}
+	want = []string{"buddy", "auth", "token", "--raw"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
 	argv = []string{"buddy", "auth", "token", "--raw", "--cred=default"}
 	g, rest = extractGlobalFlags(argv)
-	if !g.usedCred || g.cred != "default" {
-		t.Fatalf("cred = %q usedCred=%v", g.cred, g.usedCred)
+	if !g.rejectCred {
+		t.Fatal("expected rejectCred for removed --cred")
 	}
 	want = []string{"buddy", "auth", "token", "--raw"}
 	if !reflect.DeepEqual(rest, want) {

@@ -76,14 +76,10 @@ func putBuiltin(dict starlark.StringDict, name string, fn builtinFn) {
 	dict[name] = starlark.NewBuiltin(name, fn)
 }
 
-func putDeprecated(dict starlark.StringDict, oldName, newName string, fn builtinFn) {
-	dict[oldName] = starlark.NewBuiltin(oldName, deprecate(oldName, newName, fn))
-}
-
 func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.StringDict {
 	dict := starlark.StringDict{}
 
-	// v3 primary API (plural / singular).
+	// Primary API (plural / singular).
 	putBuiltin(dict, "policies", policiesBuiltin(credName, logger))
 	putBuiltin(dict, "policy", policyBuiltin(credName, logger))
 	putBuiltin(dict, "policy_xml", policyXMLBuiltin(credName, logger))
@@ -121,47 +117,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "blueprint_component", blueprintComponentBuiltin(credName, logger))
 	registerPlatformBuiltins(dict, credName, logger)
 
-	// Deprecated aliases (warn once, then call legacy or shared impl).
-	putDeprecated(dict, "policy_find_ids", "policies(..., ids=True)", policyFindIDs(credName, logger))
-	putDeprecated(dict, "policy_get_id", "policy(trigger=...)", policyGetID(credName, logger))
-	putDeprecated(dict, "policy_get_enable", "policy(id=...)[\"value\"][\"enabled\"]", policyGetEnable(credName, logger))
-	putDeprecated(dict, "policy_get_details", "policy(id=...)", policyGetDetails(credName, logger))
-	putDeprecated(dict, "policy_fetch_xml", "policy_xml", policyFetchXML(credName, logger))
-	putDeprecated(dict, "policy_set_enable", "policy_set(..., enable=True)", policySetEnable(credName, logger))
-	putDeprecated(dict, "policy_set_disable", "policy_set(..., enable=False)", policySetDisable(credName, logger))
-	putDeprecated(dict, "policy_set_trigger", "policy_set(..., trigger=...)", policySetTrigger(credName, logger))
-	putDeprecated(dict, "policy_set_name", "policy_set(..., name=...)", policySetName(credName, logger))
-	putDeprecated(dict, "policy_set_frequency", "policy_set(..., frequency=...)", policySetFrequency(credName, logger))
-	putDeprecated(dict, "package_list", "packages", packagesBuiltin(credName, logger))
-	putDeprecated(dict, "package_find_id", "package(app=..., version=...)", packageFindID(credName, logger))
-	putDeprecated(dict, "package_fetch", "package(id=...)", packageFetch(credName, logger))
-	putDeprecated(dict, "script_list", "scripts", scriptsBuiltin(credName, logger))
-	putDeprecated(dict, "script_get_id", "script(name=...)", scriptGetID(credName, logger))
-	putDeprecated(dict, "script_fetch", "script(id=...)", scriptFetch(credName, logger))
-	putDeprecated(dict, "computer_find_ids", "computers(..., ids=True)", computerFindIDs(credName, logger))
-	putDeprecated(dict, "computer_get", "computer", computerGet(credName, logger))
-	putDeprecated(dict, "computer_fetch", "computer", computerGet(credName, logger))
-	putDeprecated(dict, "mdm_command_find", "mdm_commands", mdmCommandsBuiltin(credName, logger))
-	putDeprecated(dict, "mdm_fetch_commands", "mdm_commands", mdmCommandsBuiltin(credName, logger))
-	putDeprecated(dict, "profile_list", "profiles", profilesBuiltin(credName, logger))
-	putDeprecated(dict, "profile_find_id", "profile(name=...)", profileFindID(credName, logger))
-	putDeprecated(dict, "profile_fetch_xml", "profile_xml / profile(id=...)", profileFetchXML(credName, logger))
-	putDeprecated(dict, "group_list_smart", "smart_groups", smartGroupsBuiltin(credName, logger))
-	putDeprecated(dict, "group_list_static", "static_groups", staticGroupsBuiltin(credName, logger))
-	putDeprecated(dict, "group_find_id", "smart_group(name=...)", groupFindID(credName, logger))
-	putDeprecated(dict, "group_fetch", "smart_group(id=...)", groupFetch(credName, logger))
-	putDeprecated(dict, "smart_group_fetch", "smart_group(id=...)", smartGroupFetch(credName, logger))
-	putDeprecated(dict, "group_get_version", "smart_group_get_version", groupGetVersion(credName, logger))
-	putDeprecated(dict, "group_set_version", "smart_group_set_version", groupSetVersion(credName, logger))
-	putDeprecated(dict, "group_put", "smart_group_put", groupPut(credName, logger))
-	putDeprecated(dict, "role_list", "roles", roleList(credName, logger))
-	putDeprecated(dict, "role_fetch_list", "roles(full=True)", roleFetchList(credName, logger))
-	putDeprecated(dict, "role_fetch", "role", roleFetch(credName, logger))
-	putDeprecated(dict, "role_privileges_list", "role_privileges", rolePrivilegesList(credName, logger))
-	putDeprecated(dict, "client_fetch_list", "clients", clientsBuiltin(credName, logger))
-	putDeprecated(dict, "client_fetch", "client", clientFetch(credName, logger))
-
-	// Unchanged / fat helpers.
+	// Fat helpers / specialized actions.
 	putBuiltin(dict, "policy_set_ss", policySetSS(credName, logger))
 	putBuiltin(dict, "policy_set_install", policySetInstall(credName, logger))
 	putBuiltin(dict, "policy_clone", policyClone(credName, logger))
@@ -332,46 +288,6 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	return dict
 }
 
-func policyGetID(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var trigger starlark.String
-		forceRefresh := starlark.Bool(false)
-		if err := starlark.UnpackArgs("policy_get_id", args, kwargs, "trigger", &trigger, "force_refresh?", &forceRefresh); err != nil {
-			return nil, err
-		}
-		cred := getCred(thread, credName)
-		id, err := buddy.PolicyFind(cred, scriptOpts, string(trigger), bool(forceRefresh), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(starlark.MakeInt(id)), nil
-	}
-}
-
-func policyGetEnable(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var policyID starlark.Int
-		if err := starlark.UnpackArgs("policy_get_enable", args, kwargs, "policy_id", &policyID); err != nil {
-			return nil, err
-		}
-		pid, _ := policyID.Int64()
-		cred := getCred(thread, credName)
-		state, err := buddy.PolicyGetEnableValue(cred, int(pid), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		normalized := state
-		// Normalize legacy values to match builtin docs ("true"/"false").
-		if state == "enabled" {
-			normalized = "true"
-		} else if state == "disabled" {
-			normalized = "false"
-		}
-
-		return resultOK(starlark.String(normalized)), nil
-	}
-}
-
 func policyDetailsToStarlark(d *buddy.PolicyDetails) *starlark.Dict {
 	if d == nil {
 		return new(starlark.Dict)
@@ -416,26 +332,6 @@ func policyDetailsToStarlark(d *buddy.PolicyDetails) *starlark.Dict {
 	}
 	_ = out.SetKey(starlark.String("scripts"), scriptList)
 	return out
-}
-
-func policyGetDetails(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var policyID starlark.Int
-		var cred starlark.String
-		if err := starlark.UnpackArgs("policy_get_details", args, kwargs, "policy_id", &policyID, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		pid, _ := policyID.Int64()
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		d, err := buddy.PolicyGetDetails(getCred(thread, c), int(pid), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(policyDetailsToStarlark(d)), nil
-	}
 }
 
 func policySetSS(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
@@ -500,106 +396,6 @@ func policySetSS(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 			ssOpts.SelfService = &b
 		}
 		err := buddy.PolicySSUpdate(getCred(thread, c), scriptOpts, int(pid), ssOpts, logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(starlark.None), nil
-	}
-}
-
-func policySetEnable(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var policyID starlark.Int
-		var cred starlark.String
-		if err := starlark.UnpackArgs("policy_set_enable", args, kwargs, "policy_id", &policyID, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		pid, _ := policyID.Int64()
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		err := buddy.PolicyEnable(getCred(thread, c), scriptOpts, int(pid), true, logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(starlark.None), nil
-	}
-}
-
-func policySetDisable(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var policyID starlark.Int
-		var cred starlark.String
-		if err := starlark.UnpackArgs("policy_set_disable", args, kwargs, "policy_id", &policyID, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		pid, _ := policyID.Int64()
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		err := buddy.PolicyEnable(getCred(thread, c), scriptOpts, int(pid), false, logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(starlark.None), nil
-	}
-}
-
-func policySetTrigger(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var policyID starlark.Int
-		var trigger, cred starlark.String
-		if err := starlark.UnpackArgs("policy_set_trigger", args, kwargs, "policy_id", &policyID, "trigger", &trigger, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		pid, _ := policyID.Int64()
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		err := buddy.PolicyTrigger(getCred(thread, c), scriptOpts, int(pid), string(trigger), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(starlark.None), nil
-	}
-}
-
-func policySetName(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var policyID starlark.Int
-		var newName, cred starlark.String
-		if err := starlark.UnpackArgs("policy_set_name", args, kwargs, "policy_id", &policyID, "new_name", &newName, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		pid, _ := policyID.Int64()
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		err := buddy.PolicySetName(getCred(thread, c), scriptOpts, int(pid), string(newName), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(starlark.None), nil
-	}
-}
-
-func policySetFrequency(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var policyID starlark.Int
-		var frequency, cred starlark.String
-		if err := starlark.UnpackArgs("policy_set_frequency", args, kwargs, "policy_id", &policyID, "frequency", &frequency, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		pid, _ := policyID.Int64()
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		err := buddy.PolicySetFrequency(getCred(thread, c), scriptOpts, int(pid), string(frequency), logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -870,67 +666,6 @@ func groupListBuiltin(name string, search groupSearchFunc, credName string, logg
 	}
 }
 
-// group_find_id(name, cred?) → {ok, value: {id, name}}
-func groupFindID(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var name, cred starlark.String
-		if err := starlark.UnpackArgs("group_find_id", args, kwargs, "name", &name, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		id, groupName, err := buddy.GroupFindID(c, string(name), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		if id == "" {
-			return resultErr(fmt.Sprintf("no group found for name %q", string(name))), nil
-		}
-		d := new(starlark.Dict)
-		_ = d.SetKey(starlark.String("id"), starlark.String(id))
-		_ = d.SetKey(starlark.String("name"), starlark.String(groupName))
-		return resultOK(d), nil
-	}
-}
-
-func groupGetVersion(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var groupID, cred starlark.String
-		if err := starlark.UnpackArgs("group_get_version", args, kwargs, "group_id", &groupID, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		version, err := buddy.GroupGetVersionValue(getCred(thread, c), string(groupID), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(starlark.String(version)), nil
-	}
-}
-
-func groupSetVersion(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var groupID, version, cred starlark.String
-		if err := starlark.UnpackArgs("group_set_version", args, kwargs, "group_id", &groupID, "version", &version, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		err := buddy.GroupVersion(getCred(thread, c), scriptOpts, string(groupID), string(version), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(starlark.None), nil
-	}
-}
-
 // static_group_list_computers(group_id, filter?, cred?) → {ok, value: list[dict]}
 func staticGroupListComputers(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -1051,30 +786,6 @@ func staticGroupSetComputers(credName string, logger *slog.Logger) func(*starlar
 			return resultErr(err.Error()), nil
 		}
 		return resultOK(starlark.None), nil
-	}
-}
-
-// smart_group_fetch(group_id, cred?) → {ok, value: dict}
-func smartGroupFetch(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var groupID, cred starlark.String
-		if err := starlark.UnpackArgs("smart_group_fetch", args, kwargs, "group_id", &groupID, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		body, err := buddy.GroupFetchSmartRaw(getCred(thread, c), string(groupID))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		// Decode JSON into a Starlark dict/list tree.
-		val, err := JSONDecodeToStarlark(string(body))
-		if err != nil {
-			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err)), nil
-		}
-		return resultOK(val), nil
 	}
 }
 
@@ -1406,98 +1117,6 @@ func rolePrivilegesList(credName string, logger *slog.Logger) func(*starlark.Thr
 	}
 }
 
-func roleList(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var cred starlark.String
-		page := starlark.Value(starlark.None)
-		var pageSize starlark.Int
-		if err := starlark.UnpackArgs("role_list", args, kwargs, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		opts, err := pageOptsFromArgs(page, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		roles, err := buddy.RoleListValues(getCred(thread, c), opts, logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		list := starlark.NewList(nil)
-		for _, r := range roles {
-			d := new(starlark.Dict)
-			_ = d.SetKey(starlark.String("id"), starlark.String(r.ID))
-			_ = d.SetKey(starlark.String("display_name"), starlark.String(r.DisplayName))
-			_ = list.Append(d)
-		}
-		return resultOK(list), nil
-	}
-}
-
-// role_fetch_list(page?, page_size?, cred?) → {ok, value: list of dict}
-func roleFetchList(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var cred starlark.String
-		page := starlark.Value(starlark.None)
-		var pageSize starlark.Int
-		if err := starlark.UnpackArgs("role_fetch_list", args, kwargs, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		opts, err := pageOptsFromArgs(page, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		roles, err := buddy.RoleListValues(getCred(thread, c), opts, logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		b, err := json.Marshal(roles)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		val, err := JSONDecodeToStarlark(string(b))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(val), nil
-	}
-}
-
-// role_fetch(role_id, cred?) → {ok, value: dict}
-func roleFetch(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var roleID starlark.String
-		var cred starlark.String
-		if err := starlark.UnpackArgs("role_fetch", args, kwargs, "role_id", &roleID, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		role, err := buddy.RoleFetch(getCred(thread, c), string(roleID), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		b, err := json.Marshal(role)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		val, err := JSONDecodeToStarlark(string(b))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(val), nil
-	}
-}
-
 // role_put(role_id, dict, cred?) → {ok, value: dict}
 func rolePut(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -1640,67 +1259,6 @@ func roleCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 			return resultErr("role_create: cancelled"), nil
 		}
 		return resultOK(starlark.String(role.ID)), nil
-	}
-}
-
-// client_fetch_list(page?, page_size?, cred?) → {ok, value: list of dict}
-func clientFetchList(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var cred starlark.String
-		page := starlark.Value(starlark.None)
-		var pageSize starlark.Int
-		if err := starlark.UnpackArgs("client_fetch_list", args, kwargs, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		opts, err := pageOptsFromArgs(page, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		clients, err := buddy.ClientListValues(getCred(thread, c), opts, logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		b, err := json.Marshal(clients)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		val, err := JSONDecodeToStarlark(string(b))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(val), nil
-	}
-}
-
-// client_fetch(client_id, cred?) → {ok, value: dict}
-func clientFetch(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var clientID starlark.String
-		var cred starlark.String
-		if err := starlark.UnpackArgs("client_fetch", args, kwargs, "client_id", &clientID, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		client, err := buddy.ClientFetch(getCred(thread, c), string(clientID), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		b, err := json.Marshal(client)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		val, err := JSONDecodeToStarlark(string(b))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(val), nil
 	}
 }
 
@@ -1881,74 +1439,6 @@ func policyDelete(credName string, logger *slog.Logger) func(*starlark.Thread, *
 	}
 }
 
-func policyFindIDs(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var keywords *starlark.List
-		var excludeIDs *starlark.List
-		var cred starlark.String
-		var forceRefresh starlark.Bool
-		if err := starlark.UnpackArgs("policy_find_ids", args, kwargs,
-			"keywords", &keywords, "exclude_ids?", &excludeIDs, "force_refresh?", &forceRefresh, "cred?", &cred,
-		); err != nil {
-			return nil, err
-		}
-		var kw []string
-		for i := 0; i < keywords.Len(); i++ {
-			v := keywords.Index(i)
-			if s, ok := v.(starlark.String); ok {
-				kw = append(kw, string(s))
-			} else {
-				return nil, fmt.Errorf("policy_find_ids: keywords must be a list of strings")
-			}
-		}
-		var exclude []int
-		if excludeIDs != nil {
-			for i := 0; i < excludeIDs.Len(); i++ {
-				n, ok := excludeIDs.Index(i).(starlark.Int)
-				if !ok {
-					return nil, fmt.Errorf("policy_find_ids: exclude_ids must be a list of ints")
-				}
-				v, _ := n.Int64()
-				exclude = append(exclude, int(v))
-			}
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		ids, err := buddy.PolicyFindByKeywords(getCred(thread, c), scriptOpts, kw, exclude, bool(forceRefresh), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		list := starlark.NewList(nil)
-		for _, id := range ids {
-			_ = list.Append(starlark.MakeInt(id))
-		}
-		return resultOK(list), nil
-	}
-}
-
-// policy_fetch_xml(policy_id, cred?) → {ok, value: str}
-func policyFetchXML(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var policyID starlark.Int
-		var cred starlark.String
-		if err := starlark.UnpackArgs("policy_fetch_xml", args, kwargs, "policy_id", &policyID, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		pid, _ := policyID.Int64()
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		xmlBytes, err := buddy.PolicyFetchXML(getCred(thread, c), int(pid))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(starlark.String(string(xmlBytes))), nil
-	}
-}
-
 // policy_put_xml(policy_id, xml_str, cred?)
 func policyPutXML(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -1971,129 +1461,9 @@ func policyPutXML(credName string, logger *slog.Logger) func(*starlark.Thread, *
 	}
 }
 
-// group_fetch(group_id, cred?) → {ok, value: dict}
-func groupFetch(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var groupID starlark.String
-		var cred starlark.String
-		if err := starlark.UnpackArgs("group_fetch", args, kwargs, "group_id", &groupID, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		body, err := buddy.GroupFetchSmartRaw(getCred(thread, c), string(groupID))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		val, err := JSONDecodeToStarlark(string(body))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(val), nil
-	}
-}
-
-// group_put(group_id, dict, cred?) → {ok, value: None}
-func groupPut(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var groupID starlark.String
-		var bodyVal starlark.Value
-		var cred starlark.String
-		if err := starlark.UnpackArgs("group_put", args, kwargs, "group_id", &groupID, "dict", &bodyVal, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		jsonStr, err := StarlarkToJSON(bodyVal)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		// If group_id is "-1", create via POST; otherwise update via PUT.
-		if string(groupID) == "-1" {
-			// For scripts, always skip confirm.
-			opts := scriptOpts
-			opts.SkipConfirm = true
-			if _, err := buddy.GroupCreateSmartRaw(getCred(thread, c), opts, []byte(jsonStr), logger); err != nil {
-				return resultErr(err.Error()), nil
-			}
-		} else {
-			if err := buddy.GroupPutSmartRaw(getCred(thread, c), scriptOpts, string(groupID), []byte(jsonStr), logger); err != nil {
-				return resultErr(err.Error()), nil
-			}
-		}
-		return resultOK(starlark.None), nil
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Package builtins
 // ---------------------------------------------------------------------------
-
-// package_list(filter?, page?, page_size?, cred?) → list of {id, packageName, fileName} dicts
-func packageList(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var filter, credArg starlark.String
-		page := starlark.Value(starlark.None)
-		var pageSize starlark.Int
-		if err := starlark.UnpackArgs("package_list", args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize, "cred?", &credArg); err != nil {
-			return nil, err
-		}
-		opts, err := pageOptsFromArgs(page, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		c := credName
-		if credArg != "" {
-			c = string(credArg)
-		}
-		cred := getCred(thread, c)
-		results, err := buddy.PackageSearch(cred, string(filter), opts, logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		list := starlark.NewList(nil)
-		for _, p := range results {
-			d := new(starlark.Dict)
-			_ = d.SetKey(starlark.String("id"), starlark.String(p.ID))
-			_ = d.SetKey(starlark.String("packageName"), starlark.String(p.PackageName))
-			_ = d.SetKey(starlark.String("fileName"), starlark.String(p.FileName))
-			_ = list.Append(d)
-		}
-		return resultOK(list), nil
-	}
-}
-
-// package_fetch(package_id, cred?) → {ok, value: dict}
-func packageFetch(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var id starlark.String
-		var cred starlark.String
-		if err := starlark.UnpackArgs("package_fetch", args, kwargs, "package_id", &id, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		pkg, err := buddy.PackageFetchFull(getCred(thread, c), string(id))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		b, mErr := json.Marshal(pkg)
-		if mErr != nil {
-			return resultErr(mErr.Error()), nil
-		}
-		val, err := JSONDecodeToStarlark(string(b))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(val), nil
-	}
-}
 
 // package_put(package_id, dict, cred?) → {ok, value: dict}
 func packagePut(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
@@ -2129,32 +1499,6 @@ func packagePut(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 			return resultErr(err.Error()), nil
 		}
 		return resultOK(val), nil
-	}
-}
-
-// package_find_id(app, version, pattern?) → {ok, value: {id, name}}
-func packageFindID(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var app, version, pattern starlark.String
-		if err := starlark.UnpackArgs("package_find_id", args, kwargs, "app", &app, "version", &version, "pattern?", &pattern); err != nil {
-			return nil, err
-		}
-		cred := getCred(thread, credName)
-		patternOverride := ""
-		if pattern != "" {
-			patternOverride = string(pattern)
-		}
-		id, name, err := buddy.PackageFindID(cred, string(app), string(version), patternOverride, logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		if id == "" {
-			return resultErr(fmt.Sprintf("no package found for app %q version %q", string(app), string(version))), nil
-		}
-		d := new(starlark.Dict)
-		_ = d.SetKey(starlark.String("id"), starlark.String(id))
-		_ = d.SetKey(starlark.String("name"), starlark.String(name))
-		return resultOK(d), nil
 	}
 }
 
@@ -2214,57 +1558,6 @@ func packageUpload(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			return resultErr(err.Error()), nil
 		}
 		return resultOK(starlark.None), nil
-	}
-}
-
-// script_list(filter?, page?, page_size?, cred?) → {ok, value: [{id, name, categoryId, categoryName}, ...]}
-func scriptList(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var filter, cred starlark.String
-		page := starlark.Value(starlark.None)
-		var pageSize starlark.Int
-		if err := starlark.UnpackArgs("script_list", args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		opts, err := pageOptsFromArgs(page, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		credResolved := getCred(thread, c)
-		results, err := buddy.ScriptSearch(credResolved, string(filter), opts, logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		list := starlark.NewList(nil)
-		for _, s := range results {
-			d := new(starlark.Dict)
-			_ = d.SetKey(starlark.String("id"), starlark.String(s.ID))
-			_ = d.SetKey(starlark.String("name"), starlark.String(s.Name))
-			_ = d.SetKey(starlark.String("categoryId"), starlark.String(s.CategoryID))
-			_ = d.SetKey(starlark.String("categoryName"), starlark.String(s.CategoryName))
-			_ = list.Append(d)
-		}
-		return resultOK(list), nil
-	}
-}
-
-// script_get_id(name) → {ok, value: id_string}
-func scriptGetID(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var name starlark.String
-		if err := starlark.UnpackArgs("script_get_id", args, kwargs, "name", &name); err != nil {
-			return nil, err
-		}
-		cred := getCred(thread, credName)
-		id, err := buddy.ScriptGetID(cred, string(name), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(starlark.String(id)), nil
 	}
 }
 
@@ -3234,51 +2527,6 @@ func stepCreatePolicyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starl
 // Profile builtins
 // ---------------------------------------------------------------------------
 
-// profile_list(filter="") → list of dicts {id, name}
-func profileList(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		filter := starlark.String("")
-		if err := starlark.UnpackArgs("profile_list", args, kwargs, "filter?", &filter); err != nil {
-			return nil, err
-		}
-		cred := getCred(thread, credName)
-		records, err := buddy.ProfileSearch(cred, string(filter), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		list := new(starlark.List)
-		for _, r := range records {
-			d := new(starlark.Dict)
-			_ = d.SetKey(starlark.String("id"), starlark.MakeInt(r.ID))
-			_ = d.SetKey(starlark.String("name"), starlark.String(r.Name))
-			_ = list.Append(d)
-		}
-		return resultOK(list), nil
-	}
-}
-
-// profile_find_id(name) → {ok, value: {id, name}}
-func profileFindID(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var name starlark.String
-		if err := starlark.UnpackArgs("profile_find_id", args, kwargs, "name", &name); err != nil {
-			return nil, err
-		}
-		cred := getCred(thread, credName)
-		id, profileName, err := buddy.ProfileFindID(cred, string(name), logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		if id == 0 {
-			return resultErr(fmt.Sprintf("no profile found for name %q", string(name))), nil
-		}
-		d := new(starlark.Dict)
-		_ = d.SetKey(starlark.String("id"), starlark.MakeInt(id))
-		_ = d.SetKey(starlark.String("name"), starlark.String(profileName))
-		return resultOK(d), nil
-	}
-}
-
 // profile_get_payloads(profile_id) → {ok, value: str} (payloads plist XML)
 func profileGetPayloads(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -3497,27 +2745,6 @@ func profileClone(credName string, logger *slog.Logger) func(*starlark.Thread, *
 			return resultErr(err.Error()), nil
 		}
 		return resultOK(starlark.None), nil
-	}
-}
-
-// profile_fetch_xml(profile_id, cred?) → {ok, value: str}
-func profileFetchXML(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var profileID starlark.Int
-		var cred starlark.String
-		if err := starlark.UnpackArgs("profile_fetch_xml", args, kwargs, "profile_id", &profileID, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		pid, _ := profileID.Int64()
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		xmlBytes, err := buddy.ProfileFetchXML(getCred(thread, c), int(pid))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(starlark.String(string(xmlBytes))), nil
 	}
 }
 
@@ -4062,33 +3289,6 @@ func prefsPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	return resultOK(v), nil
 }
 
-// script_fetch(script_id, cred?) → {ok, value: dict}
-func scriptFetch(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var scriptID, cred starlark.String
-		if err := starlark.UnpackArgs("script_fetch", args, kwargs, "script_id", &scriptID, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		s, err := buddy.ScriptFetchFull(getCred(thread, c), string(scriptID))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		b, mErr := json.Marshal(s)
-		if mErr != nil {
-			return resultErr(mErr.Error()), nil
-		}
-		val, err := JSONDecodeToStarlark(string(b))
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		return resultOK(val), nil
-	}
-}
-
 // script_put(script_id, dict, cred?) → {ok, value: dict}
 func scriptPutBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -4129,80 +3329,6 @@ func scriptPutBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 // ---------------------------------------------------------------------------
 // Computer builtins
 // ---------------------------------------------------------------------------
-
-// computer_find_ids(filter?, page?, page_size?, cred?) → {ok, value: [id1, id2, ...]} or {ok: False, error: "..."}
-func computerFindIDs(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var filter, cred starlark.String
-		page := starlark.Value(starlark.None)
-		var pageSize starlark.Int
-		if err := starlark.UnpackArgs("computer_find_ids", args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		opts, err := pageOptsFromArgs(page, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		credResolved := getCred(thread, c)
-		records, err := buddy.ComputerSearch(credResolved, string(filter), opts, logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		list := starlark.NewList(nil)
-		for _, r := range records {
-			_ = list.Append(starlark.MakeInt(r.ID))
-		}
-		return resultOK(list), nil
-	}
-}
-
-// computer_get(computer_id, cred?) → {ok, value: dict} – id, name, serial, managementId, etc.
-func computerGet(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var computerIDVal starlark.Value
-		var cred starlark.String
-		if err := starlark.UnpackArgs("computer_get", args, kwargs, "computer_id", &computerIDVal, "cred?", &cred); err != nil {
-			return nil, err
-		}
-		var computerIDStr string
-		switch v := computerIDVal.(type) {
-		case starlark.Int:
-			n, _ := v.Int64()
-			computerIDStr = strconv.FormatInt(n, 10)
-		case starlark.String:
-			computerIDStr = string(v)
-		default:
-			return nil, fmt.Errorf("computer_get: computer_id must be int or string")
-		}
-		c := credName
-		if cred != "" {
-			c = string(cred)
-		}
-		credResolved := getCred(thread, c)
-		rec, err := buddy.ComputerGetValue(credResolved, computerIDStr, logger)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		d := new(starlark.Dict)
-		for k, v := range rec {
-			var sv starlark.Value
-			switch tv := v.(type) {
-			case int:
-				sv = starlark.MakeInt(tv)
-			case string:
-				sv = starlark.String(tv)
-			default:
-				sv = starlark.String(fmt.Sprint(v))
-			}
-			_ = d.SetKey(starlark.String(k), sv)
-		}
-		return resultOK(d), nil
-	}
-}
 
 // computer_reboot(computer_ids, cred?) → {ok, value: None} or {ok: False, error: "..."}
 func computerReboot(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {

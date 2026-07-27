@@ -3,11 +3,25 @@ package script
 import (
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 
 	"go.starlark.net/starlark"
 )
+
+// Removed in v4 — must not be registered in makeBuiltins.
+var forbiddenLegacyBuiltinNames = []string{
+	"policy_find_ids", "policy_get_id", "policy_get_enable", "policy_get_details", "policy_fetch_xml",
+	"policy_set_enable", "policy_set_disable", "policy_set_trigger", "policy_set_name", "policy_set_frequency",
+	"package_list", "package_find_id", "package_fetch",
+	"script_list", "script_get_id", "script_fetch",
+	"computer_find_ids", "computer_get", "computer_fetch",
+	"mdm_command_find", "mdm_fetch_commands",
+	"profile_list", "profile_find_id", "profile_fetch_xml",
+	"group_list_smart", "group_list_static", "group_find_id", "group_fetch", "smart_group_fetch",
+	"group_get_version", "group_set_version", "group_put",
+	"role_list", "role_fetch_list", "role_fetch", "role_privileges_list",
+	"client_fetch_list", "client_fetch",
+}
 
 func TestV3BuiltinNamesPresent(t *testing.T) {
 	dict := makeBuiltins("default", slog.Default(), false)
@@ -23,11 +37,22 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 		"blueprint_status", "blueprint_components", "blueprint_component",
 		"auth", "confirm", "error", "exit",
 		"version_extract", "version_compare", "version_sort",
-		// Deprecated aliases still registered during migration window.
-		"policy_find_ids", "package_list", "computer_find_ids", "group_list_smart",
+		"change_batch", "plan_change", "run_change",
 	} {
 		if _, ok := dict[name]; !ok {
 			t.Errorf("missing builtin %q", name)
+		}
+	}
+}
+
+func TestForbiddenLegacyBuiltinNamesAbsent(t *testing.T) {
+	dict := makeBuiltins("default", slog.Default(), false)
+	if len(forbiddenLegacyBuiltinNames) != 38 {
+		t.Fatalf("forbidden list length = %d, want 38", len(forbiddenLegacyBuiltinNames))
+	}
+	for _, name := range forbiddenLegacyBuiltinNames {
+		if _, ok := dict[name]; ok {
+			t.Errorf("legacy alias %q must not be registered", name)
 		}
 	}
 }
@@ -66,21 +91,5 @@ func TestPolicyBuiltinRejectsAmbiguous(t *testing.T) {
 	_, err := fn(thread, nil, nil, kwargs)
 	if err == nil || !strings.Contains(err.Error(), "not both") {
 		t.Fatalf("expected ambiguous error, got %v", err)
-	}
-}
-
-func TestDeprecateWarnsOnce(t *testing.T) {
-	deprecOnce = sync.Map{}
-	calls := 0
-	inner := func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-		calls++
-		return starlark.None, nil
-	}
-	wrapped := deprecate("old_fn", "new_fn", inner)
-	thread := &starlark.Thread{Name: "t"}
-	_, _ = wrapped(thread, nil, nil, nil)
-	_, _ = wrapped(thread, nil, nil, nil)
-	if calls != 2 {
-		t.Fatalf("inner calls = %d, want 2", calls)
 	}
 }

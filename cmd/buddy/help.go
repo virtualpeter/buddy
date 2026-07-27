@@ -812,7 +812,6 @@ func printCommandHelp(path []string) {
 	helpMap := map[string]string{
 		"auth":          helpAuth,
 		"cred":          helpCred,
-		"config":        helpCred, // deprecated alias
 		"shell":         help.Shell,
 		"starlark":      help.Starlark,
 		"builtins":      help.Builtins,

@@ -99,7 +99,7 @@ Usage:
 Notes:
   Speaks LSP over stdin/stdout for the Cursor/VS Code buddy extension.
   Provides parse diagnostics, undefined-name checks, invalid load() modules,
-  deprecation warnings for legacy builtins, completions, hover, and signature help.
+  completions, hover, and signature help.
   Uses the same builtin catalog as 'buddy help builtins' and embedded stdlib/.
 
   Prefer the .buddy file extension for user scripts. Embedded stdlib modules

@@ -10,6 +10,18 @@ import (
 	"go.starlark.net/starlark"
 )
 
+func TestFormatDisplayValueBuiltinHelp(t *testing.T) {
+	dict := makeBuiltins("default", slog.Default(), false)
+	b, ok := dict["policies"].(*starlark.Builtin)
+	if !ok {
+		t.Fatal("policies not a builtin")
+	}
+	got := FormatDisplayValue(b)
+	if !strings.Contains(got, "policies(") || !strings.Contains(got, "Params:") {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestFormatDisplayValueJSON(t *testing.T) {
 	d := new(starlark.Dict)
 	_ = d.SetKey(starlark.String("a"), starlark.MakeInt(1))

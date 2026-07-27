@@ -14,21 +14,25 @@ import (
 // v3 plural / singular builtins
 // ---------------------------------------------------------------------------
 
-// policies(keywords, exclude_ids?, force_refresh?, ids?=False, cred?) → list of {id,name} or list of int
+// policies(keywords?, exclude_ids?, force_refresh?, ids?=False, cred?) → list of {id,name} or list of int
 func policiesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var keywordsVal starlark.Value
+		var keywordsVal starlark.Value = starlark.None
 		var excludeIDs *starlark.List
 		var cred starlark.String
 		var forceRefresh, idsOnly starlark.Bool
 		if err := starlark.UnpackArgs("policies", args, kwargs,
-			"keywords", &keywordsVal, "exclude_ids?", &excludeIDs, "force_refresh?", &forceRefresh, "ids?", &idsOnly, "cred?", &cred,
+			"keywords?", &keywordsVal, "exclude_ids?", &excludeIDs, "force_refresh?", &forceRefresh, "ids?", &idsOnly, "cred?", &cred,
 		); err != nil {
 			return nil, err
 		}
-		kw, err := stringListFromStarlark(keywordsVal, "keywords")
-		if err != nil {
-			return nil, err
+		var kw []string
+		if keywordsVal != nil && keywordsVal != starlark.None {
+			var err error
+			kw, err = stringListFromStarlark(keywordsVal, "keywords")
+			if err != nil {
+				return nil, err
+			}
 		}
 		exclude, err := intListFromStarlark(excludeIDs, "exclude_ids")
 		if err != nil {
@@ -156,7 +160,7 @@ func policySetBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 	}
 }
 
-// packages(...) — same as package_list
+// packages(...) — enumerate package summaries
 func packagesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var filter, credArg starlark.String

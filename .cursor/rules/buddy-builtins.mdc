@@ -18,7 +18,7 @@ When adding or changing builtins in `internal/script/builtins.go` / `builtins_v3
 
 - Plural `value` is a **list of summary dicts** `{id, name, ...}` unless `ids=True` (policies/computers).
 - Singular load accepts **either** `id=` **or** a natural key (`trigger=`, `name=`, `app=`+`version=`), not both.
-- Full rename map: [`docs/builtins-v3.md`](../../docs/builtins-v3.md). Deprecated aliases warn once on stderr.
+- Full grammar + v3→v4 migration: [`docs/builtins-v3.md`](../../docs/builtins-v3.md). Do **not** reintroduce removed legacy aliases (`package_list`, `policy_find_ids`, …).
 
 ## Argument order
 
@@ -60,14 +60,12 @@ Local filesystem helpers return `{"ok": bool, "value": ..., "error": str}` like 
 
 ## Action naming (v3)
 
-Prefer plural/singular nouns over `*_list` / `*_find_ids` / `*_fetch` / `*_get_id`.
+Prefer plural/singular nouns over `*_list` / `*_find_ids` / `*_fetch` / `*_get_id`. Do not register legacy alias names.
 
 - **plural** — enumerate (summary list).
 - **singular** — load one resource (full or summary depending on kwargs).
 - **singular_verb** — mutate (`policy_set`, `smart_group_put`, `computer_reboot`).
 - Keep fat multi-step helpers (`policy_set_ss`, `policy_set_package`, …).
-
-Legacy `fetch` / `get_*` / `list_*` names remain as temporary deprecated aliases.
 
 ## Help text
 

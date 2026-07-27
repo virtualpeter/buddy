@@ -93,7 +93,7 @@ Optional tool argument `cred` pins a named **auth** from config (same as CLI `--
 
 ## Tools
 
-Tool names follow the Starlark v3 plural/singular grammar (see [builtins-v3.md](builtins-v3.md)).
+Tool names follow the Starlark plural/singular grammar (see [builtins-v3.md](builtins-v3.md)).
 
 | Tool | Returns `value` | Notes |
 |------|-----------------|-------|
@@ -125,7 +125,7 @@ MCP also exposes the **full agent knowledge** catalog as `buddy://docs/...` reso
 | URI | Content |
 |-----|---------|
 | `buddy://docs/builtins` | Starlark builtins (Markdown) |
-| `buddy://docs/docs/*` | User docs + `builtins-v3` migration map |
+| `buddy://docs/docs/*` | User docs + builtins grammar / v4 migration |
 | `buddy://docs/agents` | `AGENTS.md` (auth, secrets, contributor context) |
 | `buddy://docs/readme` | `README.md` |
 | `buddy://docs/rules/*` | Editor rules (CLI, builtins, auth-secrets) |

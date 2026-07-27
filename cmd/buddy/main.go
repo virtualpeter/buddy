@@ -32,8 +32,7 @@ type globalCLI struct {
 	scriptTrace bool
 	tenant      string // --tenant: default tenant for auto auth pick
 	user        string // --user / --auth: pin a specific auth
-	cred        string // deprecated alias of --user
-	usedCred    bool
+	rejectCred  bool   // --cred seen (removed in v4)
 	evalSource  string // -e / --eval snippet
 	evalDup     bool   // second -e/--eval seen
 	evalMissing bool   // -e/--eval without a following argument
@@ -43,8 +42,9 @@ func main() {
 	globals, filtered := extractGlobalFlags(os.Args)
 	os.Args = filtered
 
-	if globals.usedCred {
-		fmt.Fprintln(os.Stderr, "note: '--cred' is deprecated; use '--user'")
+	if globals.rejectCred {
+		fmt.Fprintln(os.Stderr, "buddy: --cred was removed; use --user (or --auth)")
+		os.Exit(2)
 	}
 
 	if globals.showVersion {
@@ -92,8 +92,6 @@ func main() {
 	authPin := ""
 	if globals.user != "" {
 		authPin = globals.user
-	} else if globals.cred != "" {
-		authPin = globals.cred
 	}
 	buddy.SetActiveSelection(tenantName, authPin)
 	// credName is the auth pin passed into commands (empty → auto-pick for tenant).
@@ -152,13 +150,6 @@ func main() {
 			os.Exit(1)
 		}
 	case "cred":
-		if err := runCred(cfg, opts, args[1:], logger); err != nil {
-			logger.Error("Cred command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "config":
-		fmt.Fprintln(os.Stderr, "note: 'config' is deprecated; use 'cred'")
 		if err := runCred(cfg, opts, args[1:], logger); err != nil {
 			logger.Error("Cred command failed", "error", err)
 			fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -2091,14 +2082,10 @@ func extractGlobalFlags(argv []string) (globalCLI, []string) {
 				i++
 				g.user = argv[i]
 			}
-		case strings.HasPrefix(a, "--cred="):
-			g.cred = strings.TrimPrefix(a, "--cred=")
-			g.usedCred = true
-		case a == "--cred":
-			g.usedCred = true
-			if i+1 < len(argv) {
-				i++
-				g.cred = argv[i]
+		case a == "--cred", strings.HasPrefix(a, "--cred="):
+			g.rejectCred = true
+			if a == "--cred" && i+1 < len(argv) && !strings.HasPrefix(argv[i+1], "-") {
+				i++ // consume value so it is not treated as a command
 			}
 		default:
 			out = append(out, a)
@@ -2378,22 +2365,15 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		fmt.Printf("Wrote %s\n", path)
 		fmt.Printf("Run with: ./%s -y   (or: buddy %s -y)\n", path, path)
 		return nil
-	case "store-oauth", "configure-oauth":
-		if subcommand == "configure-oauth" {
-			fmt.Fprintln(os.Stderr, "note: 'configure-oauth' is deprecated; use 'buddy setup store-oauth'")
-		}
+	case "store-oauth":
 		apiAuth := credName
 		clientDisplayName := "buddy-cli"
 		var authName, tenantName string
 		configureOpts := opts
-		usedSetupCred := false
 		for _, a := range args {
 			switch {
 			case strings.HasPrefix(a, "--user="):
 				apiAuth = strings.TrimPrefix(a, "--user=")
-			case strings.HasPrefix(a, "--cred="):
-				apiAuth = strings.TrimPrefix(a, "--cred=")
-				usedSetupCred = true
 			case strings.HasPrefix(a, "--client-name="):
 				clientDisplayName = strings.TrimPrefix(a, "--client-name=")
 			case strings.HasPrefix(a, "--name="):
@@ -2405,9 +2385,6 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 			case a == "-y":
 				configureOpts.SkipConfirm = true
 			}
-		}
-		if usedSetupCred {
-			fmt.Fprintln(os.Stderr, "note: '--cred' is deprecated; use '--user'")
 		}
 		res, err := buddy.SetupStoreOAuth(cfg, buddy.StoreOAuthOpts{
 			APIAuth:           apiAuth,

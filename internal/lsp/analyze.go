@@ -71,7 +71,6 @@ func Analyze(filename, src string, mode AnalyzeMode) []Diagnostic {
 
 	var diags []Diagnostic
 	diags = append(diags, loadDiagnostics(f)...)
-	diags = append(diags, deprecationDiagnostics(f, cat)...)
 
 	if err := resolve.File(f, cat.isPredeclared, starlark.Universe.Has); err != nil {
 		diags = append(diags, resolveDiagnostics(err)...)
@@ -149,24 +148,6 @@ func loadDiagnostics(f *syntax.File) []Diagnostic {
 			msg := fmt.Sprintf("unknown module %q (try load(\"stdlib/<name>.buddy\", ...) or load(\"re\", \"re\"))", module)
 			diags = append(diags, posDiag(load.Module.TokenPos, msg, severityError))
 		}
-		return true
-	})
-	return diags
-}
-
-func deprecationDiagnostics(f *syntax.File, cat *catalog) []Diagnostic {
-	var diags []Diagnostic
-	syntax.Walk(f, func(n syntax.Node) bool {
-		id, ok := n.(*syntax.Ident)
-		if !ok {
-			return true
-		}
-		sym, ok := cat.lookup(id.Name)
-		if !ok || !sym.Deprecated {
-			return true
-		}
-		msg := fmt.Sprintf("%s is deprecated; use %s", id.Name, sym.Replacement)
-		diags = append(diags, posDiag(id.NamePos, msg, severityWarning))
 		return true
 	})
 	return diags
@@ -284,11 +265,6 @@ func hoverMarkdown(sym Symbol) string {
 		b.WriteString(sym.Name)
 	}
 	b.WriteString("\n```\n")
-	if sym.Deprecated {
-		b.WriteString("\n**Deprecated** — use `")
-		b.WriteString(sym.Replacement)
-		b.WriteString("`\n")
-	}
 	if sym.Detail != "" {
 		b.WriteString("\n")
 		b.WriteString(sym.Detail)
