@@ -1394,11 +1394,11 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		if len(args) < 1 {
 			return fmt.Errorf("missing file argument; run 'buddy package help' for usage")
 		}
-		filePath, nameOverride, categoryID, priority, err := parsePackageUploadArgs(args)
+		filePath, attrs, err := parsePackageUploadArgs(args)
 		if err != nil {
 			return err
 		}
-		return buddy.PackageUpload(credName, opts, filePath, nameOverride, categoryID, priority, log)
+		return buddy.PackageUpload(credName, opts, filePath, attrs, log)
 	case "list":
 		var filter string
 		var sortSpec string
@@ -1423,14 +1423,23 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 			return fmt.Errorf("missing package-id; run 'buddy package help' for usage")
 		}
 		return buddy.PackageGet(credName, args[0], log)
+	case "download":
+		if len(args) < 1 {
+			return fmt.Errorf("missing package-id; run 'buddy package help' for usage")
+		}
+		outfile := ""
+		if len(args) >= 2 {
+			outfile = args[1]
+		}
+		return buddy.PackageDownload(credName, args[0], outfile, log)
 	case "delete":
 		if len(args) < 1 {
 			return fmt.Errorf("missing package-id; run 'buddy package help' for usage")
 		}
 		return buddy.PackageDelete(credName, opts, args, log)
 	case "set":
-		if len(args) < 2 {
-			return fmt.Errorf("missing property or package-id; run 'buddy package help' for usage")
+		if len(args) < 1 {
+			return fmt.Errorf("missing package-id or property; run 'buddy package help' for usage")
 		}
 		return runPackageSet(credName, opts, args, log)
 	case "history":
@@ -1439,7 +1448,7 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		}
 		return buddy.PackageHistory(credName, args[0], 20, log)
 	default:
-		return fmt.Errorf("unknown package subcommand: %q (use: list, get, delete, set, history, upload)", subcommand)
+		return fmt.Errorf("unknown package subcommand: %q (use: list, get, download, delete, set, history, upload)", subcommand)
 	}
 }
 
@@ -1460,33 +1469,75 @@ func parsePackageListSort(spec string) (order string, err error) {
 	}
 }
 
-func parsePackageUploadArgs(args []string) (filePath, nameOverride, categoryID string, priority int, err error) {
-	priority = 10
-	categoryID = "-1"
-	var positional []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "--name=") {
-			nameOverride = strings.TrimSpace(strings.TrimPrefix(a, "--name="))
-		} else if strings.HasPrefix(a, "--category=") {
-			categoryID = strings.TrimSpace(strings.TrimPrefix(a, "--category="))
-		} else if strings.HasPrefix(a, "--priority=") {
-			v := strings.TrimSpace(strings.TrimPrefix(a, "--priority="))
-			priority, err = parseInt(v, "priority")
-			if err != nil {
-				return "", "", "", 0, err
-			}
-		} else {
-			positional = append(positional, a)
-		}
+func parsePackageUploadArgs(args []string) (filePath string, attrs buddy.PackageAttrs, err error) {
+	attrs, positional, err := parsePackageAttrFlags(args)
+	if err != nil {
+		return "", buddy.PackageAttrs{}, err
 	}
 	if len(positional) < 1 {
-		return "", "", "", 0, fmt.Errorf("missing file argument; run 'buddy package help' for usage")
+		return "", buddy.PackageAttrs{}, fmt.Errorf("missing file argument; run 'buddy package help' for usage")
+	}
+	if len(positional) > 1 {
+		return "", buddy.PackageAttrs{}, fmt.Errorf("unexpected arguments after file: %v", positional[1:])
 	}
 	filePath = strings.TrimSpace(positional[0])
 	if filePath == "" {
-		return "", "", "", 0, fmt.Errorf("missing file argument; run 'buddy package help' for usage")
+		return "", buddy.PackageAttrs{}, fmt.Errorf("missing file argument; run 'buddy package help' for usage")
 	}
-	return filePath, nameOverride, categoryID, priority, nil
+	return filePath, attrs, nil
+}
+
+// parsePackageAttrFlags parses shared upload/set metadata flags.
+func parsePackageAttrFlags(args []string) (attrs buddy.PackageAttrs, positional []string, err error) {
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--name="):
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--name="))
+			attrs.Name = &v
+		case strings.HasPrefix(a, "--notes="):
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--notes="))
+			attrs.Notes = &v
+		case strings.HasPrefix(a, "--info="):
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--info="))
+			attrs.Info = &v
+		case strings.HasPrefix(a, "--category="):
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--category="))
+			attrs.CategoryID = &v
+		case strings.HasPrefix(a, "--priority="):
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--priority="))
+			n, e := parseInt(v, "priority")
+			if e != nil {
+				return buddy.PackageAttrs{}, nil, e
+			}
+			attrs.Priority = &n
+		case strings.HasPrefix(a, "--reboot="):
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--reboot="))
+			b, e := parsePackageBoolFlag(v, "reboot")
+			if e != nil {
+				return buddy.PackageAttrs{}, nil, e
+			}
+			attrs.Reboot = &b
+		case strings.HasPrefix(a, "--"):
+			return buddy.PackageAttrs{}, nil, fmt.Errorf("unknown flag %s (use --name=, --notes=, --info=, --category=, --priority=, --reboot=)", a)
+		default:
+			positional = append(positional, a)
+		}
+	}
+	if err := attrs.Validate(); err != nil {
+		return buddy.PackageAttrs{}, nil, err
+	}
+	return attrs, positional, nil
+}
+
+func parsePackageBoolFlag(value, name string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "yes", "1":
+		return true, nil
+	case "false", "no", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be true or false, got %q", name, value)
+	}
 }
 
 func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
@@ -1702,42 +1753,14 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 }
 
 func runPackageSet(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	property := args[0]
-	if len(args) < 3 {
-		return fmt.Errorf("missing package-id or value for 'set %s'; run 'buddy package help' for usage", property)
+	attrs, positional, err := parsePackageAttrFlags(args)
+	if err != nil {
+		return err
 	}
-	packageID := strings.TrimSpace(args[1])
-	value := strings.TrimSpace(args[2])
-
-	switch property {
-	case "name":
-		return buddy.PackageSetName(credName, packageID, opts, value, log)
-	case "notes":
-		return buddy.PackageSetNotes(credName, packageID, opts, value, log)
-	case "info":
-		return buddy.PackageSetInfo(credName, packageID, opts, value, log)
-	case "priority":
-		n, err := parseInt(value, "priority")
-		if err != nil {
-			return err
-		}
-		return buddy.PackageSetPriority(credName, packageID, opts, n, log)
-	case "category":
-		return buddy.PackageSetCategory(credName, packageID, opts, value, log)
-	case "reboot":
-		var b bool
-		switch strings.ToLower(value) {
-		case "true", "yes", "1":
-			b = true
-		case "false", "no", "0":
-			b = false
-		default:
-			return fmt.Errorf("reboot value must be true or false, got %q", value)
-		}
-		return buddy.PackageSetReboot(credName, packageID, opts, b, log)
-	default:
-		return fmt.Errorf("unknown package set property: %q (use: name, notes, info, priority, category, reboot)", property)
+	if len(positional) != 1 {
+		return fmt.Errorf("usage: buddy package set <package-id> [--name=] [--notes=] [--info=] [--category=] [--priority=] [--reboot=true|false]")
 	}
+	return buddy.PackageSetAttrs(credName, strings.TrimSpace(positional[0]), opts, attrs, log)
 }
 
 func runRole(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {

@@ -363,9 +363,33 @@ PACKAGE
       → value: list of {id, packageName, fileName}
   package(id=?) | package(app=, version=, pattern?=, cred?)
       → value: full package dict (id=) or {id, name} (app+version)
-  package_upload(file, name?, category_id?, priority?, cred?) → value: dict
+      Params: id=: str — GET full record (checksums, size, cloudTransferStatus,
+        flags, …). Or app=+version= to resolve by name. pattern?: optional package
+        name glob/regex override.
+  package_ready(id=, cred?) → value: bool
+      Params: id=: package id; cred?: str.
+      Returns: True iff the package exists and cloudTransferStatus is "READY";
+        False if missing or not ready. API errors → ok=false.
+  package_wait_ready(id=, timeout?, cred?) → value: None
+      Params: id=: package id; timeout?: int seconds (default 600); cred?: str.
+      Polls until cloudTransferStatus is READY (nudges JCDS refresh-inventory).
+      Prefer after package_upload before attaching to a policy.
+  package_download(id=, path?, cred?) → value: None
+      Params: id=: package id; path?: local outfile (default fileName); cred?: str.
+      Waits READY+sha256, streams JCDS pre-signed URI to temp while hashing
+      SHA-256, renames only on match. JCDS only.
+  package_upload(file, name?, category_id?, priority?, notes?, info?, reboot?, cred?)
+      → value: None
+      Params: file: str path (.pkg/.dmg); name?: display name (default basename);
+        category_id?: str (default "-1"); priority?: int 1–20 (default 10);
+        notes?/info?: str; reboot?: bool (default false); cred?: str.
+        Same fileName → update path (GET + checksum compare; skip upload if match;
+        apply metadata flags when they differ). New fileName → create with flags,
+        wait until readable, then stream upload.
   package_delete(ids) → None
   package_put(package_id, dict, cred?) → value: dict
+      Params: package_id: str; dict: full package body; cred?: str.
+      Returns: value: updated package dict. PUT omits server-managed size.
 
 PROFILE
   profiles(filter?)

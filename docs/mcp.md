@@ -105,6 +105,9 @@ Tool names follow the Starlark plural/singular grammar (see [builtins-v3.md](bui
 | `computers` | Summary dicts (or IDs if `ids=true`) | RSQL `filter` |
 | `scripts` | Script summaries | Name substring or RSQL |
 | `packages` | Package summaries | RSQL `filter` |
+| `package_ready` | `bool` | True iff exists and `cloudTransferStatus` is `READY` |
+| `package_wait_ready` | `null` | Poll until READY (default `timeout` 600s); use after upload |
+| `package_download` | `null` | JCDS download to host path; always SHA-256 verify |
 | `policy` | `{id, trigger}` | Resolve by trigger name |
 | `blueprints` | Blueprint summaries | Platform gateway credential; `search`, `sort`, paging |
 | `blueprint` | Full blueprint JSON | By `blueprint_id` |

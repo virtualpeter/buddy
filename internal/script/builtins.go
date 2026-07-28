@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"buddy/internal/buddy"
@@ -212,6 +213,9 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "run_workflow", runWorkflowBuiltin(credName, logger))
 
 	putBuiltin(dict, "package_upload", packageUpload(credName, logger))
+	putBuiltin(dict, "package_ready", packageReady(credName, logger))
+	putBuiltin(dict, "package_wait_ready", packageWaitReady(credName, logger))
+	putBuiltin(dict, "package_download", packageDownload(credName, logger))
 	putBuiltin(dict, "package_delete", packageDelete(credName, logger))
 	putBuiltin(dict, "package_put", packagePut(credName, logger))
 
@@ -1532,11 +1536,13 @@ func packageDelete(credName string, logger *slog.Logger) func(*starlark.Thread, 
 
 func packageUpload(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var file, name, categoryID, cred starlark.String
+		var file, name, categoryID, notes, info, cred starlark.String
 		var priority starlark.Int
+		var reboot starlark.Value = starlark.None
 		if err := starlark.UnpackArgs("package_upload", args, kwargs,
 			"file", &file,
-			"name?", &name, "category_id?", &categoryID, "priority?", &priority, "cred?", &cred,
+			"name?", &name, "category_id?", &categoryID, "priority?", &priority,
+			"notes?", &notes, "info?", &info, "reboot?", &reboot, "cred?", &cred,
 		); err != nil {
 			return nil, err
 		}
@@ -1544,17 +1550,111 @@ func packageUpload(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		if cred != "" {
 			c = string(cred)
 		}
-		catID := "-1"
-		if categoryID != "" {
-			catID = string(categoryID)
+		var attrs buddy.PackageAttrs
+		if name != "" {
+			s := string(name)
+			attrs.Name = &s
 		}
-		prio := 10
+		if categoryID != "" {
+			s := string(categoryID)
+			attrs.CategoryID = &s
+		}
 		if priority != starlark.MakeInt(0) {
 			p64, _ := priority.Int64()
-			prio = int(p64)
+			p := int(p64)
+			attrs.Priority = &p
 		}
-		err := buddy.PackageUpload(getCred(thread, c), scriptOpts, string(file), string(name), catID, prio, logger)
+		if notes != "" {
+			s := string(notes)
+			attrs.Notes = &s
+		}
+		if info != "" {
+			s := string(info)
+			attrs.Info = &s
+		}
+		if reboot != nil && reboot != starlark.None {
+			b, ok := reboot.(starlark.Bool)
+			if !ok {
+				return nil, fmt.Errorf("package_upload: reboot must be a bool")
+			}
+			v := bool(b)
+			attrs.Reboot = &v
+		}
+		err := buddy.PackageUpload(getCred(thread, c), scriptOpts, string(file), attrs, logger)
 		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(starlark.None), nil
+	}
+}
+
+// package_ready(id=, cred?) → {ok, value: bool}
+func packageReady(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value = starlark.None
+		var cred starlark.String
+		if err := starlark.UnpackArgs("package_ready", args, kwargs, "id", &idVal, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		id, err := starlarkIDString(idVal, "id")
+		if err != nil {
+			return nil, err
+		}
+		ready, err := buddy.PackageReady(resolveCred(thread, credName, cred), id)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		_ = logger
+		return resultOK(starlark.Bool(ready)), nil
+	}
+}
+
+// package_wait_ready(id=, timeout?, cred?) → {ok, value: None}
+// timeout is seconds (default 600 = 10 minutes).
+func packageWaitReady(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value = starlark.None
+		var cred starlark.String
+		var timeout starlark.Value = starlark.None
+		if err := starlark.UnpackArgs("package_wait_ready", args, kwargs, "id", &idVal, "timeout?", &timeout, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		id, err := starlarkIDString(idVal, "id")
+		if err != nil {
+			return nil, err
+		}
+		var d time.Duration
+		if timeout != nil && timeout != starlark.None {
+			n, ok := timeout.(starlark.Int)
+			if !ok {
+				return nil, fmt.Errorf("package_wait_ready: timeout must be an int (seconds)")
+			}
+			secs, _ := n.Int64()
+			if secs < 0 {
+				return nil, fmt.Errorf("package_wait_ready: timeout must be >= 0")
+			}
+			d = time.Duration(secs) * time.Second
+		}
+		if err := buddy.PackageWaitReady(resolveCred(thread, credName, cred), id, d, logger); err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return resultOK(starlark.None), nil
+	}
+}
+
+// package_download(id=, path?, cred?) → {ok, value: None}
+func packageDownload(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value = starlark.None
+		var path, cred starlark.String
+		if err := starlark.UnpackArgs("package_download", args, kwargs, "id", &idVal, "path?", &path, "cred?", &cred); err != nil {
+			return nil, err
+		}
+		id, err := starlarkIDString(idVal, "id")
+		if err != nil {
+			return nil, err
+		}
+		if err := buddy.PackageDownload(resolveCred(thread, credName, cred), id, string(path), logger); err != nil {
 			return resultErr(err.Error()), nil
 		}
 		return resultOK(starlark.None), nil

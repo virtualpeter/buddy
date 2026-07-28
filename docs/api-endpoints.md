@@ -189,17 +189,24 @@ Base path: `/api/v1/packages`
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
 | `GET` | `/api/v1/packages` | `PackageList`, `PackageSearch`, `PackageFindID` | List packages; supports optional RSQL `filter` query param |
-| `GET` | `/api/v1/packages/{id}` | `PackageGet`, `packageGetFull` | Fetch single package record |
+| `GET` | `/api/v1/packages/{id}` | `PackageGet`, `PackageFetchFull`, `PackageReady`, `PackageWaitReady`, `PackageDownload` | Fetch single package record (includes `cloudTransferStatus`, checksums) |
 | `POST` | `/api/v1/packages` | `PackageUpload` | Create new package record (metadata) |
 | `POST` | `/api/v1/packages/{id}/upload` | `PackageUpload` | Upload package file (multipart/form-data) |
 | `DELETE` | `/api/v1/packages/{id}` | `PackageDelete` (single) | Delete a single package record |
 | `POST` | `/api/v1/packages/delete-multiple` | `PackageDelete` (batch) | Delete multiple packages by ID array |
-| `PUT` | `/api/v1/packages/{id}` | `PackageSet*` (`packagePut`) | Update package fields: name, notes, info, priority, category, rebootRequired |
+| `PUT` | `/api/v1/packages/{id}` | `PackageSetAttrs` (`packagePut`) | Update package fields: name, notes, info, priority, category, rebootRequired |
 | `GET` | `/api/v1/packages/{id}/history` | `PackageGet` (last-changed enrichment), `PackageHistory`, `packageGetLatestHistory` | Fetch package audit history; sorted `date:desc` |
+| `GET` | `/api/v1/jcds/files/{fileName}` | `PackageDownload` | JCDS pre-signed download URI (`{"uri":…}`) |
+| `POST` | `/api/v1/jcds/refresh-inventory?file-name=…` | `PackageWaitReady` / `PackageDownload` wait | Best-effort nudge while waiting for READY |
 
 ### Notes
 
-- `PackageGet` makes two API calls: one for the record and one for `history?sort=date:desc&page-size=1` to inject `lastChanged` / `lastChangedBy` into the output.
+- `PackageGet` prints the full v1 package object (including `md5` / `sha256` / `sha3512` / `hashType` / `hashValue` / `size` / `cloudTransferStatus` when present), then adds `lastChanged` / `lastChangedBy` from `history?sort=date:desc&page-size=1`.
+- `cloudTransferStatus` is server-managed. Jamf’s UI “Availability Pending” clears when the value is `"READY"` (case-sensitive). Anything else (including empty) means not ready for policy use / JCDS download.
+- `PackageReady` / `package_ready` / MCP `package_ready` return true only when the package exists and `cloudTransferStatus == "READY"` (404 → false). `PackageWaitReady` / `package_wait_ready` / MCP `package_wait_ready` poll with backoff (default 10 minutes) and optionally POST `jcds/refresh-inventory`.
+- `PackageDownload` / `package_download` / `buddy package download` / MCP `package_download`: wait until READY **and** non-empty `sha256` → GET JCDS URI → stream to a temp file beside the destination while hashing SHA-256 → rename only on match; delete temp on failure; retry once on URI HTTP 403. **JCDS only** (Jamf Cloud); not for on-prem non-JCDS distribution points. Verify is always on (no skip flag).
+- `PackageUpload` looks up `fileName` first. If a record exists, it GETs the full object, compares local MD5/SHA-256 to server checksums, and **skips** the file transfer when they match; otherwise it streams a replacement upload. Metadata flags (`--name`, `--notes`, `--info`, `--category`, `--priority`, `--reboot`) apply on create and on update when they differ (including metadata-only updates when the file is unchanged). If no record exists, it POSTs metadata, polls GET until the ID is readable (Jamf Cloud create is async), then streams the multipart upload. After upload, scripts should use `package_wait_ready` before attaching the package to a policy.
+- `packagePut` / `PackageSetAttrs` (used by `buddy package set <id> --…`) omit server-managed `size` / `cloudTransferStatus` and client-only history fields from the PUT body so a metadata update does not blank Jamf’s size.
 - `PackageFindID` is shared between the CLI (`policy set package`) and DSL (`package(app=..., version=...)` builtin). List/search walks all pages unless a single `page` is requested from Starlark.
 - The `delete-multiple` body is `{"ids": ["1","2",...]}`.
 
@@ -502,12 +509,19 @@ buddy profile set payload <id> <domain> <file> [--redeploy]
 buddy package list [--filter=<rsql>]
   └─ GET /api/v1/packages
 
-buddy package upload <file>
-  └─ POST /api/v1/packages              (create metadata)
-  └─ POST /api/v1/packages/{id}/upload  (multipart file upload)
+buddy package upload <file> [--name=] [--notes=] [--info=] [--category=] [--priority=] [--reboot=]
+  └─ GET  /api/v1/packages?filter=fileName=="…"  (reuse existing record if present)
+  ├─ if existing:
+  │    GET  /api/v1/packages/{id}               (summary + checksum compare)
+  │    PUT  /api/v1/packages/{id}               (when attr flags differ; may be metadata-only)
+  │    POST /api/v1/packages/{id}/upload        (streamed multipart, only when file differs)
+  └─ if new:
+       POST /api/v1/packages                    (create metadata with attr flags)
+       GET  /api/v1/packages/{id}               (poll until readable — Jamf Cloud create is async)
+       POST /api/v1/packages/{id}/upload        (streamed multipart file upload)
 
 buddy package get <id>
-  └─ GET /api/v1/packages/{id}
+  └─ GET /api/v1/packages/{id}               (full record, including checksums/size)
   └─ GET /api/v1/packages/{id}/history       (sort=date:desc&page-size=1, for lastChanged/lastChangedBy)
 
 buddy package history <id>
@@ -517,9 +531,9 @@ buddy package delete <id> [id2 ...]
   └─ DELETE /api/v1/packages/{id}            (single ID)
   └─ POST /api/v1/packages/delete-multiple   (multiple IDs)
 
-buddy package set <property> <id> <value>
+buddy package set <package-id> [--name=] [--notes=] [--info=] [--category=] [--priority=] [--reboot=]
   └─ GET /api/v1/packages/{id}               (fetch full record)
-  └─ PUT /api/v1/packages/{id}               (update with modified field)
+  └─ PUT /api/v1/packages/{id}               (update set fields)
 
 buddy computer find [--filter=<rsql>]
   └─ GET /api/v3/computers-inventory          (optional filter, page-size=200)

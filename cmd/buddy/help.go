@@ -652,29 +652,44 @@ Usage:
 Subcommands:
   list [--filter=<rsql>] [--sort=version[:asc|desc]]  List packages
   get <package-id>                                    Show package record details
+  download <package-id> [outfile]                     Download package file via JCDS (SHA-256 verified)
   history <package-id>                                Show recent change history (last 20 entries)
   delete <package-id> [package-id...]                Delete one or more package records
-  upload <file> [--name=...] [--category=<category-id>] [--priority=1-20]  Upload .pkg or .dmg
-  set name     <package-id> <value>                   Set display name
-  set notes    <package-id> <value>                   Set notes field
-  set info     <package-id> <value>                   Set info field
-  set priority <package-id> <1-10>                    Set install priority
-  set category <package-id> <category-id>             Set category (-1 to clear)
-  set reboot   <package-id> <true|false>              Set rebootRequired flag
+  upload <file> [attr-flags…]                        Upload .pkg or .dmg (create or update)
+  set <package-id> [attr-flags…]                     Update package metadata
+
+Flags for 'upload' / 'set':
+  --name=<display-name>       Package display name (upload default: filename)
+  --notes=<text>              Notes field
+  --info=<text>               Info field
+  --category=<category-id>    Category ID (-1 to clear; upload default: -1)
+  --priority=<1-20>           Install priority (upload default: 10)
+  --reboot=true|false         rebootRequired flag (upload default: false)
 
 Notes:
   --sort=version sorts client-side by a dotted version extracted from the package
   name (latest first). Use --sort=version:asc for oldest first.
+  get prints the full package record (checksums, size, cloudTransferStatus, flags, …)
+  plus lastChanged fields from history.
+  download waits until cloudTransferStatus is READY and sha256 is set, fetches a
+  JCDS pre-signed URI, streams to a temp file while hashing SHA-256, and renames
+  only on match. JCDS only (Jamf Cloud). Default outfile is the package fileName.
+  upload looks up fileName first: existing record → compare checksums and skip or
+  replace the file (and apply attr flags when they differ); new fileName → create
+  metadata with attr flags, wait until readable, then upload.
+  Only .pkg and .dmg are supported.
 
 Examples:
   buddy package list
   buddy package list --filter='packageName=="*Chrome*"'
   buddy package list --filter='packageName=="*Chrome*"' --sort=version
   buddy package get 55
+  buddy package download 55
+  buddy package download 55 ./Chrome-121.pkg
   buddy package history 55
-  buddy package upload Chrome-121.pkg --name="Google Chrome 121" --category=3
-  buddy package set name 55 "Google Chrome 121"
-  buddy package set priority 55 5
+  buddy package upload Chrome-121.pkg --name="Google Chrome 121" --category=3 --priority=10
+  buddy package upload Chrome-121.pkg --notes="rollout" --reboot=false
+  buddy package set 55 --name="Google Chrome 121" --priority=5 --reboot=true
   buddy package delete 55 56
 `
 

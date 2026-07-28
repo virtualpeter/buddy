@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"buddy/internal/buddy"
 	"buddy/internal/docpages"
@@ -170,6 +171,63 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		}
 		n := len(pkgs)
 		return toolOK(pkgs, &n)
+	})
+
+	type packageIDIn struct {
+		ID   string `json:"id" jsonschema:"package id"`
+		Cred string `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "package_ready",
+		Description: "Check whether a Jamf package exists and cloudTransferStatus is READY " +
+			"(JCDS available; UI Availability Pending cleared). Returns {ok, value: bool}. " +
+			"Missing package → value false (not an error).",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in packageIDIn) (*mcpsdk.CallToolResult, any, error) {
+		ready, err := buddy.PackageReady(resolve(credIn{Cred: in.Cred}), strings.TrimSpace(in.ID))
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(ready, nil)
+	})
+
+	type packageWaitReadyIn struct {
+		ID      string `json:"id" jsonschema:"package id"`
+		Timeout *int   `json:"timeout,omitempty" jsonschema:"timeout in seconds (default 600)"`
+		Cred    string `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "package_wait_ready",
+		Description: "Poll until a Jamf package has cloudTransferStatus READY (after package_upload / before policy attach). " +
+			"Returns {ok, value: null}. Default timeout 600s. Nudges JCDS refresh-inventory while waiting.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in packageWaitReadyIn) (*mcpsdk.CallToolResult, any, error) {
+		var d time.Duration
+		if in.Timeout != nil {
+			if *in.Timeout < 0 {
+				return toolErr(fmt.Errorf("timeout must be >= 0"))
+			}
+			d = time.Duration(*in.Timeout) * time.Second
+		}
+		if err := buddy.PackageWaitReady(resolve(credIn{Cred: in.Cred}), strings.TrimSpace(in.ID), d, logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(nil, nil)
+	})
+
+	type packageDownloadIn struct {
+		ID   string `json:"id" jsonschema:"package id"`
+		Path string `json:"path,omitempty" jsonschema:"local outfile path (default: package fileName in cwd)"`
+		Cred string `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "package_download",
+		Description: "Download a Jamf package file via JCDS (Jamf Cloud only). Waits for READY+sha256, " +
+			"streams a pre-signed URI to a temp file while hashing SHA-256, renames only on match. " +
+			"Returns {ok, value: null}. Writes to the MCP server host filesystem.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in packageDownloadIn) (*mcpsdk.CallToolResult, any, error) {
+		if err := buddy.PackageDownload(resolve(credIn{Cred: in.Cred}), strings.TrimSpace(in.ID), strings.TrimSpace(in.Path), logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(nil, nil)
 	})
 
 	type policyIn struct {
