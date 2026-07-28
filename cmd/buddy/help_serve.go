@@ -57,8 +57,10 @@ Notes:
   Uses the active tenant/auth from config (override with --tenant / --user).
 
   Every tool returns a JSON object {ok, value, error?, count?} — never a bare
-  array (hosts require object structuredContent). auth_test defaults to a
-  compact summary; pass verbose=true for the full privileges payload.
+  array (hosts require object structuredContent). buddy_info reports binary
+  version plus default tenant / auth pin and available tenants/auths for the
+  mcp channel. auth_test defaults to a compact summary; pass verbose=true for
+  the full privileges payload.
 
   Docs, AGENTS.md, examples, and editor rules are embedded in the binary and
   exposed as buddy://docs/... resources (no BUDDY_DOCS_ROOT required). Set

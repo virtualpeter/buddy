@@ -32,12 +32,12 @@ func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) 
 		version = "dev"
 	}
 	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "buddy", Version: version}, nil)
-	registerTools(server, credName, opts, logger)
+	registerTools(server, credName, opts, logger, version)
 	registerDocResources(server)
 	return server.Run(context.Background(), &mcpsdk.StdioTransport{})
 }
 
-func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logger *slog.Logger) {
+func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logger *slog.Logger, version string) {
 	type credIn struct {
 		Cred string `json:"cred,omitempty" jsonschema:"credential name override"`
 	}
@@ -47,6 +47,16 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		}
 		return credName
 	}
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "buddy_info",
+		Description: "Buddy binary version and MCP session selection: default tenant, optional auth pin, " +
+			"and which tenants/auths are available on the mcp channel (respects auth channels:). " +
+			"Does not call Jamf. Use auth_test to verify credentials against the API.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
+		sel := buddy.SessionSelectionFor(buddy.ChannelMCP, "", credName)
+		return toolOK(sel.InfoMap(version), nil)
+	})
 
 	type authIn struct {
 		Cred    string `json:"cred,omitempty" jsonschema:"credential name override"`

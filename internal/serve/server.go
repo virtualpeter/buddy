@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 
@@ -199,70 +198,9 @@ func openBrowser(url string) error {
 	return cmd.Start()
 }
 
-type authInfo struct {
-	Name    string   `json:"name"`
-	Tenants []string `json:"tenants"`
-	Access  string   `json:"access,omitempty"`
-	Surface string   `json:"surface,omitempty"`
-	Type    string   `json:"type,omitempty"`
-}
+type authInfo = buddy.AuthSummary
 
 // sessionSelectionJSON builds the /api/creds payload (tenants + auths).
 func sessionSelectionJSON(defaultTenant, defaultAuth string) map[string]any {
-	cfg := buddy.GetActiveConfig()
-	tenant, authPin := buddy.ActiveSelection()
-	if defaultTenant != "" {
-		tenant = defaultTenant
-	}
-	if defaultAuth != "" {
-		authPin = defaultAuth
-	}
-	ideTenant := tenant
-	tenants := []string{}
-	auths := []authInfo{}
-	if cfg != nil {
-		if tenant == "" {
-			tenant = cfg.DefaultTenant(buddy.ChannelServe)
-		}
-		ideTenant = cfg.DefaultTenant(buddy.ChannelIDE)
-		for name := range cfg.Tenants {
-			tenants = append(tenants, name)
-		}
-		sort.Strings(tenants)
-		authNames := make([]string, 0, len(cfg.Auths))
-		for name := range cfg.Auths {
-			authNames = append(authNames, name)
-		}
-		sort.Strings(authNames)
-		authNames = cfg.FilterAuths(buddy.ChannelServe, authNames)
-		for _, name := range authNames {
-			a := cfg.Auths[name]
-			ts := append([]string(nil), a.Tenants...)
-			sort.Strings(ts)
-			auths = append(auths, authInfo{
-				Name:    name,
-				Tenants: ts,
-				Access:  a.EffectiveAccess(),
-				Surface: a.EffectiveSurface(),
-				Type:    a.Type,
-			})
-		}
-		if authPin != "" && !cfg.AuthAllowed(buddy.ChannelServe, authPin) {
-			authPin = ""
-		}
-	}
-	// Legacy keys: active/creds were flat credential names; now auth pins.
-	credNames := make([]string, 0, len(auths))
-	for _, a := range auths {
-		credNames = append(credNames, a.Name)
-	}
-	return map[string]any{
-		"tenant":     tenant,
-		"ide_tenant": ideTenant,
-		"auth":       authPin,
-		"tenants":    tenants,
-		"auths":      auths,
-		"active":     authPin,
-		"creds":      credNames,
-	}
+	return buddy.SessionSelectionFor(buddy.ChannelServe, defaultTenant, defaultAuth).ToMap()
 }

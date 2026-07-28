@@ -74,12 +74,13 @@ Docs, `AGENTS.md`, examples, and editor rules are **embedded in the buddy binary
 
 ### 3. Reload the AI host
 
-Restart or refresh MCP in your client so it picks up the new server. The server should show as ready with tools such as `auth_test`, `smart_groups`, `starlark_eval`.
+Restart or refresh MCP in your client so it picks up the new server. The server should show as ready with tools such as `buddy_info`, `auth_test`, `smart_groups`, `starlark_eval`.
 
 ### 4. Use it in chat
 
 Ask in natural language; the agent calls tools for you:
 
+- “What buddy version / tenant is MCP using?” (`buddy_info`)
 - “Test my Jamf auth with buddy”
 - “List Jamf smart groups”
 - “Find computer IDs where name contains lab”
@@ -97,6 +98,7 @@ Tool names follow the Starlark plural/singular grammar (see [builtins-v3.md](bui
 
 | Tool | Returns `value` | Notes |
 |------|-----------------|-------|
+| `buddy_info` | `{version, channel, tenant, auth, tenants, auths}` | Binary version + default tenant/auth pin and available tenants/auths for the `mcp` channel (no Jamf call) |
 | `auth_test` | Compact auth summary | Set `verbose: true` for full privileges payload (large) |
 | `smart_groups` | List of `{id,name,description}` | `filter`, `page`, `page_size`; omit `page` = all pages |
 | `static_groups` | Same shape | Same paging |
@@ -161,6 +163,28 @@ On failure:
 **Why:** Some MCP hosts validate `structuredContent` as an object. Returning a raw list caused errors such as `expected record, received array`. List payloads always live under `value`, with optional `count`.
 
 This mirrors Starlark builtins (`{"ok", "value"}` / `{"ok", "error"}`).
+
+### `buddy_info`
+
+Reports the buddy binary version (same as the MCP handshake `Implementation.Version`) plus the **mcp**-channel session selection without calling Jamf:
+
+```json
+{
+  "ok": true,
+  "value": {
+    "version": "dev",
+    "channel": "mcp",
+    "tenant": "sandbox",
+    "auth": "",
+    "tenants": ["prod", "sandbox"],
+    "auths": [
+      {"name": "sandbox-admin", "tenants": ["sandbox"], "access": "full", "surface": "instance", "type": "oauth"}
+    ]
+  }
+}
+```
+
+`tenant` / `auth` reflect the process default (`--tenant` / `--user`, or `tenant.mcp` / `tenant.default`). Empty `auth` means auto-pick. `auths` is filtered by each auth’s `channels:` list (omit = all channels). Use `auth_test` to verify the selected credentials against Jamf.
 
 ### `auth_test` summary vs verbose
 
