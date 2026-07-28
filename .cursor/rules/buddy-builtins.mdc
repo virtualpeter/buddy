@@ -7,7 +7,7 @@ alwaysApply: true
 
 When adding or changing builtins in `internal/script/builtins.go` / `builtins_v3.go`, follow these rules.
 
-## Plural / singular grammar (v3)
+## Plural / singular grammar
 
 | Form | Role | Example |
 |------|------|---------|
@@ -18,7 +18,7 @@ When adding or changing builtins in `internal/script/builtins.go` / `builtins_v3
 
 - Plural `value` is a **list of summary dicts** `{id, name, ...}` unless `ids=True` (policies/computers).
 - Singular load accepts **either** `id=` **or** a natural key (`trigger=`, `name=`, `app=`+`version=`), not both.
-- Full grammar + v3→v4 migration: [`docs/builtins-v3.md`](../../docs/builtins-v3.md). Do **not** reintroduce removed legacy aliases (`package_list`, `policy_find_ids`, …).
+- Do **not** reintroduce removed legacy aliases (`package_list`, `policy_find_ids`, …). See also [docs/reference-manual.md](../../docs/reference-manual.md#built-in-functions).
 
 ## Argument order
 
@@ -58,7 +58,7 @@ Local filesystem helpers return `{"ok": bool, "value": ..., "error": str}` like 
 - Buddy adds **`error(*args, sep=...)`** — same behavior as `print` but writes to **stderr** (`errorBuiltin` in `builtins.go`).
 - **`confirm(msg?)`** — returns `bool` (`True`/`False`); prompts "Proceed? [y/N]" on stdin using the same UX as CLI confirms (`buddy.ConfirmPrompt`). If the process was started with global **`-y`**, returns `True` without reading stdin (`runnerOpts.SkipConfirm`).
 
-## Action naming (v3)
+## Action naming
 
 Prefer plural/singular nouns over `*_list` / `*_find_ids` / `*_fetch` / `*_get_id`. Do not register legacy alias names.
 

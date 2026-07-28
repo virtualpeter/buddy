@@ -15,7 +15,7 @@ func TestLoadHumanEmbedded(t *testing.T) {
 	}
 	for _, id := range []string{
 		"docs/index", "docs/reference-manual", "docs/change-batches", "docs/api-endpoints",
-		"docs/mcp", "docs/builtins-v3", "builtins",
+		"docs/mcp", "docs/editor", "builtins",
 		"examples/bump-release.buddy", "examples/change-batch-santa.buddy",
 		"examples/setup-app-classic.buddy",
 		"examples/README.md", "examples/mcp.json",
@@ -47,7 +47,7 @@ func TestLoadAgentEmbedded(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{
-		"docs/index", "docs/change-batches", "docs/builtins-v3", "readme", "agents", "builtins",
+		"docs/index", "docs/change-batches", "docs/mcp", "docs/editor", "readme", "agents", "builtins",
 		"rules/buddy-cli.mdc", "rules/buddy-auth-secrets.mdc", "rules/buddy-builtins.mdc",
 		"help/root", "examples/bump-release.buddy",
 	} {

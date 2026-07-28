@@ -1,49 +1,25 @@
 # Buddy Starlark (VS Code / Cursor)
 
-Editor support for buddy Starlark scripts using the `.buddy` file extension.
+Thin editor client for buddy Starlark (`.buddy` files): syntax highlighting + LSP via `buddy lsp`.
 
-## Features
+**Full howto** (build VSIX, install into Cursor/VS Code, settings, verify): see [docs/editor.md](../../docs/editor.md).
 
-- Syntax highlighting for `.buddy`
-- Language server via `buddy lsp` (diagnostics, completions, hover, signature help)
-- Optional association of `*.star` with the buddy language (`buddy.associateStar`)
+```sh
+# from repo root
+make extension-package
+cursor --install-extension editors/vscode/buddy-0.1.0.vsix
+# or: code --install-extension editors/vscode/buddy-0.1.0.vsix
+```
 
-## Requirements
-
-- `buddy` on your `PATH` (or set `buddy.path` to the binary)
-- Buddy built with the `lsp` command (`buddy lsp`)
-
-## Settings
+## Quick settings
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `buddy.path` | `buddy` | Path to the buddy executable |
-| `buddy.lsp.path` | _(empty)_ | Override LSP command (e.g. `/path/to/buddy lsp`) |
+| `buddy.lsp.path` | _(empty)_ | Override LSP command |
 | `buddy.associateStar` | `false` | Treat `*.star` as buddy language |
 | `buddy.cellMode` | `false` | Notebook/`-e` dialect in the language server |
 | `buddy.trace.server` | `off` | LSP client/server trace level |
-
-## Package a VSIX
-
-Publisher is set at package time (default `virtualpete`):
-
-```sh
-cd editors/vscode
-npm install
-npm run package
-# → virtualpete.buddy-0.1.0.vsix
-
-PUBLISHER=otherorg npm run package
-# → otherorg.buddy-0.1.0.vsix
-```
-
-Install in Cursor/VS Code:
-
-```sh
-code --install-extension virtualpete.buddy-0.1.0.vsix
-# or
-cursor --install-extension virtualpete.buddy-0.1.0.vsix
-```
 
 ## Development
 

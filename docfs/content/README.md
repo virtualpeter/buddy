@@ -9,21 +9,15 @@ Includes a Starlark scripting engine for composing multi-step workflows.
 | Resource | Description |
 |----------|-------------|
 | [AGENTS.md](AGENTS.md) | Agent/contributor context: auth, secrets, token caching, meliorate integration |
-| [docs/index.md](docs/index.md) | Short index of the docs in this folder |
+| [docs/index.md](docs/index.md) | Getting started: install, `buddy setup`, first commands |
 | [docs/reference-manual.md](docs/reference-manual.md) | Full reference: config, CLI, scripting, builtins overview, API doc link |
 | [docs/change-batches.md](docs/change-batches.md) | Plan → approve → apply change-record workflows |
 | [docs/mcp.md](docs/mcp.md) | MCP server setup for AI hosts |
-| [docs/builtins-v3.md](docs/builtins-v3.md) | Starlark grammar + v3→v4 migration (removed aliases) |
+| [docs/editor.md](docs/editor.md) | `buddy lsp` + VS Code/Cursor extension (build & install VSIX) |
 | [docs/api-endpoints.md](docs/api-endpoints.md) | Jamf HTTP endpoints used by buddy |
 | [examples/](examples/) | Runnable `.buddy` examples and index |
 
 Complete builtin signatures always match your installed binary: `buddy help builtins`.
-
-## Breaking changes (v4)
-
-- **Starlark:** plural / singular grammar only (`policies` / `policy` / `policy_set`). Legacy aliases (`package_list`, `policy_find_ids`, `group_fetch`, …) are **removed**. Migration table: [docs/builtins-v3.md](docs/builtins-v3.md).
-- **CLI:** `--cred` removed (use `--user` / `--auth`); `buddy config` removed (use `buddy cred`); `configure-oauth` removed (use `buddy setup store-oauth`).
-- **Notebook:** Libraries drawer groups **Getting started** / resources / **Advanced**; bare builtin names print help; `policies()` lists all policies.
 
 ## Prerequisites
 
@@ -192,9 +186,9 @@ buddy                              # interactive Starlark shell
 buddy <script.buddy> [-- args...]  # .buddy preferred; any existing path (including .star) still runs
 ```
 
-Prefer the **`.buddy`** extension for scripts and stdlib modules (`load("stdlib/<name>.buddy", …)`) so the Cursor/VS Code extension language id applies. Existing `.star` paths still run. Editor support: `buddy lsp` plus [editors/vscode](editors/vscode) (`make extension-package`).
+Prefer the **`.buddy`** extension for scripts and stdlib modules (`load("stdlib/<name>.buddy", …)`) so the Cursor/VS Code extension language id applies. Existing `.star` paths still run. Editor support: [docs/editor.md](docs/editor.md) (`buddy lsp` + `make extension-package`).
 
-**Built-in functions:** plural nouns enumerate (`policies`, `packages`, …); singular nouns load one resource (`policy(id=…)` / `policy(trigger=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). Optional `cred=` last. Every Jamf-related builtin returns `{"ok": true, "value": ...}` or `{"ok": false, "error": "..."}` unless documented otherwise. See [docs/builtins-v3.md](docs/builtins-v3.md) for grammar and the v3→v4 migration table.
+**Built-in functions:** plural nouns enumerate (`policies`, `packages`, …); singular nouns load one resource (`policy(id=…)` / `policy(trigger=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). Optional `cred=` last. Every Jamf-related builtin returns `{"ok": true, "value": ...}` or `{"ok": false, "error": "..."}` unless documented otherwise. Canonical list: `buddy help builtins`; grammar overview: [docs/reference-manual.md](docs/reference-manual.md#built-in-functions).
 
 ```sh
 buddy help starlark   # language subset

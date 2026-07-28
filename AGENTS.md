@@ -152,7 +152,7 @@ buddy resolves secrets from the platform store at runtime, so meliorate config d
 ## Conventions (follow existing rules)
 
 - **CLI help**: see `.cursor/rules/buddy-cli.mdc` — usage lines, subcommand naming, placeholders.
-- **Starlark builtins**: see `.cursor/rules/buddy-builtins.mdc` and `docs/builtins-v3.md` — plural/singular grammar (`policies` / `policy` / `policy_set`), resource IDs first on mutate helpers, `cred?` last. Legacy `*_list`/`*_fetch` aliases are removed (v4).
+- **Starlark builtins**: see `.cursor/rules/buddy-builtins.mdc` and [docs/reference-manual.md](docs/reference-manual.md#built-in-functions) — plural/singular grammar (`policies` / `policy` / `policy_set`), resource IDs first on mutate helpers, `cred?` last. Do not reintroduce removed legacy aliases (`package_list`, `policy_find_ids`, …).
 - **Starlark stdlib**: multi-step helpers in `stdlib/*.buddy` via `load("stdlib/release.buddy", "bump_release")` (etc.). Notebook Libraries drawer browses builtins + stdlib (Getting started / Advanced).
 - **Script file extension**: user scripts and stdlib modules use `.buddy` (editor language id / LSP). Keep accepting `.star` (and any path) for legacy scripts.
 - **User docs**: `README.md`, `docs/reference-manual.md` — keep in sync when adding commands or secret behavior.

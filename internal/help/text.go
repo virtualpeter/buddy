@@ -44,6 +44,7 @@ Global flags:
   --user <name>       Pin an auth name (--auth alias)
   --auth <name>       Pin an auth name (same as --user)
 
+First time? Run 'buddy setup basic-setup' (then 'buddy auth test'). See 'buddy setup help'.
 Use 'buddy help starlark' or 'buddy help builtins' for Starlark scripting reference.
 Use 'buddy help <command>' or 'buddy <command> help' for command details.
 Use 'buddy <command> <subcommand> help' for subcommand details.

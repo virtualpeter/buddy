@@ -2,6 +2,8 @@
 
 **buddy** is a command-line tool for [Jamf Pro](https://www.jamf.com/products/jamf-pro/) automation: policies, computer groups, configuration profiles, packages, scripts, computers / MDM, API roles, and API clients. It includes a [Starlark](https://github.com/google/starlark-go) runtime so multi-step workflows can live in `.buddy` scripts (`.star` still works).
 
+**New install?** Start with [`buddy setup basic-setup`](#first-time-api-setup) (also covered in [Getting started](index.md)), then come back here for the full picture.
+
 This manual describes how the pieces fit together. For behavior that must stay in lockstep with the code, buddy exposes the same text via `buddy help` (see [CLI help](#cli-help)).
 
 ---
@@ -48,11 +50,6 @@ Or run `./buddy` from the build directory.
 Default config path: `~/.config/buddy/config.yaml` (override config root with `XDG_CONFIG_HOME`).
 
 Config is split into **tenant selection** (`tenant.default`), **channel policies** (`channels.cli|mcp|ide|notebook` with optional `access` / `tenant` / `tenants`), **tenants** (instance URL and/or Platform `region`+`tenantId`), and **auths** (command/basic/oauth principals linked to one or more tenants). Optional auth `channels:` (`cli`/`mcp`/`ide`/`notebook`; omit = all) limits which buddy clients may use that auth. Legacy shapes migrate on load; `tenant.cli|mcp|serve|ide` and the `serve` client are removed (use `channels.*`).
-
-## Breaking changes (v4)
-
-- Removed Starlark aliases (`package_list`, `policy_find_ids`, …) — see [builtins-v3.md](builtins-v3.md).
-- Removed CLI `--cred`, `buddy config`, and `setup configure-oauth` (use `--user`, `cred`, `store-oauth`).
 
 - `buddy cred help` — set/list/get/delete tenants, auths, and channel policies; manage secrets; `cred use` / `cred set channel`
 - `buddy cred set secret <auth>` — store password/client secret in Keychain, file, or pass
@@ -227,12 +224,12 @@ buddy [global-flags] [--trace] <script.buddy> [-- args...]
 
 ### Editor / language server
 
+Full howto (local VSIX build, install into Cursor or VS Code, settings): **[Editor support](editor.md)**.
+
 ```sh
 buddy lsp
-make extension-package   # PUBLISHER=virtualpete by default → editors/vscode/*.vsix
+make extension-package   # → editors/vscode/buddy-*.vsix (PUBLISHER=virtualpete by default)
 ```
-
-`buddy lsp` speaks LSP over stdio (diagnostics, completions, hover, signature help). The thin editor client lives in [`editors/vscode`](../editors/vscode); see that README for install settings and build-time `PUBLISHER`.
 
 ### Language
 
@@ -269,7 +266,7 @@ That output lists every builtin with parameter names, types, and return shapes. 
 
 **Conventions** (from the builtins help header):
 
-- **Grammar:** plural nouns enumerate (`policies`, `smart_groups`, `computers`); singular nouns load one (`policy(id=…)` or `policy(trigger=…)`, `smart_group(name=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). See [builtins-v3.md](builtins-v3.md).
+- **Grammar:** plural nouns enumerate (`policies`, `smart_groups`, `computers`); singular nouns load one (`policy(id=…)` or `policy(trigger=…)`, `smart_group(name=…)`); singular_verb mutates (`policy_set`, `computer_reboot`).
 - **Notebook:** Libraries drawer shows Getting started / Advanced; bare builtin names print help; `policies()` lists all.
 - Resource IDs come first on mutate helpers (`policy_id`, `group_id`, …); singular loaders use `id=` or a natural key; then options; optional `cred?` last.
 - Use `cred="name"` to override the active credential for a single call.
@@ -303,7 +300,6 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 
 - [`examples/bump-release.buddy`](../examples/bump-release.buddy) — minimal pattern: `policy(trigger=…)`, then updates (edit triggers/IDs for your tenant).
 - [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy) — `plan_change` / `run_change` for an approval-oriented batch ([howto](change-batches.md)).
-- [`docs/builtins-v3.md`](builtins-v3.md) — Starlark grammar + v3→v4 migration (removed aliases).
 
 ---
 
@@ -321,5 +317,6 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 ## See also
 
 - [README](../README.md) — quick start, configuration table, command cheat sheet
-- [`docs/index.md`](index.md) — index of documentation files
+- [`docs/index.md`](index.md) — Getting started (install, `buddy setup`, first commands)
 - [Change batches howto](change-batches.md) — plan / approve / apply for change records
+- [Editor / LSP](editor.md) — VS Code/Cursor extension and `buddy lsp`

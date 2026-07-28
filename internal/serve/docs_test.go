@@ -82,9 +82,6 @@ func TestLoadDocPages(t *testing.T) {
 	if pageByID(pages, "docs/change-batches") == nil {
 		t.Fatal("missing docs/change-batches")
 	}
-	if pageByID(pages, "docs/builtins-v3") == nil {
-		t.Fatal("missing docs/builtins-v3")
-	}
 	if pageByID(pages, "examples/README.md") == nil {
 		t.Fatal("missing examples/README.md")
 	}
@@ -103,15 +100,15 @@ func TestLoadDocPages(t *testing.T) {
 func TestRewriteDocLinks(t *testing.T) {
 	pages := []DocPage{
 		{ID: "docs/change-batches", Title: "Change batches"},
-		{ID: "docs/builtins-v3", Title: "v3"},
+		{ID: "docs/mcp", Title: "MCP"},
 		{ID: "examples/change-batch-santa.buddy", Title: "santa"},
 		{ID: "examples/README.md", Title: "Examples index"},
 	}
-	in := `[a](change-batches.md) [b](builtins-v3.md) [c](../examples/change-batch-santa.buddy) [d](../examples/README.md) [e](https://example.com) [f](#anchor) [g](../README.md#configuration) [h](../scripts/integration_test.buddy)`
+	in := `[a](change-batches.md) [b](mcp.md) [c](../examples/change-batch-santa.buddy) [d](../examples/README.md) [e](https://example.com) [f](#anchor) [g](../README.md#configuration) [h](../scripts/integration_test.buddy)`
 	got := rewriteDocLinks(in, pages)
 	for _, want := range []string{
 		"](/docs/docs/change-batches)",
-		"](/docs/docs/builtins-v3)",
+		"](/docs/docs/mcp)",
 		"](/docs/examples/change-batch-santa.buddy)",
 		"](/docs/examples/README.md)",
 		"](https://example.com)",

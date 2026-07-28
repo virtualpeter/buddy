@@ -847,7 +847,7 @@ func encodeTool(tr ToolResult) *mcpsdk.CallToolResult {
 }
 
 func registerDocResources(server *mcpsdk.Server) {
-	// Full agent knowledge (AGENTS, rules, migration notes, …), embedded by default.
+	// Full agent knowledge (AGENTS, rules, …), embedded by default.
 	// BUDDY_DOCS_ROOT still overrides when set. The HTML docs UI uses CatalogHuman instead.
 	res, err := docpages.Load(docpages.LoadOptions{Catalog: docpages.CatalogAgent})
 	if err != nil {

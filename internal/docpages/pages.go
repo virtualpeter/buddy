@@ -2,7 +2,7 @@
 //
 // Two catalogs share the same sources:
 //   - CatalogHuman — curated pages for the buddy serve HTML UI
-//   - CatalogAgent — full embedded knowledge for MCP (AGENTS, rules, migration notes, …)
+//   - CatalogAgent — full embedded knowledge for MCP (AGENTS, rules, …)
 //
 // Pages come from the embedded docfs by default; --docs-root / BUDDY_DOCS_ROOT
 // (or a discovered repo docs/ when PreferDisk) override with live files.
@@ -33,7 +33,7 @@ const (
 type Page struct {
 	ID       string // e.g. "docs/reference-manual", "agents", "rules/buddy-cli.mdc"
 	Title    string
-	Section  string // nav grouping for the human UI (Overview, Guides, …)
+	Section  string // nav grouping for the human UI (Start here, Guides, …)
 	Markdown string
 	Plain    bool   // true = render as <pre> (CLI help)
 	Source   string // "embedded:…" or filesystem path
@@ -140,12 +140,12 @@ func findDocsRootFromCwd() (string, error) {
 var humanDocEntries = []struct {
 	id, title, section, file string
 }{
-	{"docs/index", "Overview", "Start here", "index.md"},
+	{"docs/index", "Getting started", "Start here", "index.md"},
 	{"docs/reference-manual", "Reference manual", "Guides", "reference-manual.md"},
 	{"docs/change-batches", "Change batches", "Guides", "change-batches.md"},
 	{"docs/api-endpoints", "API endpoints", "Guides", "api-endpoints.md"},
 	{"docs/mcp", "MCP for AI tools", "Guides", "mcp.md"},
-	{"docs/builtins-v3", "Builtins v3 rename map", "Guides", "builtins-v3.md"},
+	{"docs/editor", "Editor / LSP", "Guides", "editor.md"},
 }
 
 func loadHumanFromDisk(docsRoot string) ([]Page, error) {
@@ -231,8 +231,8 @@ func loadAgentFromDisk(docsRoot string) ([]Page, error) {
 		{"docs/reference-manual", "Reference manual", filepath.Join(docsRoot, "reference-manual.md")},
 		{"docs/change-batches", "Change batches", filepath.Join(docsRoot, "change-batches.md")},
 		{"docs/api-endpoints", "API endpoints", filepath.Join(docsRoot, "api-endpoints.md")},
-		{"docs/builtins-v3", "Builtins v3 rename map", filepath.Join(docsRoot, "builtins-v3.md")},
 		{"docs/mcp", "MCP server", filepath.Join(docsRoot, "mcp.md")},
+		{"docs/editor", "Editor / LSP", filepath.Join(docsRoot, "editor.md")},
 		{"readme", "README", filepath.Join(repoRoot, "README.md")},
 		{"agents", "AGENTS", filepath.Join(repoRoot, "AGENTS.md")},
 	}
@@ -267,8 +267,8 @@ func loadAgentFromEmbedded() ([]Page, error) {
 		{"docs/reference-manual", "Reference manual", "content/docs/reference-manual.md"},
 		{"docs/change-batches", "Change batches", "content/docs/change-batches.md"},
 		{"docs/api-endpoints", "API endpoints", "content/docs/api-endpoints.md"},
-		{"docs/builtins-v3", "Builtins v3 rename map", "content/docs/builtins-v3.md"},
 		{"docs/mcp", "MCP server", "content/docs/mcp.md"},
+		{"docs/editor", "Editor / LSP", "content/docs/editor.md"},
 		{"readme", "README", "content/README.md"},
 		{"agents", "AGENTS", "content/AGENTS.md"},
 	}

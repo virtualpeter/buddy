@@ -14,7 +14,7 @@ Notes:
   Serves a curated user docs UI (guides, builtins, examples) plus:
   /notebook — REPL-style Starlark cells (explore builtins interactively)
   /ide      — Single-buffer script runner (open/save, args, trace, Run as file)
-  Contributor/agent knowledge (AGENTS, Cursor rules, migration notes) is
+  Contributor/agent knowledge (AGENTS, Cursor rules) is
   embedded for MCP only — not listed in the HTML sidebar.
   When run from a checkout, serve prefers the repo docs/ tree so edits show
   without a rebuild; otherwise the embedded catalog is used. --docs-root /
