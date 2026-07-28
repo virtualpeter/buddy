@@ -50,7 +50,7 @@ Build: `make buddy` → `./buddy`. Tests: `go test ./...`. Docs UI: `make docs-s
 See **[docs/mcp.md](docs/mcp.md)** for MCP host setup. Summary:
 
 - `buddy mcp` speaks stdio MCP for AI hosts (Cursor, Claude Desktop, etc.).
-- `buddy_info` reports binary version plus default tenant/auth and available tenants/auths for the mcp channel (no Jamf call).
+- `buddy_info` reports binary version plus default tenant/auth, channel policy (`channel_access`, allowlists), and available tenants/auths for the mcp channel (no Jamf call).
 - `buddy mcp setup` lists well-known config paths and can `--write` a `mcpServers.buddy` entry (`--create` for missing files). Cursor: `~/.cursor/mcp.json` / `.cursor/mcp.json`; Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS).
 - Prefer an absolute `command` path and `args: ["mcp"]`.
 - Docs/AGENTS/examples/editor rules are embedded in the binary (`docfs/`; refresh with `make sync-docfs`). `BUDDY_DOCS_ROOT` is an optional live override. Agents should use the MCP `docs` tool (list/get); the same pages are also `buddy://docs/...` resources.
@@ -60,12 +60,13 @@ See **[docs/mcp.md](docs/mcp.md)** for MCP host setup. Summary:
 
 ## Authentication model
 
-Config is **tenants** + **auths** (breaking change from flat `credentials:` — migrated automatically on load).
+Config is **tenants** + **auths** + optional **channels** policies (breaking change from flat `credentials:` — migrated automatically on load).
 
 - **Tenant** — Jamf environment: instance `url` and/or Platform `region` + `tenantId`.
 - **Auth** — secret-bearing principal (`command` / `basic` / `oauth`) linked to one or more tenants via `tenants: […]`. A platform clientId may list multiple tenants. Optional `access` (`full`|`readonly`) and `surface` (`any`|`platform`|`instance`).
-- **Tenant selection** — structured `tenant:` object with `default` plus optional `cli` / `mcp` / `serve` / `ide`. Global `--tenant` still wins; `--user` / `--auth` pins an auth. Starlark/MCP `cred=` still means auth pin.
-- **Auth channels** — optional `channels: [cli, mcp, serve]` on each auth (omit = all). Filters auto-pick and rejects pins / UI choices. IDE/notebook use the `serve` channel.
+- **Tenant selection** — `tenant.default` plus optional `channels.<cli|mcp|ide|notebook>.tenant`. Global `--tenant` still wins; `--user` / `--auth` pins an auth. Starlark/MCP `cred=` still means auth pin.
+- **Channel policy** — optional `channels.<client>.access` (`readonly`|`full`), `tenant`, and `tenants` allowlist. Clamps mutates and filters selectable tenants (most restrictive with auth access wins).
+- **Auth channels** — optional `channels: [cli, mcp, ide, notebook]` on each auth (omit = all). Filters auto-pick and rejects pins / UI choices. Notebook and IDE are separate clients (no shared `serve` channel).
 
 | `auth.type` | Config fields | Secret storage |
 |-------------|---------------|----------------|
@@ -91,7 +92,7 @@ Selected by platform or `BUDDY_SECRET_STORE`:
 | `pass` | any | `buddy/<cred>/password`, `buddy/<cred>/client-secret` |
 | `keychain` | macOS only | Explicit Keychain |
 
-CLI: `buddy cred set tenant|auth|secret …` (auth supports `--channels=`), `buddy cred delete tenant|auth|secret …` (auth delete clears store secrets; tenant delete cascades sole-linked auths), `buddy cred clean secrets` (review/delete orphaned store entries), `buddy cred use <tenant>`, `buddy cred use --cli|--mcp|--ide|--serve <tenant>`, `buddy cred store`, `buddy cred migrate`. `buddy setup basic-setup` bootstraps the first instance tenant + basic auth; `buddy setup store-oauth` rotates a Jamf Pro *instance* API client's secret into a buddy oauth auth with `surface=instance` (Platform gateway oauth cannot manage API roles/integrations).
+CLI: `buddy cred set tenant|auth|channel|secret …` (auth supports `--channels=`), `buddy cred delete tenant|auth|secret …` (auth delete clears store secrets; tenant delete cascades sole-linked auths), `buddy cred clean secrets` (review/delete orphaned store entries), `buddy cred use <tenant>`, `buddy cred use --cli|--mcp|--ide|--notebook <tenant>`, `buddy cred store`, `buddy cred migrate`. `buddy setup basic-setup` bootstraps the first instance tenant + basic auth; `buddy setup store-oauth` rotates a Jamf Pro *instance* API client's secret into a buddy oauth auth with `surface=instance` (Platform gateway oauth cannot manage API roles/integrations).
 
 ## Token caching
 

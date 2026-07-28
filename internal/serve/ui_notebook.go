@@ -186,7 +186,7 @@ async function ensureSession() {
   const r = await fetch('/api/session', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({tenant, cred, auth: cred})
+    body: JSON.stringify({tenant, cred, auth: cred, channel: 'notebook'})
   });
   const data = await r.json();
   if (!r.ok) throw new Error(data.error || 'session failed');
@@ -226,7 +226,7 @@ async function dropSession() {
 }
 
 async function loadCreds() {
-  const r = await fetch('/api/creds');
+  const r = await fetch('/api/creds?channel=notebook');
   const data = await r.json();
   authCatalog = data.auths || [];
   const tsel = document.getElementById('tenant');
@@ -243,7 +243,7 @@ async function loadCreds() {
     o.textContent = o.value || '(no tenants)';
     tsel.appendChild(o);
   }
-  const preselect = data.ide_tenant || data.tenant || '';
+  const preselect = data.tenant || '';
   if (preselect && [...tsel.options].some(o => o.value === preselect)) {
     tsel.value = preselect;
   }

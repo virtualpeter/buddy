@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"buddy/internal/buddy"
@@ -15,9 +16,10 @@ import (
 )
 
 type liveSession struct {
-	sess   *script.Session
-	tenant string
-	auth   string // auth pin; empty = auto-pick
+	sess    *script.Session
+	tenant  string
+	auth    string // auth pin; empty = auto-pick
+	channel string // notebook | ide
 }
 
 type sessionStore struct {
@@ -43,6 +45,7 @@ type createSessionReq struct {
 	Tenant    string
 	Cred      string // auth pin (empty = auto-pick for tenant)
 	Auth      string // alias of cred
+	Channel   string // notebook | ide
 	Trace     bool
 	Args      []string
 	tenantSet bool
@@ -69,6 +72,11 @@ func (c *createSessionReq) UnmarshalJSON(data []byte) error {
 	if v, ok := raw["cred"]; ok {
 		c.authSet = true
 		if err := json.Unmarshal(v, &c.Cred); err != nil {
+			return err
+		}
+	}
+	if v, ok := raw["channel"]; ok {
+		if err := json.Unmarshal(v, &c.Channel); err != nil {
 			return err
 		}
 	}
@@ -147,9 +155,20 @@ func (s *sessionStore) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var req createSessionReq
 	_ = json.NewDecoder(r.Body).Decode(&req)
+	channel := strings.ToLower(strings.TrimSpace(req.Channel))
+	switch channel {
+	case buddy.ChannelIDE, buddy.ChannelNotebook:
+	default:
+		channel = buddy.ChannelNotebook
+	}
 	tenant := s.tenant
 	if req.tenantSet {
 		tenant = req.Tenant
+	}
+	if tenant == "" {
+		if cfg := buddy.GetActiveConfig(); cfg != nil {
+			tenant = cfg.DefaultTenant(channel)
+		}
 	}
 	auth := s.credName
 	if req.authSet {
@@ -158,15 +177,22 @@ func (s *sessionStore) handleCreate(w http.ResponseWriter, r *http.Request) {
 			auth = req.Cred
 		}
 	}
-	if auth != "" {
-		if cfg := buddy.GetActiveConfig(); cfg != nil && !cfg.AuthAllowed(buddy.ChannelServe, auth) {
+	if cfg := buddy.GetActiveConfig(); cfg != nil {
+		if tenant != "" && !cfg.TenantAllowedOnChannel(channel, tenant) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "auth " + auth + " is not allowed for serve (see auth channels in config)",
+				"error": "tenant " + tenant + " is not allowed for " + channel + " (see channels." + channel + ".tenants in config)",
+			})
+			return
+		}
+		if auth != "" && !cfg.AuthAllowed(channel, auth) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "auth " + auth + " is not allowed for " + channel + " (see auth channels in config)",
 			})
 			return
 		}
 	}
 	// Apply selection for ResolveSessionForCred (empty auth → auto-pick).
+	buddy.SetActiveChannel(channel)
 	buddy.SetActiveSelection(tenant, auth)
 	sess, err := script.NewSessionArgs(auth, s.opts, s.logger, req.Trace, req.Args)
 	if err != nil {
@@ -175,7 +201,7 @@ func (s *sessionStore) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	id := uuid.NewString()
 	s.mu.Lock()
-	s.sessions[id] = &liveSession{sess: sess, tenant: tenant, auth: auth}
+	s.sessions[id] = &liveSession{sess: sess, tenant: tenant, auth: auth, channel: channel}
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, createSessionResp{
 		ID: id, Tenant: tenant, Cred: auth, Auth: auth, Trace: req.Trace, Args: sess.Args(),
@@ -191,6 +217,9 @@ func (s *sessionStore) get(id string) *liveSession {
 func (s *sessionStore) activate(live *liveSession) {
 	if live == nil {
 		return
+	}
+	if live.channel != "" {
+		buddy.SetActiveChannel(live.channel)
 	}
 	buddy.SetActiveSelection(live.tenant, live.auth)
 }

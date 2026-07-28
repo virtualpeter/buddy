@@ -80,7 +80,8 @@ func main() {
 		case "mcp":
 			channel = buddy.ChannelMCP
 		case "serve":
-			channel = buddy.ChannelServe
+			// Notebook/IDE set channel per session; keep cli for process --tenant default.
+			channel = buddy.ChannelCLI
 		}
 	}
 	buddy.SetActiveChannel(channel)

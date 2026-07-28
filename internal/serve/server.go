@@ -107,7 +107,11 @@ func Run(ctx context.Context, o Options) error {
 		})
 	})
 	mux.HandleFunc("/api/creds", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, sessionSelectionJSON(o.TenantName, o.CredName))
+		ch := r.URL.Query().Get("channel")
+		if ch == "" {
+			ch = buddy.ChannelNotebook
+		}
+		writeJSON(w, http.StatusOK, sessionSelectionJSON(ch, o.TenantName, o.CredName))
 	})
 	mux.HandleFunc("/api/libraries", handleLibrariesList)
 	mux.HandleFunc("/api/libraries/", handleLibraryDetail)
@@ -200,7 +204,7 @@ func openBrowser(url string) error {
 
 type authInfo = buddy.AuthSummary
 
-// sessionSelectionJSON builds the /api/creds payload (tenants + auths).
-func sessionSelectionJSON(defaultTenant, defaultAuth string) map[string]any {
-	return buddy.SessionSelectionFor(buddy.ChannelServe, defaultTenant, defaultAuth).ToMap()
+// sessionSelectionJSON builds the /api/creds payload (tenants + auths) for channel.
+func sessionSelectionJSON(channel, defaultTenant, defaultAuth string) map[string]any {
+	return buddy.SessionSelectionFor(channel, defaultTenant, defaultAuth).ToMap()
 }

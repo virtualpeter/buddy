@@ -18,17 +18,10 @@ func requirePlatformCred(credName string) error {
 	return nil
 }
 
-// requirePlatformMutate is like requirePlatformCred but rejects readonly auths.
+// requirePlatformMutate is like requirePlatformCred but rejects readonly auths / channel policy.
 func requirePlatformMutate(credName string) error {
-	if err := requirePlatformCred(credName); err != nil {
+	if _, err := ResolveSessionForCred(credName, OpPlatformWrite); err != nil {
 		return err
-	}
-	sess, err := ResolveSessionForCred(credName, OpPlatform)
-	if err != nil {
-		return err
-	}
-	if sess.Auth.EffectiveAccess() == AccessReadonly {
-		return fmt.Errorf("auth %q is readonly; mutating Platform API operations require a full-access auth", sess.AuthName)
 	}
 	return nil
 }

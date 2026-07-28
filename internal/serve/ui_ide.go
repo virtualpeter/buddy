@@ -297,7 +297,7 @@ async function ensureSession(force) {
   const res = await jfetch("/api/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tenant, cred, auth: cred, trace, args }),
+    body: JSON.stringify({ tenant, cred, auth: cred, channel: "ide", trace, args }),
   });
   state.sessionId = res.id;
   return state.sessionId;
@@ -566,7 +566,7 @@ function fillAuthSelect(selected) {
 }
 
 async function loadCreds() {
-  const res = await jfetch("/api/creds");
+  const res = await jfetch("/api/creds?channel=ide");
   authCatalog = res.auths || [];
   const tsel = document.getElementById("tenant");
   tsel.innerHTML = "";
@@ -582,7 +582,7 @@ async function loadCreds() {
     o.textContent = o.value || "(no tenants)";
     tsel.appendChild(o);
   }
-  const preselect = res.ide_tenant || res.tenant || "";
+  const preselect = res.tenant || "";
   if (preselect && [...tsel.options].some(o => o.value === preselect)) {
     tsel.value = preselect;
   }

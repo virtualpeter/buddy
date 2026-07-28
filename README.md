@@ -50,10 +50,17 @@ Config file: `~/.config/buddy/config.yaml`
 ```yaml
 tenant:
   default: sandbox                 # global fallback
-  cli: prod                        # optional per-client overrides
-  mcp: sandbox
-  serve: sandbox
-  ide: sandbox                     # notebook + IDE dropdown preselect
+
+channels:
+  mcp:
+    access: readonly               # clamp mutates on this client
+    tenant: sandbox                # optional per-client default
+    tenants: [sandbox]             # optional allowlist
+  notebook:
+    tenant: sandbox
+  ide:
+    tenant: sandbox
+  # cli omitted → full access; default tenant = tenant.default
 
 tenants:
   sandbox:
@@ -66,7 +73,7 @@ auths:
     type: oauth
     clientId: your_client_id
     tenants: [sandbox]
-    channels: [cli, serve]         # omit = all (cli/mcp/serve)
+    channels: [cli, ide]           # omit = all (cli/mcp/ide/notebook)
     # clientSecret: buddy cred set secret sandbox-admin --client-secret
   sandbox-platform-ro:
     type: oauth
@@ -74,7 +81,7 @@ auths:
     tenants: [sandbox]
     access: readonly
     surface: platform
-    channels: [mcp]                # restrict MCP to this readonly auth
+    channels: [mcp, notebook]      # restrict MCP/notebook to this readonly auth
 ```
 
 **Storage:** Tenants hold host identity; auths hold type/username/clientId and link to tenants. Passwords and OAuth client secrets can stay inline for **dev/test**, or be stored outside the file (keyed by **auth name**):
@@ -86,8 +93,9 @@ auths:
 
 ```sh
 buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=us --tenant-id=…
-buddy cred set auth sandbox-admin --type=oauth --client-id=abc --tenants=sandbox --channels=cli,serve
-buddy cred set auth sandbox-platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp
+buddy cred set auth sandbox-admin --type=oauth --client-id=abc --tenants=sandbox --channels=cli,ide
+buddy cred set auth sandbox-platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp,notebook
+buddy cred set channel mcp --access=readonly --tenant=sandbox
 buddy cred set secret sandbox-admin --client-secret
 buddy cred use sandbox
 buddy cred use --mcp sandbox
@@ -96,8 +104,7 @@ buddy cred delete auth sandbox-admin   # also clears store secrets
 buddy cred clean secrets               # review/delete orphaned store entries
 ```
 
-Legacy shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auths:`) migrate automatically on load (breaking; only the new form is written back). Inline secrets: `buddy cred migrate`. Selection: `--tenant` (auto-pick auth by operation) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all).
-
+Legacy shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auths:`) migrate automatically on load (breaking; only the new form is written back). Inline secrets: `buddy cred migrate`. Selection: `--tenant` (auto-pick auth by operation) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all). Per-client policy lives under top-level `channels:` (`access` / `tenant` / `tenants`); `tenant.cli|mcp|serve|ide` and the `serve` client are removed.
 ### Setting up a role and client for buddy
 
 If you have **no config yet**, bootstrap an instance tenant + basic auth first:

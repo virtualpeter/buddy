@@ -54,7 +54,7 @@ func ActiveSelection() (tenant, authPin string) {
 	return activeSelection.tenant, activeSelection.authPin
 }
 
-// SetActiveChannel sets the process buddy client channel (cli|mcp|serve) for
+// SetActiveChannel sets the process buddy client channel (cli|mcp|ide|notebook) for
 // tenant selection and auth channels enforcement.
 func SetActiveChannel(channel string) {
 	activeSelection.mu.Lock()
@@ -122,12 +122,15 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 				tenantName = selTenant
 			}
 		}
+		if !cfg.TenantAllowedOnChannel(channel, tenantName) {
+			return nil, fmt.Errorf("tenant %q is not allowed for %s (see channels.%s.tenants in config)", tenantName, channel, channel)
+		}
 		tenant, err := cfg.ResolveTenant(tenantName)
 		if err != nil {
 			return nil, err
 		}
 		surface := surfaceForOp(op, auth, tenant)
-		if err := checkAuthForOp(auth, tenant, op, surface); err != nil {
+		if err := checkAuthForOp(cfg, auth, tenant, op, surface, channel); err != nil {
 			return nil, fmt.Errorf("auth %q: %w", authName, err)
 		}
 		cred := ComposeCredential(tenant, auth, surface)
@@ -145,6 +148,9 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 	if tenantName == "" {
 		return nil, fmt.Errorf("no tenant selected — set default with 'buddy cred use <tenant>' or pass --tenant / --user")
 	}
+	if !cfg.TenantAllowedOnChannel(channel, tenantName) {
+		return nil, fmt.Errorf("tenant %q is not allowed for %s (see channels.%s.tenants in config)", tenantName, channel, channel)
+	}
 	tenant, err := cfg.ResolveTenant(tenantName)
 	if err != nil {
 		return nil, err
@@ -156,7 +162,7 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 		}
 		return nil, fmt.Errorf("tenant %q has no auths allowed for %s (see auth channels in config)", tenantName, channel)
 	}
-	bestName, bestAuth, surface, err := pickAuth(cfg, tenantName, tenant, candidates, op)
+	bestName, bestAuth, surface, err := pickAuth(cfg, tenantName, tenant, candidates, op, channel)
 	if err != nil {
 		return nil, err
 	}
@@ -200,8 +206,11 @@ func surfaceForOp(op OpClass, auth AuthEntry, tenant TenantConfig) string {
 	}
 }
 
-func checkAuthForOp(auth AuthEntry, tenant TenantConfig, op OpClass, surface string) error {
-	if (op == OpMutate || op == OpPlatformWrite) && auth.EffectiveAccess() == AccessReadonly {
+func checkAuthForOp(cfg *Config, auth AuthEntry, tenant TenantConfig, op OpClass, surface, channel string) error {
+	if (op == OpMutate || op == OpPlatformWrite) && cfg.EffectiveAccessForChannel(auth, channel) == AccessReadonly {
+		if cfg.ChannelAccessFor(channel) == AccessReadonly {
+			return fmt.Errorf("channel %s is readonly; mutating operations are not allowed", channel)
+		}
 		return fmt.Errorf("access is readonly; mutating operations require a full-access auth")
 	}
 	switch surface {
@@ -229,7 +238,7 @@ func checkAuthForOp(auth AuthEntry, tenant TenantConfig, op OpClass, surface str
 	return nil
 }
 
-func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []string, op OpClass) (string, AuthEntry, string, error) {
+func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []string, op OpClass, channel string) (string, AuthEntry, string, error) {
 	type scored struct {
 		name    string
 		auth    AuthEntry
@@ -245,7 +254,7 @@ func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []
 			continue
 		}
 		surface := surfaceForOp(op, auth, tenant)
-		if err := checkAuthForOp(auth, tenant, op, surface); err != nil {
+		if err := checkAuthForOp(cfg, auth, tenant, op, surface, channel); err != nil {
 			errs = append(errs, name+": "+err.Error())
 			continue
 		}
@@ -255,7 +264,7 @@ func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []
 			errs = append(errs, name+": "+err.Error())
 			continue
 		}
-		s := scoreAuth(auth, surface, op)
+		s := scoreAuth(cfg, auth, surface, op, channel)
 		okList = append(okList, scored{name: name, auth: auth, surface: surface, score: s})
 	}
 	if len(okList) == 0 {
@@ -270,9 +279,9 @@ func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []
 	return best.name, best.auth, best.surface, nil
 }
 
-func scoreAuth(auth AuthEntry, surface string, op OpClass) int {
+func scoreAuth(cfg *Config, auth AuthEntry, surface string, op OpClass, channel string) int {
 	score := 0
-	access := auth.EffectiveAccess()
+	access := cfg.EffectiveAccessForChannel(auth, channel)
 	surf := auth.EffectiveSurface()
 	switch op {
 	case OpRead:

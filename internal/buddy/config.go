@@ -137,7 +137,7 @@ func (a AuthEntry) LinkedTo(tenantName string) bool {
 }
 
 // ChannelAllowed reports whether this auth may be used on channel.
-// Empty Channels means all buddy clients (cli/mcp/serve). ide maps to serve.
+// Empty Channels means all buddy clients (cli/mcp/ide/notebook).
 func (a AuthEntry) ChannelAllowed(channel string) bool {
 	channel = normalizeBuddyChannel(channel)
 	if channel == "" {
@@ -163,30 +163,17 @@ func (a AuthEntry) normalizedChannels() []string {
 	var out []string
 	for _, c := range a.Channels {
 		c = normalizeBuddyChannel(c)
-		if c == "" || seen[c] {
+		if !isBuddyChannel(c) || seen[c] {
 			continue
 		}
 		seen[c] = true
 		out = append(out, c)
 	}
 	sort.Strings(out)
-	if len(out) == 3 && seen[ChannelCLI] && seen[ChannelMCP] && seen[ChannelServe] {
+	if len(out) == len(AllBuddyChannels()) {
 		return nil // all = unrestricted
 	}
 	return out
-}
-
-func normalizeBuddyChannel(channel string) string {
-	channel = strings.ToLower(strings.TrimSpace(channel))
-	if channel == ChannelIDE {
-		return ChannelServe
-	}
-	switch channel {
-	case ChannelCLI, ChannelMCP, ChannelServe:
-		return channel
-	default:
-		return channel
-	}
 }
 
 // ParseAuthChannels parses a comma-separated channels list.
@@ -203,21 +190,19 @@ func ParseAuthChannels(s string) ([]string, error) {
 		if p == "" {
 			continue
 		}
-		if p == ChannelIDE {
-			p = ChannelServe
+		if p == "serve" {
+			return nil, fmt.Errorf("channel %q was removed; use ide and/or notebook (or all)", p)
 		}
-		switch p {
-		case ChannelCLI, ChannelMCP, ChannelServe:
-			if !seen[p] {
-				seen[p] = true
-				out = append(out, p)
-			}
-		default:
-			return nil, fmt.Errorf("unknown channel %q (want cli, mcp, serve, or all)", p)
+		if !isBuddyChannel(p) {
+			return nil, fmt.Errorf("unknown channel %q (want cli, mcp, ide, notebook, or all)", p)
+		}
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
 		}
 	}
 	sort.Strings(out)
-	if len(out) == 3 {
+	if len(out) == len(AllBuddyChannels()) {
 		return nil, nil
 	}
 	return out, nil
@@ -487,24 +472,12 @@ func (c CredentialConfig) Validate() error {
 	return nil
 }
 
-// Buddy client channel names (distinct from Jamf auth surface).
-const (
-	ChannelCLI   = "cli"
-	ChannelMCP   = "mcp"
-	ChannelServe = "serve"
-	ChannelIDE   = "ide" // tenant selection only; shares serve for auth channels
-)
-
-// TenantSelection holds the global default tenant and optional per-channel overrides.
+// TenantSelection holds the global default tenant name.
 type TenantSelection struct {
 	Default string `yaml:"default"`
-	CLI     string `yaml:"cli,omitempty"`
-	MCP     string `yaml:"mcp,omitempty"`
-	Serve   string `yaml:"serve,omitempty"`
-	IDE     string `yaml:"ide,omitempty"`
 }
 
-// UnmarshalYAML accepts either a string (legacy `tenant: name`) or a mapping.
+// UnmarshalYAML accepts either a string (legacy `tenant: name`) or a mapping with default only.
 func (t *TenantSelection) UnmarshalYAML(value *yaml.Node) error {
 	if value == nil {
 		return nil
@@ -513,68 +486,32 @@ func (t *TenantSelection) UnmarshalYAML(value *yaml.Node) error {
 		t.Default = strings.TrimSpace(value.Value)
 		return nil
 	}
-	type plain TenantSelection
-	var p plain
-	if err := value.Decode(&p); err != nil {
-		return err
+	if value.Kind != yaml.MappingNode {
+		return fmt.Errorf("tenant: must be a string or mapping")
 	}
-	*t = TenantSelection(p)
-	return nil
-}
-
-// ForChannel returns the tenant name for channel (cli|mcp|ide|serve), falling
-// back to serve (for ide) then Default.
-func (t TenantSelection) ForChannel(channel string) string {
-	channel = strings.ToLower(strings.TrimSpace(channel))
-	var override string
-	switch channel {
-	case ChannelCLI:
-		override = t.CLI
-	case ChannelMCP:
-		override = t.MCP
-	case ChannelServe:
-		override = t.Serve
-	case ChannelIDE:
-		override = t.IDE
-		if strings.TrimSpace(override) == "" {
-			override = t.Serve
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		k := value.Content[i].Value
+		v := strings.TrimSpace(value.Content[i+1].Value)
+		switch k {
+		case "default":
+			t.Default = v
+		case "cli", "mcp", "ide", "notebook":
+			return fmt.Errorf("tenant.%s is no longer supported; use channels.%s.tenant", k, k)
+		case "serve":
+			return fmt.Errorf("tenant.serve is no longer supported; use channels.notebook.tenant and/or channels.ide.tenant")
+		default:
+			return fmt.Errorf("tenant: unknown key %q (want default only)", k)
 		}
 	}
-	if s := strings.TrimSpace(override); s != "" {
-		return s
-	}
-	if s := strings.TrimSpace(t.Default); s != "" {
-		return s
-	}
-	return DefaultTenant
-}
-
-// SetChannel sets default or a per-channel override.
-func (t *TenantSelection) SetChannel(channel, name string) error {
-	name = strings.TrimSpace(name)
-	channel = strings.ToLower(strings.TrimSpace(channel))
-	switch channel {
-	case "", "default":
-		t.Default = name
-	case ChannelCLI:
-		t.CLI = name
-	case ChannelMCP:
-		t.MCP = name
-	case ChannelServe:
-		t.Serve = name
-	case ChannelIDE:
-		t.IDE = name
-	default:
-		return fmt.Errorf("unknown tenant selection key %q (want default, cli, mcp, serve, ide)", channel)
-	}
 	return nil
 }
 
-// Config holds buddy CLI configuration (tenants + auths).
+// Config holds buddy CLI configuration (tenants + auths + channel policies).
 type Config struct {
-	Tenant  TenantSelection         `yaml:"tenant"`
-	Tenants map[string]TenantConfig `yaml:"tenants"`
-	Auths   map[string]AuthEntry    `yaml:"auths"`
+	Tenant   TenantSelection          `yaml:"tenant"`
+	Tenants  map[string]TenantConfig  `yaml:"tenants"`
+	Auths    map[string]AuthEntry     `yaml:"auths"`
+	Channels map[string]ChannelPolicy `yaml:"channels,omitempty"`
 
 	// Legacy fields — populated only while unmarshaling old configs; cleared after migrate.
 	Cred        string                      `yaml:"cred,omitempty"`
@@ -590,6 +527,7 @@ type legacyConfigFile struct {
 	Tenant      TenantSelection             `yaml:"tenant"`
 	Tenants     map[string]TenantConfig     `yaml:"tenants"`
 	Auths       map[string]AuthEntry        `yaml:"auths"`
+	Channels    map[string]ChannelPolicy    `yaml:"channels"`
 	Defaults    map[string]string           `yaml:"defaults"`
 	AllowAuths  map[string][]string         `yaml:"allow_auths"`
 }
@@ -681,12 +619,27 @@ func (cfg *Config) AuthsForTenant(tenantName string) []string {
 	return out
 }
 
-// DefaultTenant returns the selected tenant for channel (cli|mcp|ide|serve).
+// DefaultTenant returns the selected tenant for channel (cli|mcp|ide|notebook).
 func (cfg *Config) DefaultTenant(channel string) string {
 	if cfg == nil {
 		return DefaultTenant
 	}
-	return cfg.Tenant.ForChannel(channel)
+	channel = normalizeBuddyChannel(channel)
+	if p := cfg.ChannelPolicy(channel); strings.TrimSpace(p.Tenant) != "" {
+		return strings.TrimSpace(p.Tenant)
+	}
+	if s := strings.TrimSpace(cfg.Tenant.Default); s != "" {
+		return s
+	}
+	return DefaultTenant
+}
+
+// SetDefaultTenant sets tenant.default.
+func (cfg *Config) SetDefaultTenant(name string) {
+	if cfg == nil {
+		return
+	}
+	cfg.Tenant.Default = strings.TrimSpace(name)
 }
 
 // AuthAllowed reports whether authName may be used on channel (via auth.channels).
@@ -715,33 +668,47 @@ func (cfg *Config) FilterAuths(channel string, names []string) []string {
 	return out
 }
 
-// ValidateTenantSelectionAndChannels checks tenant: selection and auth channels.
+// ValidateTenantSelectionAndChannels checks tenant:, channels:, and auth channels.
 func (cfg *Config) ValidateTenantSelectionAndChannels() error {
 	if cfg == nil {
 		return nil
 	}
-	checkName := func(key, name string) error {
+	checkTenantName := func(where, name string) error {
 		name = strings.TrimSpace(name)
 		if name == "" {
 			return nil
 		}
 		if _, ok := cfg.Tenants[name]; !ok {
-			return fmt.Errorf("tenant.%s: unknown tenant %q", key, name)
+			return fmt.Errorf("%s: unknown tenant %q", where, name)
 		}
 		return nil
 	}
 	if len(cfg.Tenants) > 0 && strings.TrimSpace(cfg.Tenant.Default) == "" {
 		return fmt.Errorf("tenant.default is required when tenants are configured")
 	}
-	for _, pair := range []struct{ k, v string }{
-		{"default", cfg.Tenant.Default},
-		{"cli", cfg.Tenant.CLI},
-		{"mcp", cfg.Tenant.MCP},
-		{"serve", cfg.Tenant.Serve},
-		{"ide", cfg.Tenant.IDE},
-	} {
-		if err := checkName(pair.k, pair.v); err != nil {
+	if err := checkTenantName("tenant.default", cfg.Tenant.Default); err != nil {
+		return err
+	}
+	for ch, p := range cfg.Channels {
+		ch = strings.ToLower(strings.TrimSpace(ch))
+		if ch == "serve" {
+			return fmt.Errorf("channels.serve is no longer supported; use channels.ide and/or channels.notebook")
+		}
+		if !isBuddyChannel(ch) {
+			return fmt.Errorf("channels: unknown channel %q (want cli, mcp, ide, or notebook)", ch)
+		}
+		switch strings.ToLower(strings.TrimSpace(p.Access)) {
+		case "", AccessFull, AccessReadonly:
+		default:
+			return fmt.Errorf("channels.%s.access must be %q or %q", ch, AccessFull, AccessReadonly)
+		}
+		if err := checkTenantName("channels."+ch+".tenant", p.Tenant); err != nil {
 			return err
+		}
+		for _, tn := range p.Tenants {
+			if err := checkTenantName("channels."+ch+".tenants", tn); err != nil {
+				return err
+			}
 		}
 	}
 	for name, a := range cfg.Auths {
@@ -750,13 +717,11 @@ func (cfg *Config) ValidateTenantSelectionAndChannels() error {
 			if c == "" {
 				continue
 			}
-			if c == ChannelIDE {
-				c = ChannelServe
+			if c == "serve" {
+				return fmt.Errorf("auth %q: channel %q was removed; use ide and/or notebook", name, c)
 			}
-			switch c {
-			case ChannelCLI, ChannelMCP, ChannelServe:
-			default:
-				return fmt.Errorf("auth %q: unknown channel %q (want cli, mcp, or serve)", name, c)
+			if !isBuddyChannel(c) {
+				return fmt.Errorf("auth %q: unknown channel %q (want cli, mcp, ide, or notebook)", name, c)
 			}
 		}
 	}
@@ -813,6 +778,7 @@ func LoadConfig() (*Config, error) {
 		Tenant:     raw.Tenant,
 		Tenants:    raw.Tenants,
 		Auths:      raw.Auths,
+		Channels:   raw.Channels,
 		Defaults:   raw.Defaults,
 		AllowAuths: raw.AllowAuths,
 	}
@@ -893,17 +859,27 @@ func migrateLegacyTenantDefaultsAllow(cfg *Config, stringTenant bool) bool {
 		return false
 	}
 	if len(cfg.Defaults) > 0 {
-		if v := strings.TrimSpace(cfg.Defaults[ChannelCLI]); v != "" {
-			cfg.Tenant.CLI = v
+		if cfg.Channels == nil {
+			cfg.Channels = map[string]ChannelPolicy{}
 		}
-		if v := strings.TrimSpace(cfg.Defaults[ChannelMCP]); v != "" {
-			cfg.Tenant.MCP = v
+		for _, ch := range []string{ChannelCLI, ChannelMCP, ChannelIDE, ChannelNotebook} {
+			if v := strings.TrimSpace(cfg.Defaults[ch]); v != "" {
+				p := cfg.Channels[ch]
+				if strings.TrimSpace(p.Tenant) == "" {
+					p.Tenant = v
+					cfg.Channels[ch] = p
+				}
+			}
 		}
-		if v := strings.TrimSpace(cfg.Defaults[ChannelServe]); v != "" {
-			cfg.Tenant.Serve = v
-		}
-		if v := strings.TrimSpace(cfg.Defaults[ChannelIDE]); v != "" {
-			cfg.Tenant.IDE = v
+		// Legacy defaults.serve → notebook + ide when unset.
+		if v := strings.TrimSpace(cfg.Defaults["serve"]); v != "" {
+			for _, ch := range []string{ChannelNotebook, ChannelIDE} {
+				p := cfg.Channels[ch]
+				if strings.TrimSpace(p.Tenant) == "" {
+					p.Tenant = v
+					cfg.Channels[ch] = p
+				}
+			}
 		}
 	}
 	if len(cfg.AllowAuths) > 0 {
@@ -918,10 +894,16 @@ func applyAllowAuthsToChannels(cfg *Config, allow map[string][]string) {
 	if cfg == nil || len(allow) == 0 {
 		return
 	}
-	surfaces := []string{ChannelCLI, ChannelMCP, ChannelServe}
+	surfaces := AllBuddyChannels()
 	allowSets := map[string]map[string]bool{}
 	for _, s := range surfaces {
 		list := allow[s]
+		if s == ChannelNotebook || s == ChannelIDE {
+			// Legacy allow_auths.serve applies to both notebook and ide.
+			if len(list) == 0 {
+				list = allow["serve"]
+			}
+		}
 		if len(list) == 0 {
 			continue // unrestricted for this surface
 		}
@@ -942,7 +924,7 @@ func applyAllowAuthsToChannels(cfg *Config, allow map[string][]string) {
 				kept = append(kept, s)
 			}
 		}
-		if len(kept) == 3 {
+		if len(kept) == len(surfaces) {
 			a.Channels = nil
 		} else {
 			a.Channels = kept
@@ -1256,20 +1238,10 @@ func marshalConfig(cfg *Config, existing []byte) ([]byte, error) {
 	}
 
 	tenantNode := &yaml.Node{Kind: yaml.MappingNode}
-	addTenantKey := func(k, v string, force bool) {
-		if !force && strings.TrimSpace(v) == "" {
-			return
-		}
-		tenantNode.Content = append(tenantNode.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k},
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: strings.TrimSpace(v)},
-		)
-	}
-	addTenantKey("default", cfg.Tenant.Default, true)
-	addTenantKey("cli", cfg.Tenant.CLI, false)
-	addTenantKey("mcp", cfg.Tenant.MCP, false)
-	addTenantKey("serve", cfg.Tenant.Serve, false)
-	addTenantKey("ide", cfg.Tenant.IDE, false)
+	tenantNode.Content = append(tenantNode.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "default"},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: strings.TrimSpace(cfg.Tenant.Default)},
+	)
 
 	root := &yaml.Node{Kind: yaml.MappingNode}
 	root.Content = append(root.Content,
@@ -1280,6 +1252,55 @@ func marshalConfig(cfg *Config, existing []byte) ([]byte, error) {
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "auths"},
 		authsNode,
 	)
+
+	if len(cfg.Channels) > 0 {
+		chNames := make([]string, 0, len(cfg.Channels))
+		for n := range cfg.Channels {
+			chNames = append(chNames, n)
+		}
+		sort.Strings(chNames)
+		channelsNode := &yaml.Node{Kind: yaml.MappingNode}
+		for _, name := range chNames {
+			p := cfg.Channels[name]
+			entry := &yaml.Node{Kind: yaml.MappingNode}
+			if a := p.EffectiveAccess(); a == AccessReadonly {
+				entry.Content = append(entry.Content,
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "access"},
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: AccessReadonly},
+				)
+			}
+			if t := strings.TrimSpace(p.Tenant); t != "" {
+				entry.Content = append(entry.Content,
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenant"},
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: t},
+				)
+			}
+			if len(p.Tenants) > 0 {
+				seq := &yaml.Node{Kind: yaml.SequenceNode}
+				for _, tn := range p.Tenants {
+					seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: tn})
+				}
+				entry.Content = append(entry.Content,
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenants"},
+					seq,
+				)
+			}
+			if len(entry.Content) == 0 {
+				continue
+			}
+			channelsNode.Content = append(channelsNode.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name},
+				entry,
+			)
+		}
+		if len(channelsNode.Content) > 0 {
+			root.Content = append(root.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "channels"},
+				channelsNode,
+			)
+		}
+	}
+
 	return yaml.Marshal(root)
 }
 

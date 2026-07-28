@@ -4,9 +4,9 @@ import "testing"
 
 func TestSessionSelectionForMCP(t *testing.T) {
 	cfg := &Config{
-		Tenant: TenantSelection{
-			Default: "sandbox",
-			MCP:     "prod",
+		Tenant: TenantSelection{Default: "sandbox"},
+		Channels: map[string]ChannelPolicy{
+			ChannelMCP: {Tenant: "prod", Access: AccessReadonly, Tenants: []string{"prod", "sandbox"}},
 		},
 		Tenants: map[string]TenantConfig{
 			"sandbox": {URL: "https://example.jamfcloud.com"},
@@ -23,7 +23,7 @@ func TestSessionSelectionForMCP(t *testing.T) {
 				Tenants:  []string{"sandbox", "prod"},
 				Access:   "full",
 				Surface:  "instance",
-				Channels: []string{ChannelMCP, ChannelServe},
+				Channels: []string{ChannelMCP, ChannelNotebook},
 			},
 		},
 	}
@@ -39,13 +39,16 @@ func TestSessionSelectionForMCP(t *testing.T) {
 		t.Fatalf("channel=%q", got.Channel)
 	}
 	if got.Tenant != "prod" {
-		t.Fatalf("tenant=%q want prod (mcp override)", got.Tenant)
+		t.Fatalf("tenant=%q want prod", got.Tenant)
+	}
+	if got.ChannelAccess != AccessReadonly {
+		t.Fatalf("channel_access=%q", got.ChannelAccess)
 	}
 	if len(got.Auths) != 1 || got.Auths[0].Name != "mcp-admin" {
 		t.Fatalf("auths=%+v want only mcp-admin", got.Auths)
 	}
 	info := got.InfoMap("1.2.3")
-	if info["version"] != "1.2.3" || info["channel"] != ChannelMCP {
+	if info["version"] != "1.2.3" || info["channel"] != ChannelMCP || info["channel_access"] != AccessReadonly {
 		t.Fatalf("info=%v", info)
 	}
 }

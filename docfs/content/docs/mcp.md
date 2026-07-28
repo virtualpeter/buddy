@@ -98,7 +98,7 @@ Tool names follow the Starlark plural/singular grammar (see [builtins-v3.md](bui
 
 | Tool | Returns `value` | Notes |
 |------|-----------------|-------|
-| `buddy_info` | `{version, channel, tenant, auth, tenants, auths}` | Binary version + default tenant/auth pin and available tenants/auths for the `mcp` channel (no Jamf call) |
+| `buddy_info` | `{version, channel, tenant, auth, tenants, auths, channel_access, …}` | Binary version + mcp session selection and channel policy (no Jamf call) |
 | `auth_test` | Compact auth summary | Set `verbose: true` for full privileges payload (large) |
 | `smart_groups` | List of `{id,name,description}` | `filter`, `page`, `page_size`; omit `page` = all pages |
 | `static_groups` | Same shape | Same paging |
@@ -166,7 +166,7 @@ This mirrors Starlark builtins (`{"ok", "value"}` / `{"ok", "error"}`).
 
 ### `buddy_info`
 
-Reports the buddy binary version (same as the MCP handshake `Implementation.Version`) plus the **mcp**-channel session selection without calling Jamf:
+Reports the buddy binary version (same as the MCP handshake `Implementation.Version`) plus the **mcp**-channel session selection and policy without calling Jamf:
 
 ```json
 {
@@ -179,12 +179,15 @@ Reports the buddy binary version (same as the MCP handshake `Implementation.Vers
     "tenants": ["prod", "sandbox"],
     "auths": [
       {"name": "sandbox-admin", "tenants": ["sandbox"], "access": "full", "surface": "instance", "type": "oauth"}
-    ]
+    ],
+    "channel_access": "readonly",
+    "channel_tenant": "sandbox",
+    "channel_tenants": ["sandbox"]
   }
 }
 ```
 
-`tenant` / `auth` reflect the process default (`--tenant` / `--user`, or `tenant.mcp` / `tenant.default`). Empty `auth` means auto-pick. `auths` is filtered by each auth’s `channels:` list (omit = all channels). Use `auth_test` to verify the selected credentials against Jamf.
+`tenant` / `auth` reflect the process default (`--tenant` / `--user`, or `channels.mcp.tenant` / `tenant.default`). Empty `auth` means auto-pick. `auths` is filtered by each auth’s `channels:` list (omit = all). `channel_access` / `channel_tenants` come from top-level `channels.mcp` policy. Use `auth_test` to verify credentials against Jamf.
 
 ### `auth_test` summary vs verbose
 

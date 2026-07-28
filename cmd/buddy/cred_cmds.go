@@ -27,7 +27,7 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) 
 	case "use":
 		return runCredUse(cfg, args[1:])
 	case "allow":
-		return fmt.Errorf("'cred allow' was removed; set auth channels with 'buddy cred set auth <name> --channels=cli,mcp,serve' (or --channels=all)")
+		return fmt.Errorf("'cred allow' was removed; set auth channels with 'buddy cred set auth <name> --channels=cli,mcp,ide,notebook' (or --channels=all)")
 	case "store":
 		return runCredStore()
 	case "clean":
@@ -41,7 +41,7 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) 
 
 func runCredGet(cfg *buddy.Config, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("missing item; usage: buddy cred get tenant|auth|secret <name> (see 'buddy cred help')")
+		return fmt.Errorf("missing item; usage: buddy cred get tenant|auth|secret|channel <name> (see 'buddy cred help')")
 	}
 	switch args[0] {
 	case "tenant":
@@ -54,6 +54,11 @@ func runCredGet(cfg *buddy.Config, args []string) error {
 			return fmt.Errorf("missing auth name")
 		}
 		return runCredShowAuth(cfg, args[1])
+	case "channel":
+		if len(args) < 2 {
+			return fmt.Errorf("missing channel name (cli|mcp|ide|notebook)")
+		}
+		return runCredShowChannel(cfg, args[1])
 	case "secret":
 		if len(args) < 2 {
 			return fmt.Errorf("missing auth name")
@@ -67,7 +72,7 @@ func runCredGet(cfg *buddy.Config, args []string) error {
 		if _, ok := cfg.Tenants[args[0]]; ok {
 			return runCredShowTenant(cfg, args[0])
 		}
-		return fmt.Errorf("unknown %q (expected tenant|auth|secret <name>); run 'buddy cred list'", args[0])
+		return fmt.Errorf("unknown %q (expected tenant|auth|secret|channel <name>); run 'buddy cred list'", args[0])
 	}
 }
 
@@ -85,8 +90,10 @@ func runCredSet(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 			return fmt.Errorf("missing auth name")
 		}
 		return runCredSetSecret(cfg, args[1], args[2:])
+	case "channel":
+		return runCredSetChannel(cfg, args[1:])
 	default:
-		return fmt.Errorf("unknown set target %q; use tenant, auth, or secret (see 'buddy cred help')", args[0])
+		return fmt.Errorf("unknown set target %q; use tenant, auth, channel, or secret (see 'buddy cred help')", args[0])
 	}
 }
 
@@ -116,13 +123,9 @@ func runCredDelete(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 }
 
 func runCredUse(cfg *buddy.Config, args []string) error {
-	surface, rest, err := parseCredSurfaceFlags(args, true)
+	surface, rest, err := parseCredChannelFlags(args)
 	if err != nil {
 		return err
-	}
-	key := "default"
-	if surface != "" {
-		key = surface
 	}
 	if len(rest) == 0 {
 		if surface == "" {
@@ -133,54 +136,147 @@ func runCredUse(cfg *buddy.Config, args []string) error {
 		return nil
 	}
 	if len(rest) != 1 {
-		return fmt.Errorf("usage: buddy cred use [tenant] or buddy cred use --cli|--mcp|--ide|--serve [tenant]")
+		return fmt.Errorf("usage: buddy cred use [tenant] or buddy cred use --cli|--mcp|--ide|--notebook [tenant]")
 	}
 	name := rest[0]
 	if _, ok := cfg.Tenants[name]; !ok {
 		return fmt.Errorf("tenant %q not found; run 'buddy cred list'", name)
 	}
-	if err := cfg.Tenant.SetChannel(key, name); err != nil {
+	if surface == "" {
+		cfg.SetDefaultTenant(name)
+		if err := buddy.SaveConfig(cfg); err != nil {
+			return fmt.Errorf("save config: %w", err)
+		}
+		fmt.Printf("tenant.default set to %q\n", name)
+		return nil
+	}
+	if err := cfg.SetChannelPolicy(surface, "", name, nil, false, true, false); err != nil {
 		return err
 	}
 	if err := buddy.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
-	fmt.Printf("tenant.%s set to %q\n", key, name)
+	fmt.Printf("channels.%s.tenant set to %q\n", surface, name)
 	return nil
 }
 
-// parseCredSurfaceFlags extracts --cli|--mcp|--ide|--serve.
-func parseCredSurfaceFlags(args []string, allowIDE bool) (surface string, rest []string, err error) {
+// parseCredChannelFlags extracts --cli|--mcp|--ide|--notebook.
+func parseCredChannelFlags(args []string) (channel string, rest []string, err error) {
 	for _, a := range args {
 		switch a {
 		case "--cli":
-			if surface != "" {
-				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--serve allowed")
+			if channel != "" {
+				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--notebook allowed")
 			}
-			surface = buddy.ChannelCLI
+			channel = buddy.ChannelCLI
 		case "--mcp":
-			if surface != "" {
-				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--serve allowed")
+			if channel != "" {
+				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--notebook allowed")
 			}
-			surface = buddy.ChannelMCP
-		case "--serve":
-			if surface != "" {
-				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--serve allowed")
-			}
-			surface = buddy.ChannelServe
+			channel = buddy.ChannelMCP
 		case "--ide":
-			if !allowIDE {
-				return "", nil, fmt.Errorf("--ide is only valid for 'buddy cred use'")
+			if channel != "" {
+				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--notebook allowed")
 			}
-			if surface != "" {
-				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--serve allowed")
+			channel = buddy.ChannelIDE
+		case "--notebook":
+			if channel != "" {
+				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--notebook allowed")
 			}
-			surface = buddy.ChannelIDE
+			channel = buddy.ChannelNotebook
+		case "--serve":
+			return "", nil, fmt.Errorf("--serve was removed; use --ide and/or --notebook")
 		default:
 			rest = append(rest, a)
 		}
 	}
-	return surface, rest, nil
+	return channel, rest, nil
+}
+
+func runCredShowChannel(cfg *buddy.Config, name string) error {
+	name = strings.ToLower(strings.TrimSpace(name))
+	switch name {
+	case buddy.ChannelCLI, buddy.ChannelMCP, buddy.ChannelIDE, buddy.ChannelNotebook:
+	default:
+		return fmt.Errorf("unknown channel %q (want cli, mcp, ide, or notebook)", name)
+	}
+	p := cfg.ChannelPolicy(name)
+	fmt.Printf("channel:  %s\n", name)
+	fmt.Printf("access:   %s\n", p.EffectiveAccess())
+	def := cfg.DefaultTenant(name)
+	fmt.Printf("tenant:   %s", def)
+	if strings.TrimSpace(p.Tenant) == "" {
+		fmt.Printf(" (from tenant.default)")
+	}
+	fmt.Println()
+	if len(p.Tenants) == 0 {
+		fmt.Printf("tenants:  (all)\n")
+	} else {
+		fmt.Printf("tenants:  %s\n", strings.Join(p.Tenants, ", "))
+	}
+	return nil
+}
+
+func runCredSetChannel(cfg *buddy.Config, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: buddy cred set channel <cli|mcp|ide|notebook> [--access=readonly|full] [--tenant=…] [--tenants=a,b]")
+	}
+	name := strings.ToLower(strings.TrimSpace(args[0]))
+	var access, tenant, tenantsCSV string
+	var setAccess, setTenant, setTenants bool
+	for _, a := range args[1:] {
+		switch {
+		case strings.HasPrefix(a, "--access="):
+			access = strings.TrimPrefix(a, "--access=")
+			setAccess = true
+		case strings.HasPrefix(a, "--tenant="):
+			tenant = strings.TrimPrefix(a, "--tenant=")
+			setTenant = true
+		case a == "--tenants=" || a == "--tenants":
+			tenantsCSV = ""
+			setTenants = true
+		case strings.HasPrefix(a, "--tenants="):
+			tenantsCSV = strings.TrimPrefix(a, "--tenants=")
+			setTenants = true
+		default:
+			return fmt.Errorf("unknown flag %q; usage: buddy cred set channel <name> [--access=…] [--tenant=…] [--tenants=…]", a)
+		}
+	}
+	if !setAccess && !setTenant && !setTenants {
+		return fmt.Errorf("specify at least one of --access, --tenant, --tenants")
+	}
+	var tenants []string
+	if setTenants && tenantsCSV != "" {
+		for _, p := range strings.Split(tenantsCSV, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				tenants = append(tenants, p)
+			}
+		}
+	}
+	if setTenant && tenant != "" {
+		if _, ok := cfg.Tenants[tenant]; !ok {
+			return fmt.Errorf("tenant %q not found; run 'buddy cred list'", tenant)
+		}
+	}
+	if setTenants {
+		for _, tn := range tenants {
+			if _, ok := cfg.Tenants[tn]; !ok {
+				return fmt.Errorf("tenant %q not found; run 'buddy cred list'", tn)
+			}
+		}
+	}
+	if err := cfg.SetChannelPolicy(name, access, tenant, tenants, setAccess, setTenant, setTenants); err != nil {
+		return err
+	}
+	if err := cfg.ValidateTenantSelectionAndChannels(); err != nil {
+		return err
+	}
+	if err := buddy.SaveConfig(cfg); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
+	fmt.Printf("Updated channels.%s\n", name)
+	return runCredShowChannel(cfg, name)
 }
 
 func runCredList(cfg *buddy.Config) error {
@@ -236,21 +332,24 @@ func runCredList(cfg *buddy.Config) error {
 		}
 		fmt.Printf("%-18s  %-8s  %-10s  %-10s  %-14s  %s\n", name, a.Type, a.EffectiveAccess(), a.EffectiveSurface(), ch, strings.Join(a.Tenants, ","))
 	}
-	sel := cfg.Tenant
-	if sel.CLI != "" || sel.MCP != "" || sel.Serve != "" || sel.IDE != "" {
-		fmt.Printf("\nTENANT SELECTION\n")
-		fmt.Printf("  default  %s\n", sel.Default)
-		if sel.CLI != "" {
-			fmt.Printf("  cli      %s\n", sel.CLI)
+	sel := cfg.Channels
+	if len(sel) > 0 {
+		fmt.Printf("\nCHANNEL POLICIES\n")
+		names := make([]string, 0, len(sel))
+		for n := range sel {
+			names = append(names, n)
 		}
-		if sel.MCP != "" {
-			fmt.Printf("  mcp      %s\n", sel.MCP)
-		}
-		if sel.Serve != "" {
-			fmt.Printf("  serve    %s\n", sel.Serve)
-		}
-		if sel.IDE != "" {
-			fmt.Printf("  ide      %s\n", sel.IDE)
+		sort.Strings(names)
+		for _, n := range names {
+			p := sel[n]
+			parts := []string{"access=" + p.EffectiveAccess()}
+			if t := strings.TrimSpace(p.Tenant); t != "" {
+				parts = append(parts, "tenant="+t)
+			}
+			if len(p.Tenants) > 0 {
+				parts = append(parts, "tenants="+strings.Join(p.Tenants, ","))
+			}
+			fmt.Printf("  %-10s  %s\n", n, strings.Join(parts, "  "))
 		}
 	}
 	if buddy.SecretStoreAvailable() {
@@ -769,17 +868,27 @@ func runCredDeleteTenant(cfg *buddy.Config, opts buddy.Opts, name string) error 
 		cfg.Tenant.Default = buddy.DefaultTenant
 		cleared = true
 	}
-	if cfg.Tenant.CLI == name {
-		cfg.Tenant.CLI = ""
-	}
-	if cfg.Tenant.MCP == name {
-		cfg.Tenant.MCP = ""
-	}
-	if cfg.Tenant.Serve == name {
-		cfg.Tenant.Serve = ""
-	}
-	if cfg.Tenant.IDE == name {
-		cfg.Tenant.IDE = ""
+	for ch, p := range cfg.Channels {
+		changed := false
+		if p.Tenant == name {
+			p.Tenant = ""
+			changed = true
+		}
+		if len(p.Tenants) > 0 {
+			var kept []string
+			for _, t := range p.Tenants {
+				if t != name {
+					kept = append(kept, t)
+				}
+			}
+			if len(kept) != len(p.Tenants) {
+				p.Tenants = kept
+				changed = true
+			}
+		}
+		if changed {
+			cfg.Channels[ch] = p
+		}
 	}
 	if cleared {
 		fmt.Printf("Note: tenant.default was %q; reset to %q\n", name, buddy.DefaultTenant)
