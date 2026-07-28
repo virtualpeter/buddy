@@ -76,82 +76,75 @@ var docsTmpl = template.Must(template.New("docs").Funcs(template.FuncMap{
 		}
 		return p.Section
 	},
-}).Parse(`<!DOCTYPE html>
+	"chromeHead":   func() template.HTML { return template.HTML(chromeHeadTags()) },
+	"chromeHeader": func() template.HTML { return template.HTML(chromeHeader("docs", "", "", "")) },
+	"chromeToggle": func() template.HTML { return template.HTML(chromeToggleScript()) },
+}).Parse(docsTmplSrc))
+
+const docsTmplSrc = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · buddy</title>
+{{chromeHead}}
 <style>
-:root {
-  --bg: #f6f3ee;
-  --ink: #1c1917;
-  --muted: #78716c;
-  --accent: #0f766e;
-  --panel: #fffdf9;
-  --line: #e7e5e4;
-  --mono: "IBM Plex Mono", "SF Mono", ui-monospace, monospace;
-  --sans: "Source Serif 4", "Iowan Old Style", Georgia, serif;
-}
-* { box-sizing: border-box; }
 body {
   margin: 0;
   color: var(--ink);
-  background:
-    radial-gradient(900px 400px at 10% -10%, #d9f3ef 0%, transparent 55%),
-    radial-gradient(700px 360px at 100% 0%, #fde7d4 0%, transparent 50%),
-    var(--bg);
+  background: var(--bg-grad);
   font-family: var(--sans);
   line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-.layout { display: grid; grid-template-columns: 240px minmax(0,1fr) 200px; min-height: 100vh; }
+.layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0,1fr) 200px;
+  flex: 1;
+  min-height: 0;
+}
 @media (max-width: 960px) {
   .layout { grid-template-columns: 1fr; }
-  .toc, .nav { position: static !important; height: auto !important; }
+  .toc, .side-nav { position: static !important; height: auto !important; }
 }
-.brand {
-  font-family: var(--mono);
-  font-weight: 700;
-  font-size: 1.35rem;
-  letter-spacing: -0.03em;
-  color: var(--ink);
-  display: block;
-  margin-bottom: .35rem;
-}
-.nav, .toc {
-  position: sticky; top: 0; height: 100vh; overflow: auto;
+.side-nav, .toc {
+  position: sticky; top: var(--app-header-h); height: calc(100vh - var(--app-header-h)); overflow: auto;
   padding: 1.25rem 1rem;
   border-right: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 88%, transparent);
   backdrop-filter: blur(6px);
+  font-family: var(--mono);
 }
 .toc { border-right: 0; border-left: 1px solid var(--line); font-size: .88rem; }
-.nav a, .toc a { display: block; padding: .28rem 0; color: var(--ink); }
-.nav a.active { color: var(--accent); font-weight: 600; }
+.side-nav a, .toc a { display: block; padding: .28rem 0; color: var(--ink); }
+.side-nav a.active { color: var(--accent); font-weight: 600; }
 .section { margin: 1.15rem 0 .35rem; font-family: var(--mono); font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .section:first-of-type { margin-top: .25rem; }
 main { padding: 1.5rem 2rem 3rem; max-width: 52rem; }
 main > h1:first-child { margin-top: 0; }
 h1,h2,h3 { line-height: 1.25; }
 pre, code { font-family: var(--mono); font-size: .88em; }
-pre { background: #1c1917; color: #f5f5f4; padding: 1rem; overflow: auto; border-radius: 4px; }
-.search { width: 100%; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 4px; font: inherit; margin: .75rem 0 1rem; background: #fff; }
-.page-filter { width: 100%; max-width: 28rem; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 4px; font: inherit; margin: 0 0 1.25rem; background: #fff; }
+pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow: auto; border-radius: 4px; }
+.search, .page-filter {
+  width: 100%; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 4px;
+  font: inherit; font-family: var(--mono); margin: 0 0 1rem;
+  background: var(--panel); color: var(--ink);
+}
+.page-filter { max-width: 28rem; margin: 0 0 1.25rem; }
 .hits { font-size: .9rem; margin-bottom: 1rem; }
 .hits div { padding: .35rem 0; border-bottom: 1px solid var(--line); }
 .hits .snip { color: var(--muted); font-size: .82rem; }
-.topbar { display: flex; gap: 1rem; align-items: baseline; margin-bottom: 1rem; }
-.topbar a.nb { font-family: var(--mono); font-size: .85rem; }
 .fn-hidden { display: none !important; }
 </style>
 </head>
 <body>
+{{chromeHeader}}
 <div class="layout">
-  <aside class="nav">
-    <a class="brand" href="/docs/">buddy</a>
-    <div class="topbar"><a class="nb" href="/notebook">Notebook</a> · <a class="nb" href="/ide">IDE</a></div>
+  <aside class="side-nav">
     <input class="search" id="q" type="search" placeholder="Search docs…" autocomplete="off">
     <div class="hits" id="hits"></div>
     {{range $sec := .Sections}}
@@ -249,6 +242,7 @@ if (pageFilter) {
   });
 }
 </script>
+{{chromeToggle}}
 </body>
 </html>
-`))
+`

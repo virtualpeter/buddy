@@ -9,58 +9,54 @@ func serveIDEHTML(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(ideHTML))
 }
 
-const ideHTML = `<!DOCTYPE html>
+var ideHTML = buildIDEHTML()
+
+func buildIDEHTML() string {
+	session := `
+  <label>tenant <select id="tenant"></select></label>
+  <label>user <select id="auth"></select></label>`
+	actions := `
+  <button type="button" id="btn-open">Open</button>
+  <button type="button" id="btn-save">Save</button>
+  <button type="button" id="btn-save-as">Save As</button>
+  <span id="path" title="">(untitled)</span>
+  <button type="button" id="btn-reset">Reset</button>
+  <span id="status"></span>`
+	run := `<button type="button" class="primary" id="btn-run">Run</button>`
+
+	return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>buddy ide</title>
-<style>
-:root {
-  --bg: #0f1419;
-  --panel: #1a222c;
-  --ink: #e7ecf1;
-  --muted: #8b9aab;
-  --accent: #3d9c8f;
-  --err: #f07178;
-  --ok: #c3e88d;
-  --mono: "IBM Plex Mono", "SF Mono", ui-monospace, monospace;
-}
-* { box-sizing: border-box; }
+` + chromeHeadTags() + `<style>
 html, body { height: 100%; }
 body {
   margin: 0;
-  background: linear-gradient(160deg, #152028 0%, var(--bg) 45%, #121820 100%);
+  background: var(--bg-grad);
   color: var(--ink);
   font-family: var(--mono);
   display: flex; flex-direction: column;
   overflow: hidden;
 }
-.toolbar {
-  display: flex; flex-wrap: wrap; gap: .5rem; align-items: center;
-  padding: .65rem 1rem; border-bottom: 1px solid #2a3542;
-  background: color-mix(in srgb, var(--panel) 80%, transparent);
-}
 .runbar {
   display: flex; flex-wrap: wrap; gap: .5rem; align-items: center;
-  padding: .45rem 1rem; border-bottom: 1px solid #2a3542;
-  background: #121920;
+  padding: .45rem 1rem; border-bottom: 1px solid var(--line);
+  background: var(--runbar-bg);
+  font-family: var(--mono);
 }
-.runbar .hint { color: #64748b; font-size: .7rem; margin-left: .15rem; }
-.brand { font-weight: 700; font-size: 1.1rem; }
-.brand a { color: var(--ink); text-decoration: none; }
-.nav a { color: var(--muted); text-decoration: none; margin-right: .75rem; font-size: .85rem; }
-.nav a:hover { color: var(--accent); }
-.spacer { flex: 1; }
+.runbar .hint { color: var(--hint); font-size: .7rem; margin-left: .15rem; }
+.runbar .spacer { flex: 1; }
 select, button, input[type=text], input[type=search], label {
   font: inherit; font-size: .8rem;
 }
 select, button, input[type=text], input[type=search] {
   background: var(--panel); color: var(--ink);
-  border: 1px solid #334155; border-radius: 4px; padding: .3rem .55rem;
+  border: 1px solid var(--border); border-radius: 4px; padding: .3rem .55rem;
 }
 button { cursor: pointer; }
-button.primary { background: var(--accent); color: #042f2e; border-color: transparent; font-weight: 600; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
 button:disabled { opacity: .5; cursor: default; }
 button.linkish {
   background: transparent; border: 0; color: var(--muted); padding: .2rem .35rem;
@@ -72,8 +68,6 @@ label.chk { display: flex; align-items: center; gap: .35rem; color: var(--muted)
   flex: 1; min-width: 10rem; max-width: 36rem;
   font-family: var(--mono);
 }
-#path { color: var(--muted); font-size: .75rem; max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#path.dirty::after { content: " •"; color: var(--accent); }
 .layout {
   flex: 1 1 auto;
   display: grid;
@@ -86,8 +80,8 @@ label.chk { display: flex; align-items: center; gap: .35rem; color: var(--muted)
   grid-column: 1; grid-row: 1;
   position: relative;
   min-height: 0;
-  border-right: 1px solid #2a3542;
-  background: #11181f;
+  border-right: 1px solid var(--line);
+  background: var(--code-bg);
 }
 #editor {
   position: absolute;
@@ -98,8 +92,8 @@ label.chk { display: flex; align-items: center; gap: .35rem; color: var(--muted)
   border: 0;
   padding: .85rem 1rem;
   resize: none;
-  background: #11181f;
-  color: var(--ink);
+  background: var(--code-bg);
+  color: var(--code-fg);
   font: inherit;
   line-height: 1.45;
   tab-size: 4;
@@ -111,12 +105,12 @@ label.chk { display: flex; align-items: center; gap: .35rem; color: var(--muted)
 .side {
   grid-column: 2; grid-row: 1 / span 2;
   display: flex; flex-direction: column; min-height: 0;
-  background: color-mix(in srgb, var(--panel) 92%, #000);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
 }
 .side h2 {
   margin: 0; padding: .5rem .75rem; font-size: .7rem; letter-spacing: .06em;
   text-transform: uppercase; color: var(--muted);
-  border-bottom: 1px solid #2a3542;
+  border-bottom: 1px solid var(--line);
 }
 #vars {
   flex: 1; overflow: auto; margin: 0; padding: .5rem .75rem;
@@ -126,13 +120,13 @@ label.chk { display: flex; align-items: center; gap: .35rem; color: var(--muted)
 #vars .n { color: var(--accent); }
 #vars .t { color: var(--muted); font-size: .7rem; }
 #vars .v { white-space: pre-wrap; word-break: break-word; color: var(--ok); margin-top: .15rem; }
-#vars .empty { color: #64748b; }
+#vars .empty { color: var(--hint); }
 .out-panel {
   grid-column: 1; grid-row: 2;
-  border-top: 1px solid #2a3542; background: var(--panel);
+  border-top: 1px solid var(--line); background: var(--panel);
   display: flex; flex-direction: column; min-height: 0;
 }
-.out-tabs { display: flex; gap: .25rem; padding: .35rem .5rem; border-bottom: 1px solid #2a3542; }
+.out-tabs { display: flex; gap: .25rem; padding: .35rem .5rem; border-bottom: 1px solid var(--line); }
 .out-tabs button { font-size: .7rem; padding: .2rem .45rem; }
 .out-tabs button.on { border-color: var(--accent); color: var(--accent); }
 #out {
@@ -140,12 +134,12 @@ label.chk { display: flex; align-items: center; gap: .35rem; color: var(--muted)
   font-size: .82rem; white-space: pre-wrap; word-break: break-word;
 }
 #out .stderr { color: #fde68a; }
+html[data-theme="light"] #out .stderr { color: #92400e; }
 #out .error { color: var(--err); }
 #out .result { color: var(--ok); }
-#out .empty { color: #64748b; }
-#status { font-size: .75rem; color: var(--muted); }
+#out .empty { color: var(--hint); }
 dialog {
-  border: 1px solid #334155; border-radius: 6px; background: var(--panel); color: var(--ink);
+  border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--ink);
   padding: 1rem; min-width: min(28rem, 92vw);
 }
 dialog::backdrop { background: rgba(0,0,0,.55); }
@@ -156,41 +150,19 @@ dialog .row .spacer { flex: 1; }
 #file-input { display: none; }
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; grid-template-rows: 1fr 12rem auto; }
-  .side { grid-column: 1; grid-row: 3; max-height: 40vh; border-top: 1px solid #2a3542; }
+  .side { grid-column: 1; grid-row: 3; max-height: 40vh; border-top: 1px solid var(--line); }
   .editor-wrap { border-right: 0; }
   #args { max-width: none; }
 }
 </style>
 </head>
 <body>
-<div class="toolbar">
-  <div class="brand"><a href="/docs/">buddy</a></div>
-  <nav class="nav">
-    <a href="/docs/">docs</a>
-    <a href="/notebook">notebook</a>
-    <a href="/ide">ide</a>
-  </nav>
-  <button type="button" id="btn-open">Open</button>
-  <button type="button" id="btn-save">Save</button>
-  <button type="button" id="btn-save-as">Save As</button>
-  <span id="path" title="">(untitled)</span>
-  <div class="spacer"></div>
-  <label>tenant
-    <select id="tenant"></select>
-  </label>
-  <label>user
-    <select id="auth"></select>
-  </label>
-  <button type="button" id="btn-reset">Reset</button>
-  <span id="status"></span>
-</div>
+` + chromeHeader("ide", session, actions, run) + `
 <div class="runbar">
   <label for="args">args</label>
   <input type="text" id="args" placeholder='space-separated or ["a","b"]' autocomplete="off">
   <span class="hint">like CLI after --</span>
   <label class="chk"><input type="checkbox" id="trace"> trace</label>
-  <div class="spacer"></div>
-  <button type="button" class="primary" id="btn-run">Run</button>
 </div>
 <div class="layout">
   <div class="editor-wrap">
@@ -655,6 +627,8 @@ document.addEventListener("keydown", (e) => {
 
 loadCreds().then(() => ensureSession(true)).then(() => focusEditor()).catch(e => setStatus(e.message));
 </script>
+` + chromeToggleScript() + `
 </body>
 </html>
 `
+}

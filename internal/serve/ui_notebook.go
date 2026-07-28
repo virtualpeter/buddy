@@ -9,67 +9,60 @@ func serveNotebookHTML(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(notebookHTML))
 }
 
-const notebookHTML = `<!DOCTYPE html>
+var notebookHTML = buildNotebookHTML()
+
+func buildNotebookHTML() string {
+	session := `
+  <label>tenant <select id="tenant"></select></label>
+  <label>user <select id="auth"></select></label>`
+	actions := `
+  <button id="addCell">Add cell</button>
+  <button id="reset">Reset kernel</button>
+  <button id="toggleLibs">Libraries</button>`
+	run := `<button id="runAll" class="primary">Run all</button>`
+
+	return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>buddy notebook</title>
-<style>
-:root {
-  --bg: #0f1419;
-  --panel: #1a222c;
-  --ink: #e7ecf1;
-  --muted: #8b9aab;
-  --accent: #3d9c8f;
-  --err: #f07178;
-  --ok: #c3e88d;
-  --mono: "IBM Plex Mono", "SF Mono", ui-monospace, monospace;
-  --drawer: 20rem;
-}
-* { box-sizing: border-box; }
+` + chromeHeadTags() + `<style>
+:root { --drawer: 20rem; }
 body {
   margin: 0;
-  background: linear-gradient(160deg, #152028 0%, var(--bg) 45%, #121820 100%);
+  background: var(--bg-grad);
   color: var(--ink);
   font-family: var(--mono);
   min-height: 100vh;
 }
-header {
-  display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
-  padding: 1rem 1.25rem; border-bottom: 1px solid #2a3542;
-  background: color-mix(in srgb, var(--panel) 80%, transparent);
-  position: sticky; top: 0; z-index: 5;
-}
-.brand { font-weight: 700; font-size: 1.2rem; letter-spacing: -0.03em; }
-.brand a { color: var(--ink); text-decoration: none; }
-.spacer { flex: 1; }
 select, button, input[type=search] {
   font: inherit; font-size: .85rem;
   background: var(--panel); color: var(--ink);
-  border: 1px solid #334155; border-radius: 4px; padding: .35rem .6rem;
+  border: 1px solid var(--border); border-radius: 4px; padding: .35rem .6rem;
 }
 button { cursor: pointer; }
-button.primary { background: var(--accent); color: #042f2e; border-color: transparent; font-weight: 600; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
 button.active { border-color: var(--accent); color: var(--accent); }
-.layout { display: flex; align-items: stretch; min-height: calc(100vh - 4rem); }
+.layout { display: flex; align-items: stretch; min-height: calc(100vh - var(--app-header-h)); }
 .main { flex: 1; min-width: 0; }
 #cells { padding: 1rem 1.25rem 3rem; max-width: 56rem; margin: 0 auto; }
 .cell {
-  border: 1px solid #2a3542; border-radius: 6px; margin-bottom: .9rem;
+  border: 1px solid var(--line); border-radius: 6px; margin-bottom: .9rem;
   background: var(--panel); overflow: hidden;
 }
 .cell-bar {
   display: flex; gap: .5rem; align-items: center;
-  padding: .35rem .6rem; border-bottom: 1px solid #2a3542; font-size: .75rem; color: var(--muted);
+  padding: .35rem .6rem; border-bottom: 1px solid var(--line); font-size: .75rem; color: var(--muted);
 }
 textarea {
   width: 100%; min-height: 5.5rem; resize: vertical;
-  border: 0; padding: .75rem; background: #11181f; color: var(--ink);
+  border: 0; padding: .75rem; background: var(--code-bg); color: var(--ink);
   font: inherit; line-height: 1.45;
 }
+html[data-theme="light"] textarea { color: var(--code-fg); }
 .out {
-  padding: .5rem .75rem; border-top: 1px solid #2a3542;
+  padding: .5rem .75rem; border-top: 1px solid var(--line);
   font-size: .85rem; min-height: 1.5rem;
   display: flex; flex-direction: column; gap: .45rem;
 }
@@ -82,14 +75,15 @@ textarea {
   display: block; font-size: .7rem; letter-spacing: .04em;
   text-transform: uppercase; margin-bottom: .2rem; opacity: .85;
 }
-.out .stdout { color: var(--ink); background: #0d1218; border-left-color: #64748b; }
-.out .stderr { color: #fde68a; background: #1a1510; border-left-color: #fbbf24; }
-.out .result { color: var(--ok); background: #0f1a12; border-left-color: var(--ok); }
-.out .error { color: var(--err); background: #1a1012; border-left-color: var(--err); }
-.out .empty { color: #64748b; }
+.out .stdout { color: var(--ink); background: var(--stream-bg); border-left-color: var(--hint); }
+.out .stderr { color: #fde68a; background: var(--stderr-bg); border-left-color: #fbbf24; }
+html[data-theme="light"] .out .stderr { color: #92400e; }
+.out .result { color: var(--ok); background: var(--result-bg); border-left-color: var(--ok); }
+.out .error { color: var(--err); background: var(--error-bg); border-left-color: var(--err); }
+.out .empty { color: var(--hint); }
 .drawer {
-  width: 0; overflow: hidden; border-left: 0 solid #2a3542;
-  background: color-mix(in srgb, var(--panel) 92%, #000);
+  width: 0; overflow: hidden; border-left: 0 solid var(--line);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
   transition: width .15s ease;
   display: flex; flex-direction: column;
 }
@@ -101,7 +95,7 @@ textarea {
   display: flex; flex-direction: column; min-height: 0;
 }
 .drawer-head {
-  padding: .75rem; border-bottom: 1px solid #2a3542;
+  padding: .75rem; border-bottom: 1px solid var(--line);
   display: flex; flex-direction: column; gap: .5rem;
 }
 .drawer-head h2 { margin: 0; font-size: .95rem; font-weight: 600; }
@@ -120,24 +114,24 @@ textarea {
   padding: .35rem .4rem; color: var(--ink); cursor: pointer;
   font: inherit; font-size: .78rem;
 }
-.fn:hover { background: #243040; }
+.fn:hover { background: var(--surface-2); }
 .fn .name { color: var(--ok); }
 .fn .sig { display: block; color: var(--muted); font-size: .68rem; margin-top: .1rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fn .sum { display: block; color: var(--muted); font-size: .7rem; margin-top: .15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fn-detail {
   margin: .15rem .4rem .5rem; padding: .45rem .55rem; border-radius: 4px;
-  background: #1a2330; border: 1px solid #2a3542; font-size: .72rem; color: var(--muted);
+  background: var(--detail-bg); border: 1px solid var(--line); font-size: .72rem; color: var(--muted);
   white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .fn-detail .actions { margin-top: .4rem; display: flex; gap: .4rem; }
 .fn-detail button {
   font: inherit; font-size: .72rem; padding: .2rem .5rem; border-radius: 4px;
-  border: 1px solid #3a4a5c; background: #243040; color: var(--ink); cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); cursor: pointer;
 }
-.fn-detail button.primary { background: var(--accent); border-color: var(--accent); color: #0b1220; }
+.fn-detail button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .fn-detail a.docs-link {
   font: inherit; font-size: .72rem; padding: .2rem .5rem; border-radius: 4px;
-  border: 1px solid #3a4a5c; background: #243040; color: var(--ink); text-decoration: none;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); text-decoration: none;
   display: inline-block;
 }
 .fn-detail a.docs-link:hover { border-color: var(--accent); color: var(--accent); }
@@ -148,18 +142,7 @@ textarea {
 </style>
 </head>
 <body>
-<header>
-  <div class="brand"><a href="/docs/">buddy</a> · notebook</div>
-  <label>tenant <select id="tenant"></select></label>
-  <label>user <select id="auth"></select></label>
-  <button id="runAll" class="primary">Run all</button>
-  <button id="addCell">Add cell</button>
-  <button id="reset">Reset kernel</button>
-  <button id="toggleLibs">Libraries</button>
-  <div class="spacer"></div>
-  <a href="/ide" style="color:var(--muted);font-size:.85rem;margin-right:.75rem">IDE</a>
-  <a href="/docs/" style="color:var(--muted);font-size:.85rem">Docs</a>
-</header>
+` + chromeHeader("notebook", session, actions, run) + `
 <div class="layout" id="layout">
   <div class="main"><div id="cells"></div></div>
   <aside class="drawer" id="drawer" aria-label="Libraries">
@@ -454,6 +437,8 @@ document.getElementById('libSearch').addEventListener('input', () => {
   addCell('print("buddy notebook ready")\nerror("stderr demo")\n1 + 1');
 })();
 </script>
+` + chromeToggleScript() + `
 </body>
 </html>
 `
+}
