@@ -36,9 +36,9 @@ const uriClassicComputerGroup = "/JSSResource/computergroups/id"
 
 // StaticComputerMember is one computer in a static group (from v2 assignments or Classic XML).
 type StaticComputerMember struct {
-	ID     string
-	Name   string
-	Serial string
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Serial string `json:"serial"`
 }
 
 // computerGroupXMLRoot is the Classic API response for GET /JSSResource/computergroups/id/{id}.
@@ -709,6 +709,99 @@ func truncateRunes(s string, max int) string {
 		return s
 	}
 	return string(r[:max-1]) + "…"
+}
+
+// SmartGroupResolveID returns a smart group ID from either id or name (exactly one required).
+func SmartGroupResolveID(credName, id, name string, logger *slog.Logger) (string, error) {
+	id = strings.TrimSpace(id)
+	name = strings.TrimSpace(name)
+	if (id == "") == (name == "") {
+		return "", fmt.Errorf("pass exactly one of id or name")
+	}
+	if id != "" {
+		return id, nil
+	}
+	found, _, err := GroupFindID(credName, name, logger)
+	if err != nil {
+		return "", err
+	}
+	if found == "" {
+		return "", fmt.Errorf("no smart group found for name %q", name)
+	}
+	return found, nil
+}
+
+// SmartGroupFetchValue fetches a smart group by ID and returns the full JSON as a map.
+func SmartGroupFetchValue(credName, groupID string) (map[string]any, error) {
+	body, err := GroupFetchSmartRaw(credName, groupID)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("parse smart group %s: %w", groupID, err)
+	}
+	return out, nil
+}
+
+// SmartGroupCriteriaValue returns the criteria array from a smart group (empty list if missing).
+func SmartGroupCriteriaValue(credName, groupID string) ([]any, error) {
+	root, err := SmartGroupFetchValue(credName, groupID)
+	if err != nil {
+		return nil, err
+	}
+	raw, ok := root["criteria"]
+	if !ok || raw == nil {
+		return []any{}, nil
+	}
+	lst, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("smart group %s: criteria is not an array", groupID)
+	}
+	return lst, nil
+}
+
+// SmartGroupUpdateCriterionValue sets value on every criterion whose name contains nameSubstring
+// (case-insensitive). Preserves the full group JSON document. Fails if no criteria match.
+func SmartGroupUpdateCriterionValue(credName string, opts Opts, groupID, nameSubstring, newValue string, logger *slog.Logger) error {
+	body, err := GroupFetchSmartRaw(credName, groupID)
+	if err != nil {
+		return err
+	}
+	var root map[string]any
+	if err := json.Unmarshal(body, &root); err != nil {
+		return fmt.Errorf("parse smart group %s: %w", groupID, err)
+	}
+	raw, ok := root["criteria"]
+	if !ok || raw == nil {
+		return fmt.Errorf("smart group has no criteria array")
+	}
+	lst, ok := raw.([]any)
+	if !ok {
+		return fmt.Errorf("smart group criteria is not an array")
+	}
+	nameLower := strings.ToLower(strings.TrimSpace(nameSubstring))
+	changed := 0
+	for _, item := range lst {
+		cd, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		nameStr, _ := cd["name"].(string)
+		if strings.Contains(strings.ToLower(nameStr), nameLower) {
+			cd["value"] = newValue
+			changed++
+		}
+	}
+	if changed == 0 {
+		return fmt.Errorf("no criteria found with name containing %q", nameSubstring)
+	}
+	root["criteria"] = lst
+	payload, err := json.Marshal(root)
+	if err != nil {
+		return fmt.Errorf("marshal smart group: %w", err)
+	}
+	return GroupPutSmartRaw(credName, opts, groupID, payload, logger)
 }
 
 func findVersionCriterion(criteria []smartGroupCriteria) int {

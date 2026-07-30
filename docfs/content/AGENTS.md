@@ -47,13 +47,14 @@ Build: `make buddy` → `./buddy`. Tests: `go test ./...`. Docs UI: `make docs-s
 
 ## MCP (AI tools)
 
-See **[docs/mcp.md](docs/mcp.md)** for MCP host setup. Summary:
+See **[docs/mcp.md](docs/mcp.md)** for MCP host setup and **[docs/mcp-tools.md](docs/mcp-tools.md)** for the tool scorecard / agent priority (typed tools → named builtins → `jamf_*` last). Summary:
 
 - `buddy mcp` speaks stdio MCP for AI hosts (Cursor, Claude Desktop, etc.).
 - `buddy_info` reports binary version plus default tenant/auth, channel policy (`channel_access`, allowlists), and available tenants/auths for the mcp channel (no Jamf call).
 - `buddy mcp setup` lists well-known config paths and can `--write` a `mcpServers.buddy` entry (`--create` for missing files). Cursor: `~/.cursor/mcp.json` / `.cursor/mcp.json`; Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS).
 - Prefer an absolute `command` path and `args: ["mcp"]`.
 - Docs/AGENTS/examples/editor rules are embedded in the binary (`docfs/`; refresh with `make sync-docfs`). `BUDDY_DOCS_ROOT` is an optional live override. Agents should use the MCP `docs` tool (list/get); the same pages are also `buddy://docs/...` resources.
+- Prefer typed MCP tools for Pro groups (smart criteria vs static membership) and profile payload edits; do not invent Classic PUTs from `jamf_schema` alone.
 - Tool results are always `{ok, value, ...}` objects (lists under `value`) so hosts accept `structuredContent`.
 - Reload or restart the AI host after changing MCP config or rebuilding buddy.
 

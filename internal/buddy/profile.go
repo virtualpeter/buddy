@@ -25,8 +25,8 @@ type ProfileRecord struct {
 
 // profileListXML parses the response from GET /JSSResource/osxconfigurationprofiles.
 type profileListXML struct {
-	XMLName   xml.Name `xml:"os_x_configuration_profiles"`
-	Profiles  []struct {
+	XMLName  xml.Name `xml:"os_x_configuration_profiles"`
+	Profiles []struct {
 		ID      int    `xml:"id"`
 		Name    string `xml:"name"`
 		General *struct {
@@ -397,6 +397,19 @@ func NormaliseDictXML(data []byte) (string, error) {
 // newDictXML may be a bare <dict> fragment or a full plist.
 func PatchProfilePayload(profileXML []byte, domain, newDictXML string) ([]byte, error) {
 	return patchProfilePayload(profileXML, domain, newDictXML)
+}
+
+// EncodeDictMapToXML encodes a JSON-like map as a bare plist <dict>…</dict> fragment
+// suitable for PatchProfilePayload / MCX replace helpers.
+func EncodeDictMapToXML(m map[string]any) (string, error) {
+	if m == nil {
+		return "", fmt.Errorf("dict map is nil")
+	}
+	var buf bytes.Buffer
+	if err := plist.NewEncoder(&buf).Encode(m); err != nil {
+		return "", fmt.Errorf("encode plist dict: %w", err)
+	}
+	return normaliseDictFile(buf.Bytes())
 }
 
 // ProfileSearch fetches all configuration profiles and returns records matching the optional name filter.
@@ -782,12 +795,12 @@ const emptyScopeXML = `<scope>
 
 // ProfileCreateSpec describes a greenfield macOS configuration profile POST.
 type ProfileCreateSpec struct {
-	Name              string
-	PayloadsPlist     string // unescaped payloads plist XML
-	Category          string
-	ScopeAll          bool
-	ScopeGroupIDs     []int
-	RedeployOnUpdate  string // "Newly Assigned" (default) or "All"
+	Name             string
+	PayloadsPlist    string // unescaped payloads plist XML
+	Category         string
+	ScopeAll         bool
+	ScopeGroupIDs    []int
+	RedeployOnUpdate string // "Newly Assigned" (default) or "All"
 }
 
 // ProfileCreateOutcome is returned after a successful profile create.

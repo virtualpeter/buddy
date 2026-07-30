@@ -13,6 +13,7 @@ Includes a Starlark scripting engine for composing multi-step workflows.
 | [docs/reference-manual.md](docs/reference-manual.md) | Full reference: config, CLI, scripting, builtins overview, API doc link |
 | [docs/change-batches.md](docs/change-batches.md) | Plan → approve → apply change-record workflows |
 | [docs/mcp.md](docs/mcp.md) | MCP server setup for AI hosts |
+| [docs/mcp-tools.md](docs/mcp-tools.md) | MCP tool scorecard and agent priority |
 | [docs/editor.md](docs/editor.md) | `buddy lsp` + VS Code/Cursor extension (build & install VSIX) |
 | [docs/api-endpoints.md](docs/api-endpoints.md) | Jamf HTTP endpoints used by buddy |
 | [examples/](examples/) | Runnable `.buddy` examples and index |

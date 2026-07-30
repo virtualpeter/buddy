@@ -24,6 +24,16 @@ type ToolResult struct {
 	Count *int   `json:"count,omitempty"` // set for list-valued tools
 }
 
+// ServerInstructions is returned in the MCP InitializeResult so hosts can inject
+// buddy usage guidance (including how buddy relates to Jamf's hosted MCP).
+const ServerInstructions = `buddy is a local Jamf automation MCP: it uses your buddy config/secrets and typed tools for real tenant work.
+
+Tool priority: (1) typed buddy tools, (2) starlark_eval with named builtins, (3) jamf_get/jamf_put via starlark_eval only when no helper exists.
+
+If the host also has Jamf's remote MCP (https://developer.jamf.com/mcp — list-specs, search-endpoints, execute-request): use it for official OpenAPI discovery and products buddy does not wrap (e.g. Protect/RISK/Title Editor). Do not use execute-request for Pro groups, configuration-profile payload edits, package JCDS/READY, or other workflows buddy already exposes — inventing Classic/Pro HTTP bypasses buddy's criteria-vs-membership and payload entity-encoding helpers. After discovering an unfamiliar path in Jamf MCP, prefer a buddy typed tool or named builtin when one exists.
+
+See the docs tool (query "mcp-tools") for the scorecard, smart vs static groups, and profile payload cookbook.`
+
 // Run starts the MCP stdio server until the client disconnects.
 func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) error {
 	if logger == nil {
@@ -32,16 +42,20 @@ func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) 
 	if version == "" {
 		version = "dev"
 	}
-	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "buddy", Version: version}, nil)
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "buddy", Version: version}, &mcpsdk.ServerOptions{
+		Instructions: ServerInstructions,
+	})
 	registerTools(server, credName, opts, logger, version)
 	registerDocResources(server)
 	return server.Run(context.Background(), &mcpsdk.StdioTransport{})
 }
 
+// credIn is the shared optional credential pin on MCP tools.
+type credIn struct {
+	Cred string `json:"cred,omitempty" jsonschema:"credential name override"`
+}
+
 func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logger *slog.Logger, version string) {
-	type credIn struct {
-		Cred string `json:"cred,omitempty" jsonschema:"credential name override"`
-	}
 	resolve := func(in credIn) string {
 		if in.Cred != "" {
 			return in.Cred
@@ -95,8 +109,11 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	}
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "smart_groups",
-		Description: "List Jamf smart computer groups. Returns {ok, value: [{id,name,description},...], count}. Omit page to fetch all pages.",
+		Name: "smart_groups",
+		Description: "List Jamf Pro smart computer groups (dynamic membership via criteria — Application Title, version, etc.). " +
+			"Returns {ok, value: [{id,name,description},...], count}. Omit page to fetch all pages. " +
+			"For full JSON/criteria use smart_group / smart_group_get_criteria / smart_group_update_criterion_value. " +
+			"Not static_groups (explicit computer IDs) and not Platform device_groups.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
 		groups, err := buddy.GroupSearchSmart(credFromFilter(in), in.Filter, pageOpts(in), logger)
 		if err != nil {
@@ -107,8 +124,11 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	})
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "static_groups",
-		Description: "List Jamf static computer groups. Returns {ok, value: [{id,name,description},...], count}. Omit page to fetch all pages.",
+		Name: "static_groups",
+		Description: "List Jamf Pro static computer groups (explicit computer membership, not criteria). " +
+			"Returns {ok, value: [{id,name,description},...], count}. Omit page to fetch all pages. " +
+			"For members use static_group_list_computers; to change membership use static_group_add/remove/set_computers. " +
+			"Not smart_groups and not Platform device_groups.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
 		groups, err := buddy.GroupSearchStatic(credFromFilter(in), in.Filter, pageOpts(in), logger)
 		if err != nil {
@@ -118,6 +138,15 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		return toolOK(groups, &n)
 	})
 
+	// Smart/static get + criteria + membership (after list tools so descriptions can cross-reference).
+	mutOptsEarly := func() buddy.Opts {
+		o := opts
+		o.SkipConfirm = true
+		return o
+	}
+	registerProComputerGroupTools(server, resolve, mutOptsEarly, logger)
+	registerProfileTools(server, resolve, mutOptsEarly, logger)
+
 	type computersIn struct {
 		Filter   string `json:"filter,omitempty" jsonschema:"name substring or RSQL filter"`
 		IDs      bool   `json:"ids,omitempty" jsonschema:"if true, return list of int IDs instead of summary dicts"`
@@ -126,8 +155,10 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		Cred     string `json:"cred,omitempty" jsonschema:"credential name override"`
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "computers",
-		Description: "List computers via inventory search. Returns {ok, value: [{id,name,serial,...},...], count}, or IDs if ids=true. Omit page to fetch all pages.",
+		Name: "computers",
+		Description: "List Jamf Pro computers via inventory search (summaries). " +
+			"Returns {ok, value: [{id,name,serial,...},...], count}, or IDs if ids=true. Omit page to fetch all pages. " +
+			"For a single computer or MDM actions use starlark_eval with computer / computer_* builtins.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in computersIn) (*mcpsdk.CallToolResult, any, error) {
 		o := buddy.PageOpts{Page: buddy.PageAll, PageSize: in.PageSize}
 		if in.Page != nil {
@@ -150,8 +181,9 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	})
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "scripts",
-		Description: "List Jamf Pro scripts. Returns {ok, value: [...], count}. Omit page to fetch all pages.",
+		Name: "scripts",
+		Description: "List Jamf Pro scripts (summaries). Returns {ok, value: [...], count}. Omit page to fetch all pages. " +
+			"For contents or updates use starlark_eval with script / script_get_contents / script_update.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
 		scripts, err := buddy.ScriptSearch(credFromFilter(in), in.Filter, pageOpts(in), logger)
 		if err != nil {
@@ -162,8 +194,10 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	})
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "packages",
-		Description: "List Jamf packages. Returns {ok, value: [...], count}. Omit page to fetch all pages.",
+		Name: "packages",
+		Description: "List Jamf packages (summaries). Returns {ok, value: [...], count}. Omit page to fetch all pages. " +
+			"For READY/download use package_ready / package_wait_ready / package_download; " +
+			"for get/upload/delete use starlark_eval package builtins.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
 		pkgs, err := buddy.PackageSearch(credFromFilter(in), in.Filter, pageOpts(in), logger)
 		if err != nil {
@@ -235,8 +269,9 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		Cred    string `json:"cred,omitempty"`
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "policy",
-		Description: "Load a Jamf policy by trigger name. Returns {ok, value: {id, trigger}} (ID resolution; use starlark_eval for full details).",
+		Name: "policy",
+		Description: "Resolve a Jamf policy ID by custom trigger name only. Returns {ok, value: {id, trigger}} — not the full policy document. " +
+			"For full policy JSON/XML or mutates use starlark_eval with policy(id=…) / policy_xml / policy_set*.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in policyIn) (*mcpsdk.CallToolResult, any, error) {
 		id, err := buddy.PolicyFind(resolve(credIn{Cred: in.Cred}), opts, in.Trigger, false, logger)
 		if err != nil {
@@ -735,14 +770,12 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "jamf_schema",
-		Description: "Look up Jamf API operations from the server schemas: Jamf Pro OpenAPI (/api/schema) " +
-			"and Classic Swagger (/classicapi/doc/swagger.yaml) fetched live, plus the Platform API Gateway " +
-			"specs (blueprints, devices, device-groups, device-actions, ddm/report, compliance-benchmarks) " +
-			"embedded in the binary. Default api=all searches Pro, Classic, and Platform so you can learn " +
-			"where an endpoint lives (api=platform needs no credential). " +
-			"Use filter (e.g. \"blueprints\" or \"policy delete\") to narrow results. " +
-			"Returns {ok, value: {api, count, operations:[{api,path,method,summary,...}], pro?, classic?, platform?}}. " +
-			"Set full=true only when you need response/parameter schemas.",
+		Description: "Discover Jamf API operations (Pro OpenAPI, Classic Swagger, embedded Platform specs). " +
+			"Default api=all. Use filter (e.g. \"blueprints\" or \"policy delete\") to narrow. " +
+			"Returns {ok, value: {api, count, operations:[...], …}}. Set full=true only for parameter/response schemas. " +
+			"After finding a path, prefer a typed MCP tool or starlark_eval named builtin; " +
+			"use jamf_get/jamf_put via starlark_eval only when no typed helper exists. " +
+			"Do not invent Classic profile/group PUT bodies from schema alone.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in schemaIn) (*mcpsdk.CallToolResult, any, error) {
 		api := in.API
 		if api == "" {
@@ -763,8 +796,9 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "starlark_eval",
 		Description: "Evaluate Starlark with buddy builtins in a fresh session. " +
-			"Returns {ok, value: {stdout, stderr, result, error}}. " +
-			"Prefer a single expression, or define main() and it will be called. Top-level if/for are not allowed outside functions.",
+			"Returns {ok, value: {stdout, stderr, result, error}}. Prefer a single expression, or define main() (MCP calls it). " +
+			"Use typed MCP tools first; then named builtins here (smart_group_*, payloads_*, profile_xml_*); " +
+			"jamf_get/jamf_put only when no builtin exists. Top-level if/for must be inside functions.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in evalIn) (*mcpsdk.CallToolResult, any, error) {
 		sess, err := script.NewSession(resolve(credIn{Cred: in.Cred}), opts, logger, false)
 		if err != nil {

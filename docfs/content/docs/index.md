@@ -53,6 +53,7 @@ In the notebook, open **Libraries** → **Getting started** for a short list of 
 | [Starlark builtins](/docs/builtins) | Every built-in (signatures, params, returns) |
 | [API endpoints](/docs/docs/api-endpoints) | Jamf HTTP APIs buddy calls |
 | [MCP for AI tools](/docs/docs/mcp) | buddy as an MCP server (Cursor, Claude Desktop, …) |
+| [MCP tools scorecard](/docs/docs/mcp-tools) | Agent tool priority, groups vs profiles, keep/expand map |
 | [Editor / LSP](/docs/docs/editor) | `buddy lsp` + VS Code/Cursor extension (build & install VSIX) |
 | [Examples index](/docs/examples/README.md) | Runnable `.buddy` samples |
 | [Notebook](/notebook) | Interactive Starlark against your tenant/auth |

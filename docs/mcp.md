@@ -82,13 +82,17 @@ Ask in natural language; the agent calls tools for you:
 
 - “What buddy version / tenant is MCP using?” (`buddy_info`)
 - “Test my Jamf auth with buddy”
-- “List Jamf smart groups”
+- “List Jamf smart groups” / “Bump the version criterion on smart group X”
+- “List computers in static group Y” / “Add computer 42 to static group Y”
+- “Patch the Chrome payload in profile Z”
 - “Find computer IDs where name contains lab”
 - “Resolve policy ID for trigger install-foo-1.0”
 - “List Platform blueprints” (calls `blueprints`; needs a gateway credential)
-- “Show buddy builtin conventions / AGENTS.md via docs”
+- “Show MCP tool priority / groups vs profiles via docs” (`docs` → `mcp-tools`)
 
 Optional tool argument `cred` pins a named **auth** from config (same as CLI `--user`).
+
+**Tool priority for agents:** typed MCP tool → `starlark_eval` with named builtins → `jamf_get`/`jamf_put` only if no helper exists. See [mcp-tools.md](mcp-tools.md) for the scorecard, smart vs static vs Platform groups, the profile payload cookbook, and how buddy relates to Jamf’s hosted MCP (`developer.jamf.com/mcp`). The MCP server also advertises that split in Initialize `instructions`.
 
 ---
 
@@ -100,15 +104,24 @@ Tool names follow the Starlark plural/singular grammar (see [reference manual](r
 |------|-----------------|-------|
 | `buddy_info` | `{version, channel, tenant, auth, tenants, auths, channel_access, …}` | Binary version + mcp session selection and channel policy (no Jamf call) |
 | `auth_test` | Compact auth summary | Set `verbose: true` for full privileges payload (large) |
-| `smart_groups` | List of `{id,name,description}` | `filter`, `page`, `page_size`; omit `page` = all pages |
-| `static_groups` | Same shape | Same paging |
+| `smart_groups` | List of `{id,name,description}` | **Criteria-based** Pro groups; `filter`, paging |
+| `smart_group` | Full smart group JSON | By `id` or `name` |
+| `smart_group_get_criteria` | Criteria list | By `group_id` |
+| `smart_group_update_criterion_value` | `null` | Mutating; match criterion name substring |
+| `static_groups` | List of `{id,name,description}` | **Explicit membership** Pro groups |
+| `static_group_list_computers` | `[{id,name,serial},…]` | Optional client-side `filter` |
+| `static_group_add_computers` / `_remove_computers` / `_set_computers` | `null` | Mutating membership |
+| `profiles` | `[{id,name},…]` | Optional name `filter` |
+| `profile_xml` | Profile XML string | By `profile_id` |
+| `profile_xml_patch_payload` | Updated XML | Offline; `domain` + `new_payload` object/string |
+| `profile_put_xml` | `{id}` | Mutating Classic PUT |
 | `computers` | Summary dicts (or IDs if `ids=true`) | RSQL `filter` |
 | `scripts` | Script summaries | Name substring or RSQL |
 | `packages` | Package summaries | RSQL `filter` |
 | `package_ready` | `bool` | True iff exists and `cloudTransferStatus` is `READY` |
 | `package_wait_ready` | `null` | Poll until READY (default `timeout` 600s); use after upload |
 | `package_download` | `null` | JCDS download to host path; always SHA-256 verify |
-| `policy` | `{id, trigger}` | Resolve by trigger name |
+| `policy` | `{id, trigger}` | Trigger → ID only (not full policy) |
 | `blueprints` | Blueprint summaries | Platform gateway credential; `search`, `sort`, paging |
 | `blueprint` | Full blueprint JSON | By `blueprint_id` |
 | `blueprint_status` | Deployment report | By `blueprint_id` |
@@ -119,9 +132,9 @@ Tool names follow the Starlark plural/singular grammar (see [reference manual](r
 | `device_groups` / `device_group` / `device_group_*` | Platform device groups | Not Pro computer groups |
 | `ddm_declaration_devices` / `ddm_device_declarations` / `ddm_device_channels` | DDM reporting | Read-only |
 | `benchmarks` / `benchmark` / `benchmark_*` | Compliance benchmarks | Beta Platform API |
-| `jamf_schema` | Operations catalog (+ optional docs) | Live Pro OpenAPI + Classic Swagger + embedded Platform specs; see below |
-| `starlark_eval` | `{stdout, stderr, result, error}` | Fresh session; see below |
-| `docs` | Catalog entries or page markdown | Embedded buddy docs/rules; see below |
+| `jamf_schema` | Operations catalog (+ optional docs) | Discovery; then prefer typed tools — see below |
+| `starlark_eval` | `{stdout, stderr, result, error}` | Named builtins escape hatch; see below |
+| `docs` | Catalog entries or page markdown | Embedded buddy docs/rules; prefer `mcp-tools` for agent guidance |
 
 ### Resources
 
@@ -228,7 +241,11 @@ Learn endpoints from the Jamf host schemas plus the embedded Platform specs:
 - No schema requires authentication: the Pro/Classic schema documents are served publicly by the Jamf host (only data endpoints need a bearer token), and Platform specs are embedded. buddy sends no `Authorization` header for these fetches — the credential is used only to resolve the host URL for `pro`/`classic`, so discovery works even with a secret-less credential.
 - Prefer `filter` (e.g. `"blueprints deploy"`, `"policy delete"`) — space-separated terms are AND-matched against path, method, tags, summary, operationId, description.
 - Default return is a compact `operations` list (`path`, `method`, `summary`, `api`, …). Set `full: true` only when you need parameter/response schemas.
-- Use this before inventing paths; then call typed tools or `starlark_eval` / `jamf_get` for live data.
+- After discovering a path, prefer a **typed MCP tool** or `starlark_eval` with a **named builtin**. Use `jamf_get` / `jamf_put` via `starlark_eval` only when no helper exists. Do not invent Classic profile or Pro group PUT bodies from schema alone.
+
+### Groups and profiles
+
+See **[mcp-tools.md](mcp-tools.md)** for the decision tree (smart vs static vs Platform device groups) and the profile payload cookbook (`profile_xml` → `profile_xml_patch_payload` → `profile_put_xml`).
 
 ### `docs` tips
 
@@ -251,10 +268,12 @@ Read embedded buddy documentation and editor rules (same data as `buddy://docs/.
 
 ### `starlark_eval` tips
 
+- Prefer typed MCP tools first; use this for multi-step workflows or builtins not exposed as MCP tools (`payloads_*`, fat policy helpers, etc.).
 - Prefer a **single expression**, or define `main()` **without** calling it (MCP sets `CallMain` and invokes `main` for you).
 - Top-level `if` / `for` outside a function is invalid Starlark—put control flow inside `main()`.
-- Mutating Jamf calls still respect confirmations unless the MCP process was started with global `-y`.
+- Mutating Jamf calls still respect confirmations unless the MCP process was started with global `-y` (Platform MCP mutates always skip confirm — host approval is the guard).
 - You can `load("stdlib/….buddy", …)` the same as in CLI scripts / the notebook (e.g. `load("stdlib/release.buddy", "bump_release")`).
+- Prefer named builtins over `jamf_get`/`jamf_put` when a builtin exists.
 
 Example:
 

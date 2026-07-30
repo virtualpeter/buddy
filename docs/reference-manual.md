@@ -197,7 +197,7 @@ Add a `mcpServers.buddy` entry (absolute `command` path, `args: ["mcp"]`) to you
 
 **Response shape:** every tool returns a JSON **object** `{ok, value, error?, count?}`—never a bare array—so hosts that require object `structuredContent` accept list results. `auth_test` defaults to a compact summary (`verbose: true` for full privileges).
 
-Curated tools: `auth_test`, `smart_groups`, `static_groups`, `computers`, `scripts`, `packages`, `policy`, `jamf_schema`, `starlark_eval`, `docs`. Resources under `buddy://docs/...` (agents should prefer the `docs` tool).
+Curated highlights: `buddy_info`, `auth_test`, Pro groups (`smart_groups` / `smart_group` / criteria helpers, `static_groups` / membership helpers), profiles (`profiles` / `profile_xml` / `profile_xml_patch_payload` / `profile_put_xml`), `computers`, `scripts`, `packages` (+ ready/download), `policy` (trigger→id), Platform `blueprint*` / `device*` / `device_group*` / `ddm_*` / `benchmark*`, `jamf_schema`, `starlark_eval`, `docs`. Full table and agent priority rules: [`docs/mcp.md`](mcp.md) and [`docs/mcp-tools.md`](mcp-tools.md). Resources under `buddy://docs/...` (agents should prefer the `docs` tool).
 
 Uses the active tenant/auth (`--tenant` / `--user` to override). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 
