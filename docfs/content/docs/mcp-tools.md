@@ -45,6 +45,8 @@ Hosts may also connect Jamf’s remote MCP at `https://developer.jamf.com/mcp` (
 1. `static_group_list_computers` to read `{id,name,serial}`.
 2. `static_group_add_computers` / `static_group_remove_computers` / `static_group_set_computers` with `computer_ids` (ints or strings).
 
+**Create groups:** `smart_group_create` / `static_group_create` with a JSON `body` (`name` required).
+
 ---
 
 ## Profiles / payloads cookbook
@@ -52,6 +54,15 @@ Hosts may also connect Jamf’s remote MCP at `https://developer.jamf.com/mcp` (
 See **[profile-payloads.md](profile-payloads.md)** for the full scorecard, PayloadContent vs MCX, and merge vs full-replace rules.
 
 Classic configuration profiles embed an entity-encoded payloads plist under `<payloads>`. Prefer typed tools:
+
+**Create / clone / redeploy**
+
+1. `payloads_set_content` (optional) — build payloads plist from a PayloadContent array.
+2. `profile_create` — greenfield POST (`name` + `payloads_plist_str` or `content`; optional scope/category).
+3. `profile_clone` — copy an existing profile to a new `name` with **unassigned** scope (`all_computers=false`, no targets; not “all computers”).
+4. `profile_redeploy` — set redeploy_on_update=All and PUT (no payload change).
+
+**Edit existing**
 
 1. `profiles` — list `{id,name}` (optional name `filter`).
 2. `profile_xml` — load full Classic XML by `profile_id`.
@@ -98,16 +109,31 @@ Value criteria: encodes Jamf/buddy knowledge; completes a common task without ra
 | `smart_group_update_criterion_value` | Bump criterion value by name substring |
 | `static_group_list_computers` | Membership `{id,name,serial}` |
 | `static_group_add_computers` / `_remove_computers` / `_set_computers` | Membership mutates |
+| `smart_group_create` / `static_group_create` | Create Pro computer groups |
 | `profiles` | List profile summaries |
+| `profile_create` / `profile_clone` / `profile_redeploy` | Create / copy / redeploy profiles |
 | `profile_xml` | Load Classic XML |
 | `profile_put_xml` | Write Classic XML |
 | `profile_xml_patch_payload` | Offline domain patch |
 | `profile_xml_extract_payloads` | Offline: payloads plist from profile XML |
 | `payloads_list_identifiers` | Offline: PayloadIdentifier list |
+| `payloads_set_content` | Offline: build PayloadContent plist for create |
+
+### Object-type coverage (MCP vs Starlark)
+
+| Family | MCP today | Still via `starlark_eval` / defer |
+|--------|-----------|-----------------------------------|
+| Platform blueprint / device / device_group / ddm / benchmark | Near-full CRUD + actions | — |
+| Pro smart/static groups | List, get, criteria bump, membership mutate, **create** | Delete; full `smart_group_put` / set_criteria |
+| Profiles | List, create, clone, redeploy, XML get/put, patch, inspect, set_content | Advanced `payloads_*` / MCX get |
+| Packages | List + ready/wait/download | get/upload/delete/put |
+| Scripts | List | get/contents/update/put |
+| Policies | Trigger→id only | Full load/set/create/clone/delete |
+| Computers | List summaries | MDM actions |
 
 ### Defer
 
-`package` get/upload/delete; `script` / contents; full `policy`/`policies`; computer MDM; smart/static create/delete.
+`package` get/upload/delete; `script` / contents; full `policy`/`policies`; computer MDM; group delete.
 
 ### Cut / do not add
 

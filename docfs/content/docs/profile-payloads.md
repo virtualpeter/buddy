@@ -4,10 +4,18 @@ How to edit Jamf macOS configuration profile payloads with buddy — without inv
 
 ## Happy path (preferred)
 
+**Edit existing**
+
 1. `profile_xml(id=…)` or MCP `profile_xml` — full Classic XML (preserves outer UUID).
 2. Optional inspect: `profile_xml_extract_payloads` → `payloads_list_identifiers` (PayloadContent) or `payloads_get_mcx_dict` (MCX).
 3. `profile_xml_patch_payload(xml, domain, new_payload)` — offline patch (**merge** for PayloadContent).
 4. `profile_put_xml(profile_id, xml_str)` — write back.
+
+**Create / clone**
+
+1. Optional: MCP `payloads_set_content` (or Starlark) to build a payloads plist from PayloadContent dicts.
+2. MCP/Starlark `profile_create` (`name` + `payloads_plist_str` or `content`).
+3. Or `profile_clone` to copy an existing profile under a new name with **unassigned** scope (`all_computers=false`, empty targets). Jamf quirk: omitting `<scope>` / `<all_computers>` on Classic POST can default to all computers — buddy always sends an explicit unassigned block.
 
 Do **not** hand-build Classic XML from `jamf_schema` / Jamf hosted MCP `execute-request`.
 
@@ -42,6 +50,7 @@ Do **not** hand-build Classic XML from `jamf_schema` / Jamf hosted MCP `execute-
 | Missing `<payloads>` on replace | **error** (no silent no-op) |
 | `payloads_get_mcx_dict` | **expand** (MCX inspect) |
 | MCP `profile_xml_extract_payloads`, `payloads_list_identifiers` | **expand** (inspect before patch) |
+| MCP `profile_create` / `profile_clone` / `profile_redeploy` / `payloads_set_content` | **expand** (create path) |
 
 ## Advanced Starlark pattern
 

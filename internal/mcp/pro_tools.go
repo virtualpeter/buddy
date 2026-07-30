@@ -170,6 +170,60 @@ func registerProComputerGroupTools(server *mcpsdk.Server, resolve func(credIn) s
 		}
 		return toolOK(nil, nil)
 	})
+
+	type smartGroupCreateIn struct {
+		Body map[string]any `json:"body" jsonschema:"smart group JSON (name required; criteria optional; id:-1 optional create convention)"`
+		Cred string         `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "smart_group_create",
+		Description: "Create a Jamf Pro smart computer group (criteria-based; mutating). " +
+			"body is full smart-group JSON (name required; criteria optional). Returns {ok, value: {id, href?}}. " +
+			"Not for static groups — use static_group_create.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in smartGroupCreateIn) (*mcpsdk.CallToolResult, any, error) {
+		if in.Body == nil {
+			return toolErr(fmt.Errorf("body is required"))
+		}
+		bodyJSON, err := json.Marshal(in.Body)
+		if err != nil {
+			return toolErr(fmt.Errorf("encode body: %w", err))
+		}
+		created, err := buddy.GroupCreateSmart(resolve(credIn{Cred: in.Cred}), mutOpts(), bodyJSON, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		if created == nil {
+			return toolErr(fmt.Errorf("smart_group_create: cancelled"))
+		}
+		return toolOK(created, nil)
+	})
+
+	type staticGroupCreateIn struct {
+		Body map[string]any `json:"body" jsonschema:"static group JSON (name required; assignments optional list of computer id strings)"`
+		Cred string         `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "static_group_create",
+		Description: "Create a Jamf Pro static computer group (explicit membership; mutating). " +
+			"body is static-group JSON (name required; assignments optional). Returns {ok, value: {id, href?}}. " +
+			"Not for smart groups — use smart_group_create.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in staticGroupCreateIn) (*mcpsdk.CallToolResult, any, error) {
+		if in.Body == nil {
+			return toolErr(fmt.Errorf("body is required"))
+		}
+		bodyJSON, err := json.Marshal(in.Body)
+		if err != nil {
+			return toolErr(fmt.Errorf("encode body: %w", err))
+		}
+		created, err := buddy.GroupCreateStatic(resolve(credIn{Cred: in.Cred}), mutOpts(), bodyJSON, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		if created == nil {
+			return toolErr(fmt.Errorf("static_group_create: cancelled"))
+		}
+		return toolOK(created, nil)
+	})
 }
 
 func registerProfileTools(server *mcpsdk.Server, resolve func(credIn) string, mutOpts func() buddy.Opts, logger *slog.Logger) {
@@ -180,8 +234,8 @@ func registerProfileTools(server *mcpsdk.Server, resolve func(credIn) string, mu
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "profiles",
 		Description: "List Jamf macOS configuration profiles. Returns {ok, value: [{id,name},...], count}. " +
-			"Optional filter matches name substring. For payload edits use profile_xml → profile_xml_patch_payload → profile_put_xml " +
-			"(see docs query \"mcp-tools\" or \"payload\").",
+			"Optional filter matches name substring. Create with profile_create; clone with profile_clone; " +
+			"edit with profile_xml → profile_xml_patch_payload → profile_put_xml (see docs mcp-tools / profile-payloads).",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in profilesIn) (*mcpsdk.CallToolResult, any, error) {
 		recs, err := buddy.ProfileSearch(resolve(credIn{Cred: in.Cred}), in.Filter, logger)
 		if err != nil {
@@ -208,6 +262,90 @@ func registerProfileTools(server *mcpsdk.Server, resolve func(credIn) string, mu
 		return toolOK(string(xmlBytes), nil)
 	})
 
+	type profileCreateIn struct {
+		Name             string           `json:"name" jsonschema:"new profile name"`
+		PayloadsPlistStr string           `json:"payloads_plist_str,omitempty" jsonschema:"payloads plist XML (or pass content)"`
+		Content          []map[string]any `json:"content,omitempty" jsonschema:"PayloadContent array of payload dicts (alternative to payloads_plist_str)"`
+		Category         string           `json:"category,omitempty" jsonschema:"Jamf category name"`
+		ScopeAll         *bool            `json:"scope_all,omitempty" jsonschema:"scope all computers (default true when scope_group_ids empty)"`
+		ScopeGroupIDs    []int            `json:"scope_group_ids,omitempty" jsonschema:"computer group ids to scope (implies not all computers)"`
+		RedeployOnUpdate string           `json:"redeploy_on_update,omitempty" jsonschema:"Newly Assigned (default) or All"`
+		Cred             string           `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "profile_create",
+		Description: "Create a Jamf macOS configuration profile (Classic POST; mutating). " +
+			"Requires name plus payloads_plist_str or content (PayloadContent array of dicts). " +
+			"Optional category, scope_all / scope_group_ids, redeploy_on_update. " +
+			"Returns {ok, value: {id, name}}. Prefer payloads_set_content to build payloads_plist_str. " +
+			"To copy an existing profile use profile_clone instead.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in profileCreateIn) (*mcpsdk.CallToolResult, any, error) {
+		plistStr := strings.TrimSpace(in.PayloadsPlistStr)
+		if len(in.Content) > 0 {
+			items := make([]interface{}, 0, len(in.Content))
+			for _, m := range in.Content {
+				items = append(items, m)
+			}
+			updated, err := buddy.PlistSetPayloadContent(plistStr, items)
+			if err != nil {
+				return toolErr(err)
+			}
+			plistStr = updated
+		}
+		if plistStr == "" {
+			return toolErr(fmt.Errorf("profile_create requires payloads_plist_str or content"))
+		}
+		scopeAll := len(in.ScopeGroupIDs) == 0
+		if in.ScopeAll != nil {
+			scopeAll = *in.ScopeAll
+		}
+		out, err := buddy.ProfileCreate(resolve(credIn{Cred: in.Cred}), mutOpts(), buddy.ProfileCreateSpec{
+			Name:             in.Name,
+			PayloadsPlist:    plistStr,
+			Category:         in.Category,
+			ScopeAll:         scopeAll,
+			ScopeGroupIDs:    in.ScopeGroupIDs,
+			RedeployOnUpdate: in.RedeployOnUpdate,
+		}, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		if out == nil {
+			return toolErr(fmt.Errorf("profile_create: cancelled"))
+		}
+		return toolOK(map[string]any{"id": out.ProfileID, "name": out.Name}, nil)
+	})
+
+	type profileCloneIn struct {
+		ProfileID int    `json:"profile_id" jsonschema:"source configuration profile id"`
+		Name      string `json:"name" jsonschema:"name for the new profile"`
+		Cred      string `json:"cred,omitempty" jsonschema:"credential name override"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "profile_clone",
+		Description: "Clone a Jamf macOS configuration profile (mutating). " +
+			"Copies payloads from profile_id into a new profile with name; scope is set to unassigned " +
+			"(all_computers=false, no targets — not all computers; omitting scope in Classic can default to all). " +
+			"Returns {ok}. Prefer profile_create for greenfield payloads.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in profileCloneIn) (*mcpsdk.CallToolResult, any, error) {
+		if err := buddy.ProfileClone(resolve(credIn{Cred: in.Cred}), mutOpts(), in.ProfileID, in.Name, logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(nil, nil)
+	})
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "profile_redeploy",
+		Description: "Redeploy a macOS configuration profile to all currently assigned devices (mutating). " +
+			"Sets redeploy_on_update=All and PUTs without changing payloads. " +
+			"Prefer profile_put_xml with redeploy=true when also writing content changes.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in profileIDIn) (*mcpsdk.CallToolResult, any, error) {
+		if err := buddy.ProfileRedeploy(resolve(credIn{Cred: in.Cred}), mutOpts(), in.ProfileID, logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(map[string]any{"id": in.ProfileID}, nil)
+	})
+
 	type profilePutIn struct {
 		ProfileID int    `json:"profile_id" jsonschema:"configuration profile id"`
 		XMLStr    string `json:"xml_str" jsonschema:"full profile XML"`
@@ -218,7 +356,7 @@ func registerProfileTools(server *mcpsdk.Server, resolve func(credIn) string, mu
 		Name: "profile_put_xml",
 		Description: "PUT full Classic XML for a macOS configuration profile (mutating). " +
 			"xml_str must be a complete os_x_configuration_profile document (e.g. from profile_xml after patch). " +
-			"Optional redeploy=true sets redeploy_on_update=All.",
+			"Optional redeploy=true sets redeploy_on_update=All. For create use profile_create; for redeploy-only use profile_redeploy.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in profilePutIn) (*mcpsdk.CallToolResult, any, error) {
 		if err := buddy.ProfilePutXML(resolve(credIn{Cred: in.Cred}), mutOpts(), in.ProfileID, []byte(in.XMLStr), in.Redeploy, logger); err != nil {
 			return toolErr(err)
@@ -285,6 +423,30 @@ func registerProfileTools(server *mcpsdk.Server, resolve func(credIn) string, mu
 		}
 		n := len(ids)
 		return toolOK(ids, &n)
+	})
+
+	type payloadsSetContentIn struct {
+		Content          []map[string]any `json:"content" jsonschema:"full PayloadContent array of payload dicts"`
+		PayloadsPlistStr string           `json:"payloads_plist_str,omitempty" jsonschema:"existing payloads plist; omit or empty to start fresh"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "payloads_set_content",
+		Description: "Offline: build a payloads plist with PayloadContent set to content. " +
+			"Returns {ok, value: payloads plist XML}. Pass to profile_create as payloads_plist_str, " +
+			"or wrap with starlark profile_xml_replace_payloads for existing profiles.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in payloadsSetContentIn) (*mcpsdk.CallToolResult, any, error) {
+		if in.Content == nil {
+			return toolErr(fmt.Errorf("content is required"))
+		}
+		items := make([]interface{}, 0, len(in.Content))
+		for _, m := range in.Content {
+			items = append(items, m)
+		}
+		out, err := buddy.PlistSetPayloadContent(in.PayloadsPlistStr, items)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
 	})
 }
 

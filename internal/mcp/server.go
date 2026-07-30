@@ -32,7 +32,7 @@ Tool priority: (1) typed buddy tools, (2) starlark_eval with named builtins, (3)
 
 If the host also has Jamf's remote MCP (https://developer.jamf.com/mcp — list-specs, search-endpoints, execute-request): use it for official OpenAPI discovery and products buddy does not wrap (e.g. Protect/RISK/Title Editor). Do not use execute-request for Pro groups, configuration-profile payload edits, package JCDS/READY, or other workflows buddy already exposes — inventing Classic/Pro HTTP bypasses buddy's criteria-vs-membership and payload entity-encoding helpers. After discovering an unfamiliar path in Jamf MCP, prefer a buddy typed tool or named builtin when one exists.
 
-See the docs tool (query "mcp-tools" or "profile-payloads") for the scorecard, smart vs static groups, and profile payload cookbook.`
+See the docs tool (query "mcp-tools" or "profile-payloads") for the scorecard, smart vs static groups, and profile payload cookbook (create/clone/edit).`
 
 // Run starts the MCP stdio server until the client disconnects.
 func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) error {

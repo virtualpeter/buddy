@@ -50,6 +50,18 @@ func TestBuildProfileCreateXML_ScopeGroups(t *testing.T) {
 	}
 }
 
+func TestEmptyScopeXML_UnassignedNotAllComputers(t *testing.T) {
+	if !strings.Contains(emptyScopeXML, "<all_computers>false</all_computers>") {
+		t.Fatal("emptyScopeXML must set all_computers=false (Jamf may treat omitted all_computers as all)")
+	}
+	if strings.Contains(emptyScopeXML, "<all_computers>true</all_computers>") {
+		t.Fatal("emptyScopeXML must not scope all computers")
+	}
+	if !strings.Contains(emptyScopeXML, "<computer_groups/>") {
+		t.Fatal("emptyScopeXML should clear computer_groups")
+	}
+}
+
 func TestParseProfileIDFromPostBody(t *testing.T) {
 	if id := parseProfileIDFromPostBody([]byte(`<os_x_configuration_profile><id>55</id></os_x_configuration_profile>`)); id != 55 {
 		t.Fatalf("xml id=%d", id)

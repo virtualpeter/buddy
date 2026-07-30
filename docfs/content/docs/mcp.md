@@ -108,13 +108,19 @@ Tool names follow the Starlark plural/singular grammar (see [reference manual](r
 | `smart_group` | Full smart group JSON | By `id` or `name` |
 | `smart_group_get_criteria` | Criteria list | By `group_id` |
 | `smart_group_update_criterion_value` | `null` | Mutating; match criterion name substring |
+| `smart_group_create` | `{id, href?}` | Mutating; smart group JSON body |
 | `static_groups` | List of `{id,name,description}` | **Explicit membership** Pro groups |
 | `static_group_list_computers` | `[{id,name,serial},…]` | Optional client-side `filter` |
 | `static_group_add_computers` / `_remove_computers` / `_set_computers` | `null` | Mutating membership |
+| `static_group_create` | `{id, href?}` | Mutating; static group JSON body |
 | `profiles` | `[{id,name},…]` | Optional name `filter` |
+| `profile_create` | `{id, name}` | Mutating; greenfield Classic POST |
+| `profile_clone` | `null` | Mutating; copy + new name; unassigned scope (`all_computers=false`) |
+| `profile_redeploy` | `{id}` | Mutating; redeploy_on_update=All only |
 | `profile_xml` | Profile XML string | By `profile_id` |
 | `profile_xml_extract_payloads` | Payloads plist string | Offline extract |
 | `payloads_list_identifiers` | `[PayloadIdentifier…]` | Offline; PayloadContent only |
+| `payloads_set_content` | Payloads plist string | Offline; build PayloadContent for create |
 | `profile_xml_patch_payload` | Updated XML | Offline merge patch; PayloadContent or MCX |
 | `profile_put_xml` | `{id}` | Mutating Classic PUT |
 | `computers` | Summary dicts (or IDs if `ids=true`) | RSQL `filter` |
@@ -247,7 +253,7 @@ Learn endpoints from the Jamf host schemas plus the embedded Platform specs:
 
 ### Groups and profiles
 
-See **[mcp-tools.md](mcp-tools.md)** and **[profile-payloads.md](profile-payloads.md)** for groups vs profiles and the payload cookbook (`profile_xml` → extract/list → `profile_xml_patch_payload` → `profile_put_xml`).
+See **[mcp-tools.md](mcp-tools.md)** and **[profile-payloads.md](profile-payloads.md)** for groups vs profiles and the payload cookbook (`profile_create` / `profile_clone`, or `profile_xml` → extract/list → `profile_xml_patch_payload` → `profile_put_xml`).
 
 ### `docs` tips
 

@@ -820,7 +820,9 @@ func ProfileSetPayload(credName string, opts Opts, profileID int, domain string,
 }
 
 // emptyScopeXML is the scope block for an unassigned profile (no targets).
-// all_computers=false and all_jss_users=false with empty target lists = unassigned.
+// Jamf quirk: omitting <scope> or omitting <all_computers> on Classic POST/PUT can
+// default to all computers. Always send all_computers=false (and empty target lists)
+// when the intent is unassigned — never a bare/missing scope.
 const emptyScopeXML = `<scope>
   <all_computers>false</all_computers>
   <all_jss_users>false</all_jss_users>
@@ -1042,7 +1044,8 @@ func ProfileCreate(credName string, opts Opts, spec ProfileCreateSpec, logger *s
 	return &ProfileCreateOutcome{ProfileID: id, Name: spec.Name}, nil
 }
 
-// ProfileClone creates a copy of a configuration profile with the given name and no scope.
+// ProfileClone creates a copy of a configuration profile with the given name and
+// unassigned scope (all_computers=false, empty targets — not "all computers").
 func ProfileClone(credName string, opts Opts, sourceProfileID int, newName string, logger *slog.Logger) error {
 	profileXML, err := profileFetchRaw(credName, sourceProfileID)
 	if err != nil {
@@ -1074,7 +1077,7 @@ func ProfileClone(credName string, opts Opts, sourceProfileID int, newName strin
 	nameEnd += nameStart + len("</name>")
 	xml = bytes.Join([][]byte{xml[:nameStart], []byte("<name>" + xmlEncodePayload(newName) + "</name>"), xml[nameEnd:]}, nil)
 
-	// Replace entire <scope>...</scope> block with empty scope
+	// Replace entire <scope>...</scope> with explicit unassigned scope (see emptyScopeXML).
 	scopeStart := bytes.Index(xml, []byte("<scope>"))
 	if scopeStart < 0 {
 		return fmt.Errorf("profile XML has no <scope>")
@@ -1093,7 +1096,7 @@ func ProfileClone(credName string, opts Opts, sourceProfileID int, newName strin
 	}
 
 	if !opts.SkipConfirm {
-		msg := fmt.Sprintf("\nClone configuration profile (ID %d) as %q with no scope?", sourceProfileID, newName)
+		msg := fmt.Sprintf("\nClone configuration profile (ID %d) as %q with unassigned scope (not all computers)?", sourceProfileID, newName)
 		if !ConfirmPrompt(msg, logger) {
 			return nil
 		}
@@ -1117,7 +1120,7 @@ func ProfileClone(credName string, opts Opts, sourceProfileID int, newName strin
 		body, _ := io.ReadAll(postResp.Body)
 		return fmt.Errorf("clone profile status %d: %s", postResp.StatusCode, string(body))
 	}
-	fmt.Printf("Cloned profile (ID %d) as %q with no scope\n", sourceProfileID, newName)
+	fmt.Printf("Cloned profile (ID %d) as %q with unassigned scope\n", sourceProfileID, newName)
 	return nil
 }
 

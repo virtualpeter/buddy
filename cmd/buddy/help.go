@@ -487,7 +487,7 @@ Subcommands:
   get list-payloads <profile-id>                            List PayloadIdentifier values (PayloadContent only)
   set xml <profile-id> [--redeploy]                         PUT profile from XML on stdin
   set payload <profile-id> <domain> <dict-file.xml> [--redeploy]   Patch payload (PayloadContent merge or MCX settings)
-  clone <profile-id> <new-name>                             Clone profile with new name, no scope
+  clone <profile-id> <new-name>                             Clone profile with new name, unassigned scope
   redeploy <profile-id>                                     Redeploy to all assigned devices
 
 Notes:

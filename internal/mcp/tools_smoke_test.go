@@ -15,16 +15,22 @@ var expectedTier1Tools = []string{
 	"smart_group",
 	"smart_group_get_criteria",
 	"smart_group_update_criterion_value",
+	"smart_group_create",
 	"static_group_list_computers",
 	"static_group_add_computers",
 	"static_group_remove_computers",
 	"static_group_set_computers",
+	"static_group_create",
 	"profiles",
+	"profile_create",
+	"profile_clone",
+	"profile_redeploy",
 	"profile_xml",
 	"profile_put_xml",
 	"profile_xml_patch_payload",
 	"profile_xml_extract_payloads",
 	"payloads_list_identifiers",
+	"payloads_set_content",
 }
 
 func TestServerInstructions(t *testing.T) {
