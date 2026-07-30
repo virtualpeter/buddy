@@ -407,9 +407,11 @@ PROFILE
   profile_redeploy(profile_id) → None
   profile_get_payloads(profile_id) → value: str
   profile_get_payload(profile_id, domain) → value: str
+      Params: domain is PayloadIdentifier (PayloadContent only; not MCX — use payloads_get_mcx_dict offline).
   profile_list_payloads(profile_id) → value: list of str
+      Params: PayloadIdentifier list (PayloadContent only).
   profile_set_payload(profile_id, domain, dict_file, redeploy?) → None
-  profile_set_xml(profile_id, xml_file, redeploy?) → None
+      Params: PayloadContent merge or MCX settings dict (same as profile_xml_patch_payload).
 
 PROFILE — component
   profile_put_xml(profile_id, xml_str, redeploy?, cred?) → None
@@ -424,19 +426,24 @@ PROFILE — component
       Params: profile_xml_str: str. Sets <redeploy_on_update>All</redeploy_on_update>.
   profile_xml_patch_payload(profile_xml_str, domain, new_payload)
       → value: str (updated profile XML)
-      Params: profile_xml_str: str; domain: str; new_payload: dict or plist/dict XML (PayloadContent or MCX).
+      Params: profile_xml_str: str; domain: str (PayloadIdentifier or MCX preference domain);
+              new_payload: dict or plist/dict XML. PayloadContent: keys merge onto existing payload
+              (PayloadUUID preserved). MCX: settings dict only under mcx_preference_settings.
   payloads_list_identifiers(payloads_plist_str)
       → value: list of str
-      Params: payloads_plist_str: str (payloads plist XML).
+      Params: payloads_plist_str: str (payloads plist XML). PayloadContent PayloadIdentifiers only.
   payloads_get_payload(payloads_plist_str, domain)
       → value: str (plist XML dict)
-      Params: payloads_plist_str: str; domain: str (PayloadIdentifier).
+      Params: payloads_plist_str: str; domain: str (PayloadIdentifier). PayloadContent only — not MCX.
   payloads_replace_payload(payloads_plist_str, domain, new_payload)
       → value: str (payloads plist XML)
-      Params: payloads_plist_str: str; domain: str; new_payload: dict or plist XML.
+      Params: payloads_plist_str: str; domain: str; new_payload: dict or plist XML. Full replace (not merge).
+  payloads_get_mcx_dict(payloads_plist_str, domain)
+      → value: str (bare <dict>…</dict>)
+      Params: payloads_plist_str: str; domain: str (MCX preference-domain key). Reads mcx_preference_settings.
   payloads_replace_mcx_dict(payloads_plist_str, domain, dict_xml_str)
       → value: str (payloads plist XML)
-      Params: payloads_plist_str: str; domain: str; dict_xml_str: str.
+      Params: payloads_plist_str: str; domain: str; dict_xml_str: str (MCX settings dict).
   payloads_set_content(content, payloads_plist_str?)
       → value: str (payloads plist XML)
       Params: content: list of payload dicts; payloads_plist_str?: str (omit/empty to start fresh).

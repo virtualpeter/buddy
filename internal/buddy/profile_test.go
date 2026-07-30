@@ -110,12 +110,22 @@ func TestPlistReplacePayloadByDomain(t *testing.T) {
 func TestReplacePayloadsContent(t *testing.T) {
 	profileXML := []byte(`<root><payloads>old</payloads></root>`)
 	newContent := "new & <plist/>"
-	got := replacePayloadsContent(profileXML, newContent)
+	got, err := replacePayloadsContent(profileXML, newContent)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Contains(got, []byte("new")) {
 		t.Errorf("expected new content, got %s", got)
 	}
 	if !bytes.Contains(got, []byte("&lt;")) {
 		t.Errorf("expected entity-encoded angle brackets, got %s", got)
+	}
+}
+
+func TestReplacePayloadsContent_Missing(t *testing.T) {
+	_, err := replacePayloadsContent([]byte(`<root></root>`), "x")
+	if err == nil {
+		t.Fatal("expected error when <payloads> missing")
 	}
 }
 
@@ -287,7 +297,7 @@ func TestPatchProfilePayload_PayloadContent(t *testing.T) {
 	profileXML := []byte(`<?xml version="1.0"?>
 <os_x_configuration_profile>
   <general>
-    <payloads>&lt;plist version="1.0"&gt;&lt;dict&gt;&lt;key&gt;PayloadContent&lt;/key&gt;&lt;array&gt;&lt;dict&gt;&lt;key&gt;PayloadIdentifier&lt;/key&gt;&lt;string&gt;com.example.test&lt;/string&gt;&lt;key&gt;Value&lt;/key&gt;&lt;string&gt;before&lt;/string&gt;&lt;/dict&gt;&lt;/array&gt;&lt;/dict&gt;&lt;/plist&gt;</payloads>
+    <payloads>&lt;plist version="1.0"&gt;&lt;dict&gt;&lt;key&gt;PayloadContent&lt;/key&gt;&lt;array&gt;&lt;dict&gt;&lt;key&gt;PayloadIdentifier&lt;/key&gt;&lt;string&gt;com.example.test&lt;/string&gt;&lt;key&gt;PayloadUUID&lt;/key&gt;&lt;string&gt;keep-me&lt;/string&gt;&lt;key&gt;Value&lt;/key&gt;&lt;string&gt;before&lt;/string&gt;&lt;/dict&gt;&lt;/array&gt;&lt;/dict&gt;&lt;/plist&gt;</payloads>
   </general>
 </os_x_configuration_profile>`)
 	newDict := `<dict><key>PayloadIdentifier</key><string>com.example.test</string><key>Value</key><string>after</string></dict>`
@@ -304,5 +314,57 @@ func TestPatchProfilePayload_PayloadContent(t *testing.T) {
 	}
 	if strings.Contains(payloads, "before") {
 		t.Fatalf("expected before replaced, got %s", payloads)
+	}
+	if !strings.Contains(payloads, "keep-me") {
+		t.Fatalf("expected PayloadUUID preserved by merge, got %s", payloads)
+	}
+}
+
+func TestPatchProfilePayload_MCX(t *testing.T) {
+	// Entity-encoded payloads with MCX preference domain com.example.prefs
+	inner := `<?xml version="1.0"?><plist version="1.0"><dict>
+<key>com.example.prefs</key>
+<dict>
+<key>mcx_preference_settings</key>
+<dict><key>OldKey</key><string>old</string></dict>
+</dict>
+</dict></plist>`
+	escaped := xmlEncodePayload(inner)
+	profileXML := []byte(`<?xml version="1.0"?><os_x_configuration_profile><general><payloads>` + escaped + `</payloads></general></os_x_configuration_profile>`)
+	newSettings := `<dict><key>NewKey</key><string>new</string></dict>`
+	updated, err := PatchProfilePayload(profileXML, "com.example.prefs", newSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloads, err := extractPayloadsFromProfileXML(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := getMCXDict(payloads, "com.example.prefs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "NewKey") || !strings.Contains(got, "new") {
+		t.Fatalf("MCX settings not updated: %s", got)
+	}
+	if strings.Contains(got, "OldKey") {
+		t.Fatalf("old MCX settings still present: %s", got)
+	}
+}
+
+func TestGetMCXDict(t *testing.T) {
+	plist := `<?xml version="1.0"?><plist version="1.0"><dict>
+<key>com.example.prefs</key>
+<dict>
+<key>mcx_preference_settings</key>
+<dict><key>A</key><string>1</string></dict>
+</dict>
+</dict></plist>`
+	got, err := GetMCXDict(plist, "com.example.prefs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "<dict>") || !strings.Contains(got, "A") {
+		t.Fatalf("got %q", got)
 	}
 }

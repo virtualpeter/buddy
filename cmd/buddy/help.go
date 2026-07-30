@@ -483,16 +483,17 @@ Subcommands:
   list [--filter=<name>]                                    List configuration profiles
   get xml <profile-id>                                      Output full profile XML
   get payloads <profile-id>                                 Output payloads plist only (pretty-printed)
-  get payload <profile-id> <domain>                          Output single payload by PayloadIdentifier
-  get list-payloads <profile-id>                            List PayloadIdentifier values (domains)
+  get payload <profile-id> <domain>                          Output single PayloadContent payload by PayloadIdentifier
+  get list-payloads <profile-id>                            List PayloadIdentifier values (PayloadContent only)
   set xml <profile-id> [--redeploy]                         PUT profile from XML on stdin
-  set payload <profile-id> <domain> <dict-file.xml> [--redeploy]   Replace payload for domain (PayloadIdentifier or MCX)
+  set payload <profile-id> <domain> <dict-file.xml> [--redeploy]   Patch payload (PayloadContent merge or MCX settings)
   clone <profile-id> <new-name>                             Clone profile with new name, no scope
   redeploy <profile-id>                                     Redeploy to all assigned devices
 
 Notes:
   --redeploy sets redeploy_on_update=All (pushes to all assigned devices, not just new ones)
-  get payload / set payload work with both PayloadContent (PayloadIdentifier) and MCX-style payloads.
+  get payload / list-payloads are PayloadContent only. For MCX inspect use profile XML extract + payloads_get_mcx_dict.
+  set payload: PayloadContent merges keys onto the existing payload; MCX dict file is settings-only.
 
 Examples:
   buddy profile list

@@ -65,7 +65,10 @@ func TestReplacePayloadsContent_EscapesDelimiters(t *testing.T) {
 	inner := buf.String()
 	assertWellFormedXML(t, inner)
 
-	out := replacePayloadsContent(profile, inner)
+	out, err := replacePayloadsContent(profile, inner)
+	if err != nil {
+		t.Fatal(err)
+	}
 	assertWellFormedXML(t, string(out))
 	// payloads body must be entity-encoded, not raw nested tags
 	if !strings.Contains(string(out), "&lt;") || !strings.Contains(string(out), "&amp;") {

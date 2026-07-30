@@ -228,16 +228,18 @@ func registerProfileTools(server *mcpsdk.Server, resolve func(credIn) string, mu
 
 	type patchPayloadIn struct {
 		ProfileXMLStr string `json:"profile_xml_str" jsonschema:"full profile XML"`
-		Domain        string `json:"domain" jsonschema:"PayloadIdentifier or MCX domain key"`
-		NewPayload    any    `json:"new_payload" jsonschema:"full payload dict (object) or plist/<dict> XML string"`
+		Domain        string `json:"domain" jsonschema:"PayloadIdentifier (PayloadContent) or MCX preference-domain key"`
+		NewPayload    any    `json:"new_payload" jsonschema:"PayloadContent: keys to merge (object or plist); MCX: settings dict only"`
 		Cred          string `json:"cred,omitempty" jsonschema:"unused; offline transform"`
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "profile_xml_patch_payload",
-		Description: "Offline: patch one payload domain inside profile XML (PayloadContent by PayloadIdentifier, " +
-			"else MCX mcx_preference_settings). new_payload may be a JSON object or plist/<dict> string. " +
-			"Returns {ok, value: updated profile XML}. Then call profile_put_xml. " +
-			"For extract/decode/replace flows use starlark_eval payloads_* builtins; see docs mcp-tools.",
+		Description: "Offline: patch one payload domain in profile XML. " +
+			"PayloadContent (domain is a PayloadIdentifier): new_payload keys are MERGED onto the existing payload " +
+			"(omitted keys like PayloadUUID are preserved). " +
+			"MCX (preference-domain key): new_payload is the settings dict under mcx_preference_settings only. " +
+			"List PayloadContent domains first via profile_xml_extract_payloads + payloads_list_identifiers. " +
+			"Returns {ok, value: updated profile XML}; then profile_put_xml. See docs profile-payloads.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in patchPayloadIn) (*mcpsdk.CallToolResult, any, error) {
 		dictXML, err := payloadAnyToDictXML(in.NewPayload)
 		if err != nil {
@@ -248,6 +250,41 @@ func registerProfileTools(server *mcpsdk.Server, resolve func(credIn) string, mu
 			return toolErr(err)
 		}
 		return toolOK(string(updated), nil)
+	})
+
+	type extractPayloadsIn struct {
+		ProfileXMLStr string `json:"profile_xml_str" jsonschema:"full profile XML"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "profile_xml_extract_payloads",
+		Description: "Offline: extract the payloads plist from profile XML (<payloads> entity-decoded). " +
+			"Returns {ok, value: payloads plist XML string}. Next: payloads_list_identifiers or starlark payloads_get_*.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in extractPayloadsIn) (*mcpsdk.CallToolResult, any, error) {
+		out, err := buddy.ExtractPayloadsFromProfileXML([]byte(in.ProfileXMLStr))
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(out, nil)
+	})
+
+	type listIdentifiersIn struct {
+		PayloadsPlistStr string `json:"payloads_plist_str" jsonschema:"payloads plist XML from profile_xml_extract_payloads"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "payloads_list_identifiers",
+		Description: "Offline: list PayloadIdentifier strings under PayloadContent. " +
+			"Returns {ok, value: [str,...], count}. Empty/nil when the plist is MCX-style (no PayloadContent array). " +
+			"Not for MCX preference domains — use starlark payloads_get_mcx_dict after extract.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in listIdentifiersIn) (*mcpsdk.CallToolResult, any, error) {
+		ids, err := buddy.PlistPayloadIdentifiers(in.PayloadsPlistStr)
+		if err != nil {
+			return toolErr(err)
+		}
+		if ids == nil {
+			ids = []string{}
+		}
+		n := len(ids)
+		return toolOK(ids, &n)
 	})
 }
 

@@ -280,8 +280,12 @@ def test_profile(cred, created):
     profile_id = new_profile["id"]
     created["profiles"].append(profile_id)
 
-    # 3. Extract payloads plist XML from the profile.
-    res = profile_xml_extract_payloads(profile_id=profile_id, cred=cred)
+    # 3. Fetch full profile XML, then extract payloads offline.
+    res = profile_xml(id=profile_id, cred=cred)
+    require_ok(res, "profile_xml")
+    profile_xml_str = res["value"]
+
+    res = profile_xml_extract_payloads(profile_xml_str)
     require_ok(res, "profile_xml_extract_payloads")
     payloads_plist = res["value"]
 
@@ -306,18 +310,14 @@ def test_profile(cred, created):
     # 6. Mutate the payload dict.
     payload_dict["BuddyTestKey"] = TEST_PREFIX
 
-    # 7. Encode back to plist XML and replace the payload in the payloads plist.
-    res = plist_encode(payload_dict)
-    require_ok(res, "plist_encode")
-    new_payload_dict_xml = res["value"]
+    # 7. Prefer merge patch on full profile XML (preserves PayloadUUID etc.).
+    res = profile_xml_patch_payload(profile_xml_str, domain, payload_dict)
+    require_ok(res, "profile_xml_patch_payload")
+    updated_xml = res["value"]
 
-    res = payloads_replace_payload(payloads_plist, domain, new_payload_dict_xml)
-    require_ok(res, "payloads_replace_payload")
-    new_payloads_plist = res["value"]
-
-    # 8. Write updated payloads back into the profile.
-    res = profile_xml_replace_payloads(profile_id=profile_id, payloads_plist_xml=new_payloads_plist, cred=cred)
-    require_ok(res, "profile_xml_replace_payloads")
+    # 8. Write updated profile XML back.
+    res = profile_put_xml(profile_id=profile_id, xml_str=updated_xml, cred=cred)
+    require_ok(res, "profile_put_xml")
 
 
 def cleanup_profile(cred, created):

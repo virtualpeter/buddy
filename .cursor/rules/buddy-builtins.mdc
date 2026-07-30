@@ -235,10 +235,10 @@ Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…
 - `profile_xml_patch_payload(profile_xml_str, domain, new_payload) → value: string`
   - **Params**:
     - `profile_xml_str` (string).
-    - `domain` (string): PayloadIdentifier or MCX domain key.
-    - `new_payload` (dict or string): Full payload dict / plist, or MCX settings dict / bare `<dict>` XML.
+    - `domain` (string): PayloadIdentifier or MCX preference-domain key.
+    - `new_payload` (dict or string): PayloadContent — keys **merged** onto existing payload (PayloadUUID kept if omitted). MCX — settings dict only under `mcx_preference_settings`.
   - **Returns**:
-    - `value`: updated profile XML (PayloadContent replace, else MCX `mcx_preference_settings`).
+    - `value`: updated profile XML.
 
 - `payloads_list_identifiers(payloads_plist_str) → value: list[string]`
   - **Params**:
@@ -249,7 +249,7 @@ Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…
 - `payloads_get_payload(payloads_plist_str, domain) → value: string`
   - **Params**:
     - `payloads_plist_str` (string).
-    - `domain` (string): PayloadIdentifier to select (e.g. `\"com.google.chrome\"`).
+    - `domain` (string): PayloadIdentifier to select (e.g. `\"com.google.chrome\"`). PayloadContent only — not MCX.
   - **Returns**:
     - `value`: plist `<dict>...</dict>` fragment for the payload with `PayloadIdentifier == domain`.
 
@@ -257,9 +257,16 @@ Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…
   - **Params**:
     - `payloads_plist_str` (string).
     - `domain` (string).
-    - `new_payload` (dict or string): Replacement payload dict or plist XML.
+    - `new_payload` (dict or string): **Full** replacement payload dict or plist XML (not a merge; use `profile_xml_patch_payload` to merge).
   - **Returns**:
     - `value`: updated payloads plist XML with the payload for `domain` replaced.
+
+- `payloads_get_mcx_dict(payloads_plist_str, domain) → value: string`
+  - **Params**:
+    - `payloads_plist_str` (string).
+    - `domain` (string): MCX preference-domain key.
+  - **Returns**:
+    - `value`: bare `<dict>...</dict>` for `mcx_preference_settings`.
 
 - `payloads_replace_mcx_dict(payloads_plist_str, domain, dict_xml_str) → value: string`
   - **Params**:
@@ -306,14 +313,18 @@ if not r["ok"]:
     fail(r["error"])
 xml = r["value"]
 
-# One-shot patch (PayloadContent or MCX):
-chrome = {"PayloadIdentifier": "com.google.chrome", "PayloadType": "com.google.chrome", "SomeKey": "NewValue"}
-r2 = profile_xml_patch_payload(xml, "com.google.chrome", chrome)
+# One-shot merge patch (PayloadContent keys merge; MCX = settings-only):
+r2 = profile_xml_patch_payload(xml, "com.google.chrome", {"SomeKey": "NewValue"})
 if not r2["ok"]:
     fail(r2["error"])
 profile_put_xml(profile_id = 42, xml_str = r2["value"])
+```
 
-# Or assemble PayloadContent from a list:
+See also `docs/profile-payloads.md` for PayloadContent vs MCX and full-replace via `payloads_replace_payload`.
+
+**Assemble PayloadContent from a list:**
+
+```python
 r3 = payloads_set_content(content = [chrome, other_payload])
 if not r3["ok"]:
     fail(r3["error"])

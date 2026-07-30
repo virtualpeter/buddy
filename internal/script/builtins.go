@@ -236,6 +236,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "payloads_get_payload", payloadsGetPayloadBuiltin)
 	putBuiltin(dict, "payloads_replace_payload", payloadsReplacePayload(logger))
 	putBuiltin(dict, "payloads_replace_mcx_dict", payloadsReplaceMCXDictBuiltin)
+	putBuiltin(dict, "payloads_get_mcx_dict", payloadsGetMCXDictBuiltin)
 	putBuiltin(dict, "payloads_set_content", payloadsSetContentBuiltin)
 	putBuiltin(dict, "payloads_add_payload", payloadsAddPayloadBuiltin)
 	putBuiltin(dict, "payloads_remove_payload", payloadsRemovePayloadBuiltin)
@@ -2893,7 +2894,10 @@ func profileXMLReplacePayloadsBuiltin(_ *starlark.Thread, _ *starlark.Builtin, a
 		"profile_xml_str", &profileXMLStr, "payloads_plist_str", &payloadsStr); err != nil {
 		return nil, err
 	}
-	out := buddy.ReplacePayloadsContent([]byte(string(profileXMLStr)), string(payloadsStr))
+	out, err := buddy.ReplacePayloadsContent([]byte(string(profileXMLStr)), string(payloadsStr))
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
 	return resultOK(starlark.String(string(out))), nil
 }
 
@@ -3025,6 +3029,20 @@ func payloadsReplaceMCXDictBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args
 		return resultErr(err.Error()), nil
 	}
 	return resultOK(starlark.String(updated)), nil
+}
+
+// payloads_get_mcx_dict(payloads_plist_str, domain) → {ok, value: str} bare <dict> for mcx_preference_settings
+func payloadsGetMCXDictBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var plistStr, domain starlark.String
+	if err := starlark.UnpackArgs("payloads_get_mcx_dict", args, kwargs,
+		"payloads_plist_str", &plistStr, "domain", &domain); err != nil {
+		return nil, err
+	}
+	out, err := buddy.GetMCXDict(string(plistStr), string(domain))
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(out)), nil
 }
 
 // payloads_set_content(content, payloads_plist_str?) → {ok, value: str}

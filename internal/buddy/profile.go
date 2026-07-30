@@ -164,6 +164,7 @@ func plistGetPayloadByDomain(payloadsRaw, domain string) ([]byte, error) {
 
 // PlistReplacePayloadByDomain replaces the payload with PayloadIdentifier == domain in the payloads plist with newPayload.
 // newPayload should be a decoded plist dict (map[string]interface{} or struct). Returns the updated plist as XML string.
+// This is a full replace (advanced). Prefer PlistMergePayloadByDomain / PatchProfilePayload for partial updates.
 func PlistReplacePayloadByDomain(payloadsRaw, domain string, newPayload interface{}) (string, error) {
 	return plistReplacePayloadByDomain(payloadsRaw, domain, newPayload)
 }
@@ -185,6 +186,50 @@ func plistReplacePayloadByDomain(payloadsRaw, domain string, newPayload interfac
 		}
 		if id, _ := dict["PayloadIdentifier"].(string); id == domain {
 			arr[i] = newDict
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "", fmt.Errorf("payload with PayloadIdentifier %q not found", domain)
+	}
+	m["PayloadContent"] = arr
+	return encodePayloadsRoot(m)
+}
+
+// PlistMergePayloadByDomain merges newPayload keys onto the existing PayloadContent entry for domain
+// (new keys win; omitted keys are preserved, including PayloadUUID). Sets PayloadIdentifier to domain if missing.
+func PlistMergePayloadByDomain(payloadsRaw, domain string, newPayload interface{}) (string, error) {
+	return plistMergePayloadByDomain(payloadsRaw, domain, newPayload)
+}
+
+func plistMergePayloadByDomain(payloadsRaw, domain string, newPayload interface{}) (string, error) {
+	m, arr, err := decodePayloadContent(payloadsRaw)
+	if err != nil {
+		return "", err
+	}
+	newDict, err := coercePayloadDict(newPayload)
+	if err != nil {
+		return "", err
+	}
+	found := false
+	for i, item := range arr {
+		dict, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if id, _ := dict["PayloadIdentifier"].(string); id == domain {
+			merged := make(map[string]interface{}, len(dict)+len(newDict))
+			for k, v := range dict {
+				merged[k] = v
+			}
+			for k, v := range newDict {
+				merged[k] = v
+			}
+			if _, ok := merged["PayloadIdentifier"]; !ok || merged["PayloadIdentifier"] == "" {
+				merged["PayloadIdentifier"] = domain
+			}
+			arr[i] = merged
 			found = true
 			break
 		}
@@ -393,8 +438,10 @@ func NormaliseDictXML(data []byte) (string, error) {
 }
 
 // PatchProfilePayload patches one payload domain inside a profile's <payloads> plist
-// (PayloadContent by PayloadIdentifier, or MCX mcx_preference_settings fallback).
+// (PayloadContent by PayloadIdentifier with key merge, or MCX mcx_preference_settings fallback).
 // newDictXML may be a bare <dict> fragment or a full plist.
+// For PayloadContent, new keys merge onto the existing payload (PayloadUUID and other omitted keys are kept).
+// For MCX, newDictXML is the settings dict under mcx_preference_settings only.
 func PatchProfilePayload(profileXML []byte, domain, newDictXML string) ([]byte, error) {
 	return patchProfilePayload(profileXML, domain, newDictXML)
 }
@@ -693,14 +740,14 @@ func ProfilePutXML(credName string, opts Opts, profileID int, xml []byte, redepl
 	return nil
 }
 
-// ProfileSetPayload replaces the mcx_preference_settings <dict> for a specific MCX domain
-// within a profile's entity-encoded payloads plist. It fetches the current profile from
-// Jamf, patches the target dict in place, and PUTs the result back.
+// ProfileSetPayload patches a payload domain inside a profile (PayloadContent merge by
+// PayloadIdentifier, or MCX mcx_preference_settings settings dict). It fetches the current
+// profile from Jamf, patches in place, and PUTs the result back.
 //
 // Usage: buddy profile set payload <profile-id> <domain> <dict-file.xml>
 //
-// The dict file should be a standalone <dict>...</dict> XML fragment (the
-// mcx_preference_settings content, NOT the full plist).
+// For PayloadContent, the dict file may be a partial payload (keys merge; PayloadUUID kept).
+// For MCX, the dict file is the mcx_preference_settings content only.
 // If redeploy is true, <redeploy_on_update> is set to "All" before uploading.
 func ProfileSetPayload(credName string, opts Opts, profileID int, domain string, dictFile string, redeploy bool, logger *slog.Logger) error {
 	dictData, err := os.ReadFile(dictFile)
@@ -1137,19 +1184,19 @@ func normaliseDictFile(data []byte) (string, error) {
 }
 
 // ReplacePayloadsContent replaces the entire content of <payloads> with newPayloadsRaw (unescaped plist XML),
-// entity-encodes it, and returns the updated profile XML.
-func ReplacePayloadsContent(profileXML []byte, newPayloadsRaw string) []byte {
+// entity-encodes it, and returns the updated profile XML. Returns an error if <payloads> is missing.
+func ReplacePayloadsContent(profileXML []byte, newPayloadsRaw string) ([]byte, error) {
 	return replacePayloadsContent(profileXML, newPayloadsRaw)
 }
 
-func replacePayloadsContent(profileXML []byte, newPayloadsRaw string) []byte {
+func replacePayloadsContent(profileXML []byte, newPayloadsRaw string) ([]byte, error) {
 	s := string(profileXML)
 	const openTag = "<payloads>"
 	const closeTag = "</payloads>"
 	openIdx := strings.Index(s, openTag)
 	closeIdx := strings.Index(s, closeTag)
 	if openIdx < 0 || closeIdx < 0 || closeIdx < openIdx {
-		return profileXML
+		return nil, fmt.Errorf("profile XML has no <payloads> element")
 	}
 	contentStart := openIdx + len(openTag)
 	contentEnd := closeIdx
@@ -1158,7 +1205,7 @@ func replacePayloadsContent(profileXML []byte, newPayloadsRaw string) []byte {
 	buf.WriteString(s[:contentStart])
 	buf.WriteString(reEncoded)
 	buf.WriteString(s[contentEnd:])
-	return []byte(buf.String())
+	return []byte(buf.String()), nil
 }
 
 // dictFileToPlistMap parses the dict file (full plist or bare <dict> fragment) and returns the root as a map.
@@ -1181,20 +1228,21 @@ func dictFileToPlistMap(data []byte) (map[string]interface{}, error) {
 }
 
 // patchProfilePayload locates the entity-encoded plist inside <payloads>, decodes it,
-// replaces the payload for the given domain (by PayloadIdentifier in PayloadContent, or MCX mcx_preference_settings),
+// merges/replaces the payload for the given domain (by PayloadIdentifier in PayloadContent, or MCX mcx_preference_settings),
 // re-encodes it, and returns the reconstructed profile XML. Preserves the rest of the profile including UUID.
+// PayloadContent path merges keys; MCX path replaces the settings dict only.
 func patchProfilePayload(profileXML []byte, domain, newDictXML string) ([]byte, error) {
 	payloadsRaw, err := extractPayloadsFromProfileXML(profileXML)
 	if err != nil {
 		return nil, err
 	}
 
-	// Try plist-based replace (PayloadContent array, PayloadIdentifier).
+	// Try plist-based merge (PayloadContent array, PayloadIdentifier).
 	newPayloadMap, mapErr := dictFileToPlistMap([]byte(newDictXML))
 	if mapErr == nil {
-		updatedRaw, replaceErr := plistReplacePayloadByDomain(payloadsRaw, domain, newPayloadMap)
+		updatedRaw, replaceErr := plistMergePayloadByDomain(payloadsRaw, domain, newPayloadMap)
 		if replaceErr == nil {
-			return replacePayloadsContent(profileXML, updatedRaw), nil
+			return replacePayloadsContent(profileXML, updatedRaw)
 		}
 	}
 
@@ -1208,7 +1256,41 @@ func patchProfilePayload(profileXML []byte, domain, newDictXML string) ([]byte, 
 		return nil, err
 	}
 
-	return replacePayloadsContent(profileXML, updatedPlist), nil
+	return replacePayloadsContent(profileXML, updatedPlist)
+}
+
+// GetMCXDict returns the bare <dict>…</dict> fragment for mcx_preference_settings under domain.
+func GetMCXDict(plistXML, domain string) (string, error) {
+	return getMCXDict(plistXML, domain)
+}
+
+func getMCXDict(plistXML, domain string) (string, error) {
+	domainKey := "<key>" + xmlEncodePayload(domain) + "</key>"
+	domainPos := strings.Index(plistXML, domainKey)
+	if domainPos < 0 {
+		return "", fmt.Errorf("domain %q not found in payloads plist", domain)
+	}
+	afterDomain := domainPos + len(domainKey)
+	mcxKey := "<key>mcx_preference_settings</key>"
+	mcxRelPos := strings.Index(plistXML[afterDomain:], mcxKey)
+	if mcxRelPos < 0 {
+		return "", fmt.Errorf("mcx_preference_settings not found for domain %q", domain)
+	}
+	afterMCX := afterDomain + mcxRelPos + len(mcxKey)
+
+	dictRelPos := strings.Index(plistXML[afterMCX:], "<dict>")
+	if dictRelPos < 0 {
+		if strings.Contains(plistXML[afterMCX:], "<dict/>") || strings.Contains(plistXML[afterMCX:], "<dict />") {
+			return "<dict></dict>", nil
+		}
+		return "", fmt.Errorf("no <dict> found after mcx_preference_settings for domain %q", domain)
+	}
+	dictOpenPos := afterMCX + dictRelPos
+	dictCloseEnd := findMatchingCloseDict(plistXML, dictOpenPos)
+	if dictCloseEnd < 0 {
+		return "", fmt.Errorf("unmatched <dict> in mcx_preference_settings for domain %q", domain)
+	}
+	return plistXML[dictOpenPos:dictCloseEnd], nil
 }
 
 // ReplaceMCXDict navigates the plist XML to find the mcx_preference_settings

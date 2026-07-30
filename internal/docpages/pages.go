@@ -146,6 +146,7 @@ var humanDocEntries = []struct {
 	{"docs/api-endpoints", "API endpoints", "Guides", "api-endpoints.md"},
 	{"docs/mcp", "MCP for AI tools", "Guides", "mcp.md"},
 	{"docs/mcp-tools", "MCP tools scorecard", "Guides", "mcp-tools.md"},
+	{"docs/profile-payloads", "Profile payloads", "Guides", "profile-payloads.md"},
 	{"docs/editor", "Editor / LSP", "Guides", "editor.md"},
 }
 
@@ -234,6 +235,7 @@ func loadAgentFromDisk(docsRoot string) ([]Page, error) {
 		{"docs/api-endpoints", "API endpoints", filepath.Join(docsRoot, "api-endpoints.md")},
 		{"docs/mcp", "MCP server", filepath.Join(docsRoot, "mcp.md")},
 		{"docs/mcp-tools", "MCP tools scorecard", filepath.Join(docsRoot, "mcp-tools.md")},
+		{"docs/profile-payloads", "Profile payloads", filepath.Join(docsRoot, "profile-payloads.md")},
 		{"docs/editor", "Editor / LSP", filepath.Join(docsRoot, "editor.md")},
 		{"readme", "README", filepath.Join(repoRoot, "README.md")},
 		{"agents", "AGENTS", filepath.Join(repoRoot, "AGENTS.md")},
@@ -271,6 +273,7 @@ func loadAgentFromEmbedded() ([]Page, error) {
 		{"docs/api-endpoints", "API endpoints", "content/docs/api-endpoints.md"},
 		{"docs/mcp", "MCP server", "content/docs/mcp.md"},
 		{"docs/mcp-tools", "MCP tools scorecard", "content/docs/mcp-tools.md"},
+		{"docs/profile-payloads", "Profile payloads", "content/docs/profile-payloads.md"},
 		{"docs/editor", "Editor / LSP", "content/docs/editor.md"},
 		{"readme", "README", "content/README.md"},
 		{"agents", "AGENTS", "content/AGENTS.md"},

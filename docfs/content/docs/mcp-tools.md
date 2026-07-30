@@ -49,16 +49,19 @@ Hosts may also connect Jamf’s remote MCP at `https://developer.jamf.com/mcp` (
 
 ## Profiles / payloads cookbook
 
-Classic configuration profiles embed an entity-encoded payloads plist under `<payloads>`. Prefer typed tools over hand-built XML:
+See **[profile-payloads.md](profile-payloads.md)** for the full scorecard, PayloadContent vs MCX, and merge vs full-replace rules.
+
+Classic configuration profiles embed an entity-encoded payloads plist under `<payloads>`. Prefer typed tools:
 
 1. `profiles` — list `{id,name}` (optional name `filter`).
 2. `profile_xml` — load full Classic XML by `profile_id`.
-3. Edit offline with `profile_xml_patch_payload` (`domain` = PayloadIdentifier, `new_payload` = dict object or plist/`<dict>` string).
-4. `profile_put_xml` — write XML back (`redeploy` optional).
+3. Optional: `profile_xml_extract_payloads` → `payloads_list_identifiers` (inspect PayloadContent domains).
+4. `profile_xml_patch_payload` — offline patch (**merges** PayloadContent keys; MCX = settings-only dict).
+5. `profile_put_xml` — write XML back (`redeploy` optional).
 
-Do **not** invent a Classic PUT body from `jamf_schema` alone — UUID and entity-encoding rules are easy to break.
+Do **not** invent a Classic PUT body from `jamf_schema` alone.
 
-For extract / decode / replace / MCX flows, use `docs` (`query: "payload"` or builtins) and `starlark_eval` with `profile_xml_extract_payloads`, `payloads_*`, `plist_decode` / `plist_encode`.
+For extract / decode / full replace / MCX get, use `docs` (`query: "profile-payloads"`) and `starlark_eval` with `payloads_*` / `plist_*`.
 
 ---
 
@@ -99,6 +102,8 @@ Value criteria: encodes Jamf/buddy knowledge; completes a common task without ra
 | `profile_xml` | Load Classic XML |
 | `profile_put_xml` | Write Classic XML |
 | `profile_xml_patch_payload` | Offline domain patch |
+| `profile_xml_extract_payloads` | Offline: payloads plist from profile XML |
+| `payloads_list_identifiers` | Offline: PayloadIdentifier list |
 
 ### Defer
 

@@ -23,6 +23,8 @@ var expectedTier1Tools = []string{
 	"profile_xml",
 	"profile_put_xml",
 	"profile_xml_patch_payload",
+	"profile_xml_extract_payloads",
+	"payloads_list_identifiers",
 }
 
 func TestServerInstructions(t *testing.T) {

@@ -42,6 +42,7 @@ func TestProfileXMLPatchPayload_Offline(t *testing.T) {
 <dict>
 <key>PayloadIdentifier</key><string>com.example.test</string>
 <key>PayloadType</key><string>com.example.test</string>
+<key>PayloadUUID</key><string>keep-uuid</string>
 <key>SomeKey</key><string>Old</string>
 </dict>
 </array>
@@ -55,9 +56,7 @@ func TestProfileXMLPatchPayload_Offline(t *testing.T) {
 </os_x_configuration_profile>`
 
 	dictXML, err := payloadAnyToDictXML(map[string]any{
-		"PayloadIdentifier": "com.example.test",
-		"PayloadType":       "com.example.test",
-		"SomeKey":           "New",
+		"SomeKey": "New",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -72,6 +71,13 @@ func TestProfileXMLPatchPayload_Offline(t *testing.T) {
 	}
 	if !strings.Contains(raw, "New") || strings.Contains(raw, ">Old<") {
 		t.Fatalf("patch failed: %s", raw)
+	}
+	if !strings.Contains(raw, "keep-uuid") {
+		t.Fatalf("PayloadUUID not preserved: %s", raw)
+	}
+	ids, err := buddy.PlistPayloadIdentifiers(raw)
+	if err != nil || len(ids) != 1 || ids[0] != "com.example.test" {
+		t.Fatalf("list identifiers: %v %v", ids, err)
 	}
 }
 

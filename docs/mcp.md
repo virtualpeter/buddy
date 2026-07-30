@@ -113,7 +113,9 @@ Tool names follow the Starlark plural/singular grammar (see [reference manual](r
 | `static_group_add_computers` / `_remove_computers` / `_set_computers` | `null` | Mutating membership |
 | `profiles` | `[{id,name},…]` | Optional name `filter` |
 | `profile_xml` | Profile XML string | By `profile_id` |
-| `profile_xml_patch_payload` | Updated XML | Offline; `domain` + `new_payload` object/string |
+| `profile_xml_extract_payloads` | Payloads plist string | Offline extract |
+| `payloads_list_identifiers` | `[PayloadIdentifier…]` | Offline; PayloadContent only |
+| `profile_xml_patch_payload` | Updated XML | Offline merge patch; PayloadContent or MCX |
 | `profile_put_xml` | `{id}` | Mutating Classic PUT |
 | `computers` | Summary dicts (or IDs if `ids=true`) | RSQL `filter` |
 | `scripts` | Script summaries | Name substring or RSQL |
@@ -245,7 +247,7 @@ Learn endpoints from the Jamf host schemas plus the embedded Platform specs:
 
 ### Groups and profiles
 
-See **[mcp-tools.md](mcp-tools.md)** for the decision tree (smart vs static vs Platform device groups) and the profile payload cookbook (`profile_xml` → `profile_xml_patch_payload` → `profile_put_xml`).
+See **[mcp-tools.md](mcp-tools.md)** and **[profile-payloads.md](profile-payloads.md)** for groups vs profiles and the payload cookbook (`profile_xml` → extract/list → `profile_xml_patch_payload` → `profile_put_xml`).
 
 ### `docs` tips
 
