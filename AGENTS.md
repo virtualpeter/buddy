@@ -65,7 +65,7 @@ Config is **tenants** + **auths** + optional **channels** policies (breaking cha
 
 - **Tenant** — Jamf environment: instance `url` and/or Platform `region` + `tenantId`.
 - **Auth** — secret-bearing principal (`command` / `basic` / `oauth`) linked to one or more tenants via `tenants: […]`. A platform clientId may list multiple tenants. Optional `access` (`full`|`readonly`) and `surface` (`any`|`platform`|`instance`).
-- **Tenant selection** — `tenant.default` plus optional `channels.<cli|mcp|ide|notebook>.tenant`. Global `--tenant` still wins; `--user` / `--auth` pins an auth. Starlark/MCP `cred=` still means auth pin.
+- **Tenant selection** — `tenant.default` plus optional `channels.<cli|mcp|ide|notebook>.tenant`. Global `--tenant` still wins; `--user` / `--auth` pins an auth. Starlark/MCP use tenant-first session kwargs (`tenant=` / `surface=` / `auth=`); `cred=` was removed.
 - **Channel policy** — optional `channels.<client>.access` (`readonly`|`full`), `tenant`, and `tenants` allowlist. Clamps mutates and filters selectable tenants (most restrictive with auth access wins).
 - **Auth channels** — optional `channels: [cli, mcp, ide, notebook]` on each auth (omit = all). Filters auto-pick and rejects pins / UI choices. Notebook and IDE are separate clients (no shared `serve` channel).
 
@@ -110,8 +110,8 @@ Three layers:
 - **oauth** (instance): client credentials → `/api/oauth/token`; expiry from `expires_in`.
 - **oauth** (Platform API Gateway, credential `tenantId` set): client credentials → `{gateway}/auth/token` (fallback `/oauth2/token`); ~900s expiry; **no keep-alive** — re-auth when near expiry.
 - **Disk hydrate**: if memory is empty and `CacheKey` is set, load a still-valid disk token before hitting Jamf.
-- **Proactive refresh**: if token expires within 3 minutes, call `/api/v1/auth/keep-alive` before it expires (instance basic/oauth only; skipped for Platform).
-- **Reactive refresh**: on HTTP 401, `RefreshToken()` retries once (keep-alive or full re-auth); disk cache cleared when re-authing.
+- **Proactive refresh**: if token expires within 3 minutes — basic auth calls `/api/v1/auth/keep-alive`; OAuth (instance and Platform) always re-auths via client credentials (never keep-alive).
+- **Reactive refresh**: on HTTP 401, `PerformRequest` refreshes once (OAuth/command: re-auth; basic: keep-alive or re-auth unless keep-alive probe still succeeds) and retries the request once.
 
 CLI surfaces:
 
@@ -153,7 +153,7 @@ buddy resolves secrets from the platform store at runtime, so meliorate config d
 ## Conventions (follow existing rules)
 
 - **CLI help**: see `.cursor/rules/buddy-cli.mdc` — usage lines, subcommand naming, placeholders.
-- **Starlark builtins**: see `.cursor/rules/buddy-builtins.mdc` and [docs/reference-manual.md](docs/reference-manual.md#built-in-functions) — plural/singular grammar (`policies` / `policy` / `policy_set`), resource IDs first on mutate helpers, `cred?` last. Do not reintroduce removed legacy aliases (`package_list`, `policy_find_ids`, …).
+- **Starlark builtins**: see `.cursor/rules/buddy-builtins.mdc` and [docs/reference-manual.md](docs/reference-manual.md#built-in-functions) — plural/singular grammar (`policies` / `policy` / `policy_set`), resource IDs first on mutate helpers, `tenant?` / `surface?` / `auth?` last. Do not reintroduce removed legacy aliases (`package_list`, `policy_find_ids`, …).
 - **Starlark stdlib**: multi-step helpers in `stdlib/*.buddy` via `load("stdlib/release.buddy", "bump_release")` (etc.). Notebook Libraries drawer browses builtins + stdlib (Getting started / Advanced).
 - **Script file extension**: user scripts and stdlib modules use `.buddy` (editor language id / LSP). Keep accepting `.star` (and any path) for legacy scripts.
 - **User docs**: `README.md`, `docs/reference-manual.md` — keep in sync when adding commands or secret behavior.

@@ -8,10 +8,15 @@ def _ok(value):
 def _err(msg):
     return {"ok": False, "value": None, "error": msg}
 
-def _cred_kwargs(cred):
-    if cred == None or cred == "":
-        return {}
-    return {"cred": cred}
+def _session_kwargs(tenant = None, surface = None, auth = None):
+    out = {}
+    if tenant != None and tenant != "":
+        out["tenant"] = tenant
+    if surface != None and surface != "":
+        out["surface"] = surface
+    if auth != None and auth != "":
+        out["auth"] = auth
+    return out
 
 # bump_release — resolve policy by trigger, set package/install/SS, optional smart-group version.
 #
@@ -23,32 +28,34 @@ def bump_release(
         install_policy_id = 0,
         self_service_policy_id = 0,
         version_group_id = "",
-        cred = None):
+        tenant = None,
+        surface = None,
+        auth = None):
     """Bump an app release: package + install + self-service (+ optional version group)."""
-    ck = _cred_kwargs(cred)
+    sk = _session_kwargs(tenant = tenant, surface = surface, auth = auth)
     trigger = trigger_prefix + version
 
-    r = policy(trigger = trigger, force_refresh = True, **ck)
+    r = policy(trigger = trigger, force_refresh = True, **sk)
     if not r["ok"]:
         return _err("policy: " + r["error"])
     policy_id = r["value"]["id"]
 
-    r = policy_set_package(app = app, version = version, policy_id = policy_id, **ck)
+    r = policy_set_package(app = app, version = version, policy_id = policy_id, **sk)
     if not r["ok"]:
         return _err("policy_set_package: " + r["error"])
 
     install_id = install_policy_id if install_policy_id else policy_id
-    r = policy_set_install(policy_id = install_id, version = version, **ck)
+    r = policy_set_install(policy_id = install_id, version = version, **sk)
     if not r["ok"]:
         return _err("policy_set_install: " + r["error"])
 
     ss_id = self_service_policy_id if self_service_policy_id else policy_id
-    r = policy_set_ss(policy_id = ss_id, version = version, **ck)
+    r = policy_set_ss(policy_id = ss_id, version = version, **sk)
     if not r["ok"]:
         return _err("policy_set_ss: " + r["error"])
 
     if version_group_id:
-        r = smart_group_set_version(group_id = version_group_id, version = version, **ck)
+        r = smart_group_set_version(group_id = version_group_id, version = version, **sk)
         if not r["ok"]:
             return _err("smart_group_set_version: " + r["error"])
 

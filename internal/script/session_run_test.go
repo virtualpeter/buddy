@@ -77,7 +77,7 @@ func TestSessionInspectGlobalsSkipsBuiltins(t *testing.T) {
 			t.Fatal("builtin policies should be filtered")
 		}
 	}
-	if !names["x"] || !names["cred"] || !names["args"] {
+	if !names["x"] || !names["tenant"] || !names["auth"] || !names["args"] {
 		t.Fatalf("%v", names)
 	}
 }

@@ -216,7 +216,7 @@ buddy [global-flags] [--trace] <script.buddy> [-- args...]
 - Scripts are **Starlark** (a deterministic Python-like language). See **Language** below.
 - Prefer the **`.buddy`** file extension for user scripts and stdlib modules (Cursor/VS Code language id + `buddy lsp`). Load with `load("stdlib/<name>.buddy", …)`. Existing **`.star`** paths still run.
 - `args` after `--` are available as the global list `args`.
-- The active credential name is available as `cred` (override per builtin with `cred=`).
+- The active tenant and auth pin are available as `tenant` and `auth` (override per builtin with `tenant=` / `surface=` / `auth=`).
 - The regex module is exposed as `re` (see `buddy help starlark` for what Starlark provides globally).
 - If the script defines `main`, buddy invokes it after load (same as MCP `starlark_eval`). Do not call `main()` yourself at top level.
 - **`print()`** writes to stdout; buddy adds **`error(*args, ...)`** for stderr (same signature as `print`). Prefer **`error`** for progress, skips, and failures so stdout stays free for machine-readable output; reserve **`print`** for lines meant to be piped or captured as the script’s primary result.
@@ -268,8 +268,8 @@ That output lists every builtin with parameter names, types, and return shapes. 
 
 - **Grammar:** plural nouns enumerate (`policies`, `smart_groups`, `computers`); singular nouns load one (`policy(id=…)` or `policy(trigger=…)`, `smart_group(name=…)`); singular_verb mutates (`policy_set`, `computer_reboot`).
 - **Notebook:** Libraries drawer shows Getting started / Advanced; bare builtin names print help; `policies()` lists all.
-- Resource IDs come first on mutate helpers (`policy_id`, `group_id`, …); singular loaders use `id=` or a natural key; then options; optional `cred?` last.
-- Use `cred="name"` to override the active credential for a single call.
+- Resource IDs come first on mutate helpers (`policy_id`, `group_id`, …); singular loaders use `id=` or a natural key; then options; optional `tenant?` / `surface?` / `auth?` last.
+- Use `tenant="name"` and/or `auth="name"` (and optional `surface="instance"|"platform"`) to override session selection for a single call. `cred=` was removed.
 - Paginated list builtins take `page?` (0-based) and `page_size?` (default 200). **Omit `page`** to walk every page and return the full list.
 - Plural lists return summary dicts `{id, name, …}`; use `ids=True` on `policies` / `computers` when you need bare ID lists.
 

@@ -90,7 +90,9 @@ Ask in natural language; the agent calls tools for you:
 - “List Platform blueprints” (calls `blueprints`; needs a gateway credential)
 - “Show MCP tool priority / groups vs profiles via docs” (`docs` → `mcp-tools`)
 
-Optional tool argument `cred` pins a named **auth** from config (same as CLI `--user`).
+Optional tool arguments `tenant`, `surface` (`instance`|`platform`), and `auth` select the session for a call (tenant-first; `auth` pins like CLI `--user`). `cred` was removed.
+
+MCP blocks Jamf token/keep-alive paths via `jamf_*` / `starlark_eval` and refuses `file_read` of buddy config/secrets/token cache files.
 
 **Tool priority for agents:** typed MCP tool → `starlark_eval` with named builtins → `jamf_get`/`jamf_put` only if no helper exists. See [mcp-tools.md](mcp-tools.md) for the scorecard, smart vs static vs Platform groups, the profile payload cookbook, and how buddy relates to Jamf’s hosted MCP (`developer.jamf.com/mcp`). The MCP server also advertises that split in Initialize `instructions`.
 

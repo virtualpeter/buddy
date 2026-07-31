@@ -74,13 +74,13 @@ func ParseEvalArgs(args []string) []string {
 	return args
 }
 
-// callScriptMain invokes main like the CLI file runner. Passes cred= only when
-// main declares a cred parameter or **kwargs (most scripts use def main():).
-func callScriptMain(thread *starlark.Thread, mainFn starlark.Value, credName string) (starlark.Value, error) {
+// callScriptMain invokes main like the CLI file runner. Passes auth= when
+// main declares an auth parameter or **kwargs (most scripts use def main():).
+func callScriptMain(thread *starlark.Thread, mainFn starlark.Value, authName string) (starlark.Value, error) {
 	var kwargs []starlark.Tuple
 	if fn, ok := mainFn.(*starlark.Function); ok {
-		if fn.HasKwargs() || functionHasParam(fn, "cred") {
-			kwargs = []starlark.Tuple{{starlark.String("cred"), starlark.String(credName)}}
+		if fn.HasKwargs() || functionHasParam(fn, "auth") {
+			kwargs = []starlark.Tuple{{starlark.String("auth"), starlark.String(authName)}}
 		}
 	}
 	return starlark.Call(thread, mainFn, nil, kwargs)
@@ -188,7 +188,9 @@ func newThread(credName string, opts buddy.Opts, logger *slog.Logger, trace bool
 	}
 
 	predeclared := makeBuiltins(credName, logger, trace)
-	predeclared["cred"] = starlark.String(credName)
+	tenant, _ := buddy.ActiveSelection()
+	predeclared["tenant"] = starlark.String(tenant)
+	predeclared["auth"] = starlark.String(credName)
 	predeclared["args"] = listFromStrings(scriptArgs)
 	for k, v := range reModule {
 		predeclared[k] = v
@@ -198,7 +200,8 @@ func newThread(credName string, opts buddy.Opts, logger *slog.Logger, trace bool
 		Name: "buddy",
 		Load: stdlibLoader(reModule, predeclared),
 	}
-	thread.SetLocal("cred", credName)
+	thread.SetLocal(localAuth, credName)
+	thread.SetLocal(localTenant, tenant)
 
 	thread.Print = func(t *starlark.Thread, msg string) {
 		if trace {

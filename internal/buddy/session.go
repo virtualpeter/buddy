@@ -91,6 +91,7 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 
 	channel := ActiveChannel()
 	selTenant, selAuth := ActiveSelection()
+	explicitTenant := strings.TrimSpace(tenantName) != ""
 	if tenantName == "" {
 		tenantName = selTenant
 	}
@@ -114,11 +115,21 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 			if len(auth.Tenants) == 0 {
 				return nil, fmt.Errorf("auth %q has no linked tenants", authName)
 			}
-			if tenantName != "" && !auth.LinkedTo(tenantName) {
+			if explicitTenant && tenantName != "" && !auth.LinkedTo(tenantName) {
 				return nil, fmt.Errorf("auth %q is not linked to tenant %q (linked: %s)", authName, tenantName, strings.Join(auth.Tenants, ", "))
 			}
-			tenantName = auth.Tenants[0]
-			if selTenant != "" && auth.LinkedTo(selTenant) {
+			// Soft-switch: implicit tenant mismatch → first channel-allowed linked tenant.
+			tenantName = ""
+			for _, t := range auth.Tenants {
+				if cfg.TenantAllowedOnChannel(channel, t) {
+					tenantName = t
+					break
+				}
+			}
+			if tenantName == "" {
+				tenantName = auth.Tenants[0]
+			}
+			if selTenant != "" && auth.LinkedTo(selTenant) && cfg.TenantAllowedOnChannel(channel, selTenant) {
 				tenantName = selTenant
 			}
 		}
@@ -264,7 +275,23 @@ func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []
 			errs = append(errs, name+": "+err.Error())
 			continue
 		}
+		pref := SurfacePreference()
+		if pref != "" && surface != pref && auth.EffectiveSurface() != SurfaceAny && auth.EffectiveSurface() != pref {
+			errs = append(errs, name+": surface preference "+pref+" (auth surface="+auth.EffectiveSurface()+")")
+			continue
+		}
+		if pref != "" && (surface == pref || auth.EffectiveSurface() == SurfaceAny || auth.EffectiveSurface() == pref) {
+			// Prefer composing on the requested surface when auth allows it.
+			if pref == SurfacePlatform || pref == SurfaceInstance {
+				if err := checkAuthForOp(cfg, auth, tenant, op, pref, channel); err == nil {
+					surface = pref
+				}
+			}
+		}
 		s := scoreAuth(cfg, auth, surface, op, channel)
+		if pref != "" && surface == pref {
+			s += 50
+		}
 		okList = append(okList, scored{name: name, auth: auth, surface: surface, score: s})
 	}
 	if len(okList) == 0 {
@@ -324,11 +351,11 @@ func scoreAuth(cfg *Config, auth AuthEntry, surface string, op OpClass, channel 
 	return score
 }
 
-// ResolveSessionForCred is a convenience used by the HTTP stack: credName is an
-// optional auth pin (Starlark cred= / MCP cred). Empty uses active selection.
-func ResolveSessionForCred(credName string, op OpClass) (*Session, error) {
+// ResolveSessionForCred is a convenience used by the HTTP stack: authName is an
+// optional auth pin (Starlark auth= / MCP auth). Empty uses active selection.
+func ResolveSessionForCred(authName string, op OpClass) (*Session, error) {
 	if activeConfig == nil {
 		return nil, fmt.Errorf("internal error: config not loaded (SetActiveConfig not called)")
 	}
-	return activeConfig.ResolveSession("", credName, op)
+	return activeConfig.ResolveSession("", authName, op)
 }

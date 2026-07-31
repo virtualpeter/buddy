@@ -231,13 +231,79 @@ func PerformRequest(_ interface{}, req *http.Request, credName string) (*http.Re
 }
 
 // PerformRequestOp is like PerformRequest with an operation class for auth picking.
+// On HTTP 401, refreshes the token once (OAuth: client credentials; basic: keep-alive or re-auth) and retries.
 func PerformRequestOp(req *http.Request, credName string, op OpClass) (*http.Response, error) {
+	bodyBytes, err := bufferRequestBody(req)
+	if err != nil {
+		return nil, err
+	}
+
 	authHeader, err := resolveAuthHeaderOp(credName, op)
 	if err != nil {
 		return nil, fmt.Errorf("get auth for %q: %w", credName, err)
 	}
 	req.Header.Set("Authorization", authHeader)
+	resp, err := performHTTP(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		return resp, nil
+	}
+
+	sess, sessErr := ResolveSessionForCred(credName, op)
+	if sessErr != nil {
+		return resp, nil
+	}
+	a, authErr := cachedAuthenticator(sessionCacheName(sess), sess.AuthName, sess.Credential)
+	if authErr != nil {
+		return resp, nil
+	}
+	// Basic: if keep-alive probe still succeeds, this is privilege-denied — do not retry.
+	if a.ProbeTokenStillValid() {
+		return resp, nil
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	if err := a.RefreshToken(); err != nil {
+		return nil, fmt.Errorf("refresh token after 401: %w", err)
+	}
+	authHeader, err = resolveAuthHeaderOp(credName, op)
+	if err != nil {
+		return nil, fmt.Errorf("get auth for %q after refresh: %w", credName, err)
+	}
+	req.Header.Set("Authorization", authHeader)
+	restoreRequestBody(req, bodyBytes)
 	return performHTTP(req)
+}
+
+func bufferRequestBody(req *http.Request) ([]byte, error) {
+	if req == nil || req.Body == nil {
+		return nil, nil
+	}
+	bodyBytes, err := io.ReadAll(req.Body)
+	req.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read request body: %w", err)
+	}
+	restoreRequestBody(req, bodyBytes)
+	return bodyBytes, nil
+}
+
+func restoreRequestBody(req *http.Request, bodyBytes []byte) {
+	if req == nil {
+		return
+	}
+	if bodyBytes == nil {
+		req.Body = nil
+		return
+	}
+	req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	req.ContentLength = int64(len(bodyBytes))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}
 }
 
 // PerformRequestNoAuth makes an HTTP request without an Authorization header.

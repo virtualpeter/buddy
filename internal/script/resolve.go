@@ -7,15 +7,6 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// resolveCred returns credName, optionally overridden by kwargs-style string.
-func resolveCred(thread *starlark.Thread, defaultCred string, cred starlark.String) string {
-	c := defaultCred
-	if cred != "" {
-		c = string(cred)
-	}
-	return getCred(thread, c)
-}
-
 // starlarkIDString accepts int or str Starlark value as an ID string.
 func starlarkIDString(v starlark.Value, label string) (string, error) {
 	switch x := v.(type) {

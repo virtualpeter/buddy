@@ -8,7 +8,7 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// jamf_schema(api?="all", filter?="", full?=False, cred?)
+// jamf_schema(api?="all", filter?="", full?=False, tenant?, surface?, auth?)
 //
 // Fetches Jamf Pro OpenAPI (/api/schema) and/or Classic Swagger
 // (/classicapi/doc/swagger.yaml) live from the credential's server, plus the
@@ -25,18 +25,27 @@ import (
 func jamfSchemaBuiltin(credName string, logger *slog.Logger) builtinFn {
 	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		api := starlark.String("all")
-		var filter, cred starlark.String
+		var filter starlark.String
 		full := starlark.Bool(false)
+		var sess sessionArgs
 		if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 			"api?", &api,
 			"filter?", &filter,
 			"full?", &full,
-			"cred?", &cred,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
+		}
+		defer restoreSession()
+		c := sessionPin
 		_ = logger
-		res, err := buddy.FetchJamfSchema(resolveCred(thread, credName, cred), string(api), string(filter), bool(full))
+		res, err := buddy.FetchJamfSchema(c, string(api), string(filter), bool(full))
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}

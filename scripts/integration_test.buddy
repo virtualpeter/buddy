@@ -20,22 +20,22 @@ def require_ok(res, ctx):
 def test_policy(cred, created):
     name = TEST_PREFIX + "policy"
     # Cleanup any leftover test policies (previous runs may have exited early).
-    res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, cred=cred)
+    res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
     require_ok(res, "policies")
     leftovers = res["value"]
     if leftovers:
-        dres = policy_delete(policy_ids=leftovers, cred=cred)
+        dres = policy_delete(policy_ids=leftovers, auth=auth)
         require_ok(dres, "policy_delete (leftovers)")
 
     # Create a simple self-service policy; adjust args to match your environment.
     # Use all-computers scope for portability across Jamf instances.
-    res = policy_create_ss(trigger="buddy-test", display_name=name, scope_group_id=0, cred=cred)
+    res = policy_create_ss(trigger="buddy-test", display_name=name, scope_group_id=0, auth=auth)
     require_ok(res, "policy_create_ss")
     policy_id = res["value"]
     created["policies"].append(policy_id)
 
     # Read back details (includes enabled).
-    res = policy(id=policy_id, cred=cred)
+    res = policy(id=policy_id, auth=auth)
     require_ok(res, "policy")
     details = res["value"]
     if details["enabled"] not in [True, False]:
@@ -45,7 +45,7 @@ def test_policy(cred, created):
         fail("policy name mismatch: %r" % details["name"])
 
     # policy_xml + policy_put_xml: set an initial custom trigger so policy_set(trigger=) can be exercised.
-    res = policy_xml(id=policy_id, cred=cred)
+    res = policy_xml(id=policy_id, auth=auth)
     require_ok(res, "policy_xml")
     xml = res["value"]
     # IMPORTANT: policy(trigger=) uses heuristics that only consider candidate policies
@@ -61,16 +61,16 @@ def test_policy(cred, created):
         # Best-effort: don't fail if Jamf changes the schema; skip trigger-based tests.
         xml2 = ""
     if xml2:
-        res = policy_put_xml(policy_id=policy_id, xml_str=xml2, cred=cred)
+        res = policy_put_xml(policy_id=policy_id, xml_str=xml2, auth=auth)
         require_ok(res, "policy_put_xml (set trigger_other)")
-        res = policy_xml(id=policy_id, cred=cred)
+        res = policy_xml(id=policy_id, auth=auth)
         require_ok(res, "policy_xml (post put)")
         if initial_trigger not in res["value"]:
             fail("policy_put_xml did not persist trigger_other")
 
         # policy_set + policy(trigger=)
         new_trigger = "install-" + TEST_PREFIX + "policy-%d" % policy_id
-        require_ok(policy_set(policy_id=policy_id, trigger=new_trigger, cred=cred), "policy_set(trigger)")
+        require_ok(policy_set(policy_id=policy_id, trigger=new_trigger, auth=auth), "policy_set(trigger)")
         # policy(trigger=) is best-effort: it relies on the classic policy list endpoint.
         # Some Jamf roles can create/read by ID but cannot list all policies.
         res = policy(trigger=new_trigger, force_refresh=True)
@@ -81,7 +81,7 @@ def test_policy(cred, created):
                 fail("policy(trigger=) mismatch: got %r want %r" % (res["value"]["id"], policy_id))
 
         # Verify trigger_other via details regardless of trigger lookup availability.
-        res = policy(id=policy_id, cred=cred)
+        res = policy(id=policy_id, auth=auth)
         require_ok(res, "policy (post set_trigger)")
         if res["value"]["trigger_other"] != new_trigger:
             fail("policy_set did not persist trigger_other: %r" % res["value"]["trigger_other"])
@@ -89,23 +89,23 @@ def test_policy(cred, created):
         error("policy_put_xml trigger_other setup skipped (no trigger_other element found)")
 
     # policy_set frequency
-    require_ok(policy_set(policy_id=policy_id, frequency="Ongoing", cred=cred), "policy_set(frequency)")
-    res = policy(id=policy_id, cred=cred)
+    require_ok(policy_set(policy_id=policy_id, frequency="Ongoing", auth=auth), "policy_set(frequency)")
+    res = policy(id=policy_id, auth=auth)
     require_ok(res, "policy (post frequency)")
     if res["value"]["frequency"] != "Ongoing":
         fail("policy_set frequency did not persist")
 
     # policy_set_scope_all
-    require_ok(policy_set_scope_all(policy_id=policy_id, cred=cred), "policy_set_scope_all")
-    res = policy(id=policy_id, cred=cred)
+    require_ok(policy_set_scope_all(policy_id=policy_id, auth=auth), "policy_set_scope_all")
+    res = policy(id=policy_id, auth=auth)
     require_ok(res, "policy (post scope_all)")
     if not res["value"]["scope"]["all_computers"]:
         fail("policy_set_scope_all did not persist")
 
     # policy_set name
     new_name = TEST_PREFIX + "policy-renamed-%d" % policy_id
-    require_ok(policy_set(policy_id=policy_id, name=new_name, cred=cred), "policy_set(name)")
-    res = policy(id=policy_id, cred=cred)
+    require_ok(policy_set(policy_id=policy_id, name=new_name, auth=auth), "policy_set(name)")
+    res = policy(id=policy_id, auth=auth)
     require_ok(res, "policy (post set_name)")
     if res["value"]["name"] != new_name:
         fail("policy_set name did not persist: %r" % res["value"]["name"])
@@ -118,39 +118,39 @@ def test_policy(cred, created):
             description=ss_desc,
             install_text="Install",
             reinstall_text="Reinstall",
-            cred=cred,
+            auth=auth,
         ),
         "policy_set_ss",
     )
-    res = policy_xml(id=policy_id, cred=cred)
+    res = policy_xml(id=policy_id, auth=auth)
     require_ok(res, "policy_xml (post set_ss)")
     if ss_desc not in res["value"]:
         error("policy_set_ss verify skipped (description not found in XML)")
 
     # Toggle enable/disable.
-    require_ok(policy_set(policy_id=policy_id, enable=True, cred=cred), "policy_set(enable=True)")
-    res = policy(id=policy_id, cred=cred)
+    require_ok(policy_set(policy_id=policy_id, enable=True, auth=auth), "policy_set(enable=True)")
+    res = policy(id=policy_id, auth=auth)
     require_ok(res, "policy (post enable)")
     if not res["value"]["enabled"]:
         error("policy expected enabled=True after enable")
 
-    require_ok(policy_set(policy_id=policy_id, enable=False, cred=cred), "policy_set(enable=False)")
-    res = policy(id=policy_id, cred=cred)
+    require_ok(policy_set(policy_id=policy_id, enable=False, auth=auth), "policy_set(enable=False)")
+    res = policy(id=policy_id, auth=auth)
     require_ok(res, "policy (post disable)")
     if res["value"]["enabled"]:
         error("policy expected enabled=False after disable")
 
     # policy_clone (best-effort): diff before/after TEST_PREFIX policy IDs to discover clone.
     before = leftovers
-    res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, cred=cred)
+    res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
     require_ok(res, "policies (pre clone)")
     before = res["value"]
     clone_version = "9.9.9"
-    cres = policy_clone(policy_id=policy_id, version=clone_version, cred=cred)
+    cres = policy_clone(policy_id=policy_id, version=clone_version, auth=auth)
     if not cres["ok"]:
         error("policy_clone skipped:", cres["error"])
     else:
-        res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, cred=cred)
+        res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
         require_ok(res, "policies (post clone)")
         after = res["value"]
         # Find new IDs not in before.
@@ -159,12 +159,12 @@ def test_policy(cred, created):
                 created["policies"].append(pid)
 
     # policy_set_install (best-effort): may depend on script params existing in policy.
-    ires = policy_set_install(policy_id=policy_id, version="1.2.3", cred=cred)
+    ires = policy_set_install(policy_id=policy_id, version="1.2.3", auth=auth)
     if not ires["ok"]:
         error("policy_set_install skipped:", ires["error"])
 
     # policy_set_package (best-effort): depends on environment-specific policies/packages.
-    pres = policy_set_package(app="chrome", version="1.2.3", policy_id=policy_id, cred=cred)
+    pres = policy_set_package(app="chrome", version="1.2.3", policy_id=policy_id, auth=auth)
     if not pres["ok"]:
         error("policy_set_package skipped:", pres["error"])
 
@@ -183,7 +183,7 @@ def cleanup_policy(cred, created):
     if not created["policies"]:
         return
     # policy_delete takes a list of IDs.
-    res = policy_delete(policy_ids=created["policies"], cred=cred)
+    res = policy_delete(policy_ids=created["policies"], auth=auth)
     if not res["ok"]:
         error("cleanup policy_delete error:", res["error"])
     created["policies"].clear()
@@ -191,11 +191,11 @@ def cleanup_policy(cred, created):
 
 def test_smart_group(cred, created):
     # Remove any leftover test smart groups from previous runs.
-    res = smart_groups(filter=TEST_PREFIX, cred=cred)
+    res = smart_groups(filter=TEST_PREFIX, auth=auth)
     require_ok(res, "smart_groups")
     for g in res["value"]:
         gid = g["id"]
-        dres = group_delete(group_id=gid, cred=cred)
+        dres = group_delete(group_id=gid, auth=auth)
         if not dres["ok"]:
             error("cleanup old group_delete error:", dres["error"])
 
@@ -215,19 +215,19 @@ def test_smart_group(cred, created):
         ],
     }
     # Jamf Pro API expects id to be a positive numeric string or -1 for create.
-    res = group_put(group_id="-1", dict=body, cred=cred)
+    res = group_put(group_id="-1", dict=body, auth=auth)
     if not res["ok"]:
         fail("group_put: %s" % res["error"])
 
     # Find the created group by name.
-    res = smart_group(name=group_name, cred=cred)
+    res = smart_group(name=group_name, auth=auth)
     require_ok(res, "smart_group")
     ginfo = res["value"]
     group_id = str(ginfo["id"])
     created["groups"].append(group_id)
 
     # Inspect and then update criteria.
-    res = smart_group_get_criteria(group_id=group_id, cred=cred)
+    res = smart_group_get_criteria(group_id=group_id, auth=auth)
     require_ok(res, "smart_group_get_criteria")
     criteria = res["value"]
     if len(criteria) < 1:
@@ -238,14 +238,14 @@ def test_smart_group(cred, created):
         group_id=group_id,
         name_substring="Application",
         new_value="Example Application",
-        cred=cred,
+        auth=auth,
     )
     require_ok(res, "smart_group_update_criterion_value")
 
 
 def cleanup_smart_group(cred, created):
     for gid in created["groups"]:
-        res = group_delete(group_id=gid, cred=cred)
+        res = group_delete(group_id=gid, auth=auth)
         if not res["ok"]:
             error("cleanup group_delete error:", res["error"])
     created["groups"].clear()
@@ -255,7 +255,7 @@ def test_static_group_list(cred):
     if TEST_STATIC_GROUP_ID == "":
         error("static_group_list_computers: skipped (set TEST_STATIC_GROUP_ID to a static group id)")
         return
-    res = static_group_list_computers(group_id=TEST_STATIC_GROUP_ID, cred=cred)
+    res = static_group_list_computers(group_id=TEST_STATIC_GROUP_ID, auth=auth)
     require_ok(res, "static_group_list_computers")
     members = res["value"]
     if type(members) != "list":
@@ -274,14 +274,14 @@ def test_profile(cred, created):
 
     # 2. Clone into a test profile.
     clone_name = TEST_PREFIX + "profile"
-    res = profile_clone(profile_id=source_id, name=clone_name, cred=cred)
+    res = profile_clone(profile_id=source_id, name=clone_name, auth=auth)
     require_ok(res, "profile_clone")
     new_profile = res["value"]
     profile_id = new_profile["id"]
     created["profiles"].append(profile_id)
 
     # 3. Fetch full profile XML, then extract payloads offline.
-    res = profile_xml(id=profile_id, cred=cred)
+    res = profile_xml(id=profile_id, auth=auth)
     require_ok(res, "profile_xml")
     profile_xml_str = res["value"]
 
@@ -316,7 +316,7 @@ def test_profile(cred, created):
     updated_xml = res["value"]
 
     # 8. Write updated profile XML back.
-    res = profile_put_xml(profile_id=profile_id, xml_str=updated_xml, cred=cred)
+    res = profile_put_xml(profile_id=profile_id, xml_str=updated_xml, auth=auth)
     require_ok(res, "profile_put_xml")
 
 
@@ -334,20 +334,20 @@ def test_package_and_script(cred):
     if pkgs:
         first = pkgs[0]
         pkg_id = first["id"] if type(first) == "dict" else first
-        res2 = package(id=pkg_id, cred=cred)
+        res2 = package(id=pkg_id, auth=auth)
         require_ok(res2, "package")
         pkg = res2["value"]
         if "packageName" not in pkg:
             fail("package: missing packageName in package %r" % pkg)
 
     # Scripts: list and fetch one
-    res = scripts(cred=cred)
+    res = scripts(auth=auth)
     require_ok(res, "scripts")
     scripts = res["value"]
     if scripts:
         first = scripts[0]
         script_id = first["id"] if type(first) == "dict" else first
-        res2 = script(id=script_id, cred=cred)
+        res2 = script(id=script_id, auth=auth)
         require_ok(res2, "script")
         body = res2["value"]
         if not body:
@@ -361,7 +361,7 @@ def cleanup_all(cred, created):
     cleanup_profile(cred, created)
 
 
-def main(cred=None):
+def main(auth=None):
     if cred == None:
         cred = "default"
     # Mutable dict for this run (globals are frozen after ExecFile).

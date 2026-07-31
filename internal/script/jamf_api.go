@@ -24,8 +24,9 @@ func jamfRequestBuiltin(credName string, logger *slog.Logger) builtinFn {
 	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var method, path starlark.String
 		var body starlark.Value = starlark.None
-		var contentType, accept, cred starlark.String
+		var contentType, accept starlark.String
 		parse := starlark.Bool(true)
+		var sess sessionArgs
 		if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 			"method", &method,
 			"path", &path,
@@ -33,27 +34,44 @@ func jamfRequestBuiltin(credName string, logger *slog.Logger) builtinFn {
 			"content_type?", &contentType,
 			"accept?", &accept,
 			"parse?", &parse,
-			"cred?", &cred,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
 		}
-		return doJamfRequest(thread, resolveCred(thread, credName, cred), logger, string(method), string(path), body, string(contentType), string(accept), bool(parse))
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
+		}
+		defer restoreSession()
+		c := sessionPin
+		return doJamfRequest(thread, c, logger, string(method), string(path), body, string(contentType), string(accept), bool(parse))
 	}
 }
 
 func jamfGetBuiltin(credName string, logger *slog.Logger) builtinFn {
 	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var path, accept, cred starlark.String
+		var path, accept starlark.String
 		parse := starlark.Bool(true)
+		var sess sessionArgs
 		if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 			"path", &path,
 			"accept?", &accept,
 			"parse?", &parse,
-			"cred?", &cred,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
 		}
-		return doJamfRequest(thread, resolveCred(thread, credName, cred), logger, "GET", string(path), starlark.None, "", string(accept), bool(parse))
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
+		}
+		defer restoreSession()
+		c := sessionPin
+		return doJamfRequest(thread, c, logger, "GET", string(path), starlark.None, "", string(accept), bool(parse))
 	}
 }
 
@@ -71,17 +89,26 @@ func jamfPatchBuiltin(credName string, logger *slog.Logger) builtinFn {
 
 func jamfDeleteBuiltin(credName string, logger *slog.Logger) builtinFn {
 	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var path, accept, cred starlark.String
+		var path, accept starlark.String
 		parse := starlark.Bool(true)
+		var sess sessionArgs
 		if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 			"path", &path,
 			"accept?", &accept,
 			"parse?", &parse,
-			"cred?", &cred,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
 		}
-		return doJamfRequest(thread, resolveCred(thread, credName, cred), logger, "DELETE", string(path), starlark.None, "", string(accept), bool(parse))
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
+		}
+		defer restoreSession()
+		c := sessionPin
+		return doJamfRequest(thread, c, logger, "DELETE", string(path), starlark.None, "", string(accept), bool(parse))
 	}
 }
 
@@ -89,24 +116,36 @@ func jamfMutateBuiltin(credName string, logger *slog.Logger, method string) buil
 	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var path starlark.String
 		var body starlark.Value = starlark.None
-		var contentType, accept, cred starlark.String
+		var contentType, accept starlark.String
 		parse := starlark.Bool(true)
+		var sess sessionArgs
 		if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 			"path", &path,
 			"body?", &body,
 			"content_type?", &contentType,
 			"accept?", &accept,
 			"parse?", &parse,
-			"cred?", &cred,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
 		}
-		return doJamfRequest(thread, resolveCred(thread, credName, cred), logger, method, string(path), body, string(contentType), string(accept), bool(parse))
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
+		}
+		defer restoreSession()
+		c := sessionPin
+		return doJamfRequest(thread, c, logger, method, string(path), body, string(contentType), string(accept), bool(parse))
 	}
 }
 
 func doJamfRequest(_ *starlark.Thread, credName string, logger *slog.Logger, method, path string, bodyVal starlark.Value, contentType, accept string, parse bool) (starlark.Value, error) {
 	_ = logger
+	if mcpGuarded() && jamfAuthTokenPath(path) {
+		return resultErr(errMCPJamfTokenPath().Error()), nil
+	}
 	bodyBytes, inferredCT, err := encodeJamfBody(bodyVal)
 	if err != nil {
 		return resultErr(err.Error()), nil

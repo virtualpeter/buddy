@@ -43,8 +43,8 @@ func TestWriteSetupScript(t *testing.T) {
 	forbidden := []string{
 		"role_create(cred,",
 		"client_create(cred,",
-		"roles(cred=cred)",
-		"role_privileges(cred=cred)",
+		"roles(auth=auth)",
+		"role_privileges(auth=auth)",
 		"configure-oauth",
 	}
 	for _, s := range forbidden {

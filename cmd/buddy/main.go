@@ -94,6 +94,13 @@ func main() {
 	if globals.user != "" {
 		authPin = globals.user
 	}
+	if globals.tenant != "" && authPin != "" {
+		if auth, err := cfg.ResolveAuth(authPin); err == nil && !auth.LinkedTo(tenantName) {
+			fmt.Fprintf(os.Stderr, "buddy: auth %q is not linked to tenant %q (linked: %s)\n",
+				authPin, tenantName, strings.Join(auth.Tenants, ", "))
+			os.Exit(2)
+		}
+	}
 	buddy.SetActiveSelection(tenantName, authPin)
 	// credName is the auth pin passed into commands (empty → auto-pick for tenant).
 	credName := authPin

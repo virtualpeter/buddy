@@ -108,11 +108,11 @@ func TestLoadUnknownModule(t *testing.T) {
 func TestFilterStdlibExports(t *testing.T) {
 	pre := starlark.StringDict{
 		"policy": starlark.None,
-		"cred":   starlark.String("x"),
+		"auth":   starlark.String("x"),
 	}
 	globals := starlark.StringDict{
 		"policy":       starlark.None,
-		"cred":         starlark.String("x"),
+		"auth":         starlark.String("x"),
 		"_ok":          starlark.None,
 		"bump_release": starlark.True,
 	}

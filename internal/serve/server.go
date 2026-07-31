@@ -20,7 +20,7 @@ type Options struct {
 	DocsRoot   string // optional override
 	Open       bool
 	TenantName string // default tenant (empty → config / ActiveSelection)
-	CredName   string // optional auth pin (empty → auto-pick); Starlark cred=
+	CredName   string // optional auth pin (empty → auto-pick); Starlark auth=
 	Opts       buddy.Opts
 	Logger     *slog.Logger
 }

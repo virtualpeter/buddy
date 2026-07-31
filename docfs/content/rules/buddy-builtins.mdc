@@ -22,11 +22,11 @@ When adding or changing builtins in `internal/script/builtins.go` / `builtins_v3
 
 ## Argument order
 
-- **Resource identifiers first**, then payload/options, then **cred? last**.
-- `cred` is always optional (`cred?`). No builtin takes required `cred` as the first positional.
+- **Resource identifiers first**, then payload/options, then **tenant?/surface?/auth? last**.
+- `tenant` / `surface` / `auth` are always optional session kwargs (last). No builtin takes a required auth pin as the first positional.
 
-**Good:** `policy_set(policy_id, enable=True, cred?)`, `smart_group_set_version(group_id, version, cred?)`, `script(id=script_id, cred?)`  
-**Avoid:** `policy_set(cred, policy_id, …)`, `script(id)` with bare `id` when a mutate helper takes `script_id` (use the named param)
+**Good:** `policy_set(policy_id, enable=True, tenant?, surface?, auth?)`, `smart_group_set_version(group_id, version, tenant?, surface?, auth?)`, `script(id=script_id, tenant?, surface?, auth?)`  
+**Avoid:** `policy_set(auth, policy_id, …)`, `script(id)` with bare `id` when a mutate helper takes `script_id` (use the named param)
 
 ## Pagination (list builtins)
 
@@ -34,7 +34,7 @@ Jamf collection list APIs that support `page` / `page-size` use this pattern on 
 
 - `page?` (int, 0-based): when **omitted**, fetch **all** pages and return the combined result.
 - `page_size?` (int): defaults to 200 when omitted or ≤ 0.
-- Place `page?` / `page_size?` before `cred?`.
+- Place `page?` / `page_size?` before `tenant?` / `surface?` / `auth?`.
 
 Go side: `buddy.PageOpts` + `fetchJamfPaged` in `internal/buddy/pagination.go` (`PageAll = -1`). CLI list commands that print tables always use `PageAll`.
 
@@ -69,7 +69,7 @@ Prefer plural/singular nouns over `*_list` / `*_find_ids` / `*_fetch` / `*_get_i
 
 ## Help text
 
-In `cmd/buddy/help.go`, document every builtin with the same parameter names and order (resource IDs first, cred? last). Keep the "Conventions" note that states resource IDs come first and cred is always last.
+In `cmd/buddy/help.go`, document every builtin with the same parameter names and order (resource IDs first, tenant?/surface?/auth? last). Keep the "Conventions" note that states resource IDs come first and tenant/surface/auth are always last.
 
 Each builtin entry must include:
 - **Parameter descriptions**: a short description per parameter (type or meaning, optional vs required). Use an indented "Params: ..." line after the signature.
@@ -81,34 +81,34 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
 (`/api/v3/computer-groups/smart-groups`). They always return a result dict
 `{"ok": bool, "value": ..., "error": str}`.
 
-- `smart_group(id=?)` | `smart_group(name=?, cred?)` → value: dict
+- `smart_group(id=?)` | `smart_group(name=?, tenant?, surface?, auth?)` → value: dict
   - **Params**:
     - Pass either `id` (string) or `name` (string), not both.
-    - `cred?` (string, optional): Credential name; defaults to the active config cred.
+    - `tenant?` / `surface?` / `auth?` (string, optional): Session overrides; omit to use process/session defaults.
   - **Returns**:
     - `value`: dict representing the full smart group JSON document (keys follow Jamf’s schema, e.g. `name`, `description`, `criteria`, `siteId`).
 
-- `smart_group_create(body, cred?) → value: dict`
+- `smart_group_create(body, tenant?, surface?, auth?) → value: dict`
   - **Params**:
     - `body` (dict): Smart group JSON (`name` required; `criteria` optional; `id: -1` optional create convention).
-    - `cred?` (string, optional).
+    - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Returns**:
     - `value`: dict `{"id": str, "href"?: str}` from Jamf’s create response.
   - **Behavior**:
     - `POST`s `body` to `/api/v3/computer-groups/smart-groups`.
 
-- `smart_group_put(group_id, body, cred?) → value: None`
+- `smart_group_put(group_id, body, tenant?, surface?, auth?) → value: None`
   - **Params**:
     - `group_id` (string): Smart group ID.
     - `body` (dict/list tree): Full smart group JSON, as returned by `smart_group(id=…)`.
-    - `cred?` (string, optional).
+    - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Behavior**:
     - Encodes `body` to JSON and `PUT`s it to `/api/v3/computer-groups/smart-groups/{group_id}` using script opts with `SkipConfirm=true`.
 
-- `smart_group_get_criteria(group_id, cred?) → value: list[dict]`
+- `smart_group_get_criteria(group_id, tenant?, surface?, auth?) → value: list[dict]`
   - **Params**:
     - `group_id` (string).
-    - `cred?` (string, optional).
+    - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Returns**:
     - `value`: the `criteria` array from the smart group JSON (or `[]` if missing). Each element is a dict:
       - `name` (string)
@@ -119,29 +119,29 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
       - `openingParen` (bool, optional)
       - `closingParen` (bool, optional)
 
-- `smart_group_set_criteria(group_id, criteria, cred?) → value: None`
+- `smart_group_set_criteria(group_id, criteria, tenant?, surface?, auth?) → value: None`
   - **Params**:
     - `group_id` (string).
     - `criteria` (list[dict]): New criteria array using the keys above.
-    - `cred?` (string, optional).
+    - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Behavior**:
     - Fetches the smart group, replaces its `criteria` field with `criteria`, and PUTs the updated JSON.
     - Other fields (`name`, `siteId`, etc.) are preserved.
 
-- `smart_group_find_criteria(group_id, name_substring, cred?) → value: list[dict]`
+- `smart_group_find_criteria(group_id, name_substring, tenant?, surface?, auth?) → value: list[dict]`
   - **Params**:
     - `group_id` (string).
     - `name_substring` (string): Case-insensitive substring to match on each criterion’s `name`.
-    - `cred?` (string, optional).
+    - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Returns**:
     - `value`: list of criteria dicts whose `name` contains `name_substring` (case-insensitive).
 
-- `smart_group_update_criterion_value(group_id, name_substring, new_value, cred?) → value: None`
+- `smart_group_update_criterion_value(group_id, name_substring, new_value, tenant?, surface?, auth?) → value: None`
   - **Params**:
     - `group_id` (string).
     - `name_substring` (string): Case-insensitive substring used to select criteria by `name`.
     - `new_value` (string): New `value` to set on matching criteria.
-    - `cred?` (string, optional).
+    - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Behavior**:
     - Fetches the smart group, scans its `criteria` list, and for each criterion whose `name` contains `name_substring`, sets `value` to `new_value`.
     - Fails with `ok=false` if no criteria match.
@@ -167,42 +167,42 @@ These builtins manage **static** Jamf computer group membership. Listing prefers
 `PUT /api/v3/computer-groups/static-groups/{id}` with a full `assignments`
 array. They return `{"ok": bool, "value": ..., "error": str}`.
 
-- `static_group_list_computers(group_id, filter?, cred?) → value: list[dict]`
+- `static_group_list_computers(group_id, filter?, tenant?, surface?, auth?) → value: list[dict]`
   - **Params**:
     - `group_id` (string): Static computer group ID.
     - `filter?` (string, optional): Client-side substring; matched case-insensitively against `id`, `name`, and `serial`.
-    - `cred?` (string, optional).
+    - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Returns**:
     - `value`: list of dicts `{id, name, serial}`. `name` may be empty when the API returns only assignment IDs.
 
-- `static_group_create(body, cred?) → value: dict`
+- `static_group_create(body, tenant?, surface?, auth?) → value: dict`
   - **Params**:
     - `body` (dict): Static group JSON (`name` required; `assignments` optional list of computer id strings; `description`/`siteId` optional).
-    - `cred?` (string, optional).
+    - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Returns**:
     - `value`: dict `{"id": str, "href"?: str}` from Jamf’s create response.
   - **Behavior**:
     - `POST`s `body` to `/api/v3/computer-groups/static-groups`.
 
-- `static_group_add_computers(group_id, computer_ids, cred?) → value: None`
+- `static_group_add_computers(group_id, computer_ids, tenant?, surface?, auth?) → value: None`
   - **Params**:
     - `group_id` (string).
     - `computer_ids` (list of int or str): IDs to add (merge into membership).
-    - `cred?` (string, optional).
+    - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Behavior**: Read-modify-write; no-op if all IDs are already members.
 
-- `static_group_remove_computers(group_id, computer_ids, cred?) → value: None`
+- `static_group_remove_computers(group_id, computer_ids, tenant?, surface?, auth?) → value: None`
   - **Params**:
     - `group_id` (string).
     - `computer_ids` (list of int or str): IDs to remove.
-    - `cred?` (string, optional).
+    - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Behavior**: Read-modify-write; no-op if none of the IDs are members.
 
-- `static_group_set_computers(group_id, computer_ids, cred?) → value: None`
+- `static_group_set_computers(group_id, computer_ids, tenant?, surface?, auth?) → value: None`
   - **Params**:
     - `group_id` (string).
     - `computer_ids` (list of int or str): Replaces the entire membership list.
-    - `cred?` (string, optional).
+    - `tenant?` / `surface?` / `auth?` (string, optional).
 
 ## Profiles / payloads
 

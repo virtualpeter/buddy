@@ -219,36 +219,22 @@ func (a *Authenticator) ensureOAuth2Token() error {
 	return a.getTokenFromOAuth2()
 }
 
-// handleOAuth2TokenRefresh handles OAuth2 token refresh logic when token is still valid
+// handleOAuth2TokenRefresh handles OAuth2 token refresh logic when token is still valid.
+// Keep-alive is basic-auth only; client-credentials OAuth always re-auths near expiry.
 func (a *Authenticator) handleOAuth2TokenRefresh(now time.Time) error {
 	timeUntilExpiry := a.tokenExpiry.Sub(now)
 	secondsRemaining := int(timeUntilExpiry.Seconds())
 	a.debugf("OAuth2 token is valid, expires in %d seconds", secondsRemaining)
 
-	if timeUntilExpiry > 3*time.Minute {
-		// Token is still good for more than 3 minutes, no need to refresh
-		a.debugf("OAuth2 token is valid for more than 3 minutes (%d seconds remaining), reusing existing token", secondsRemaining)
+	if timeUntilExpiry > proactiveRefreshWindow {
+		a.debugf("OAuth2 token is valid for more than %v (%d seconds remaining), reusing existing token", proactiveRefreshWindow, secondsRemaining)
 		return nil
 	}
 
-	// Platform API Gateway has no keep-alive; re-auth before expiry.
-	if a.platform {
-		a.debugf("Platform OAuth2 token expires soon (%d seconds), requesting new token", secondsRemaining)
-		return a.getTokenFromOAuth2()
-	}
-
-	// Token expires soon, try keep-alive first
-	a.debugf("OAuth2 token expires soon (%d seconds), attempting keep-alive", secondsRemaining)
-	keepAliveErr := a.refreshTokenWithKeepAlive()
-	if keepAliveErr == nil {
-		a.debugf("OAuth2 token keep-alive successful")
-		return nil
-	}
-
-	// Keep-alive failed, but token is still valid - continue using it
-	// We'll try keep-alive again on the next call, or get a new token when it actually expires
-	a.verbosef("Keep-alive failed for OAuth2 token, but token is still valid (expires in %d seconds). Will retry keep-alive on next call: %v", secondsRemaining, keepAliveErr)
-	return nil
+	a.debugf("OAuth2 token expires soon (%d seconds), requesting new token via client credentials", secondsRemaining)
+	a.InvalidateDiskCache()
+	a.clearMemoryToken()
+	return a.getTokenFromOAuth2()
 }
 
 // ensureBasicAuthToken ensures a valid token for username/password authentication
