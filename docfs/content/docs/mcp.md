@@ -117,11 +117,17 @@ Tool names follow the Starlark plural/singular grammar (see [reference manual](r
 | `static_group_create` | `{id, href?}` | Mutating; static group JSON body |
 | `profiles` | `[{id,name},…]` | Optional name `filter` |
 | `profile_create` | `{id, name}` | Mutating; greenfield Classic POST |
-| `profile_clone` | `null` | Mutating; copy + new name; unassigned scope (`all_computers=false`) |
+| `profile_clone` | `{id, name}` | Mutating; UUID remap + unassigned scope |
+| `profile_copy` | `{id, name}` | Mutating; cross-session fetch/prepare/POST |
+| `profile_create_xml` | `{id, name}` | Mutating; POST prepared XML |
+| `profile_delete` | `{id}` | Mutating; Classic DELETE |
 | `profile_redeploy` | `{id}` | Mutating; redeploy_on_update=All only |
 | `profile_xml` | Profile XML string | By `profile_id` |
+| `profile_xml_randomize_uuids` | Profile XML string | Offline; remap UUIDs |
+| `profile_xml_prepare_for_create` | Profile XML string | Offline; name/scope/id/UUID prep |
 | `profile_xml_extract_payloads` | Payloads plist string | Offline extract |
 | `payloads_list_identifiers` | `[PayloadIdentifier…]` | Offline; PayloadContent only |
+| `payloads_collect_uuids` | `[PayloadUUID…]` | Offline; verify clone/copy |
 | `payloads_set_content` | Payloads plist string | Offline; build PayloadContent for create |
 | `profile_xml_patch_payload` | Updated XML | Offline merge patch; PayloadContent or MCX |
 | `profile_put_xml` | `{id}` | Mutating Classic PUT |

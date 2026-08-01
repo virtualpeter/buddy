@@ -223,6 +223,22 @@ Base path: `/JSSResource/osxconfigurationprofiles`
 | `POST` | `/JSSResource/osxconfigurationprofiles/id/0` | `ProfileClone`, `ProfileCreate` | Create a new profile (clone with empty scope, or greenfield create with payloads + scope) |
 | `PUT` | `/JSSResource/osxconfigurationprofiles/id/{id}` | `ProfileSetXML`, `ProfileSetPayload`, `ProfileRedeploy` | Replace full profile XML |
 
+### ACS API (Application & Custom Settings)
+
+When MCX preference strings use Jamf ACS Apply-form `&amp;` (or Classic returns **409**), buddy uses Jamf's undocumented **ACS API** — the same `/api/config-profiles/macos/...` JSON endpoints the Jamf UI uses for Application & Custom Settings (`forced.plist`). The path still contains `macos` (platform segment); buddy calls the surface **ACS**, not Classic or Pro.
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/api/config-profiles/macos/profile/{classicId}` | `profileACSPut` | Resolve ACS payload UUID / Forced from Classic profile id |
+| `PUT` | `/api/config-profiles/macos/profile/{classicId}` | `profileACSCreatePayload` | Attach ACS to Classic profile (some tenants return **405**; buddy falls back to POST) |
+| `GET` | `/api/config-profiles/macos/{payloadUUID}` | `profileACSPut` | Fetch current ACS JSON document |
+| `PUT` | `/api/config-profiles/macos/{payloadUUID}` | `profileACSPut` | Save MCX payload content (`forced.plist`) |
+| `POST` | `/api/config-profiles/macos` | create/attach fallback | Create or attach ACS (`classicProfileId` + `name` link to Classic profile) |
+| `POST` | `/api/config-profiles/plist/can-convert-to-plist` | ACS write | Validate plist before save |
+| `GET` | `/api/config-profiles/macos/generated-uuids?count=N` | (optional) | Pre-generate UUIDs (UI uses; POST accepts `payloadUUID: null`) |
+
+Follow-up Classic PUTs after ACS payload writes patch **metadata only** (name, scope, redeploy) via GET-modify-PUT — payloads bytes from the server are never replaced with buddy-prepared XML. See [profile-payloads.md](profile-payloads.md#mcx-ampersands-and-classic-encoding).
+
 ### Notes
 
 - All profile operations use the Classic API (XML). There is no v1/v2 profile endpoint in use.

@@ -1,0 +1,462 @@
+#!/usr/bin/env buddy
+#
+# Read-only audit: which macOS config profiles need ACS API "extra handling"?
+#
+# Buddy can always read Classic XML. For Jamf-refactored Application & Custom
+# Settings (ACS), preference text may live only on:
+#   GET /api/config-profiles/macos/{payloadUUID}
+# while Classic shows an empty ManagedClient shell. Hydrate needs that payload
+# UUID. API tokens often cannot scrape FIELD_EXTERNAL_CONFIGPROFILE_ID from
+# legacy HTML, so some profiles are opaque unless you bind the UUID.
+#
+# This script does NOT mutate Jamf. For each profile it:
+#   1) Fetches raw Classic XML (jamf_get — bypasses hydrate)
+#   2) Lists ManagedClient preference domains + whether settings are empty
+#   3) Probes ACS profile/{id} and legacy HTML for a payload UUID / Forced plist
+#   4) Compares profile_xml (hydrated) when useful
+#   5) Flags Apply-form &amp; in Classic settings (ACS write path)
+#
+# Classes (see summary at end):
+#   no_mcx              — no ACS/ManagedClient preference domains
+#   classic_full        — Classic already has non-empty MCX settings (normal read)
+#   hydrate_ok          — Classic empty but ACS Forced reachable without bind
+#   needs_bind          — Classic empty MCX domain(s); ACS UUID not discoverable
+#                         with this auth → buddy may under-read ACS UI content
+#   empty_shell         — Classic empty and ACS has no Forced (truly empty ACS)
+#   mixed               — some domains full in Classic, some empty
+#   fetch_error         — Classic GET failed
+#
+# Run:
+#   buddy -y scripts/scan_acs_profile_handling.buddy
+#   buddy -y -v scripts/scan_acs_profile_handling.buddy
+#
+# Knobs:
+#   NAME_FILTER   — substring match on profile name ("" = all)
+#   MAX_PROFILES  — stop after N profiles (0 = all); useful for a quick sample
+#   VERBOSE_ROW   — "1" print every profile line, not only needs_bind / errors
+
+NAME_FILTER = ""
+MAX_PROFILES = 0
+VERBOSE_ROW = "1"
+
+MANAGED_CLIENT = "com.apple.ManagedClient.preferences"
+
+
+def section(title, why):
+    print("")
+    print("=== " + title + " ===")
+    if why != "":
+        print(why)
+
+
+def jamf_body(res):
+    """Normalize jamf_get value to body (dict or string)."""
+    if not res["ok"]:
+        return None, res.get("error", "jamf_get failed")
+    v = res["value"]
+    if type(v) == "dict" and "body" in v:
+        return v["body"], ""
+    return v, ""
+
+
+def extract_payloads_raw(classic_xml):
+    res = profile_xml_extract_payloads(classic_xml)
+    if not res["ok"]:
+        return "", res["error"]
+    return res["value"], ""
+
+
+def classic_mcx_domains(payloads_plist):
+    """Return {domain: settings_dict} for ManagedClient preference domains."""
+    out = {}
+    if payloads_plist == None or payloads_plist == "":
+        return out
+    res = plist_decode(payloads_plist)
+    if not res["ok"]:
+        return out
+    root = res["value"]
+    content = root.get("PayloadContent", [])
+    if type(content) != "list":
+        return out
+    for item in content:
+        if type(item) != "dict":
+            continue
+        if item.get("PayloadType", "") != MANAGED_CLIENT:
+            continue
+        nested = item.get("PayloadContent", {})
+        if type(nested) != "dict":
+            continue
+        for domain in nested:
+            domain_dict = nested[domain]
+            settings = {}
+            if type(domain_dict) == "dict":
+                forced = domain_dict.get("Forced", [])
+                if type(forced) == "list" and len(forced) > 0 and type(forced[0]) == "dict":
+                    s = forced[0].get("mcx_preference_settings", {})
+                    if type(s) == "dict":
+                        settings = s
+                elif "mcx_preference_settings" in domain_dict:
+                    s = domain_dict["mcx_preference_settings"]
+                    if type(s) == "dict":
+                        settings = s
+            out[domain] = settings
+    return out
+
+
+def settings_has_apply_form_amp(settings):
+    """True if any string value looks like Jamf ACS Apply-form (&amp; in the value)."""
+    for k in settings:
+        v = settings[k]
+        if type(v) == "string" and "&amp;" in v:
+            return True
+    return False
+
+
+def parse_field_external_uuid(html):
+    if type(html) != "string" or html == "":
+        return ""
+    # Common forms: name="FIELD_EXTERNAL_CONFIGPROFILE_ID" value="uuid"
+    # or FIELD_EXTERNAL_CONFIGPROFILE_ID=uuid&
+    needle = "FIELD_EXTERNAL_CONFIGPROFILE_ID"
+    i = html.find(needle)
+    if i < 0:
+        # ACS API path in HTML
+        p = html.find("/api/config-profiles/macos/")
+        if p < 0:
+            return ""
+        p = p + len("/api/config-profiles/macos/")
+        return html[p:p + 36].strip()
+    rest = html[i + len(needle):i + len(needle) + 80]
+    # value="..."
+    v = rest.find("value=")
+    if v >= 0:
+        rest2 = rest[v + 6:]
+        if rest2.startswith('"') or rest2.startswith("'"):
+            q = rest2[0]
+            end = rest2.find(q, 1)
+            if end > 1:
+                return rest2[1:end].strip()
+    # =uuid&
+    if rest.startswith("="):
+        rest = rest[1:]
+        end = len(rest)
+        for sep in ["&", '"', "'", " ", "<"]:
+            j = rest.find(sep)
+            if j >= 0 and j < end:
+                end = j
+        return rest[:end].strip()
+    return ""
+
+
+def acs_forced_domains(doc):
+    """From ACS API JSON doc → {domain: plist_len}."""
+    out = {}
+    if type(doc) != "dict":
+        return out
+    pc = doc.get("payloadContent", [])
+    if type(pc) != "list":
+        return out
+    for item in pc:
+        if type(item) != "dict":
+            continue
+        domain = item.get("preferenceDomain", "")
+        if domain == "":
+            continue
+        forced = item.get("forced")
+        plist = ""
+        if type(forced) == "dict":
+            plist = forced.get("plist", "")
+            if type(plist) != "string":
+                plist = ""
+        if plist != "":
+            out[domain] = len(plist)
+    return out
+
+
+def fetch_classic_raw(profile_id):
+    res = jamf_get(
+        path="/JSSResource/osxconfigurationprofiles/id/%d" % profile_id,
+        accept="application/xml",
+        parse=False,
+    )
+    body, err = jamf_body(res)
+    if err != "":
+        return "", err
+    if type(body) != "string":
+        return "", "classic body not string"
+    return body, ""
+
+
+def fetch_acs_profile_id(profile_id):
+    res = jamf_get(path="/api/config-profiles/macos/profile/%d" % profile_id)
+    body, err = jamf_body(res)
+    if err != "":
+        return None, err
+    return body, ""
+
+
+def fetch_legacy_html(profile_id):
+    last = ""
+    last_err = ""
+    for mode in ["u", "r"]:
+        res = jamf_get(
+            path="/legacy/OSXConfigurationProfiles.html?id=%d&o=%s" % (profile_id, mode),
+            accept="text/html",
+            parse=False,
+        )
+        body, err = jamf_body(res)
+        if err != "":
+            last_err = err
+            continue
+        if type(body) != "string":
+            last_err = "html not string"
+            continue
+        last = body
+        if parse_field_external_uuid(body) != "":
+            return body, ""
+    if last != "":
+        return last, ""
+    if last_err != "":
+        return "", last_err
+    return "", "legacy HTML empty"
+
+
+def fetch_acs_by_uuid(payload_uuid):
+    res = jamf_get(path="/api/config-profiles/macos/%s" % payload_uuid)
+    body, err = jamf_body(res)
+    if err != "":
+        return None, err
+    return body, ""
+
+
+def classify_profile(profile_id, name):
+    row = {
+        "id": profile_id,
+        "name": name,
+        "class": "",
+        "classic_domains": [],
+        "empty_domains": [],
+        "full_domains": [],
+        "acs_forced_domains": [],
+        "payload_uuid": "",
+        "uuid_source": "",
+        "apply_form_amp": False,
+        "hydrate_adds_keys": False,
+        "note": "",
+    }
+
+    classic_xml, err = fetch_classic_raw(profile_id)
+    if err != "":
+        row["class"] = "fetch_error"
+        row["note"] = err
+        return row
+
+    payloads, err = extract_payloads_raw(classic_xml)
+    if err != "":
+        row["class"] = "no_mcx"
+        row["note"] = err
+        return row
+
+    domains = classic_mcx_domains(payloads)
+    row["classic_domains"] = domains.keys()
+    empty = []
+    full = []
+    apply_amp = False
+    for d in domains:
+        if len(domains[d]) == 0:
+            empty.append(d)
+        else:
+            full.append(d)
+            if settings_has_apply_form_amp(domains[d]):
+                apply_amp = True
+    row["empty_domains"] = empty
+    row["full_domains"] = full
+    row["apply_form_amp"] = apply_amp
+
+    if len(domains) == 0:
+        row["class"] = "no_mcx"
+        return row
+
+    forced = {}
+    acs_doc, merr = fetch_acs_profile_id(profile_id)
+    if merr == "" and type(acs_doc) == "dict":
+        forced = acs_forced_domains(acs_doc)
+        pu = acs_doc.get("payloadUUID", "")
+        if type(pu) == "string" and pu != "":
+            row["payload_uuid"] = pu
+            row["uuid_source"] = "profile/{id}"
+
+    if len(forced) == 0:
+        html, herr = fetch_legacy_html(profile_id)
+        if herr == "":
+            u = parse_field_external_uuid(html)
+            if u != "":
+                row["payload_uuid"] = u
+                row["uuid_source"] = "legacy_html"
+                doc2, err2 = fetch_acs_by_uuid(u)
+                if err2 == "" and type(doc2) == "dict":
+                    forced = acs_forced_domains(doc2)
+
+    row["acs_forced_domains"] = forced.keys()
+
+    if len(empty) > 0:
+        href = profile_xml(id=profile_id)
+        if href["ok"]:
+            hp, herr = extract_payloads_raw(href["value"])
+            if herr == "":
+                hdomains = classic_mcx_domains(hp)
+                for d in empty:
+                    if d in hdomains and len(hdomains[d]) > 0:
+                        row["hydrate_adds_keys"] = True
+
+    if len(empty) == 0:
+        row["class"] = "classic_full"
+        if apply_amp:
+            row["note"] = "Apply-form &amp; in Classic — writes may use ACS path"
+        return row
+
+    if len(full) > 0 and len(empty) > 0:
+        row["class"] = "mixed"
+        missing = []
+        for d in empty:
+            if d not in forced:
+                missing.append(d)
+        if len(missing) > 0 and row["payload_uuid"] == "":
+            row["note"] = "empty domains %r not resolvable via ACS without bind" % missing
+        elif len(missing) > 0:
+            row["note"] = "empty domains %r have no ACS Forced" % missing
+        else:
+            row["note"] = "empty Classic domains have ACS Forced (hydrate should fill)"
+        return row
+
+    if len(forced) > 0:
+        row["class"] = "hydrate_ok"
+        row["note"] = "Classic MCX empty; ACS Forced reachable (%s)" % row["uuid_source"]
+        return row
+
+    if row["payload_uuid"] != "":
+        row["class"] = "empty_shell"
+        row["note"] = "UUID known (%s) but ACS Forced empty" % row["uuid_source"]
+        return row
+
+    row["class"] = "needs_bind"
+    row["note"] = "Classic MCX empty; cannot discover ACS payload UUID with this auth"
+    return row
+
+
+def fmt_list(xs):
+    if xs == None or len(xs) == 0:
+        return "-"
+    return ",".join([str(x) for x in xs])
+
+
+def print_row(row):
+    print(
+        "%s\tid=%s\t%r\tempty=%s\tacs_forced=%s\tuuid=%s\tsrc=%s\tamp=%s\thydrate+=%s\t%s"
+        % (
+            row["class"],
+            row["id"],
+            row["name"],
+            fmt_list(row["empty_domains"]),
+            fmt_list(row["acs_forced_domains"]),
+            row["payload_uuid"] if row["payload_uuid"] != "" else "-",
+            row["uuid_source"] if row["uuid_source"] != "" else "-",
+            row["apply_form_amp"],
+            row["hydrate_adds_keys"],
+            row["note"],
+        )
+    )
+
+
+def main(auth=None):
+    section(
+        "ACS profile handling scan",
+        "Read-only. Lists profiles where buddy may need ACS hydrate / UUID bind.",
+    )
+
+    res = profiles(filter=NAME_FILTER)
+    if not res["ok"]:
+        fail("profiles: %s" % res["error"])
+    items = res["value"]
+    print("listed %d profile(s)%s" % (
+        len(items),
+        (" matching filter %r" % NAME_FILTER) if NAME_FILTER != "" else "",
+    ))
+
+    counts = {
+        "no_mcx": 0,
+        "classic_full": 0,
+        "hydrate_ok": 0,
+        "needs_bind": 0,
+        "empty_shell": 0,
+        "mixed": 0,
+        "fetch_error": 0,
+    }
+    needs_bind_rows = []
+    hydrate_ok_rows = []
+    mixed_rows = []
+    amp_rows = []
+    errors = []
+
+    n = 0
+    for item in items:
+        pid = item["id"] if type(item) == "dict" else item
+        name = item["name"] if type(item) == "dict" and "name" in item else ""
+        n = n + 1
+        if MAX_PROFILES > 0 and n > MAX_PROFILES:
+            print("stopped at MAX_PROFILES=%d" % MAX_PROFILES)
+            break
+
+        row = classify_profile(pid, name)
+        cls = row["class"]
+        if cls in counts:
+            counts[cls] = counts[cls] + 1
+        else:
+            counts[cls] = 1
+
+        if row["apply_form_amp"]:
+            amp_rows.append(row)
+        if cls == "needs_bind":
+            needs_bind_rows.append(row)
+        elif cls == "hydrate_ok":
+            hydrate_ok_rows.append(row)
+        elif cls == "mixed":
+            mixed_rows.append(row)
+        elif cls == "fetch_error":
+            errors.append(row)
+
+        if VERBOSE_ROW == "1" or cls in ["needs_bind", "hydrate_ok", "mixed", "empty_shell", "fetch_error"]:
+            print_row(row)
+
+    section("Summary", "needs_bind = unreliable ACS read until UUID is bound or HTML scrape works.")
+    for k in ["needs_bind", "hydrate_ok", "mixed", "empty_shell", "classic_full", "no_mcx", "fetch_error"]:
+        print("  %s: %d" % (k, counts.get(k, 0)))
+    print("  apply_form_amp (classic_full or other): %d" % len(amp_rows))
+
+    if len(needs_bind_rows) > 0:
+        section(
+            "needs_bind detail",
+            "Classic has empty ACS domains; ACS payload UUID not found. "
+            + "Bind with profile_acs_bind_uuid / BUDDY_ACS_PAYLOAD_UUID_<id> "
+            + "(UUID from Jamf form FIELD_EXTERNAL_CONFIGPROFILE_ID).",
+        )
+        for row in needs_bind_rows:
+            print("  id=%s  %r  empty_domains=%s" % (row["id"], row["name"], fmt_list(row["empty_domains"])))
+
+    if len(hydrate_ok_rows) > 0:
+        section("hydrate_ok", "Empty Classic MCX but ACS Forced reachable — profile_xml should hydrate.")
+        for row in hydrate_ok_rows:
+            print("  id=%s  %r  via %s" % (row["id"], row["name"], row["uuid_source"]))
+
+    if len(mixed_rows) > 0:
+        section("mixed", "Some Classic domains full, some empty — check notes.")
+        for row in mixed_rows:
+            print("  id=%s  %r  %s" % (row["id"], row["name"], row["note"]))
+
+    if len(errors) > 0:
+        section("fetch_error", "")
+        for row in errors:
+            print("  id=%s  %r  %s" % (row["id"], row["name"], row["note"]))
+
+    print("")
+    print("Done. This scan cannot invent missing ACS UUIDs; needs_bind rows are the reliability gap.")

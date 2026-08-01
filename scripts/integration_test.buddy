@@ -1,9 +1,51 @@
 #!/usr/bin/env buddy
+#
+# Buddy live integration smoke test
+#
+# Exercises real Jamf API helpers end-to-end: create resources prefixed buddy-test-*,
+# mutate/read them, then delete them in cleanup_all(). Safe to re-run; each domain
+# sweeps leftovers from interrupted runs first.
+#
+# Run:  buddy -y scripts/integration_test.buddy
+# Verbose API trace:  buddy -y -v scripts/integration_test.buddy
+#
+# Optional knobs (leave "" to use defaults):
+#   TEST_STATIC_GROUP_ID   — static_group_list_computers read-only smoke
+#   TEST_COPY_DEST_TENANT    — cross-tenant profile_copy
+#   TEST_SOURCE_PROFILE      — skip built-in MCX fixture; clone/copy an existing profile
+#
+# Profile tests do NOT require a pre-existing Jamf profile. They:
+#   A) create a simple ACS/MCX profile (no ampersand) via Classic
+#   B) clone / copy / edit on that Classic path
+#   C) ampersand / path contract:
+#        1) PUT Apply-form &amp; (ACS-eligible) — success; Classic retains ExampleURL
+#        2) bare '&' — fail-fast locally (no Classic 409)
+#        3) profile_create with Apply-form &amp; from scratch — success; Classic retains
+#        4) under-encoded outer <payloads> — fail-fast locally (no Classic 409)
+#
+# Coder supplies &amp; in preference strings (same as Jamf UI Apply). Buddy rejects bare
+# '&' in profile XML / MCX settings rather than auto-converting.
+#
+# Refactored ACS (empty Classic / ACS Forced) same-tenant shake-down:
+#   make integration-test-acs7
+#   buddy -y scripts/integration_test_acs_profile7.buddy
+
+# Jamf may show an "Unknown Keys" banner on ACS profiles (often PayloadEnabled on the
+# root Configuration envelope). That is a known Jamf UI quirk during the profiles
+# redesign — safe to ignore for buddy-test-* profiles, or dismiss via Save in the UI.
+
 TEST_PREFIX = "buddy-test-"
 
-# Optional: set to a static computer group Jamf ID to run static_group_list_computers (read-only).
-# Leave "" to skip. Membership add/remove is not exercised by this script.
 TEST_STATIC_GROUP_ID = ""
+TEST_COPY_DEST_TENANT = ""
+TEST_SOURCE_PROFILE = ""
+
+# ACS/MCX fixture domain. Apply-form uses &amp; in the preference string (Jamf ACS Apply).
+MCX_DOMAIN = "com.example.buddy-integration"
+APPLY_FORM_URL = "https://example.com/search?q=foo&amp;bar=baz"
+# Edge-style Apply-form URL — historically Classic-hostile; exercises ACS create/put + Classic sync.
+ACS_APPLY_URL = "{google:baseURL}search?q={searchTerms}&amp;{google:RLZ}"
+BARE_AMP_URL = "https://example.com/search?q=foo&bar=baz"
 
 created = {
     "policies": [],
@@ -17,9 +59,28 @@ def require_ok(res, ctx):
         fail("%s: %s" % (ctx, res["error"]))
 
 
+def section(title, why):
+    print("")
+    print("=== " + title + " ===")
+    if why != "":
+        print(why)
+
+
+def uuids_disjoint(source_uuids, clone_uuids):
+    for u in clone_uuids:
+        for s in source_uuids:
+            if u == s:
+                return False
+    return True
+
+
 def test_policy(cred, created):
+    section(
+        "Policy",
+        "Create a self-service policy and exercise Classic XML + policy_set helpers.",
+    )
+
     name = TEST_PREFIX + "policy"
-    # Cleanup any leftover test policies (previous runs may have exited early).
     res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
     require_ok(res, "policies")
     leftovers = res["value"]
@@ -27,14 +88,11 @@ def test_policy(cred, created):
         dres = policy_delete(policy_ids=leftovers, auth=auth)
         require_ok(dres, "policy_delete (leftovers)")
 
-    # Create a simple self-service policy; adjust args to match your environment.
-    # Use all-computers scope for portability across Jamf instances.
     res = policy_create_ss(trigger="buddy-test", display_name=name, scope_group_id=0, auth=auth)
     require_ok(res, "policy_create_ss")
     policy_id = res["value"]
     created["policies"].append(policy_id)
 
-    # Read back details (includes enabled).
     res = policy(id=policy_id, auth=auth)
     require_ok(res, "policy")
     details = res["value"]
@@ -44,21 +102,16 @@ def test_policy(cred, created):
     if details["name"] != expected_name:
         fail("policy name mismatch: %r" % details["name"])
 
-    # policy_xml + policy_put_xml: set an initial custom trigger so policy_set(trigger=) can be exercised.
+    # policy(trigger=) matches on policy name heuristics — use install-* + name substring.
     res = policy_xml(id=policy_id, auth=auth)
     require_ok(res, "policy_xml")
     xml = res["value"]
-    # IMPORTANT: policy(trigger=) uses heuristics that only consider candidate policies
-    # whose *name* contains the "app" part derived from the trigger. Use an
-    # install-* trigger whose app substring matches the policy name.
     initial_trigger = "install-" + TEST_PREFIX + "policy-%d" % policy_id
-    # Jamf policies always have a <trigger_other> element; populate it if empty.
     if "<trigger_other></trigger_other>" in xml:
         xml2 = xml.replace("<trigger_other></trigger_other>", "<trigger_other>%s</trigger_other>" % initial_trigger, 1)
     elif "<trigger_other/>" in xml:
         xml2 = xml.replace("<trigger_other/>", "<trigger_other>%s</trigger_other>" % initial_trigger, 1)
     else:
-        # Best-effort: don't fail if Jamf changes the schema; skip trigger-based tests.
         xml2 = ""
     if xml2:
         res = policy_put_xml(policy_id=policy_id, xml_str=xml2, auth=auth)
@@ -68,11 +121,8 @@ def test_policy(cred, created):
         if initial_trigger not in res["value"]:
             fail("policy_put_xml did not persist trigger_other")
 
-        # policy_set + policy(trigger=)
         new_trigger = "install-" + TEST_PREFIX + "policy-%d" % policy_id
         require_ok(policy_set(policy_id=policy_id, trigger=new_trigger, auth=auth), "policy_set(trigger)")
-        # policy(trigger=) is best-effort: it relies on the classic policy list endpoint.
-        # Some Jamf roles can create/read by ID but cannot list all policies.
         res = policy(trigger=new_trigger, force_refresh=True)
         if not res["ok"]:
             error("policy(trigger=) skipped:", res["error"])
@@ -80,7 +130,6 @@ def test_policy(cred, created):
             if res["value"]["id"] != policy_id:
                 fail("policy(trigger=) mismatch: got %r want %r" % (res["value"]["id"], policy_id))
 
-        # Verify trigger_other via details regardless of trigger lookup availability.
         res = policy(id=policy_id, auth=auth)
         require_ok(res, "policy (post set_trigger)")
         if res["value"]["trigger_other"] != new_trigger:
@@ -88,21 +137,18 @@ def test_policy(cred, created):
     else:
         error("policy_put_xml trigger_other setup skipped (no trigger_other element found)")
 
-    # policy_set frequency
     require_ok(policy_set(policy_id=policy_id, frequency="Ongoing", auth=auth), "policy_set(frequency)")
     res = policy(id=policy_id, auth=auth)
     require_ok(res, "policy (post frequency)")
     if res["value"]["frequency"] != "Ongoing":
         fail("policy_set frequency did not persist")
 
-    # policy_set_scope_all
     require_ok(policy_set_scope_all(policy_id=policy_id, auth=auth), "policy_set_scope_all")
     res = policy(id=policy_id, auth=auth)
     require_ok(res, "policy (post scope_all)")
     if not res["value"]["scope"]["all_computers"]:
         fail("policy_set_scope_all did not persist")
 
-    # policy_set name
     new_name = TEST_PREFIX + "policy-renamed-%d" % policy_id
     require_ok(policy_set(policy_id=policy_id, name=new_name, auth=auth), "policy_set(name)")
     res = policy(id=policy_id, auth=auth)
@@ -110,7 +156,6 @@ def test_policy(cred, created):
     if res["value"]["name"] != new_name:
         fail("policy_set name did not persist: %r" % res["value"]["name"])
 
-    # policy_set_ss (best-effort verify via XML)
     ss_desc = "Buddy integration test (policy_id=%d)" % policy_id
     require_ok(
         policy_set_ss(
@@ -127,7 +172,6 @@ def test_policy(cred, created):
     if ss_desc not in res["value"]:
         error("policy_set_ss verify skipped (description not found in XML)")
 
-    # Toggle enable/disable.
     require_ok(policy_set(policy_id=policy_id, enable=True, auth=auth), "policy_set(enable=True)")
     res = policy(id=policy_id, auth=auth)
     require_ok(res, "policy (post enable)")
@@ -140,35 +184,30 @@ def test_policy(cred, created):
     if res["value"]["enabled"]:
         error("policy expected enabled=False after disable")
 
-    # policy_clone (best-effort): diff before/after TEST_PREFIX policy IDs to discover clone.
+    # Best-effort: clone/install/package need scripts or packages on the policy.
     before = leftovers
     res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
     require_ok(res, "policies (pre clone)")
     before = res["value"]
-    clone_version = "9.9.9"
-    cres = policy_clone(policy_id=policy_id, version=clone_version, auth=auth)
+    cres = policy_clone(policy_id=policy_id, version="9.9.9", auth=auth)
     if not cres["ok"]:
         error("policy_clone skipped:", cres["error"])
     else:
         res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
         require_ok(res, "policies (post clone)")
         after = res["value"]
-        # Find new IDs not in before.
         for pid in after:
             if pid not in before and pid not in created["policies"]:
                 created["policies"].append(pid)
 
-    # policy_set_install (best-effort): may depend on script params existing in policy.
     ires = policy_set_install(policy_id=policy_id, version="1.2.3", auth=auth)
     if not ires["ok"]:
         error("policy_set_install skipped:", ires["error"])
 
-    # policy_set_package (best-effort): depends on environment-specific policies/packages.
     pres = policy_set_package(app="chrome", version="1.2.3", policy_id=policy_id, auth=auth)
     if not pres["ok"]:
         error("policy_set_package skipped:", pres["error"])
 
-    # policy_template (coverage only): ensure it returns a dict tagged as a template.
     tmpl = policy_template(
         name=TEST_PREFIX + "tmpl",
         trigger=TEST_PREFIX + "tmpl-trigger",
@@ -182,7 +221,6 @@ def test_policy(cred, created):
 def cleanup_policy(cred, created):
     if not created["policies"]:
         return
-    # policy_delete takes a list of IDs.
     res = policy_delete(policy_ids=created["policies"], auth=auth)
     if not res["ok"]:
         error("cleanup policy_delete error:", res["error"])
@@ -190,16 +228,22 @@ def cleanup_policy(cred, created):
 
 
 def test_smart_group(cred, created):
-    # Remove any leftover test smart groups from previous runs.
+    section(
+        "Smart group",
+        "Create via v3 API, load by name, read criteria, update a criterion value.",
+    )
+
     res = smart_groups(filter=TEST_PREFIX, auth=auth)
     require_ok(res, "smart_groups")
     for g in res["value"]:
-        gid = g["id"]
+        gid = g.get("id", "")
+        if gid == "":
+            error("cleanup old smart_groups: skipping entry without id:", g)
+            continue
         dres = group_delete(group_id=gid, auth=auth)
         if not dres["ok"]:
             error("cleanup old group_delete error:", dres["error"])
 
-    # Create a minimal smart group via group_put.
     group_name = TEST_PREFIX + "group"
     body = {
         "id": -1,
@@ -214,26 +258,21 @@ def test_smart_group(cred, created):
             },
         ],
     }
-    # Jamf Pro API expects id to be a positive numeric string or -1 for create.
-    res = group_put(group_id="-1", dict=body, auth=auth)
-    if not res["ok"]:
-        fail("group_put: %s" % res["error"])
-
-    # Find the created group by name.
-    res = smart_group(name=group_name, auth=auth)
-    require_ok(res, "smart_group")
-    ginfo = res["value"]
-    group_id = str(ginfo["id"])
+    res = smart_group_create(body=body, auth=auth)
+    require_ok(res, "smart_group_create")
+    group_id = str(res["value"]["id"])
     created["groups"].append(group_id)
 
-    # Inspect and then update criteria.
+    res = smart_group(name=group_name, auth=auth)
+    require_ok(res, "smart_group")
+    if str(res["value"]["id"]) != group_id:
+        fail("smart_group id mismatch after create")
+
     res = smart_group_get_criteria(group_id=group_id, auth=auth)
     require_ok(res, "smart_group_get_criteria")
-    criteria = res["value"]
-    if len(criteria) < 1:
+    if len(res["value"]) < 1:
         fail("expected at least one criterion")
 
-    # Attempt to update any criterion whose name contains 'Application'.
     res = smart_group_update_criterion_value(
         group_id=group_id,
         name_substring="Application",
@@ -252,82 +291,373 @@ def cleanup_smart_group(cred, created):
 
 
 def test_static_group_list(cred):
+    section(
+        "Static group list",
+        "Read-only membership list; set TEST_STATIC_GROUP_ID to enable.",
+    )
     if TEST_STATIC_GROUP_ID == "":
-        error("static_group_list_computers: skipped (set TEST_STATIC_GROUP_ID to a static group id)")
+        error("static_group_list_computers: skipped (set TEST_STATIC_GROUP_ID)")
         return
     res = static_group_list_computers(group_id=TEST_STATIC_GROUP_ID, auth=auth)
     require_ok(res, "static_group_list_computers")
-    members = res["value"]
-    if type(members) != "list":
+    if type(res["value"]) != "list":
         fail("static_group_list_computers: expected list")
 
 
-def test_profile(cred, created):
-    # 1. Find a base profile to clone.
-    base_name = TEST_PREFIX + "source-profile"
-    res = profile(name=base_name)
-    if not res["ok"]:
-        error("profile skipped (no source profile named %r): %s" % (base_name, res["error"]))
-        return
-    base = res["value"]
-    source_id = base["id"]
+def build_acs_payloads_plist(settings):
+    """Jamf ACS layout: ManagedClient.preferences + nested preference domain + Forced settings."""
+    res = uuid_new()
+    require_ok(res, "uuid_new")
+    general_uuid = res["value"]
+    res = uuid_new()
+    require_ok(res, "uuid_new")
+    payload_uuid = res["value"]
+    res = uuid_new()
+    require_ok(res, "uuid_new")
+    acs_payload_id = res["value"]
+    mcx_payload = {
+        "PayloadType": "com.apple.ManagedClient.preferences",
+        "PayloadVersion": 1,
+        "PayloadIdentifier": acs_payload_id,
+        "PayloadUUID": payload_uuid,
+        "PayloadContent": {
+            MCX_DOMAIN: {
+                "Forced": [
+                    {
+                        "mcx_preference_settings": settings,
+                    },
+                ],
+            },
+        },
+    }
+    res = plist_encode({
+        "PayloadUUID": general_uuid,
+        "PayloadType": "Configuration",
+        "PayloadVersion": 1,
+        "PayloadContent": [mcx_payload],
+    })
+    require_ok(res, "plist_encode (acs)")
+    return res["value"]
 
-    # 2. Clone into a test profile.
-    clone_name = TEST_PREFIX + "profile"
+
+def assert_classic_mcx_keys(profile_id, required_keys, ctx):
+    res = profile_xml(id=profile_id, auth=auth)
+    require_ok(res, "profile_xml (%s)" % ctx)
+    xml = res["value"]
+    res = profile_xml_extract_payloads(xml)
+    require_ok(res, "profile_xml_extract_payloads (%s)" % ctx)
+    res = payloads_get_mcx_dict(res["value"], MCX_DOMAIN)
+    require_ok(res, "payloads_get_mcx_dict (%s)" % ctx)
+    res = plist_decode(res["value"])
+    require_ok(res, "plist_decode mcx (%s)" % ctx)
+    settings = res["value"]
+    for k in required_keys:
+        if k not in settings:
+            fail("%s: Classic MCX missing key %r (got %r)" % (ctx, k, settings.keys()))
+    return xml, settings
+
+
+def create_simple_classic_profile(created):
+    """Phase A: ACS/MCX with safe keys only — Classic POST, no ACS fallback."""
+    section(
+        "Profile phase A — simple Classic",
+        "Create ACS seed with BuddyTestSeed only (no ampersand). Expect Classic path.",
+    )
+    if TEST_SOURCE_PROFILE != "":
+        section(
+            "Profile fixture",
+            "Using TEST_SOURCE_PROFILE=%r instead of built-in ACS fixture." % TEST_SOURCE_PROFILE,
+        )
+        res = profile(name=TEST_SOURCE_PROFILE)
+        if not res["ok"]:
+            fail("TEST_SOURCE_PROFILE not found: %r" % TEST_SOURCE_PROFILE)
+        source_id = res["value"]["id"]
+        res = profile_xml(id=source_id, auth=auth)
+        require_ok(res, "profile_xml (TEST_SOURCE_PROFILE)")
+        res = profile_xml_extract_payloads(res["value"])
+        require_ok(res, "profile_xml_extract_payloads (TEST_SOURCE_PROFILE)")
+        return source_id, res["value"]
+
+    payloads_plist = build_acs_payloads_plist({"BuddyTestSeed": TEST_PREFIX})
+    require_ok(payloads_get_mcx_dict(payloads_plist, MCX_DOMAIN), "payloads_get_mcx_dict (phase A)")
+
+    name = TEST_PREFIX + "acs-seed-classic"
+    res = profile_create(name=name, payloads_plist_str=payloads_plist, scope_all=True, auth=auth)
+    require_ok(res, "profile_create (phase A classic)")
+    source_id = res["value"]
+    created["profiles"].append(source_id)
+    assert_classic_mcx_keys(source_id, ["BuddyTestSeed"], "phase A read-back")
+    return source_id, payloads_plist
+
+
+def test_profile_offline_helpers(source_xml, source_payloads):
+    section(
+        "Profile offline helpers",
+        "UUID helpers and payload UUID collection (no Jamf writes).",
+    )
+
+    res = uuid_new()
+    require_ok(res, "uuid_new")
+    if len(res["value"]) != 36:
+        fail("uuid_new: expected RFC-4122 length 36")
+
+    res = profile_xml_randomize_uuids(source_xml)
+    require_ok(res, "profile_xml_randomize_uuids")
+
+    res = payloads_collect_uuids(source_payloads)
+    require_ok(res, "payloads_collect_uuids (source)")
+    return res["value"]
+
+
+def test_profile_clone_copy(source_id, source_uuids, source_xml, created):
+    """Phase B: clone / copy / prepare+create_xml — still no ampersand."""
+    section(
+        "Profile phase B — clone / copy / create",
+        "Clone and copy must remap PayloadUUIDs. create_xml exercises prepare + Classic POST.",
+    )
+
+    # Clone is the lineage used for Classic edit (phase B) and &amp; inject (phase C).
+    clone_name = TEST_PREFIX + "clone-then-edit-amp"
     res = profile_clone(profile_id=source_id, name=clone_name, auth=auth)
     require_ok(res, "profile_clone")
-    new_profile = res["value"]
-    profile_id = new_profile["id"]
+    profile_id = res["value"]["id"]
     created["profiles"].append(profile_id)
 
-    # 3. Fetch full profile XML, then extract payloads offline.
     res = profile_xml(id=profile_id, auth=auth)
-    require_ok(res, "profile_xml")
-    profile_xml_str = res["value"]
+    require_ok(res, "profile_xml (clone)")
+    res = profile_xml_extract_payloads(res["value"])
+    require_ok(res, "profile_xml_extract_payloads (clone)")
+    res = payloads_collect_uuids(res["value"])
+    require_ok(res, "payloads_collect_uuids (clone)")
+    if source_uuids and res["value"] and not uuids_disjoint(source_uuids, res["value"]):
+        fail("profile_clone: PayloadUUID overlap with source")
 
-    res = profile_xml_extract_payloads(profile_xml_str)
-    require_ok(res, "profile_xml_extract_payloads")
-    payloads_plist = res["value"]
+    copy_name = TEST_PREFIX + "copy-same-tenant"
+    res = profile_copy(profile_id=source_id, name=copy_name, auth=auth)
+    require_ok(res, "profile_copy")
+    copy_id = res["value"]["id"]
+    created["profiles"].append(copy_id)
 
-    # 4. List identifiers and pick a payload domain.
-    res = payloads_list_identifiers(payloads_plist)
-    require_ok(res, "payloads_list_identifiers")
-    ids = res["value"]
-    if not ids:
-        error("profile has no payloads; skipping payload mutation")
-        return
-    domain = ids[0]
+    res = profile_xml(id=copy_id, auth=auth)
+    require_ok(res, "profile_xml (copy)")
+    res = profile_xml_extract_payloads(res["value"])
+    require_ok(res, "profile_xml_extract_payloads (copy)")
+    res = payloads_collect_uuids(res["value"])
+    require_ok(res, "payloads_collect_uuids (copy)")
+    if source_uuids and res["value"] and not uuids_disjoint(source_uuids, res["value"]):
+        fail("profile_copy: PayloadUUID overlap with source")
 
-    # 5. Get the payload dict XML for that domain and decode to dict.
-    res = payloads_get_payload(payloads_plist, domain)
-    require_ok(res, "payloads_get_payload")
-    payload_dict_xml = res["value"]
+    if TEST_COPY_DEST_TENANT != "":
+        dest_name = TEST_PREFIX + "copy-cross-tenant"
+        res = profile_copy(
+            profile_id=source_id,
+            name=dest_name,
+            from_auth=auth,
+            tenant=TEST_COPY_DEST_TENANT,
+            auth=auth,
+        )
+        if res["ok"]:
+            created["profiles"].append({"id": res["value"]["id"], "tenant": TEST_COPY_DEST_TENANT})
+        else:
+            error("profile_copy cross-tenant skipped:", res["error"])
 
-    res = plist_decode(payload_dict_xml)
-    require_ok(res, "plist_decode")
-    payload_dict = res["value"]
+    prepared_name = TEST_PREFIX + "prepare-then-create-xml"
+    prep = profile_xml_prepare_for_create(source_xml, name=prepared_name)
+    require_ok(prep, "profile_xml_prepare_for_create")
+    res = profile_create_xml(xml_str=prep["value"], name=prepared_name, auth=auth)
+    require_ok(res, "profile_create_xml")
+    created["profiles"].append(res["value"]["id"])
 
-    # 6. Mutate the payload dict.
-    payload_dict["BuddyTestKey"] = TEST_PREFIX
+    return profile_id
 
-    # 7. Prefer merge patch on full profile XML (preserves PayloadUUID etc.).
-    res = profile_xml_patch_payload(profile_xml_str, domain, payload_dict)
-    require_ok(res, "profile_xml_patch_payload")
-    updated_xml = res["value"]
 
-    # 8. Write updated profile XML back.
-    res = profile_put_xml(profile_id=profile_id, xml_str=updated_xml, auth=auth)
-    require_ok(res, "profile_put_xml")
+def test_profile_mutate_classic(profile_id):
+    """Phase B continued: mutate a safe key via Classic put/patch."""
+    section(
+        "Profile phase B — Classic payload edit",
+        "Patch BuddyTestKey on the clone and write back via Classic.",
+    )
+
+    xml, settings = assert_classic_mcx_keys(profile_id, ["BuddyTestSeed"], "phase B pre-mutate")
+    settings["BuddyTestKey"] = TEST_PREFIX
+    res = profile_xml_patch_payload(xml, MCX_DOMAIN, settings)
+    require_ok(res, "profile_xml_patch_payload (phase B)")
+    res = profile_put_xml(profile_id=profile_id, xml_str=res["value"], auth=auth)
+    require_ok(res, "profile_put_xml (phase B classic)")
+    assert_classic_mcx_keys(profile_id, ["BuddyTestSeed", "BuddyTestKey"], "phase B post-mutate")
+
+
+def assert_example_url_retained(settings, ctx, want_parts):
+    """Classic MCX must keep ExampleURL (Apply-form may normalize on read-back)."""
+    if "ExampleURL" not in settings:
+        fail("%s: Classic MCX missing ExampleURL" % ctx)
+    got = settings["ExampleURL"]
+    for part in want_parts:
+        if part not in got:
+            fail("%s: ExampleURL missing %r in %r" % (ctx, part, got))
+    return got
+
+
+def under_encode_apply_form_url(profile_xml):
+    """Turn well-encoded Apply-form foo&amp;…bar into under-encoded outer &amp; for reject smoke."""
+    # Preference &amp; → inner &amp;amp; → outer &amp;amp;amp; (or fewer layers depending on path).
+    pairs = [
+        ("foo&amp;amp;amp;bar", "foo&amp;bar"),
+        ("foo&amp;amp;bar", "foo&amp;bar"),
+        ("searchTerms}&amp;amp;amp;{", "searchTerms}&amp;{"),
+        ("searchTerms}&amp;amp;{", "searchTerms}&amp;{"),
+    ]
+    for good, bad in pairs:
+        if good in profile_xml:
+            return profile_xml.replace(good, bad), good, bad
+    return None, "", ""
+
+
+def test_profile_inject_ampersand(profile_id, created):
+    """Phase C: Apply-form &amp; (ACS+Classic), bare reject, create, under-encoded reject."""
+    section(
+        "Profile phase C — ampersand / path contract",
+        "Apply-form &amp; put+create (ACS-eligible, Classic retention); bare '&' and under-encoded rejects.",
+    )
+
+    # -------------------------------------------------------------------------
+    # Case 1 — PUT Apply-form &amp; on the clone.
+    # ACS-eligible (preference contains &amp;) → ACS payload write + Classic sync.
+    # Classic must retain ExampleURL (Jamf may normalize read-back to a literal '&').
+    # -------------------------------------------------------------------------
+    print("phase C case 1: PUT ExampleURL with &amp; — expect ACS path + Classic retention")
+    xml, settings = assert_classic_mcx_keys(profile_id, ["BuddyTestSeed"], "phase C case 1 pre")
+    good = {}
+    for k in settings:
+        good[k] = settings[k]
+    good["ExampleURL"] = APPLY_FORM_URL
+    res = profile_xml_patch_payload(xml, MCX_DOMAIN, good)
+    require_ok(res, "profile_xml_patch_payload (phase C case 1 &amp;)")
+    patched_apply = res["value"]
+    res = profile_put_xml(profile_id=profile_id, xml_str=patched_apply, auth=auth)
+    require_ok(res, "profile_put_xml (phase C case 1 &amp;)")
+    _, settings_ok = assert_classic_mcx_keys(
+        profile_id,
+        ["BuddyTestSeed", "ExampleURL"],
+        "phase C case 1 Classic retention",
+    )
+    got = assert_example_url_retained(settings_ok, "phase C case 1", ["foo", "bar=baz"])
+    print("phase C case 1 ok: Classic ExampleURL =", got)
+
+    # -------------------------------------------------------------------------
+    # Case 2 — bare '&' in the preference string.
+    # Expectation: local reject before ACS/Classic (no HTTP 409 HTML).
+    # -------------------------------------------------------------------------
+    print("phase C case 2: ExampleURL with bare '&' — expect local reject")
+    xml, settings = assert_classic_mcx_keys(
+        profile_id,
+        ["BuddyTestSeed", "ExampleURL"],
+        "phase C case 2 pre",
+    )
+    bad = {}
+    for k in settings:
+        bad[k] = settings[k]
+    bad["ExampleURL"] = BARE_AMP_URL
+    res = profile_xml_patch_payload(xml, MCX_DOMAIN, bad)
+    require_ok(res, "profile_xml_patch_payload (phase C case 2 bare amp setup)")
+    put = profile_put_xml(profile_id=profile_id, xml_str=res["value"], auth=auth)
+    if put["ok"]:
+        fail("phase C case 2: bare '&' put returned ok (expected rejection)")
+    err = put["error"]
+    if "409" in err or "<html>" in err.lower():
+        fail("phase C case 2: expected local bare-'&' reject, got Classic/HTTP error: %s" % err)
+    if "bare '&'" not in err and "auto-convert" not in err:
+        fail("phase C case 2: unexpected reject reason: %s" % err)
+    print("phase C case 2 ok: bare '&' put rejected as expected:", err)
+
+    # -------------------------------------------------------------------------
+    # Case 3 — profile_create with Apply-form &amp; from scratch (Edge-style URL).
+    # Exercises Classic POST → possibly 409 → ACS shell+attach → Classic payloads sync.
+    # -------------------------------------------------------------------------
+    print("phase C case 3: profile_create with Apply-form &amp; — expect success + Classic retention")
+    create_name = TEST_PREFIX + "create-apply-form-amp"
+    payloads = build_acs_payloads_plist({
+        "BuddyTestSeed": TEST_PREFIX,
+        "ExampleURL": ACS_APPLY_URL,
+    })
+    res = profile_create(name=create_name, payloads_plist_str=payloads, scope_all=True, auth=auth)
+    require_ok(res, "profile_create (phase C case 3 Apply-form)")
+    created_id = res["value"]
+    created["profiles"].append(created_id)
+    _, settings_c3 = assert_classic_mcx_keys(
+        created_id,
+        ["BuddyTestSeed", "ExampleURL"],
+        "phase C case 3 Classic retention",
+    )
+    got = assert_example_url_retained(settings_c3, "phase C case 3", ["searchTerms", "google:RLZ"])
+    print("phase C case 3 ok: Classic ExampleURL =", got)
+
+    # -------------------------------------------------------------------------
+    # Case 4 — under-encoded '&' in outer Classic <payloads> (not Apply-form preference).
+    # Expectation: prepare/validate rejects locally — no Classic 409 HTML.
+    # -------------------------------------------------------------------------
+    print("phase C case 4: under-encoded outer payloads — expect local reject")
+    under_xml, from_enc, to_enc = under_encode_apply_form_url(patched_apply)
+    if under_xml == None:
+        fail("phase C case 4: could not locate Apply-form amp encoding in patched XML to under-encode")
+    put = profile_put_xml(profile_id=profile_id, xml_str=under_xml, auth=auth)
+    if put["ok"]:
+        fail("phase C case 4: under-encoded put returned ok (expected rejection)")
+    err = put["error"]
+    if "409" in err or "<html>" in err.lower():
+        fail("phase C case 4: expected local under-encode reject, got Classic/HTTP error: %s" % err)
+    if "under-encode" not in err and "bare" not in err and "payloads encoding" not in err and "auto-convert" not in err:
+        fail("phase C case 4: unexpected reject reason (from %r → %r): %s" % (from_enc, to_enc, err))
+    print("phase C case 4 ok: under-encoded put rejected as expected:", err)
+
+
+def test_profile(cred, created):
+    section(
+        "Profiles",
+        "Phase A Classic → B clone/copy/edit → C Apply-form ACS+Classic / rejects.",
+    )
+
+    res = profiles(filter=TEST_PREFIX)
+    if res["ok"]:
+        for p in res["value"]:
+            dres = profile_delete(profile_id=p["id"], auth=auth)
+            if not dres["ok"]:
+                error("cleanup old profile_delete error:", dres["error"])
+
+    source_id, source_payloads = create_simple_classic_profile(created)
+
+    res = profile_xml(id=source_id, auth=auth)
+    require_ok(res, "profile_xml (source)")
+    source_xml = res["value"]
+
+    source_uuids = test_profile_offline_helpers(source_xml, source_payloads)
+    profile_id = test_profile_clone_copy(source_id, source_uuids, source_xml, created)
+    test_profile_mutate_classic(profile_id)
+    test_profile_inject_ampersand(profile_id, created)
 
 
 def cleanup_profile(cred, created):
-    for pid in created["profiles"]:
-        error("profile cleanup: consider deleting test profile ID", pid)
+    for entry in created["profiles"]:
+        pid = entry["id"] if type(entry) == "dict" else entry
+        tenant = entry.get("tenant", "") if type(entry) == "dict" else ""
+        if tenant != "":
+            res = profile_delete(profile_id=pid, tenant=tenant, auth=auth)
+        else:
+            res = profile_delete(profile_id=pid, auth=auth)
+        require_ok(res, "profile_delete")
+    res = profiles(filter=TEST_PREFIX)
+    if res["ok"]:
+        for p in res["value"]:
+            require_ok(profile_delete(profile_id=p["id"], auth=auth), "profile_delete (leftover)")
     created["profiles"].clear()
 
 
 def test_package_and_script(cred):
-    # Packages: list and fetch one
+    section(
+        "Packages and scripts",
+        "List + load one of each (read-only smoke).",
+    )
+
     res = packages(filter="")
     require_ok(res, "packages")
     pkgs = res["value"]
@@ -336,40 +666,34 @@ def test_package_and_script(cred):
         pkg_id = first["id"] if type(first) == "dict" else first
         res2 = package(id=pkg_id, auth=auth)
         require_ok(res2, "package")
-        pkg = res2["value"]
-        if "packageName" not in pkg:
-            fail("package: missing packageName in package %r" % pkg)
+        if "packageName" not in res2["value"]:
+            fail("package: missing packageName")
 
-    # Scripts: list and fetch one
     res = scripts(auth=auth)
     require_ok(res, "scripts")
-    scripts = res["value"]
-    if scripts:
-        first = scripts[0]
+    script_list = res["value"]
+    if script_list:
+        first = script_list[0]
         script_id = first["id"] if type(first) == "dict" else first
         res2 = script(id=script_id, auth=auth)
         require_ok(res2, "script")
-        body = res2["value"]
-        if not body:
+        if not res2["value"]:
             fail("script returned empty body for script_id=%r" % script_id)
 
 
 def cleanup_all(cred, created):
-    # Run per-domain cleanups; order chosen to minimize dependencies.
+    section("Cleanup", "Delete everything created this run (and policy/group leftovers tracked).")
     cleanup_policy(cred, created)
     cleanup_smart_group(cred, created)
     cleanup_profile(cred, created)
 
 
 def main(auth=None):
-    if cred == None:
-        cred = "default"
-    # Mutable dict for this run (globals are frozen after ExecFile).
     created = {"policies": [], "groups": [], "profiles": []}
+    cred = None
     test_policy(cred, created)
     test_smart_group(cred, created)
     test_static_group_list(cred)
     test_profile(cred, created)
     test_package_and_script(cred)
     cleanup_all(cred, created)
-

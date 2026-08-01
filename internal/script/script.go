@@ -181,6 +181,7 @@ func REPL(credName string, opts buddy.Opts, logger *slog.Logger, trace bool) err
 
 func newThread(credName string, opts buddy.Opts, logger *slog.Logger, trace bool, scriptArgs []string) (*starlark.Thread, starlark.StringDict, error) {
 	runnerOpts = opts
+	scriptOpts = buddy.Opts{SkipConfirm: opts.SkipConfirm, Verbose: opts.Verbose}
 
 	reModule, err := re.LoadModule()
 	if err != nil {

@@ -55,12 +55,18 @@ See **[profile-payloads.md](profile-payloads.md)** for the full scorecard, Paylo
 
 Classic configuration profiles embed an entity-encoded payloads plist under `<payloads>`. Prefer typed tools:
 
-**Create / clone / redeploy**
+**Create / clone / copy / redeploy**
 
 1. `payloads_set_content` (optional) — build payloads plist from a PayloadContent array.
 2. `profile_create` — greenfield POST (`name` + `payloads_plist_str` or `content`; optional scope/category).
-3. `profile_clone` — copy an existing profile to a new `name` with **unassigned** scope (`all_computers=false`, no targets; not “all computers”).
+3. `profile_clone` / `profile_copy` — one-shot read/transform/post with **UUID remapping** (do not hand-edit UUIDs).
 4. `profile_redeploy` — set redeploy_on_update=All and PUT (no payload change).
+
+**Offline prepare (agent escape hatch)**
+
+1. `profile_xml_randomize_uuids` — remap general + PayloadUUID keys only.
+2. `profile_xml_prepare_for_create` — name, strip id, scope (default unassigned), randomize UUIDs.
+3. `profile_create_xml` — POST prepared XML.
 
 **Edit existing**
 
@@ -111,7 +117,9 @@ Value criteria: encodes Jamf/buddy knowledge; completes a common task without ra
 | `static_group_add_computers` / `_remove_computers` / `_set_computers` | Membership mutates |
 | `smart_group_create` / `static_group_create` | Create Pro computer groups |
 | `profiles` | List profile summaries |
-| `profile_create` / `profile_clone` / `profile_redeploy` | Create / copy / redeploy profiles |
+| `profile_create` / `profile_clone` / `profile_copy` / `profile_redeploy` / `profile_create_xml` / `profile_delete` | Create / copy / lifecycle |
+| `profile_xml_randomize_uuids` / `profile_xml_prepare_for_create` | Offline UUID + create prep |
+| `payloads_collect_uuids` | Verify UUID remap after clone/copy |
 | `profile_xml` | Load Classic XML |
 | `profile_put_xml` | Write Classic XML |
 | `profile_xml_patch_payload` | Offline domain patch |
@@ -125,7 +133,7 @@ Value criteria: encodes Jamf/buddy knowledge; completes a common task without ra
 |--------|-----------|-----------------------------------|
 | Platform blueprint / device / device_group / ddm / benchmark | Near-full CRUD + actions | — |
 | Pro smart/static groups | List, get, criteria bump, membership mutate, **create** | Delete; full `smart_group_put` / set_criteria |
-| Profiles | List, create, clone, redeploy, XML get/put, patch, inspect, set_content | Advanced `payloads_*` / MCX get |
+| Profiles | List, create, clone, **copy**, redeploy, XML get/put, patch, inspect, set_content, delete | Advanced `payloads_*` / MCX get |
 | Packages | List + ready/wait/download | get/upload/delete/put |
 | Scripts | List | get/contents/update/put |
 | Policies | Trigger→id only | Full load/set/create/clone/delete |

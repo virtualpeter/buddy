@@ -213,6 +213,18 @@ edit payload dicts in Starlark.
 Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…)` /
 `profile(id=…)` (same XML) and `profile_put_xml` to load and save.
 
+**Clone/copy:** do not hand-edit UUIDs. `profile_clone` / `profile_copy` randomize general + PayloadUUID and default to unassigned scope. `profile_xml_prepare_for_create` is the offline equivalent before `profile_create_xml`.
+
+- `uuid_new() → value: str` — offline random UUID.
+- `profile_clone(profile_id, name, tenant?, surface?, auth?) → value: dict {id, name}` — same session; UUID remap + unassigned scope.
+- `profile_acs_bind_uuid(profile_id, payload_uuid) → value: None` — seed process cache for ACS payload UUID when legacy HTML scrape fails (API tokens).
+- `profile_copy(profile_id, name, from_tenant?, from_surface?, from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name}` — fetch on from_* session; POST on destination session kwargs.
+- `profile_create_xml(xml_str, name?, tenant?, surface?, auth?) → value: dict {id, name}` — POST prepared XML.
+- `profile_delete(profile_id, tenant?, surface?, auth?) → value: None`
+- `profile_xml_randomize_uuids(profile_xml_str) → value: str` — offline UUID remap only.
+- `profile_xml_prepare_for_create(profile_xml_str, name, scope_all?, scope_group_ids?) → value: str` — offline name/id/scope/UUID prep for POST.
+- `payloads_collect_uuids(payloads_plist_str) → value: list[string]` — every PayloadUUID in plist.
+
 - `profile_xml_extract_payloads(profile_xml_str) → value: string`
   - **Params**:
     - `profile_xml_str` (string): Full profile XML.

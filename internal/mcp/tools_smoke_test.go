@@ -24,12 +24,18 @@ var expectedTier1Tools = []string{
 	"profiles",
 	"profile_create",
 	"profile_clone",
+	"profile_copy",
+	"profile_create_xml",
+	"profile_delete",
 	"profile_redeploy",
 	"profile_xml",
 	"profile_put_xml",
 	"profile_xml_patch_payload",
+	"profile_xml_randomize_uuids",
+	"profile_xml_prepare_for_create",
 	"profile_xml_extract_payloads",
 	"payloads_list_identifiers",
+	"payloads_collect_uuids",
 	"payloads_set_content",
 }
 

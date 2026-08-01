@@ -43,10 +43,23 @@ test: sync-docfs
 	$(GO) test -v ./...
 .PHONY: test
 
-# Run integration tests (requires Jamf test environment in config or --user override)
+# Run integration tests (requires non-production Jamf + buddy-test-source-profile; pin --tenant/--user)
 integration-test: $(BUILDTARGET)
-	./$(BUILDTARGET) scripts/integration_test.buddy
+	./$(BUILDTARGET) -y scripts/integration_test.buddy
 .PHONY: integration-test
+
+# ACS hydrate shake-down against a live Classic profile (default id=7; same-tenant mutate+restore).
+# When hydrate cannot resolve the ACS payload UUID from HTML, set e.g.:
+#   BUDDY_ACS_PAYLOAD_UUID_7=<FIELD_EXTERNAL_CONFIGPROFILE_ID> make integration-test-acs7
+# or set TEST_ACS_PAYLOAD_UUID in scripts/integration_test_acs_profile7.buddy
+integration-test-acs7: $(BUILDTARGET)
+	./$(BUILDTARGET) -y scripts/integration_test_acs_profile7.buddy
+.PHONY: integration-test-acs7
+
+# Read-only: classify profiles that need ACS hydrate / UUID bind
+scan-acs-profiles: $(BUILDTARGET)
+	./$(BUILDTARGET) -y scripts/scan_acs_profile_handling.buddy
+.PHONY: scan-acs-profiles
 
 # Local docs + notebook UI (opens browser)
 docs-serve: $(BUILDTARGET)
@@ -75,6 +88,8 @@ help:
 	@echo "  install   - Install $(BUILDTARGET) CLI to ~/go/bin/"
 	@echo "  test      - Run unit tests"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"
+	@echo "  integration-test-acs7 - ACS profile id=7 same-tenant mutate/restore suite"
+	@echo "  scan-acs-profiles - Read-only audit: profiles needing ACS hydrate/bind handling"
 	@echo "  docs-serve - Local docs + notebook (buddy serve --open)"
 	@echo "  extension-package - Build editors/vscode VSIX (PUBLISHER=virtualpete)"
 	@echo "  clean   - Remove all built executables"

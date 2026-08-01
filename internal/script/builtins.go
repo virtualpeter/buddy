@@ -219,20 +219,28 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "package_delete", packageDelete(credName, logger))
 	putBuiltin(dict, "package_put", packagePut(credName, logger))
 
+	putBuiltin(dict, "uuid_new", uuidNewBuiltin)
 	putBuiltin(dict, "profile_create", profileCreate(credName, logger))
 	putBuiltin(dict, "profile_clone", profileClone(credName, logger))
+	putBuiltin(dict, "profile_copy", profileCopy(credName, logger))
+	putBuiltin(dict, "profile_create_xml", profileCreateXML(credName, logger))
+	putBuiltin(dict, "profile_delete", profileDelete(credName, logger))
 	putBuiltin(dict, "profile_redeploy", profileRedeploy(credName, logger))
+	putBuiltin(dict, "profile_acs_bind_uuid", profileACSBindUUIDBuiltin)
 	putBuiltin(dict, "profile_get_payloads", profileGetPayloads(credName, logger))
 	putBuiltin(dict, "profile_get_payload", profileGetPayload(credName, logger))
 	putBuiltin(dict, "profile_list_payloads", profileListPayloads(credName, logger))
-	putBuiltin(dict, "profile_set_payload", profileSetPayload(logger))
+	putBuiltin(dict, "profile_set_payload", profileSetPayload(credName, logger))
 	putBuiltin(dict, "profile_set_xml", profileSetXML(logger))
 	putBuiltin(dict, "profile_put_xml", profilePutXML(credName, logger))
 	putBuiltin(dict, "profile_xml_extract_payloads", profileXMLExtractPayloadsBuiltin)
+	putBuiltin(dict, "profile_xml_randomize_uuids", profileXMLRandomizeUUIDsBuiltin)
+	putBuiltin(dict, "profile_xml_prepare_for_create", profileXMLPrepareForCreateBuiltin)
 	putBuiltin(dict, "profile_xml_replace_payloads", profileXMLReplacePayloadsBuiltin)
 	putBuiltin(dict, "profile_xml_set_redeploy_all", profileXMLSetRedeployAllBuiltin)
 	putBuiltin(dict, "profile_xml_patch_payload", profileXMLPatchPayloadBuiltin)
 	putBuiltin(dict, "payloads_list_identifiers", payloadsListIdentifiersBuiltin)
+	putBuiltin(dict, "payloads_collect_uuids", payloadsCollectUUIDsBuiltin)
 	putBuiltin(dict, "payloads_get_payload", payloadsGetPayloadBuiltin)
 	putBuiltin(dict, "payloads_replace_payload", payloadsReplacePayload(logger))
 	putBuiltin(dict, "payloads_replace_mcx_dict", payloadsReplaceMCXDictBuiltin)
@@ -2906,16 +2914,26 @@ func profileListPayloads(credName string, logger *slog.Logger) func(*starlark.Th
 	}
 }
 
-// profile_redeploy(profile_id) → {ok, value: None}
+// profile_redeploy(profile_id, tenant?, surface?, auth?) → {ok, value: None}
 func profileRedeploy(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var profileID starlark.Int
-		if err := starlark.UnpackArgs("profile_redeploy", args, kwargs, "profile_id", &profileID); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("profile_redeploy", args, kwargs,
+			"profile_id", &profileID,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
+		); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
+		}
+		defer restoreSession()
 		pid, _ := profileID.Int64()
-		cred := credName
-		err := buddy.ProfileRedeploy(cred, scriptOpts, int(pid), logger)
+		err := buddy.ProfileRedeploy(sessionPin, scriptOpts, int(pid), logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -2923,22 +2941,51 @@ func profileRedeploy(credName string, logger *slog.Logger) func(*starlark.Thread
 	}
 }
 
-func profileSetPayload(logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+// profile_acs_bind_uuid(profile_id, payload_uuid) → None
+// Seeds the process cache so profile reads can hydrate ACS Forced.plist when Jamf's
+// legacy HTML does not expose FIELD_EXTERNAL_CONFIGPROFILE_ID to API-token clients.
+func profileACSBindUUIDBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var profileID starlark.Int
+	var payloadUUID starlark.String
+	if err := starlark.UnpackArgs("profile_acs_bind_uuid", args, kwargs,
+		"profile_id", &profileID,
+		"payload_uuid", &payloadUUID,
+	); err != nil {
+		return nil, err
+	}
+	pid, _ := profileID.Int64()
+	u := strings.TrimSpace(string(payloadUUID))
+	if pid <= 0 || u == "" {
+		return resultErr("profile_id and payload_uuid are required"), nil
+	}
+	buddy.CacheACSPayloadUUID(int(pid), u)
+	return resultOK(starlark.None), nil
+}
+
+func profileSetPayload(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var profileID starlark.Int
 		var domain, dictFile starlark.String
 		redeploy := starlark.Bool(false)
+		var sess sessionArgs
 		if err := starlark.UnpackArgs("profile_set_payload", args, kwargs,
 			"profile_id", &profileID,
 			"domain", &domain,
 			"dict_file", &dictFile,
 			"redeploy?", &redeploy,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
+		}
+		defer restoreSession()
 		pid, _ := profileID.Int64()
-		cred := getAuth(thread, "")
-		err := buddy.ProfileSetPayload(cred, scriptOpts, int(pid), string(domain), string(dictFile), bool(redeploy), logger)
+		err := buddy.ProfileSetPayload(sessionPin, scriptOpts, int(pid), string(domain), string(dictFile), bool(redeploy), logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -3056,6 +3103,23 @@ func profileCreate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 	}
 }
 
+func profileCreateOutcomeValue(out *buddy.ProfileCreateOutcome) (starlark.Value, error) {
+	if out == nil {
+		return resultOK(starlark.None), nil
+	}
+	d := starlark.NewDict(2)
+	_ = d.SetKey(starlark.String("id"), starlark.MakeInt(out.ProfileID))
+	_ = d.SetKey(starlark.String("name"), starlark.String(out.Name))
+	return resultOK(d), nil
+}
+
+func uuidNewBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	if err := starlark.UnpackArgs("uuid_new", args, kwargs); err != nil {
+		return nil, err
+	}
+	return resultOK(starlark.String(buddy.NewUUID())), nil
+}
+
 func profileClone(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var profileID starlark.Int
@@ -3072,10 +3136,135 @@ func profileClone(credName string, logger *slog.Logger) func(*starlark.Thread, *
 			return resultErr(sessErr.Error()), nil
 		}
 		defer restoreSession()
-		c := sessionPin
 		pid, _ := profileID.Int64()
-		err := buddy.ProfileClone(c, scriptOpts, int(pid), string(name), logger)
+		out, err := buddy.ProfileClone(sessionPin, scriptOpts, int(pid), string(name), logger)
 		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return profileCreateOutcomeValue(out)
+	}
+}
+
+func profileCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var profileID starlark.Int
+		var name starlark.String
+		var fromTenant, fromSurface, fromAuth starlark.String
+		var scopeAll starlark.Value = starlark.None
+		var scopeGroupIDs *starlark.List
+		var destSess sessionArgs
+		if err := starlark.UnpackArgs("profile_copy", args, kwargs,
+			"profile_id", &profileID, "name", &name,
+			"from_tenant?", &fromTenant,
+			"from_surface?", &fromSurface,
+			"from_auth?", &fromAuth,
+			"scope_all?", &scopeAll,
+			"scope_group_ids?", &scopeGroupIDs,
+			"tenant?", &destSess.Tenant,
+			"surface?", &destSess.Surface,
+			"auth?", &destSess.Auth); err != nil {
+			return nil, err
+		}
+		fromSess := sessionArgs{Tenant: fromTenant, Surface: fromSurface, Auth: fromAuth}
+		fromPin, restoreFrom, sessErr := beginSession(thread, credName, fromSess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
+		}
+		pid, _ := profileID.Int64()
+		profileXML, err := buddy.ProfileFetchXML(fromPin, int(pid))
+		restoreFrom()
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		spec := buddy.ProfilePrepareSpec{Name: string(name)}
+		if scopeGroupIDs != nil {
+			ids := make([]int, 0, scopeGroupIDs.Len())
+			for i := 0; i < scopeGroupIDs.Len(); i++ {
+				n, ok := scopeGroupIDs.Index(i).(starlark.Int)
+				if !ok {
+					return resultErr("scope_group_ids must be a list of ints"), nil
+				}
+				v64, _ := n.Int64()
+				ids = append(ids, int(v64))
+			}
+			spec.ScopeGroupIDs = ids
+		}
+		if scopeAll != starlark.None {
+			b, ok := scopeAll.(starlark.Bool)
+			if !ok {
+				return resultErr("scope_all must be a bool"), nil
+			}
+			v := bool(b)
+			spec.ScopeAll = &v
+		}
+		prepared, err := buddy.PrepareProfileXMLForCreate(profileXML, spec)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
+		}
+		defer restoreDest()
+		out, err := buddy.ProfilePostXML(destPin, scriptOpts, prepared, string(name), logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return profileCreateOutcomeValue(out)
+	}
+}
+
+func profileCreateXML(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var xmlStr, profileName starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("profile_create_xml", args, kwargs,
+			"xml_str", &xmlStr, "name?", &profileName,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
+		}
+		defer restoreSession()
+		name := string(profileName)
+		if name == "" {
+			nameStart := strings.Index(string(xmlStr), "<name>")
+			if nameStart >= 0 {
+				rest := string(xmlStr)[nameStart+len("<name>"):]
+				if end := strings.Index(rest, "</name>"); end >= 0 {
+					name = rest[:end]
+				}
+			}
+		}
+		out, err := buddy.ProfilePostXML(sessionPin, scriptOpts, []byte(string(xmlStr)), name, logger)
+		if err != nil {
+			return resultErr(err.Error()), nil
+		}
+		return profileCreateOutcomeValue(out)
+	}
+}
+
+func profileDelete(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var profileID starlark.Int
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("profile_delete", args, kwargs, "profile_id", &profileID,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
+		}
+		defer restoreSession()
+		pid, _ := profileID.Int64()
+		if err := buddy.ProfileDelete(sessionPin, scriptOpts, int(pid), logger); err != nil {
 			return resultErr(err.Error()), nil
 		}
 		return resultOK(starlark.None), nil
@@ -3123,6 +3312,58 @@ func profileXMLExtractPayloadsBuiltin(_ *starlark.Thread, _ *starlark.Builtin, a
 		return resultErr(err.Error()), nil
 	}
 	return resultOK(starlark.String(payloads)), nil
+}
+
+// profile_xml_randomize_uuids(profile_xml_str) → {ok, value: str}
+func profileXMLRandomizeUUIDsBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var xmlStr starlark.String
+	if err := starlark.UnpackArgs("profile_xml_randomize_uuids", args, kwargs, "profile_xml_str", &xmlStr); err != nil {
+		return nil, err
+	}
+	out, err := buddy.RandomizeProfileUUIDs([]byte(string(xmlStr)))
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(string(out))), nil
+}
+
+// profile_xml_prepare_for_create(profile_xml_str, name, scope_all?, scope_group_ids?) → {ok, value: str}
+func profileXMLPrepareForCreateBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var xmlStr, name starlark.String
+	var scopeAll starlark.Value = starlark.None
+	var scopeGroupIDs *starlark.List
+	if err := starlark.UnpackArgs("profile_xml_prepare_for_create", args, kwargs,
+		"profile_xml_str", &xmlStr, "name", &name,
+		"scope_all?", &scopeAll,
+		"scope_group_ids?", &scopeGroupIDs); err != nil {
+		return nil, err
+	}
+	spec := buddy.ProfilePrepareSpec{Name: string(name)}
+	if scopeGroupIDs != nil {
+		ids := make([]int, 0, scopeGroupIDs.Len())
+		for i := 0; i < scopeGroupIDs.Len(); i++ {
+			n, ok := scopeGroupIDs.Index(i).(starlark.Int)
+			if !ok {
+				return resultErr("scope_group_ids must be a list of ints"), nil
+			}
+			v64, _ := n.Int64()
+			ids = append(ids, int(v64))
+		}
+		spec.ScopeGroupIDs = ids
+	}
+	if scopeAll != starlark.None {
+		b, ok := scopeAll.(starlark.Bool)
+		if !ok {
+			return resultErr("scope_all must be a bool"), nil
+		}
+		v := bool(b)
+		spec.ScopeAll = &v
+	}
+	out, err := buddy.PrepareProfileXMLForCreate([]byte(string(xmlStr)), spec)
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	return resultOK(starlark.String(string(out))), nil
 }
 
 // profile_xml_replace_payloads(profile_xml_str, payloads_plist_str) → {ok, value: str}
@@ -3195,6 +3436,23 @@ func payloadsListIdentifiersBuiltin(_ *starlark.Thread, _ *starlark.Builtin, arg
 	list := new(starlark.List)
 	for _, id := range ids {
 		_ = list.Append(starlark.String(id))
+	}
+	return resultOK(list), nil
+}
+
+// payloads_collect_uuids(payloads_plist_str) → {ok, value: list of str}
+func payloadsCollectUUIDsBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var plistStr starlark.String
+	if err := starlark.UnpackArgs("payloads_collect_uuids", args, kwargs, "payloads_plist_str", &plistStr); err != nil {
+		return nil, err
+	}
+	uuids, err := buddy.PlistCollectPayloadUUIDs(string(plistStr))
+	if err != nil {
+		return resultErr(err.Error()), nil
+	}
+	list := new(starlark.List)
+	for _, u := range uuids {
+		_ = list.Append(starlark.String(u))
 	}
 	return resultOK(list), nil
 }

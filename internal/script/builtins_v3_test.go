@@ -81,6 +81,25 @@ func TestStringListFromStarlark(t *testing.T) {
 	}
 }
 
+func TestStarlarkDictSetIDIfMissing(t *testing.T) {
+	d := new(starlark.Dict)
+	_ = d.SetKey(starlark.String("name"), starlark.String("g"))
+	got := starlarkDictSetIDIfMissing(d, "42")
+	out, ok := got.(*starlark.Dict)
+	if !ok {
+		t.Fatalf("got %T", got)
+	}
+	id, found, _ := out.Get(starlark.String("id"))
+	if !found || id != starlark.String("42") {
+		t.Fatalf("id = %v found=%v", id, found)
+	}
+	withID := new(starlark.Dict)
+	_ = withID.SetKey(starlark.String("id"), starlark.String("99"))
+	if starlarkDictSetIDIfMissing(withID, "42") != withID {
+		t.Fatal("expected existing id to be preserved")
+	}
+}
+
 func TestPolicyBuiltinRejectsAmbiguous(t *testing.T) {
 	fn := policyBuiltin("default", slog.Default())
 	thread := &starlark.Thread{Name: "t"}

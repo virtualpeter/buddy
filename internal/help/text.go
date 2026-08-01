@@ -403,14 +403,24 @@ PROFILE
       → value: int (new profile ID)
       Params: name: str; pass payloads_plist_str and/or content (list of payload
         dicts). scope_all defaults true when scope_group_ids omitted. Classic POST.
-  profile_clone(profile_id, name, tenant?, surface?, auth?) → value: dict
-  profile_redeploy(profile_id) → None
+  profile_clone(profile_id, name, tenant?, surface?, auth?) → value: dict {id, name}
+      Params: Same-tenant clone; randomizes UUIDs; unassigned scope.
+  profile_copy(profile_id, name, from_tenant?, from_surface?, from_auth?,
+               scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name}
+      Params: Fetch on from_* session; POST on trailing tenant/auth (destination). Default unassigned scope.
+  profile_create_xml(xml_str, name?, tenant?, surface?, auth?) → value: dict {id, name}
+      Params: POST prepared XML (after profile_xml_prepare_for_create).
+  profile_delete(profile_id, tenant?, surface?, auth?) → None
+  profile_redeploy(profile_id, tenant?, surface?, auth?) → None
+  profile_acs_bind_uuid(profile_id, payload_uuid) → None
+      Params: Seeds process cache classic id → ACS payload UUID (FIELD_EXTERNAL_CONFIGPROFILE_ID).
+        Needed when API-token clients cannot scrape legacy HTML; enables read hydrate + ACS writes.
   profile_get_payloads(profile_id) → value: str
   profile_get_payload(profile_id, domain) → value: str
       Params: domain is PayloadIdentifier (PayloadContent only; not MCX — use payloads_get_mcx_dict offline).
   profile_list_payloads(profile_id) → value: list of str
       Params: PayloadIdentifier list (PayloadContent only).
-  profile_set_payload(profile_id, domain, dict_file, redeploy?) → None
+  profile_set_payload(profile_id, domain, dict_file, redeploy?, tenant?, surface?, auth?) → None
       Params: PayloadContent merge or MCX settings dict (same as profile_xml_patch_payload).
 
 PROFILE — component
@@ -418,6 +428,10 @@ PROFILE — component
   profile_xml_extract_payloads(profile_xml_str)
       → value: str (payloads plist XML from <payloads>; entities unescaped)
       Params: profile_xml_str: str (offline transform; no API call).
+  profile_xml_randomize_uuids(profile_xml_str) → value: str
+      Params: Offline; new general UUID + remap PayloadUUID keys; PayloadIdentifier unchanged.
+  profile_xml_prepare_for_create(profile_xml_str, name, scope_all?, scope_group_ids?) → value: str
+      Params: Offline; name, strip id, scope (default unassigned), randomize UUIDs for Classic POST.
   profile_xml_replace_payloads(profile_xml_str, payloads_plist_str)
       → value: str (updated profile XML)
       Params: profile_xml_str: str; payloads_plist_str: str (offline transform).
@@ -432,6 +446,8 @@ PROFILE — component
   payloads_list_identifiers(payloads_plist_str)
       → value: list of str
       Params: payloads_plist_str: str (payloads plist XML). PayloadContent PayloadIdentifiers only.
+  payloads_collect_uuids(payloads_plist_str) → value: list of str
+      Params: Every PayloadUUID in the plist (verify clone/copy remapping).
   payloads_get_payload(payloads_plist_str, domain)
       → value: str (plist XML dict)
       Params: payloads_plist_str: str; domain: str (PayloadIdentifier). PayloadContent only — not MCX.
@@ -585,6 +601,8 @@ SERIALIZATION
   plist_encode(value)
       → value: str (plist XML)
       Params: value: Starlark dict, list, or primitive. Returns: plist XML string.
+  uuid_new() → value: str
+      Params: Offline; random RFC 4122 UUID (for payload builders).
   xml_escape(s)
       → value: str
       Params: s: str. Entity-encodes & < > for nesting text (XML/JSON/plist) inside an XML element.

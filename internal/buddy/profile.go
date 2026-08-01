@@ -36,11 +36,14 @@ type profileListXML struct {
 }
 
 // ProfileFetchXML fetches the full profile XML and returns it as bytes (for script/component use).
+// Empty Classic MCX domains may be hydrated from Jamf's ACS API when resolvable.
 func ProfileFetchXML(credName string, profileID int) ([]byte, error) {
 	return profileFetchRaw(credName, profileID)
 }
 
 // profileFetchRaw fetches the full profile XML and returns it as bytes.
+// When Classic MCX preference settings are empty but ACS API has Forced.plist for the
+// same domain, those settings are merged in (see hydrateProfileXMLFromACS).
 func profileFetchRaw(credName string, profileID int) ([]byte, error) {
 	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
 	if err != nil {
@@ -60,7 +63,11 @@ func profileFetchRaw(credName string, profileID int) ([]byte, error) {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("fetch profile %d status %d: %s", profileID, resp.StatusCode, string(body))
 	}
-	return io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return hydrateProfileXMLFromACS(credName, profileID, body, nil)
 }
 
 // ExtractPayloadsFromProfileXML finds the <payloads> element in profile XML, unescapes its content, and returns it.
@@ -69,19 +76,34 @@ func ExtractPayloadsFromProfileXML(profileXML []byte) (string, error) {
 	return extractPayloadsFromProfileXML(profileXML)
 }
 
+const profilePayloadsOpen = "<payloads>"
+const profilePayloadsClose = "</payloads>"
+
+func profilePayloadsContentBounds(s string) (contentStart, contentEnd int, err error) {
+	openIdx := strings.Index(s, profilePayloadsOpen)
+	closeIdx := strings.Index(s, profilePayloadsClose)
+	if openIdx < 0 || closeIdx < 0 || closeIdx < openIdx {
+		return 0, 0, fmt.Errorf("could not find <payloads> element in profile XML")
+	}
+	return openIdx + len(profilePayloadsOpen), closeIdx, nil
+}
+
+// extractPayloadsEncodedFromProfileXML returns the raw entity-encoded <payloads> inner XML (no unescape).
+func extractPayloadsEncodedFromProfileXML(profileXML []byte) (string, error) {
+	contentStart, contentEnd, err := profilePayloadsContentBounds(string(profileXML))
+	if err != nil {
+		return "", err
+	}
+	return string(profileXML)[contentStart:contentEnd], nil
+}
+
 // extractPayloadsFromProfileXML finds the <payloads> element in profile XML, unescapes its content, and returns it.
 func extractPayloadsFromProfileXML(profileXML []byte) (string, error) {
-	s := string(profileXML)
-	const openTag = "<payloads>"
-	const closeTag = "</payloads>"
-	openIdx := strings.Index(s, openTag)
-	closeIdx := strings.Index(s, closeTag)
-	if openIdx < 0 || closeIdx < 0 || closeIdx < openIdx {
-		return "", fmt.Errorf("could not find <payloads> element in profile XML")
+	contentStart, contentEnd, err := profilePayloadsContentBounds(string(profileXML))
+	if err != nil {
+		return "", err
 	}
-	contentStart := openIdx + len(openTag)
-	contentEnd := closeIdx
-	return XMLUnescape(s[contentStart:contentEnd]), nil
+	return XMLUnescape(string(profileXML)[contentStart:contentEnd]), nil
 }
 
 // PlistPayloadIdentifiers parses the payloads plist and returns PayloadIdentifier values from PayloadContent array.
@@ -571,28 +593,13 @@ func ProfileRedeploy(credName string, opts Opts, profileID int, logger *slog.Log
 }
 
 // ProfileGetXML fetches a macOS configuration profile and writes its XML to w (typically os.Stdout).
-// Uses a raw HTTP GET to preserve the exact Jamf Pro XML, including base64-encoded mobileconfig payloads,
-// which can be corrupted if round-tripped through Go struct marshaling.
+// Empty Classic MCX domains may be hydrated from ACS ACS (same as ProfileFetchXML).
 func ProfileGetXML(credName string, profileID int, w io.Writer, logger *slog.Logger) error {
-	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
+	profileXML, err := profileFetchRaw(credName, profileID)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/xml")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return fmt.Errorf("fetch profile %d: %w", profileID, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("fetch profile %d status %d: %s", profileID, resp.StatusCode, string(body))
-	}
-	_, err = io.Copy(w, resp.Body)
+	_, err = w.Write(profileXML)
 	return err
 }
 
@@ -703,12 +710,8 @@ func ProfileSetXML(credName string, opts Opts, profileID int, r io.Reader, redep
 // ProfilePutXML writes the given profile XML to Jamf for the given profile ID (for script/component use).
 // If redeploy is true, sets redeploy_on_update to All. Uses opts.SkipConfirm to skip confirmation when called from scripts.
 func ProfilePutXML(credName string, opts Opts, profileID int, xml []byte, redeploy bool, logger *slog.Logger) error {
-	data := xml
-	if !bytes.Contains(data, []byte("<os_x_configuration_profile")) {
+	if !bytes.Contains(xml, []byte("<os_x_configuration_profile")) {
 		return fmt.Errorf("input does not appear to be macOS configuration profile XML (missing <os_x_configuration_profile> root)")
-	}
-	if redeploy {
-		data = SetRedeployAll(data)
 	}
 	if !opts.SkipConfirm {
 		msg := fmt.Sprintf("\nPUT configuration profile (ID %d) with XML", profileID)
@@ -719,25 +722,10 @@ func ProfilePutXML(credName string, opts Opts, profileID int, xml []byte, redepl
 			return nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
-	if err != nil {
-		return err
+	if opts.Verbose {
+		fmt.Fprintf(os.Stderr, "\n--- PUT payload (JSSResource/osxconfigurationprofiles/id/%d) ---\n%s\n--- end payload ---\n\n", profileID, xml)
 	}
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/xml")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return fmt.Errorf("update profile: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update profile status %d: %s", resp.StatusCode, string(body))
-	}
-	return nil
+	return profileClassicPut(credName, opts, profileID, xml, redeploy, logger)
 }
 
 // ProfileSetPayload patches a payload domain inside a profile (PayloadContent merge by
@@ -787,9 +775,6 @@ func ProfileSetPayload(credName string, opts Opts, profileID int, domain string,
 	if err != nil {
 		return err
 	}
-	if redeploy {
-		updatedXML = setRedeployAll(updatedXML)
-	}
 
 	if !opts.SkipConfirm {
 		msg := fmt.Sprintf("\nUpdate %q payload in configuration profile (ID %d)", domain, profileID)
@@ -801,19 +786,8 @@ func ProfileSetPayload(credName string, opts Opts, profileID int, domain string,
 		}
 	}
 
-	putReq, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(updatedXML))
-	if err != nil {
-		return fmt.Errorf("create put request: %w", err)
-	}
-	putReq.Header.Set("Content-Type", "application/xml")
-	putResp, err := PerformRequest(nil, putReq, credName)
-	if err != nil {
-		return fmt.Errorf("update profile: %w", err)
-	}
-	defer putResp.Body.Close()
-	if putResp.StatusCode != http.StatusOK && putResp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(putResp.Body)
-		return fmt.Errorf("update profile status %d: %s", putResp.StatusCode, string(body))
+	if err := profileClassicPut(credName, opts, profileID, updatedXML, redeploy, logger); err != nil {
+		return err
 	}
 	fmt.Printf("Updated %q payload in configuration profile (ID %d)\n", domain, profileID)
 	return nil
@@ -1015,113 +989,38 @@ func ProfileCreate(credName string, opts Opts, spec ProfileCreateSpec, logger *s
 			return nil, nil
 		}
 	}
-	if opts.Verbose {
-		fmt.Fprintf(os.Stderr, "\n--- POST payload (JSSResource/osxconfigurationprofiles/id/0) ---\n%s\n--- end payload ---\n\n", xmlBody)
-	}
-	postURL, err := ResolveEndpoint(credName, "/JSSResource/osxconfigurationprofiles/id/0")
-	if err != nil {
-		return nil, err
-	}
-	postReq, err := http.NewRequest(http.MethodPost, postURL, bytes.NewReader(xmlBody))
-	if err != nil {
-		return nil, fmt.Errorf("create post request: %w", err)
-	}
-	postReq.Header.Set("Content-Type", "application/xml")
-	postResp, err := PerformRequest(nil, postReq, credName)
-	if err != nil {
-		return nil, fmt.Errorf("create profile: %w", err)
-	}
-	defer postResp.Body.Close()
-	body, _ := io.ReadAll(postResp.Body)
-	if postResp.StatusCode != http.StatusOK && postResp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create profile status %d: %s", postResp.StatusCode, string(body))
-	}
-	id, err := resolveCreatedProfileID(credName, opts, body, spec.Name, logger)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Printf("Created configuration profile %q (ID %d)\n", spec.Name, id)
-	return &ProfileCreateOutcome{ProfileID: id, Name: spec.Name}, nil
+	optsPost := opts
+	optsPost.SkipConfirm = true
+	return ProfilePostXML(credName, optsPost, xmlBody, spec.Name, logger)
 }
 
 // ProfileClone creates a copy of a configuration profile with the given name and
 // unassigned scope (all_computers=false, empty targets — not "all computers").
-func ProfileClone(credName string, opts Opts, sourceProfileID int, newName string, logger *slog.Logger) error {
+func ProfileClone(credName string, opts Opts, sourceProfileID int, newName string, logger *slog.Logger) (*ProfileCreateOutcome, error) {
 	profileXML, err := profileFetchRaw(credName, sourceProfileID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	xml := profileXML
-
-	// Extract current UUID from <general><uuid>
-	uuidRe := regexp.MustCompile(`<uuid>([a-fA-F0-9\-]{36})</uuid>`)
-	uuidMatch := uuidRe.FindSubmatch(xml)
-	if uuidMatch == nil {
-		return fmt.Errorf("profile XML has no <uuid> in general")
+	prepared, err := PrepareProfileXMLForCreate(profileXML, ProfilePrepareSpec{Name: newName})
+	if err != nil {
+		return nil, err
 	}
-	oldUUID := string(uuidMatch[1])
-	newUUID := uuid.New().String()
-
-	// Replace old UUID with new UUID throughout
-	xml = bytes.ReplaceAll(xml, []byte(oldUUID), []byte(newUUID))
-
-	// Replace <general><name> with new name (first <name> in doc is profile name)
-	nameStart := bytes.Index(xml, []byte("<name>"))
-	if nameStart < 0 {
-		return fmt.Errorf("profile XML has no <name> in general")
-	}
-	nameEnd := bytes.Index(xml[nameStart:], []byte("</name>"))
-	if nameEnd < 0 {
-		return fmt.Errorf("profile XML has malformed <name>")
-	}
-	nameEnd += nameStart + len("</name>")
-	xml = bytes.Join([][]byte{xml[:nameStart], []byte("<name>" + xmlEncodePayload(newName) + "</name>"), xml[nameEnd:]}, nil)
-
-	// Replace entire <scope>...</scope> with explicit unassigned scope (see emptyScopeXML).
-	scopeStart := bytes.Index(xml, []byte("<scope>"))
-	if scopeStart < 0 {
-		return fmt.Errorf("profile XML has no <scope>")
-	}
-	relEnd := bytes.Index(xml[scopeStart:], []byte("</scope>"))
-	if relEnd < 0 {
-		return fmt.Errorf("profile XML has malformed <scope>")
-	}
-	scopeEnd := scopeStart + relEnd + len("</scope>")
-	xml = bytes.Join([][]byte{xml[:scopeStart], []byte(emptyScopeXML), xml[scopeEnd:]}, nil)
-
-	// Remove <id>...</id> from general so Jamf creates a new profile (only the first occurrence—the profile id).
-	idRe := regexp.MustCompile(`<id>\d+</id>\s*`)
-	if idx := idRe.FindIndex(xml); idx != nil {
-		xml = append(xml[:idx[0]], xml[idx[1]:]...)
-	}
-
 	if !opts.SkipConfirm {
 		msg := fmt.Sprintf("\nClone configuration profile (ID %d) as %q with unassigned scope (not all computers)?", sourceProfileID, newName)
 		if !ConfirmPrompt(msg, logger) {
-			return nil
+			return nil, nil
 		}
 	}
-
-	postURL, err := ResolveEndpoint(credName, "/JSSResource/osxconfigurationprofiles/id/0")
+	optsCopy := opts
+	optsCopy.SkipConfirm = true
+	out, err := ProfilePostXML(credName, optsCopy, prepared, newName, logger)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	postReq, err := http.NewRequest(http.MethodPost, postURL, bytes.NewReader(xml))
-	if err != nil {
-		return fmt.Errorf("create post request: %w", err)
+	if out != nil {
+		fmt.Printf("Cloned profile (ID %d) as %q with unassigned scope\n", sourceProfileID, newName)
 	}
-	postReq.Header.Set("Content-Type", "application/xml")
-	postResp, err := PerformRequest(nil, postReq, credName)
-	if err != nil {
-		return fmt.Errorf("clone profile: %w", err)
-	}
-	defer postResp.Body.Close()
-	if postResp.StatusCode != http.StatusOK && postResp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(postResp.Body)
-		return fmt.Errorf("clone profile status %d: %s", postResp.StatusCode, string(body))
-	}
-	fmt.Printf("Cloned profile (ID %d) as %q with unassigned scope\n", sourceProfileID, newName)
-	return nil
+	return out, nil
 }
 
 // SetRedeployAll replaces the <redeploy_on_update> value with "All" in a profile XML,
@@ -1193,22 +1092,213 @@ func ReplacePayloadsContent(profileXML []byte, newPayloadsRaw string) ([]byte, e
 }
 
 func replacePayloadsContent(profileXML []byte, newPayloadsRaw string) ([]byte, error) {
+	return replacePayloadsInner(profileXML, xmlEmbedPayloadsPlist(newPayloadsRaw))
+}
+
+// replacePayloadsEncodedContent swaps <payloads> inner text without re-entity-encoding (clone/copy preserve Jamf bytes).
+func replacePayloadsEncodedContent(profileXML []byte, encodedInner string) ([]byte, error) {
+	return replacePayloadsInner(profileXML, encodedInner)
+}
+
+func replacePayloadsInner(profileXML []byte, inner string) ([]byte, error) {
 	s := string(profileXML)
-	const openTag = "<payloads>"
-	const closeTag = "</payloads>"
-	openIdx := strings.Index(s, openTag)
-	closeIdx := strings.Index(s, closeTag)
-	if openIdx < 0 || closeIdx < 0 || closeIdx < openIdx {
+	contentStart, contentEnd, err := profilePayloadsContentBounds(s)
+	if err != nil {
 		return nil, fmt.Errorf("profile XML has no <payloads> element")
 	}
-	contentStart := openIdx + len(openTag)
-	contentEnd := closeIdx
-	reEncoded := xmlEncodePayload(newPayloadsRaw)
 	var buf strings.Builder
 	buf.WriteString(s[:contentStart])
-	buf.WriteString(reEncoded)
+	buf.WriteString(inner)
 	buf.WriteString(s[contentEnd:])
 	return []byte(buf.String()), nil
+}
+
+// reembedPayloadsForJamfAPI decodes the entity-encoded <payloads> blob once,
+// validates/re-serializes the inner plist, and re-embeds with Jamf double-encoding.
+// Use before Classic POST/PUT so nested &amp; in plist strings become &amp;amp; in
+// the outer profile XML (see xmlEmbedPayloadsPlist).
+func reembedPayloadsForJamfAPI(profileXML []byte) ([]byte, error) {
+	encoded, err := extractPayloadsEncodedFromProfileXML(profileXML)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateJamfEncodedPayloads(encoded); err == nil {
+		return profileXML, nil
+	}
+	inner, err := extractPayloadsFromProfileXML(profileXML)
+	if err != nil {
+		return nil, err
+	}
+	var root interface{}
+	if err := plist.NewDecoder(strings.NewReader(inner)).Decode(&root); err != nil {
+		repaired := repairJamfEncodedPayloadsAmps(encoded)
+		if repaired != encoded {
+			xml2, err2 := replacePayloadsEncodedContent(profileXML, repaired)
+			if err2 != nil {
+				return nil, err2
+			}
+			return reembedPayloadsForJamfAPI(xml2)
+		}
+		return nil, fmt.Errorf("decode payloads plist: %w", err)
+	}
+	rootMap, ok := root.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("payloads root is not a dict")
+	}
+	reencoded, err := encodePayloadsRoot(rootMap)
+	if err != nil {
+		return nil, err
+	}
+	out, err := replacePayloadsContent(profileXML, reencoded)
+	if err != nil {
+		return nil, err
+	}
+	gotEnc, err := extractPayloadsEncodedFromProfileXML(out)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateJamfEncodedPayloads(gotEnc); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func validateJamfEncodedPayloads(encoded string) error {
+	if strings.Contains(encoded, "<plist") || strings.Contains(encoded, "<string>") {
+		return fmt.Errorf("payloads content is not entity-encoded (raw plist tags in outer XML)")
+	}
+	if hasBareAmpersandInXML(encoded) {
+		return fmt.Errorf("payloads contain bare '&' (use &amp; / &lt; / &gt; entities; buddy will not auto-convert)")
+	}
+	if hasUnderEncodedAmpersandsInEncodedPayloads(encoded) {
+		return fmt.Errorf("payloads under-encode '&' in nested plist strings (need &amp;amp; in outer XML, not &amp; alone; coder should supply &amp; — buddy will not auto-convert)")
+	}
+	return nil
+}
+
+// errBareOrUnderEncodedAmp is returned when Classic write payloads have bare or under-encoded '&'.
+var errBareOrUnderEncodedAmp = fmt.Errorf("bare or under-encoded '&' in profile <payloads>")
+
+// errBareMCXAmpersandSetting is returned when decoded MCX preference strings contain a bare '&'.
+// Jamf ACS Apply stores entity text (&amp;) in the string value; a raw '&' character 409s Classic.
+var errBareMCXAmpersandSetting = fmt.Errorf("MCX preference strings contain bare '&' (use &amp; like Jamf ACS Apply; buddy will not auto-convert)")
+
+// rejectBareMCXAmpersandSettings fails fast when MCX settings have a bare '&' in preference strings
+// (not part of &amp;/&lt;/…). Encoding-only checks can miss this after plist escape + Classic embed.
+// Jamf ACS Apply form (&amp; in the string value) is allowed and may use the ACS write path.
+func rejectBareMCXAmpersandSettings(profileXML []byte) error {
+	entries, err := listMCXPayloadEntries(profileXML)
+	if err != nil || len(entries) == 0 {
+		return nil
+	}
+	var domains []string
+	for _, e := range entries {
+		if plistMapHasBareAmpersand(e.SettingsDict) {
+			domains = append(domains, e.Domain)
+		}
+	}
+	if len(domains) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w in domains %v", errBareMCXAmpersandSetting, domains)
+}
+
+// prepareProfileXMLForClassicWrite validates entity-encoded <payloads> for Classic POST/PUT.
+// Raw (unescaped) payloads are re-embedded once. Bare or under-encoded '&' is refused — no silent conversion.
+func prepareProfileXMLForClassicWrite(profileXML []byte) ([]byte, error) {
+	if err := rejectBareMCXAmpersandSettings(profileXML); err != nil {
+		return nil, err
+	}
+	enc, err := extractPayloadsEncodedFromProfileXML(profileXML)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateJamfEncodedPayloads(enc); err == nil {
+		return profileXML, nil
+	} else if hasBareAmpersandInXML(enc) || hasUnderEncodedAmpersandsInEncodedPayloads(enc) {
+		return nil, fmt.Errorf("%w: %v", errBareOrUnderEncodedAmp, err)
+	}
+	// Structural: payloads not entity-encoded yet — encode once (does not invent &amp; for bare URL amps in decoded strings beyond normal XML escaping).
+	return reembedPayloadsForJamfAPI(profileXML)
+}
+
+// hasBareAmpersandInXML reports a '&' that is not the start of a known XML entity
+// (&amp; &lt; &gt; &quot; &#… / &#x…).
+func hasBareAmpersandInXML(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] != '&' {
+			continue
+		}
+		rest := s[i+1:]
+		switch {
+		case strings.HasPrefix(rest, "amp;"),
+			strings.HasPrefix(rest, "lt;"),
+			strings.HasPrefix(rest, "gt;"),
+			strings.HasPrefix(rest, "quot;"),
+			strings.HasPrefix(rest, "#"):
+			continue
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// hasUnderEncodedAmpersandsInEncodedPayloads reports &amp; in the outer <payloads> blob that is
+// not part of a valid XML entity (&amp;amp; &amp;lt; &amp;gt; &amp;quot; &amp;#…). Jamf nests
+// entity-encoded plist XML; inner plist &amp; must appear as &amp;amp; at this layer.
+func hasUnderEncodedAmpersandsInEncodedPayloads(encoded string) bool {
+	for i := 0; i < len(encoded); {
+		j := strings.Index(encoded[i:], "&amp;")
+		if j < 0 {
+			return false
+		}
+		pos := i + j
+		rest := encoded[pos+len("&amp;"):]
+		switch {
+		case strings.HasPrefix(rest, "amp;"),
+			strings.HasPrefix(rest, "lt;"),
+			strings.HasPrefix(rest, "gt;"),
+			strings.HasPrefix(rest, "quot;"),
+			strings.HasPrefix(rest, "#"):
+			i = pos + len("&amp;")
+			continue
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// repairJamfEncodedPayloadsAmps is an offline migrate helper for known under-encoded patterns.
+// Live Classic write paths must not call this — they refuse under-encoded payloads instead.
+func repairJamfEncodedPayloadsAmps(encoded string) string {
+	out := encoded
+	for _, pair := range [][2]string{
+		{"searchTerms}&amp;{google", "searchTerms}&amp;amp;{google"},
+		{"upload&amp;FORM", "upload&amp;amp;FORM"},
+	} {
+		if strings.Contains(out, pair[1]) {
+			continue
+		}
+		out = strings.ReplaceAll(out, pair[0], pair[1])
+	}
+	return out
+}
+
+// profileXMLRequiresAmpersandClassicRetention reports whether desired profile XML has MCX
+// settings that must remain visible in Classic (Jamf ACS UI) after ACS attach.
+func profileXMLRequiresAmpersandClassicRetention(profileXML []byte) bool {
+	entries, err := listMCXPayloadEntries(profileXML)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.HasAmpersand {
+			return true
+		}
+	}
+	return false
 }
 
 // dictFileToPlistMap parses the dict file (full plist or bare <dict> fragment) and returns the root as a map.
@@ -1268,6 +1358,23 @@ func GetMCXDict(plistXML, domain string) (string, error) {
 }
 
 func getMCXDict(plistXML, domain string) (string, error) {
+	dict, err := getMCXDictFlat(plistXML, domain)
+	if err == nil {
+		return dict, nil
+	}
+	entries, listErr := listMCXPayloadEntriesFromPayloadsPlist(plistXML)
+	if listErr != nil {
+		return "", err
+	}
+	for _, e := range entries {
+		if e.Domain == domain {
+			return mcxSettingsMapToDictFragment(e.SettingsDict)
+		}
+	}
+	return "", fmt.Errorf("domain %q not found in payloads plist", domain)
+}
+
+func getMCXDictFlat(plistXML, domain string) (string, error) {
 	domainKey := "<key>" + xmlEncodePayload(domain) + "</key>"
 	domainPos := strings.Index(plistXML, domainKey)
 	if domainPos < 0 {
@@ -1305,7 +1412,6 @@ func ReplaceMCXDict(plist, domain, newDictXML string) (string, error) {
 }
 
 func replaceMCXDict(plistXML, domain, newDictXML string) (string, error) {
-	// Accept bare <dict> or full plist_encode output; re-encode so & < > are entity-escaped.
 	fragment, err := normaliseDictFile([]byte(newDictXML))
 	if err != nil {
 		return "", fmt.Errorf("dict XML: %w", err)
@@ -1323,7 +1429,13 @@ func replaceMCXDict(plistXML, domain, newDictXML string) (string, error) {
 		return "", err
 	}
 
-	// Keys in XML are entity-encoded; search with the same escaping.
+	if updated, ok, err := replaceMCXSettingsInPayloadsPlist(plistXML, domain, m); err != nil {
+		return "", err
+	} else if ok {
+		return updated, nil
+	}
+
+	// Flat domain-key layout (legacy / simple plists).
 	domainKey := "<key>" + xmlEncodePayload(domain) + "</key>"
 	domainPos := strings.Index(plistXML, domainKey)
 	if domainPos < 0 {

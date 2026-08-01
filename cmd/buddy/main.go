@@ -1253,7 +1253,8 @@ func runProfile(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		if name == "" {
 			return fmt.Errorf("missing name; run 'buddy profile help' for usage")
 		}
-		return buddy.ProfileClone(credName, opts, profileID, name, log)
+		_, err = buddy.ProfileClone(credName, opts, profileID, name, log)
+		return err
 	case "list":
 		var filter string
 		var filtered []string

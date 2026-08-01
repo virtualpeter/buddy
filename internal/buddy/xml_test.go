@@ -45,3 +45,23 @@ func TestXMLUnescapeNamedAndNumeric(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
+
+func TestJamfPayloadEmbed_RawAmpInInnerProducesSingleOuterAmp(t *testing.T) {
+	// Bug case: inner plist XML with raw & (invalid plist XML but might come from double-unescape).
+	inner := `<?xml version="1.0"?><plist version="1.0"><dict><key>k</key><string>a&b</string></dict></plist>`
+	outer := xmlEncodePayload(inner)
+	if !strings.Contains(outer, "a&amp;b") {
+		t.Fatalf("got %q", outer)
+	}
+	if strings.Contains(outer, "a&amp;amp;b") {
+		t.Fatal("raw & should produce single &amp; in outer, not double")
+	}
+}
+
+func TestJamfPayloadEmbed_ProperInnerAmpProducesDoubleOuterAmp(t *testing.T) {
+	inner := `<?xml version="1.0"?><plist version="1.0"><dict><key>k</key><string>a&amp;b</string></dict></plist>`
+	outer := xmlEncodePayload(inner)
+	if !strings.Contains(outer, "a&amp;amp;b") {
+		t.Fatalf("inner &amp; must become &amp;amp; in outer Jamf payloads, got %q", outer)
+	}
+}

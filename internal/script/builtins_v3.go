@@ -149,7 +149,7 @@ func policyXMLBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 func policySetBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var policyID starlark.Int
-		var enable *starlark.Bool
+		var enable starlark.Value = starlark.None
 		var name, trigger, frequency starlark.String
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("policy_set", args, kwargs,
@@ -167,12 +167,16 @@ func policySetBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		defer restoreSession()
 		c := sessionPin
-		if enable == nil && name == "" && trigger == "" && frequency == "" {
+		if enable == starlark.None && name == "" && trigger == "" && frequency == "" {
 			return nil, fmt.Errorf("policy_set: pass at least one of enable=, name=, trigger=, frequency=")
 		}
 		pid, _ := policyID.Int64()
-		if enable != nil {
-			if err := buddy.PolicyEnable(c, scriptOpts, int(pid), bool(*enable), logger); err != nil {
+		if enable != starlark.None {
+			b, ok := enable.(starlark.Bool)
+			if !ok {
+				return nil, fmt.Errorf("policy_set: enable must be a bool")
+			}
+			if err := buddy.PolicyEnable(c, scriptOpts, int(pid), bool(b), logger); err != nil {
 				return resultErr(err.Error()), nil
 			}
 		}
@@ -700,8 +704,23 @@ func smartGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		if err != nil {
 			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err)), nil
 		}
+		// v3 GET /smart-groups/{id} omits id in the body; inject so value matches list summaries.
+		val = starlarkDictSetIDIfMissing(val, groupID)
 		return resultOK(val), nil
 	}
+}
+
+// starlarkDictSetIDIfMissing adds string "id" when val is a dict without that key.
+func starlarkDictSetIDIfMissing(val starlark.Value, id string) starlark.Value {
+	d, ok := val.(*starlark.Dict)
+	if !ok {
+		return val
+	}
+	if _, found, _ := d.Get(starlark.String("id")); found {
+		return val
+	}
+	_ = d.SetKey(starlark.String("id"), starlark.String(id))
+	return d
 }
 
 // static_group(id) → {id, name, description}

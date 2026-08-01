@@ -432,19 +432,116 @@ func registerProfileTools(server *mcpsdk.Server, defaultAuth string, mutOpts fun
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "profile_clone",
 		Description: "Clone a Jamf macOS configuration profile (mutating). " +
-			"Copies payloads from profile_id into a new profile with name; scope is set to unassigned " +
-			"(all_computers=false, no targets — not all computers; omitting scope in Classic can default to all). " +
-			"Returns {ok}. Prefer profile_create for greenfield payloads.",
+			"Fetches source XML, randomizes general + PayloadUUID values, sets unassigned scope, POSTs as new profile. " +
+			"Do not hand-edit UUIDs — use this or profile_copy. Returns {ok, value: {id, name}}.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in profileCloneIn) (*mcpsdk.CallToolResult, any, error) {
 		endSess, sessErr := applySession(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
 		if sessErr != nil {
 			return toolErr(sessErr)
 		}
 		defer endSess()
-		if err := buddy.ProfileClone(resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth}), mutOpts(), in.ProfileID, in.Name, logger); err != nil {
+		out, err := buddy.ProfileClone(resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth}), mutOpts(), in.ProfileID, in.Name, logger)
+		if err != nil {
 			return toolErr(err)
 		}
-		return toolOK(nil, nil)
+		if out == nil {
+			return toolErr(fmt.Errorf("profile_clone: cancelled"))
+		}
+		return toolOK(map[string]any{"id": out.ProfileID, "name": out.Name}, nil)
+	})
+
+	type profileCopyIn struct {
+		ProfileID      int    `json:"profile_id" jsonschema:"source configuration profile id"`
+		Name           string `json:"name" jsonschema:"name for the new profile on destination tenant"`
+		FromTenant     string `json:"from_tenant,omitempty" jsonschema:"source tenant override"`
+		FromSurface    string `json:"from_surface,omitempty" jsonschema:"source instance or platform surface bias"`
+		FromAuth       string `json:"from_auth,omitempty" jsonschema:"source auth pin"`
+		ScopeAll       *bool  `json:"scope_all,omitempty" jsonschema:"destination scope all computers (default unassigned)"`
+		ScopeGroupIDs  []int  `json:"scope_group_ids,omitempty" jsonschema:"destination computer group ids"`
+		Tenant         string `json:"tenant,omitempty" jsonschema:"destination tenant override"`
+		Surface        string `json:"surface,omitempty" jsonschema:"destination surface bias"`
+		Auth           string `json:"auth,omitempty" jsonschema:"destination auth pin"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "profile_copy",
+		Description: "Copy a macOS configuration profile across sessions (mutating). " +
+			"Reads profile_id from from_tenant/from_auth (or current session), prepares UUIDs + scope, POSTs on tenant/auth destination. " +
+			"Default destination scope is unassigned. Returns {ok, value: {id, name}}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in profileCopyIn) (*mcpsdk.CallToolResult, any, error) {
+		endFrom, sessErr := applySession(sessionIn{Tenant: in.FromTenant, Surface: in.FromSurface, Auth: in.FromAuth})
+		if sessErr != nil {
+			return toolErr(sessErr)
+		}
+		srcCred := resolve(sessionIn{Tenant: in.FromTenant, Surface: in.FromSurface, Auth: in.FromAuth})
+		xmlBytes, err := buddy.ProfileFetchXML(srcCred, in.ProfileID)
+		endFrom()
+		if err != nil {
+			return toolErr(err)
+		}
+		spec := buddy.ProfilePrepareSpec{Name: in.Name, ScopeGroupIDs: in.ScopeGroupIDs}
+		if in.ScopeAll != nil {
+			spec.ScopeAll = in.ScopeAll
+		}
+		prepared, err := buddy.PrepareProfileXMLForCreate(xmlBytes, spec)
+		if err != nil {
+			return toolErr(err)
+		}
+		endDest, sessErr := applySession(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
+		if sessErr != nil {
+			return toolErr(sessErr)
+		}
+		defer endDest()
+		out, err := buddy.ProfilePostXML(resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth}), mutOpts(), prepared, in.Name, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		if out == nil {
+			return toolErr(fmt.Errorf("profile_copy: cancelled"))
+		}
+		return toolOK(map[string]any{"id": out.ProfileID, "name": out.Name}, nil)
+	})
+
+	type profileCreateXMLIn struct {
+		XMLStr  string `json:"xml_str" jsonschema:"prepared profile XML (e.g. from profile_xml_prepare_for_create)"`
+		Name    string `json:"name,omitempty" jsonschema:"profile name for ID resolution; inferred from xml when omitted"`
+		Tenant  string `json:"tenant,omitempty" jsonschema:"tenant override for this call"`
+		Surface string `json:"surface,omitempty" jsonschema:"instance or platform surface bias"`
+		Auth    string `json:"auth,omitempty" jsonschema:"auth name pin (optional)"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "profile_create_xml",
+		Description: "POST prepared Classic profile XML (mutating). " +
+			"Use after profile_xml_prepare_for_create when you need manual steps between prepare and create. " +
+			"Returns {ok, value: {id, name}}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in profileCreateXMLIn) (*mcpsdk.CallToolResult, any, error) {
+		endSess, sessErr := applySession(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
+		if sessErr != nil {
+			return toolErr(sessErr)
+		}
+		defer endSess()
+		out, err := buddy.ProfilePostXML(resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth}), mutOpts(), []byte(in.XMLStr), in.Name, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		if out == nil {
+			return toolErr(fmt.Errorf("profile_create_xml: cancelled"))
+		}
+		return toolOK(map[string]any{"id": out.ProfileID, "name": out.Name}, nil)
+	})
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "profile_delete",
+		Description: "Delete a macOS configuration profile by Classic API id (mutating). Returns {ok}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in profileIDIn) (*mcpsdk.CallToolResult, any, error) {
+		endSess, sessErr := applySession(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
+		if sessErr != nil {
+			return toolErr(sessErr)
+		}
+		defer endSess()
+		if err := buddy.ProfileDelete(resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth}), mutOpts(), in.ProfileID, logger); err != nil {
+			return toolErr(err)
+		}
+		return toolOK(map[string]any{"id": in.ProfileID}, nil)
 	})
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
@@ -523,13 +620,69 @@ func registerProfileTools(server *mcpsdk.Server, defaultAuth string, mutOpts fun
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "profile_xml_extract_payloads",
 		Description: "Offline: extract the payloads plist from profile XML (<payloads> entity-decoded). " +
-			"Returns {ok, value: payloads plist XML string}. Next: payloads_list_identifiers or starlark payloads_get_*.",
+			"Returns {ok, value: payloads plist XML string}. Next: payloads_list_identifiers or payloads_collect_uuids.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in extractPayloadsIn) (*mcpsdk.CallToolResult, any, error) {
 		out, err := buddy.ExtractPayloadsFromProfileXML([]byte(in.ProfileXMLStr))
 		if err != nil {
 			return toolErr(err)
 		}
 		return toolOK(out, nil)
+	})
+
+	type randomizeUUIDsIn struct {
+		ProfileXMLStr string `json:"profile_xml_str" jsonschema:"full profile XML"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "profile_xml_randomize_uuids",
+		Description: "Offline: mint a new general profile UUID and remap every PayloadUUID in the payloads plist. " +
+			"PayloadIdentifier unchanged. Prefer profile_xml_prepare_for_create or profile_clone for full create prep.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in randomizeUUIDsIn) (*mcpsdk.CallToolResult, any, error) {
+		out, err := buddy.RandomizeProfileUUIDs([]byte(in.ProfileXMLStr))
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(string(out), nil)
+	})
+
+	type prepareForCreateIn struct {
+		ProfileXMLStr string `json:"profile_xml_str" jsonschema:"full profile XML"`
+		Name          string `json:"name" jsonschema:"new profile name"`
+		ScopeAll      *bool  `json:"scope_all,omitempty" jsonschema:"scope all computers (default unassigned when omitted and no scope_group_ids)"`
+		ScopeGroupIDs []int  `json:"scope_group_ids,omitempty" jsonschema:"computer group ids for destination scope"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "profile_xml_prepare_for_create",
+		Description: "Offline: prepare profile XML for Classic POST — set name, strip id, scope (default unassigned), randomize UUIDs. " +
+			"Returns {ok, value: xml string}; then profile_create_xml. Use profile_clone/profile_copy for one-shot.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in prepareForCreateIn) (*mcpsdk.CallToolResult, any, error) {
+		spec := buddy.ProfilePrepareSpec{Name: in.Name, ScopeGroupIDs: in.ScopeGroupIDs}
+		if in.ScopeAll != nil {
+			spec.ScopeAll = in.ScopeAll
+		}
+		out, err := buddy.PrepareProfileXMLForCreate([]byte(in.ProfileXMLStr), spec)
+		if err != nil {
+			return toolErr(err)
+		}
+		return toolOK(string(out), nil)
+	})
+
+	type collectUUIDsIn struct {
+		PayloadsPlistStr string `json:"payloads_plist_str" jsonschema:"payloads plist XML"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "payloads_collect_uuids",
+		Description: "Offline: list every PayloadUUID string in a payloads plist (depth-first). " +
+			"Use to verify clone/copy remapped UUIDs.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in collectUUIDsIn) (*mcpsdk.CallToolResult, any, error) {
+		uuids, err := buddy.PlistCollectPayloadUUIDs(in.PayloadsPlistStr)
+		if err != nil {
+			return toolErr(err)
+		}
+		if uuids == nil {
+			uuids = []string{}
+		}
+		n := len(uuids)
+		return toolOK(uuids, &n)
 	})
 
 	type listIdentifiersIn struct {
