@@ -136,6 +136,8 @@ func Run(ctx context.Context, o Options) error {
 			store.handleEval(w, r, id)
 		case "run":
 			store.handleRun(w, r, id)
+		case "confirm":
+			store.handleConfirm(w, r, id)
 		case "config":
 			store.handleConfig(w, r, id)
 		case "globals":

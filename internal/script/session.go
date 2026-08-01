@@ -40,6 +40,7 @@ type Session struct {
 	args     []string
 	thread   *starlark.Thread
 	globals  starlark.StringDict
+	confirm  *confirmBridge
 }
 
 // NewSession creates a Starlark session with buddy builtins.
@@ -55,6 +56,7 @@ func NewSessionArgs(credName string, opts buddy.Opts, logger *slog.Logger, trace
 		logger:   logger,
 		trace:    trace,
 		args:     append([]string(nil), args...),
+		confirm:  newConfirmBridge(),
 	}
 	if err := s.resetLocked(); err != nil {
 		return nil, err
@@ -120,12 +122,37 @@ func (s *Session) resetLocked() error {
 	return nil
 }
 
+// PendingConfirm returns the in-flight confirm prompt, if any (notebook/IDE poll).
+func (s *Session) PendingConfirm() *PendingConfirm {
+	if s == nil {
+		return nil
+	}
+	return s.confirm.snapshot()
+}
+
+// AnswerConfirm delivers the user's answer token for a pending confirm.
+func (s *Session) AnswerConfirm(answer string) error {
+	if s == nil {
+		return fmt.Errorf("nil session")
+	}
+	return s.confirm.reply(answer)
+}
+
+func (s *Session) pushConfirmAsk() (restore func()) {
+	if s.opts.SkipConfirm {
+		return func() {}
+	}
+	return buddy.PushConfirmAsk(s.confirm.ask)
+}
+
 // Eval executes src in the session. filename is used for error positions (e.g. "cell-1").
 // Multi-statement cells behave like a notebook: statements run for effect, and if the
 // last statement is an expression its value is returned in Result (None is omitted).
 func (s *Session) Eval(filename, src string) EvalResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	restore := s.pushConfirmAsk()
+	defer restore()
 
 	var stdout, stderr bytes.Buffer
 	s.thread.SetLocal(localStdout, &stdout)
@@ -224,6 +251,8 @@ func (s *Session) callMainLocked(out EvalResult) EvalResult {
 	if mainFn == nil {
 		return out
 	}
+	restore := s.pushConfirmAsk()
+	defer restore()
 	var stdout, stderr bytes.Buffer
 	s.thread.SetLocal(localStdout, &stdout)
 	s.thread.SetLocal(localStderr, &stderr)
@@ -249,6 +278,8 @@ func (s *Session) callMainLocked(out EvalResult) EvalResult {
 func (s *Session) RunScript(filename, src string) (EvalResult, []GlobalVar) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	restore := s.pushConfirmAsk()
+	defer restore()
 
 	var stdout, stderr bytes.Buffer
 	s.thread.SetLocal(localStdout, &stdout)

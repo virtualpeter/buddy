@@ -175,7 +175,7 @@ buddy serve --addr=127.0.0.1:8742
 - `/ide` — Single-buffer script runner with open/save, args, optional `--script-trace`-style builtin tracing, Run (file dialect + call `main()` if present), and a post-run Variables panel. Open/save is limited to the process cwd or `BUDDY_IDE_ROOT`. Matches CLI file semantics; not a replacement for the notebook.
 - Line breakpoints and stepping are **not** available (Starlark-go has no pause/step API). A soft `breakpoint()` builtin that only stops when the script calls it may be added later.
 - Optional `--docs-root` / `BUDDY_DOCS_ROOT` to override embedded markdown with live files while editing.
-- Confirmations follow global `-y` (default: prompts still apply for destructive ops).
+- Confirmations for `confirm()` and Jamf mutates open a dialog in the browser (notebook/IDE). Global `-y` skips them.
 
 Open the printed URL in Cursor’s Simple Browser for an in-editor experience.
 

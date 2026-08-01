@@ -155,6 +155,7 @@ dialog .row .spacer { flex: 1; }
   #args { max-width: none; }
 }
 </style>
+<style>` + confirmPollCSS + `</style>
 </head>
 <body>
 ` + chromeHeader("ide", session, actions, run) + `
@@ -198,6 +199,7 @@ dialog .row .spacer { flex: 1; }
   </form>
 </dialog>
 <script>
+` + confirmPollJS + `
 const state = {
   sessionId: null,
   path: "",
@@ -329,14 +331,16 @@ async function run() {
   try {
     await applyConfig();
     const id = state.sessionId;
-    const res = await jfetch("/api/session/" + id + "/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source: document.getElementById("editor").value,
-        filename: state.path || "<buffer>",
-      }),
-    });
+    const res = await withBuddyConfirmPoll(id, (async () => {
+      return await jfetch("/api/session/" + id + "/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: document.getElementById("editor").value,
+          filename: state.path || "<buffer>",
+        }),
+      });
+    })());
     state.last = { stdout: res.stdout || "", stderr: res.stderr || "", result: res.result || "", error: res.error || "" };
     renderOut();
     renderVars(res.globals || []);

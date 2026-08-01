@@ -1,7 +1,6 @@
 package buddy
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
@@ -1406,62 +1405,6 @@ func PolicyFindByKeywords(credName string, opts Opts, keywords []string, exclude
 		ids[i] = s.ID
 	}
 	return ids, nil
-}
-
-// ConfirmPrompt prints msg (if non-empty), asks "Proceed? [y/N]" on stdin, and returns true for y/yes.
-func ConfirmPrompt(msg string, logger *slog.Logger) bool {
-	if msg != "" {
-		fmt.Printf("%s\n\n", msg)
-	}
-	fmt.Print("Proceed? [y/N]: ")
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil && err != io.EOF {
-		logger.Error("Failed to read input", "error", err)
-		return false
-	}
-	line = strings.TrimSpace(strings.ToLower(line))
-	if line != "y" && line != "yes" {
-		logger.Debug("User cancelled")
-		fmt.Println("Aborted.")
-		return false
-	}
-	return true
-}
-
-// confirmDangerous prompts for a dangerous action. For ERASE, requireType is "erase" and the user must type "erase".
-// For LOCK or other actions, requireType is empty and it behaves like ConfirmPrompt.
-func confirmDangerous(msg, requireType string, logger *slog.Logger) bool {
-	if msg != "" {
-		fmt.Printf("%s\n\n", msg)
-	}
-	if requireType != "" {
-		fmt.Printf("Type %q to confirm: ", requireType)
-	} else {
-		fmt.Print("Proceed? [y/N]: ")
-	}
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil && err != io.EOF {
-		logger.Error("Failed to read input", "error", err)
-		return false
-	}
-	line = strings.TrimSpace(line)
-	if requireType != "" {
-		if line != requireType {
-			logger.Debug("User did not type required confirmation")
-			fmt.Println("Aborted.")
-			return false
-		}
-		return true
-	}
-	lineLower := strings.ToLower(line)
-	if lineLower != "y" && lineLower != "yes" {
-		logger.Debug("User cancelled")
-		fmt.Println("Aborted.")
-		return false
-	}
-	return true
 }
 
 func replaceVersionInString(s, newVersion string) string {

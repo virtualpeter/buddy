@@ -1969,14 +1969,24 @@ func appendPrintArg(buf *strings.Builder, v starlark.Value) {
 
 func confirmBuiltin(logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var msg starlark.String
-		if err := starlark.UnpackArgs("confirm", args, kwargs, "msg?", &msg); err != nil {
+		var msg, def, yes, no starlark.String
+		if err := starlark.UnpackArgs("confirm", args, kwargs,
+			"msg?", &msg,
+			"default?", &def,
+			"yes?", &yes,
+			"no?", &no,
+		); err != nil {
 			return nil, err
 		}
 		if runnerOpts.SkipConfirm {
 			return starlark.True, nil
 		}
-		if buddy.ConfirmPrompt(string(msg), logger) {
+		if buddy.Confirm(buddy.ConfirmOpts{
+			Question: string(msg),
+			Default:  string(def),
+			Yes:      string(yes),
+			No:       string(no),
+		}, logger) {
 			return starlark.True, nil
 		}
 		return starlark.False, nil

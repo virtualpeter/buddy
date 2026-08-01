@@ -248,6 +248,38 @@ func (s *sessionStore) handleEval(w http.ResponseWriter, r *http.Request, id str
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *sessionStore) handleConfirm(w http.ResponseWriter, r *http.Request, id string) {
+	live := s.get(id)
+	if live == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		pending := live.sess.PendingConfirm()
+		if pending == nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writeJSON(w, http.StatusOK, pending)
+	case http.MethodPost:
+		var req struct {
+			Answer string `json:"answer"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			return
+		}
+		if err := live.sess.AnswerConfirm(req.Answer); err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *sessionStore) handleRun(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

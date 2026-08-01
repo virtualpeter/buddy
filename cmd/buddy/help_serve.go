@@ -24,9 +24,11 @@ Notes:
   args from the form, optional builtin-call trace). Line breakpoints / stepping
   are not supported (Starlark-go has no pause API); a soft breakpoint() builtin
   may come later.
-  Starlark cells and IDE runs use the same builtins as the CLI; confirmations
-  follow -y / --yes. Notebook and IDE each use their own client channel
-  (notebook / ide) with optional channels.* policy for tenant and access.
+  Starlark cells and IDE runs use the same builtins as the CLI. Interactive
+  confirm() and Jamf mutate confirms open a dialog in the browser (not the
+  serve terminal). Global -y / --yes skips confirms entirely. Notebook and IDE
+  each use their own client channel (notebook / ide) with optional channels.*
+  policy for tenant and access.
   Bind address must be localhost (127.0.0.1, localhost, or ::1).
 
 Examples:

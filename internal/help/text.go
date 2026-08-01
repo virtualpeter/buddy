@@ -781,10 +781,17 @@ MISC
   error(*args, sep?)
       → None (writes to stderr like print, but does not return a result dict)
       Params: *args: values to print; sep?: str (default " ").
-  confirm(msg?)
+  confirm(msg?, default?, yes?, no?)
       → value: bool
-      Params: msg?: str — optional description printed before "Proceed? [y/N]" on stdin.
-      Returns True if the user enters y or yes, or False otherwise (buddy also prints "Aborted.").
+      Params: msg?: str — prompt question (default "Proceed?");
+               yes?: str — accept token for yes (default "y");
+               no?: str — accept token for no (default "n");
+               default?: str — Enter alone selects this; must be yes or no (default = no).
+      Prompt looks like "<msg> [y/N]: " (default token uppercased). Example:
+        confirm("Wipe disks?", yes="confirm", no="abort")           # [confirm/ABORT]
+        confirm("Wipe disks?", yes="confirm", no="abort", default="confirm")  # [CONFIRM/abort]
+      Returns True for the yes token (or Enter when default is yes), False for no / Enter-default-no.
+      Invalid input re-prompts. buddy prints "Aborted." when the answer is no.
       If buddy was run with global -y, returns True without prompting (same SkipConfirm behavior as buddy CLI confirms).
       To stop the script when the user declines, use: if not confirm("..."): exit(1).
   exit(code?)

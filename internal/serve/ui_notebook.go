@@ -140,6 +140,7 @@ html[data-theme="light"] .out .stderr { color: #92400e; }
   .layout.libs-open .drawer { position: fixed; right: 0; top: 0; bottom: 0; z-index: 10; width: min(var(--drawer), 90vw); border-left-width: 1px; }
 }
 </style>
+<style>` + confirmPollCSS + `</style>
 </head>
 <body>
 ` + chromeHeader("notebook", session, actions, run) + `
@@ -156,6 +157,7 @@ html[data-theme="light"] .out .stderr { color: #92400e; }
   </aside>
 </div>
 <script>
+` + confirmPollJS + `
 let sessionId = null;
 let cells = [];
 let focusedTa = null;
@@ -277,12 +279,14 @@ async function runCell(wrap, id) {
   out.textContent = '…';
   try {
     await ensureSession();
-    const r = await fetch('/api/session/' + sessionId + '/eval', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({source: src, cell: id})
-    });
-    const res = await r.json();
+    const res = await withBuddyConfirmPoll(sessionId, (async () => {
+      const r = await fetch('/api/session/' + sessionId + '/eval', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({source: src, cell: id})
+      });
+      return await r.json();
+    })());
     renderOut(out, res);
   } catch (e) {
     renderOut(out, {error: String(e)});

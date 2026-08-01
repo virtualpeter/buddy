@@ -457,11 +457,7 @@ func runCredSetTenant(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	}
 	_, existing := cfg.Tenants[parsed.Name]
 	if existing && !parsed.SkipConfirm {
-		fmt.Printf("Tenant %q already exists. Overwrite? [y/N] ", parsed.Name)
-		var response string
-		fmt.Scanln(&response)
-		if strings.ToLower(strings.TrimSpace(response)) != "y" {
-			fmt.Println("Aborted.")
+		if !buddy.AskYesNo(fmt.Sprintf("Tenant %q already exists. Overwrite?", parsed.Name), false, nil) {
 			return nil
 		}
 	}
@@ -498,11 +494,7 @@ func runCredSetAuth(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	}
 	prev, existing := cfg.Auths[parsed.Name]
 	if existing && !parsed.SkipConfirm {
-		fmt.Printf("Auth %q already exists. Overwrite? [y/N] ", parsed.Name)
-		var response string
-		fmt.Scanln(&response)
-		if strings.ToLower(strings.TrimSpace(response)) != "y" {
-			fmt.Println("Aborted.")
+		if !buddy.AskYesNo(fmt.Sprintf("Auth %q already exists. Overwrite?", parsed.Name), false, nil) {
 			return nil
 		}
 	}
@@ -834,11 +826,7 @@ func runCredDeleteTenant(cfg *buddy.Config, opts buddy.Opts, name string) error 
 		if len(unlinkAuths) > 0 {
 			fmt.Printf("  Will unlink auth(s) that also cover other tenants: %s\n", strings.Join(unlinkAuths, ", "))
 		}
-		fmt.Print("Proceed? [y/N] ")
-		var response string
-		fmt.Scanln(&response)
-		if strings.ToLower(strings.TrimSpace(response)) != "y" {
-			fmt.Println("Aborted.")
+		if !buddy.AskYesNo("Proceed?", false, nil) {
 			return nil
 		}
 	}
@@ -905,11 +893,7 @@ func runCredDeleteAuth(cfg *buddy.Config, opts buddy.Opts, name string) error {
 		return fmt.Errorf("auth %q not found", name)
 	}
 	if !opts.SkipConfirm {
-		fmt.Printf("Delete auth %q and related secrets from the secure store? [y/N] ", name)
-		var response string
-		fmt.Scanln(&response)
-		if strings.ToLower(strings.TrimSpace(response)) != "y" {
-			fmt.Println("Aborted.")
+		if !buddy.AskYesNo(fmt.Sprintf("Delete auth %q and related secrets from the secure store?", name), false, nil) {
 			return nil
 		}
 	}
@@ -1132,11 +1116,7 @@ func runCredCleanSecrets(cfg *buddy.Config, opts buddy.Opts) error {
 	for _, e := range orphans {
 		kindName := e.Kind.String()
 		if !opts.SkipConfirm {
-			fmt.Printf("Delete orphaned %s for %q? [y/N] ", kindName, e.AuthName)
-			var response string
-			fmt.Scanln(&response)
-			if strings.ToLower(strings.TrimSpace(response)) != "y" {
-				fmt.Println("  skipped")
+			if !buddy.AskYesNo(fmt.Sprintf("Delete orphaned %s for %q?", kindName, e.AuthName), false, nil) {
 				continue
 			}
 		}
