@@ -2,15 +2,13 @@
 .vscode-test/**
 src/**
 scripts/**
+node_modules/**
 .gitignore
 tsconfig.json
 **/*.ts
 **/*.map
 **/*.vsix
 package.json.publisher-bak
-# Keep production node_modules (vscode-languageclient); exclude heavy/dev trees
-node_modules/@types/**
-node_modules/typescript/**
-node_modules/@vscode/vsce/**
-node_modules/@vscode/vsce-sign/**
-node_modules/@azure/**
+# Dev / package tooling (bundled into out/extension.js)
+esbuild*
+package-lock.json

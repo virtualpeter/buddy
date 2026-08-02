@@ -7,8 +7,8 @@ Thin editor client for buddy Starlark (`.buddy` files): syntax highlighting + LS
 ```sh
 # from repo root
 make extension-package
-cursor --install-extension editors/vscode/buddy-0.1.0.vsix
-# or: code --install-extension editors/vscode/buddy-0.1.0.vsix
+cursor --install-extension editors/vscode/buddy-0.1.1.vsix
+# or: code --install-extension editors/vscode/buddy-0.1.1.vsix
 ```
 
 ## Quick settings

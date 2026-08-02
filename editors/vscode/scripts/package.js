@@ -29,32 +29,28 @@ console.log(`Packaging extension as ${publisher}.${pkg.name}`);
 
 let exitCode = 0;
 try {
-  const compile = spawnSync("npm", ["run", "compile"], { cwd: root, stdio: "inherit", shell: true });
-  if (compile.status !== 0) {
-    exitCode = compile.status || 1;
+  // vscode:prepublish runs the minified esbuild bundle.
+  // README links that leave editors/vscode/ must be absolute (vsce joins
+  // relative paths onto --baseContentUrl without normalizing ../).
+  const vsce = spawnSync(
+    "npx",
+    [
+      "vsce",
+      "package",
+      "--allow-missing-repository",
+      "--baseContentUrl",
+      "https://github.com/virtualpeter/buddy/blob/main/editors/vscode/",
+      "--baseImagesUrl",
+      "https://github.com/virtualpeter/buddy/raw/main/editors/vscode/",
+    ],
+    { cwd: root, stdio: "inherit", shell: true }
+  );
+  if (vsce.status !== 0) {
+    exitCode = vsce.status || 1;
   } else {
-    // README links that leave editors/vscode/ must be absolute (vsce joins
-    // relative paths onto --baseContentUrl without normalizing ../).
-    const vsce = spawnSync(
-      "npx",
-      [
-        "vsce",
-        "package",
-        "--allow-missing-repository",
-        "--baseContentUrl",
-        "https://github.com/virtualpeter/buddy/blob/main/editors/vscode/",
-        "--baseImagesUrl",
-        "https://github.com/virtualpeter/buddy/raw/main/editors/vscode/",
-      ],
-      { cwd: root, stdio: "inherit", shell: true }
-    );
-    if (vsce.status !== 0) {
-      exitCode = vsce.status || 1;
-    } else {
-      const vsixName = `${pkg.name}-${pkg.version}.vsix`;
-      const vsixPath = path.join(root, vsixName);
-      console.log(`Created ${vsixPath} (extension id ${publisher}.${pkg.name})`);
-    }
+    const vsixName = `${pkg.name}-${pkg.version}.vsix`;
+    const vsixPath = path.join(root, vsixName);
+    console.log(`Created ${vsixPath} (extension id ${publisher}.${pkg.name})`);
   }
 } finally {
   fs.writeFileSync(pkgPath, originalText);

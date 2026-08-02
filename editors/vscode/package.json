@@ -2,7 +2,7 @@
   "name": "buddy",
   "displayName": "Buddy Starlark",
   "description": "Language support for buddy Starlark scripts (.buddy)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "virtualpete",
   "repository": {
     "type": "git",
@@ -76,18 +76,18 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "compile": "node ./scripts/esbuild.js",
+    "watch": "node ./scripts/esbuild.js --watch",
+    "check": "tsc -p ./ --noEmit",
     "package": "node ./scripts/package.js",
-    "vscode:prepublish": "npm run compile"
-  },
-  "dependencies": {
-    "vscode-languageclient": "^9.0.1"
+    "vscode:prepublish": "node ./scripts/esbuild.js --minify"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.2.1",
-    "typescript": "^5.3.3"
+    "esbuild": "^0.25.0",
+    "typescript": "^5.3.3",
+    "vscode-languageclient": "^9.0.1"
   }
 }

@@ -36,7 +36,7 @@ From the repo root:
 
 ```sh
 make extension-package
-# → editors/vscode/buddy-0.1.0.vsix
+# → editors/vscode/buddy-0.1.1.vsix
 # extension id: virtualpete.buddy  (PUBLISHER defaults to virtualpete)
 ```
 
@@ -49,21 +49,21 @@ npm run package
 # PUBLISHER=otherorg npm run package   # optional alternate publisher id
 ```
 
-The package script compiles TypeScript and runs `vsce package`. The VSIX lands next to `package.json` as `buddy-<version>.vsix`.
+The package script bundles the extension with esbuild (including `vscode-languageclient`) and runs `vsce package`. The VSIX lands next to `package.json` as `buddy-<version>.vsix`.
 
 ## Install into Cursor
 
 **CLI** (from the repo root, adjust the version if needed):
 
 ```sh
-cursor --install-extension editors/vscode/buddy-0.1.0.vsix
+cursor --install-extension editors/vscode/buddy-0.1.1.vsix
 ```
 
 **UI:**
 
 1. Open Cursor
 2. Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) → **Extensions: Install from VSIX…**
-3. Choose `editors/vscode/buddy-0.1.0.vsix`
+3. Choose `editors/vscode/buddy-0.1.1.vsix`
 4. Reload the window if prompted
 
 Open a `.buddy` file — status bar language should show **Buddy Starlark**. Completions/hover require a working `buddy` on `PATH` (or set `buddy.path` below).
@@ -71,7 +71,7 @@ Open a `.buddy` file — status bar language should show **Buddy Starlark**. Com
 ## Install into VS Code
 
 ```sh
-code --install-extension editors/vscode/buddy-0.1.0.vsix
+code --install-extension editors/vscode/buddy-0.1.1.vsix
 ```
 
 Or Command Palette → **Extensions: Install from VSIX…**, same as Cursor.
