@@ -33,9 +33,19 @@ try {
   if (compile.status !== 0) {
     exitCode = compile.status || 1;
   } else {
+    // README links that leave editors/vscode/ must be absolute (vsce joins
+    // relative paths onto --baseContentUrl without normalizing ../).
     const vsce = spawnSync(
       "npx",
-      ["vsce", "package", "--allow-missing-repository"],
+      [
+        "vsce",
+        "package",
+        "--allow-missing-repository",
+        "--baseContentUrl",
+        "https://github.com/virtualpeter/buddy/blob/main/editors/vscode/",
+        "--baseImagesUrl",
+        "https://github.com/virtualpeter/buddy/raw/main/editors/vscode/",
+      ],
       { cwd: root, stdio: "inherit", shell: true }
     );
     if (vsce.status !== 0) {

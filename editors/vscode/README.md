@@ -2,7 +2,7 @@
 
 Thin editor client for buddy Starlark (`.buddy` files): syntax highlighting + LSP via `buddy lsp`.
 
-**Full howto** (build VSIX, install into Cursor/VS Code, settings, verify): see [docs/editor.md](../../docs/editor.md).
+**Full howto** (build VSIX, install into Cursor/VS Code, settings, verify): see [docs/editor.md](https://github.com/virtualpeter/buddy/blob/main/docs/editor.md).
 
 ```sh
 # from repo root

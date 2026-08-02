@@ -4,6 +4,10 @@
   "description": "Language support for buddy Starlark scripts (.buddy)",
   "version": "0.1.0",
   "publisher": "virtualpete",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/virtualpeter/buddy.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
