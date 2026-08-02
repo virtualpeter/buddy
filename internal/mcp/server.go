@@ -172,6 +172,7 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	registerProComputerGroupTools(server, credName, mutOptsEarly, logger)
 	registerProfileTools(server, credName, mutOptsEarly, logger)
 	registerPolicyTools(server, credName, mutOptsEarly, logger)
+	registerCategoryScriptCopyTools(server, credName, mutOptsEarly, logger)
 
 	type computersIn struct {
 		Filter   string `json:"filter,omitempty" jsonschema:"name substring or RSQL filter"`

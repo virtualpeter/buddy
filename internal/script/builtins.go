@@ -131,6 +131,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "policy_copy", policyCopy(credName, logger))
 	putBuiltin(dict, "policy_migrate", policyMigrate(credName, logger))
 	putBuiltin(dict, "smart_group_create", smartGroupCreate(credName, logger))
+	registerCopyBuiltins(dict, credName, logger)
 	putBuiltin(dict, "smart_group_put", smartGroupPut(credName, logger))
 	putBuiltin(dict, "smart_group_get_criteria", smartGroupGetCriteria(credName, logger))
 	putBuiltin(dict, "smart_group_set_criteria", smartGroupSetCriteria(credName, logger))
@@ -1628,7 +1629,7 @@ func policyPutXML(credName string, logger *slog.Logger) func(*starlark.Thread, *
 func policyCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var policyID starlark.Int
-		var name, trigger starlark.String
+		var name, trigger, categoryID starlark.String
 		var fromTenant, fromSurface, fromAuth starlark.String
 		var scopeAll starlark.Value = starlark.None
 		var scopeGroupIDs *starlark.List
@@ -1636,6 +1637,7 @@ func policyCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 		if err := starlark.UnpackArgs("policy_copy", args, kwargs,
 			"policy_id", &policyID, "name", &name,
 			"trigger?", &trigger,
+			"category_id?", &categoryID,
 			"from_tenant?", &fromTenant,
 			"from_surface?", &fromSurface,
 			"from_auth?", &fromAuth,
@@ -1651,13 +1653,18 @@ func policyCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 		if sessErr != nil {
 			return resultErr(sessErr.Error()), nil
 		}
-		pid, _ := policyID.Int64()
-		policyXML, err := buddy.PolicyFetchXML(fromPin, int(pid))
+		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
 		restoreFrom()
-		if err != nil {
-			return resultErr(err.Error()), nil
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
 		}
-		spec := buddy.PolicyPrepareSpec{Name: string(name)}
+		defer restoreDest()
+		pid, _ := policyID.Int64()
+		spec := buddy.PolicyCopySpec{
+			SourcePolicyID: int(pid),
+			Name:           string(name),
+			CategoryID:     string(categoryID),
+		}
 		if scopeGroupIDs != nil {
 			ids := make([]int, 0, scopeGroupIDs.Len())
 			for i := 0; i < scopeGroupIDs.Len(); i++ {
@@ -1681,16 +1688,7 @@ func policyCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 		if t := strings.TrimSpace(string(trigger)); t != "" {
 			spec.Trigger = &t
 		}
-		prepared, err := buddy.PreparePolicyXMLForCreate(policyXML, spec)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
-		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
-		}
-		defer restoreDest()
-		out, err := buddy.PolicyPostXML(destPin, scriptOpts, prepared, string(name), logger)
+		out, err := buddy.PolicyCopy(fromPin, destPin, scriptOpts, spec, logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}
@@ -1708,7 +1706,7 @@ func policyCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 func policyMigrate(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var policyID starlark.Int
-		var name, trigger starlark.String
+		var name, trigger, categoryID starlark.String
 		var matchTrigger starlark.Bool
 		var fromTenant, fromSurface, fromAuth starlark.String
 		var scopeAll starlark.Value = starlark.None
@@ -1719,6 +1717,7 @@ func policyMigrate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			"name?", &name,
 			"trigger?", &trigger,
 			"match_trigger?", &matchTrigger,
+			"category_id?", &categoryID,
 			"from_tenant?", &fromTenant,
 			"from_surface?", &fromSurface,
 			"from_auth?", &fromAuth,
@@ -1734,16 +1733,18 @@ func policyMigrate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		if sessErr != nil {
 			return resultErr(sessErr.Error()), nil
 		}
-		pid, _ := policyID.Int64()
-		policyXML, err := buddy.PolicyFetchXML(fromPin, int(pid))
+		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
 		restoreFrom()
-		if err != nil {
-			return resultErr(err.Error()), nil
+		if sessErr != nil {
+			return resultErr(sessErr.Error()), nil
 		}
+		defer restoreDest()
+		pid, _ := policyID.Int64()
 		migSpec := buddy.PolicyMigrateSpec{
 			SourcePolicyID: int(pid),
 			Name:           string(name),
 			MatchTrigger:   bool(matchTrigger),
+			CategoryID:     string(categoryID),
 		}
 		if scopeGroupIDs != nil {
 			ids := make([]int, 0, scopeGroupIDs.Len())
@@ -1768,16 +1769,7 @@ func policyMigrate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		if t := strings.TrimSpace(string(trigger)); t != "" {
 			migSpec.Trigger = &t
 		}
-		prepared, outName, err := buddy.PreparePolicyMigrateXML(policyXML, migSpec)
-		if err != nil {
-			return resultErr(err.Error()), nil
-		}
-		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
-		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
-		}
-		defer restoreDest()
-		out, err := buddy.PolicyUpsertPrepared(destPin, scriptOpts, prepared, outName, bool(matchTrigger), logger)
+		out, err := buddy.PolicyMigrate(fromPin, destPin, scriptOpts, migSpec, logger)
 		if err != nil {
 			return resultErr(err.Error()), nil
 		}

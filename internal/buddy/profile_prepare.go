@@ -26,6 +26,7 @@ type ProfileCopySpec struct {
 	Name            string
 	ScopeAll        *bool
 	ScopeGroupIDs   []int
+	CategoryID      string // optional dest category id override
 }
 
 // NewUUID returns a random RFC 4122 UUID string (offline helper).
@@ -342,7 +343,7 @@ func ProfileDelete(credName string, opts Opts, profileID int, logger *slog.Logge
 	return nil
 }
 
-// ProfileCopy fetches a profile from srcCred, prepares it for create, and POSTs on dstCred.
+// ProfileCopy fetches a profile from srcCred, prepares it for create, remaps category on dst, and POSTs.
 func ProfileCopy(srcCred, dstCred string, opts Opts, spec ProfileCopySpec, logger *slog.Logger) (*ProfileCreateOutcome, error) {
 	if spec.SourceProfileID <= 0 {
 		return nil, fmt.Errorf("profile_id must be positive")
@@ -360,6 +361,11 @@ func ProfileCopy(srcCred, dstCred string, opts Opts, spec ProfileCopySpec, logge
 		ScopeAll:      spec.ScopeAll,
 		ScopeGroupIDs: spec.ScopeGroupIDs,
 	})
+	if err != nil {
+		return nil, err
+	}
+	same := strings.TrimSpace(srcCred) == strings.TrimSpace(dstCred)
+	prepared, err = RemapPolicyCategoryOnDest(dstCred, prepared, spec.CategoryID, same)
 	if err != nil {
 		return nil, err
 	}

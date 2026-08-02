@@ -360,7 +360,12 @@ Base path: `/api/v1/categories`
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v1/categories` (paginated) | `PolicyCreateFromTemplate`, `PolicyCreatePackage`, `PolicyCreateSS` | List all categories; filtered client-side to resolve a category name to its numeric ID |
+| `GET` | `/api/v1/categories` (paginated) | `CategorySearch`, `CategoryFindIDByExactName`, policy create helpers | List categories |
+| `GET` | `/api/v1/categories/{id}` | `CategoryFetch` | Get one category |
+| `POST` | `/api/v1/categories` | `CategoryPost`, clone/copy/migrate | Create (`name` + `priority` required; id ignored) |
+| `PUT` | `/api/v1/categories/{id}` | `CategoryPut`, migrate upsert | Update category |
+
+`ResolveCategoryOnDest` looks up a source category **name** on the destination (soft: missing → uncategorized). Used by script/policy/profile copy.
 
 ---
 

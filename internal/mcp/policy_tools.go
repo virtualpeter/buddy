@@ -234,6 +234,7 @@ func registerPolicyTools(server *mcpsdk.Server, defaultAuth string, mutOpts func
 		PolicyID      int    `json:"policy_id" jsonschema:"source policy id"`
 		Name          string `json:"name" jsonschema:"name for the new policy on destination"`
 		Trigger       string `json:"trigger,omitempty" jsonschema:"optional new custom trigger_other; omit to keep source"`
+		CategoryID    string `json:"category_id,omitempty" jsonschema:"optional destination category id override"`
 		FromTenant    string `json:"from_tenant,omitempty" jsonschema:"source tenant override"`
 		FromSurface   string `json:"from_surface,omitempty" jsonschema:"source surface bias"`
 		FromAuth      string `json:"from_auth,omitempty" jsonschema:"source auth pin"`
@@ -246,37 +247,33 @@ func registerPolicyTools(server *mcpsdk.Server, defaultAuth string, mutOpts func
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "policy_copy",
 		Description: "Copy a Classic policy across sessions (mutating). " +
-			"Reads policy_id from from_tenant/from_auth (or current session), prepares XML (strip id, set name/trigger, default unassigned scope), POSTs on destination. " +
-			"Same-tenant allowed when from_* omitted. Returns {ok, value: {id, name, trigger}}. " +
-			"Not the same as versioned policy_clone (release helper via starlark_eval).",
+			"Prepares XML (strip id, set name/trigger, default unassigned scope), remaps category/scripts/packages by name on destination " +
+			"(missing scripts/packages fail — migrate them first; missing category → uncategorized), POSTs on destination. " +
+			"Returns {ok, value: {id, name, trigger}}. Not versioned policy_clone (release helper via starlark_eval).",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in policyCopyIn) (*mcpsdk.CallToolResult, any, error) {
 		endFrom, sessErr := applySession(sessionIn{Tenant: in.FromTenant, Surface: in.FromSurface, Auth: in.FromAuth})
 		if sessErr != nil {
 			return toolErr(sessErr)
 		}
 		srcCred := resolve(sessionIn{Tenant: in.FromTenant, Surface: in.FromSurface, Auth: in.FromAuth})
-		xmlBytes, err := buddy.PolicyFetchXML(srcCred, in.PolicyID)
 		endFrom()
-		if err != nil {
-			return toolErr(err)
-		}
-		prep := buddy.PolicyPrepareSpec{Name: in.Name, ScopeGroupIDs: in.ScopeGroupIDs}
-		if in.ScopeAll != nil {
-			prep.ScopeAll = in.ScopeAll
-		}
-		if t := strings.TrimSpace(in.Trigger); t != "" {
-			prep.Trigger = &t
-		}
-		prepared, err := buddy.PreparePolicyXMLForCreate(xmlBytes, prep)
-		if err != nil {
-			return toolErr(err)
-		}
 		endDest, sessErr := applySession(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
 		if sessErr != nil {
 			return toolErr(sessErr)
 		}
 		defer endDest()
-		created, err := buddy.PolicyPostXML(resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth}), mutOpts(), prepared, in.Name, logger)
+		dstCred := resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
+		spec := buddy.PolicyCopySpec{
+			SourcePolicyID: in.PolicyID,
+			Name:           in.Name,
+			ScopeAll:       in.ScopeAll,
+			ScopeGroupIDs:  in.ScopeGroupIDs,
+			CategoryID:     in.CategoryID,
+		}
+		if t := strings.TrimSpace(in.Trigger); t != "" {
+			spec.Trigger = &t
+		}
+		created, err := buddy.PolicyCopy(srcCred, dstCred, mutOpts(), spec, logger)
 		if err != nil {
 			return toolErr(err)
 		}
@@ -291,6 +288,7 @@ func registerPolicyTools(server *mcpsdk.Server, defaultAuth string, mutOpts func
 		Name          string `json:"name,omitempty" jsonschema:"destination name (default: source name); also used for name-match upsert"`
 		Trigger       string `json:"trigger,omitempty" jsonschema:"optional new custom trigger_other; omit to keep source"`
 		MatchTrigger  bool   `json:"match_trigger,omitempty" jsonschema:"if true, find destination by trigger_other instead of exact name"`
+		CategoryID    string `json:"category_id,omitempty" jsonschema:"optional destination category id override"`
 		FromTenant    string `json:"from_tenant,omitempty" jsonschema:"source tenant override"`
 		FromSurface   string `json:"from_surface,omitempty" jsonschema:"source surface bias"`
 		FromAuth      string `json:"from_auth,omitempty" jsonschema:"source auth pin"`
@@ -303,39 +301,33 @@ func registerPolicyTools(server *mcpsdk.Server, defaultAuth string, mutOpts func
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "policy_migrate",
 		Description: "Migrate/upsert a Classic policy across sessions (mutating). " +
-			"Fetch+prepare like policy_copy; on destination if a policy with the same name exists (or trigger_other when match_trigger=true), PUT preserving that id; else POST. " +
-			"Returns {ok, value: {id, name, trigger, created}}. Use for multi-instance sync; versioned release clone stays on starlark_eval.",
+			"Same prepare/remap as policy_copy; on destination if a policy with the same name exists (or trigger_other when match_trigger=true), PUT preserving that id; else POST. " +
+			"Returns {ok, value: {id, name, trigger, created}}. Recommended order: category_migrate → script_migrate → policy_migrate.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in policyMigrateIn) (*mcpsdk.CallToolResult, any, error) {
 		endFrom, sessErr := applySession(sessionIn{Tenant: in.FromTenant, Surface: in.FromSurface, Auth: in.FromAuth})
 		if sessErr != nil {
 			return toolErr(sessErr)
 		}
 		srcCred := resolve(sessionIn{Tenant: in.FromTenant, Surface: in.FromSurface, Auth: in.FromAuth})
-		xmlBytes, err := buddy.PolicyFetchXML(srcCred, in.PolicyID)
 		endFrom()
-		if err != nil {
-			return toolErr(err)
+		endDest, sessErr := applySession(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
+		if sessErr != nil {
+			return toolErr(sessErr)
 		}
+		defer endDest()
+		dstCred := resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
 		spec := buddy.PolicyMigrateSpec{
 			SourcePolicyID: in.PolicyID,
 			Name:           in.Name,
 			MatchTrigger:   in.MatchTrigger,
 			ScopeAll:       in.ScopeAll,
 			ScopeGroupIDs:  in.ScopeGroupIDs,
+			CategoryID:     in.CategoryID,
 		}
 		if t := strings.TrimSpace(in.Trigger); t != "" {
 			spec.Trigger = &t
 		}
-		prepared, name, prepErr := buddy.PreparePolicyMigrateXML(xmlBytes, spec)
-		if prepErr != nil {
-			return toolErr(prepErr)
-		}
-		endDest, sessErr := applySession(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
-		if sessErr != nil {
-			return toolErr(sessErr)
-		}
-		defer endDest()
-		out, err := buddy.PolicyUpsertPrepared(resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth}), mutOpts(), prepared, name, in.MatchTrigger, logger)
+		out, err := buddy.PolicyMigrate(srcCred, dstCred, mutOpts(), spec, logger)
 		if err != nil {
 			return toolErr(err)
 		}

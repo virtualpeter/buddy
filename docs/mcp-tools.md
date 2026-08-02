@@ -103,7 +103,7 @@ Value criteria: encodes Jamf/buddy knowledge; completes a common task without ra
 |------|-----------|-----|
 | `smart_groups` / `static_groups` | Near-identical; no criteria vs membership | Descriptions contrast models; point at get/membership tools |
 | `policy` | Looks like full Starlark `policy` | Fixed: `id` xor `trigger` → details dict (same shape as Starlark) |
-| `computers` / `scripts` / `packages` | List-only stubs | Descriptions say summaries; singular/mutate via Starlark until expanded |
+| `computers` / `scripts` / `packages` | List-only stubs | Descriptions say summaries; scripts also have clone/copy/migrate typed tools |
 | `starlark_eval` / `jamf_schema` | Encouraged raw `jamf_get` | Prefer typed → named builtins → `jamf_*` last |
 
 ### Expand (Tier 1 — this pass)
@@ -116,6 +116,9 @@ Value criteria: encodes Jamf/buddy knowledge; completes a common task without ra
 | `static_group_list_computers` | Membership `{id,name,serial}` |
 | `static_group_add_computers` / `_remove_computers` / `_set_computers` | Membership mutates |
 | `smart_group_create` / `static_group_create` | Create Pro computer groups |
+| `smart_group_clone` / `smart_group_copy` | Same-session / cross-session criteria copy |
+| `categories` / `category_clone` / `category_copy` / `category_migrate` | List + clone/copy/upsert categories |
+| `script_clone` / `script_copy` / `script_migrate` | Script duplicate / cross-session / upsert by name |
 | `profiles` | List profile summaries |
 | `profile_create` / `profile_clone` / `profile_copy` / `profile_redeploy` / `profile_create_xml` / `profile_delete` | Create / copy / lifecycle |
 | `profile_xml_randomize_uuids` / `profile_xml_prepare_for_create` | Offline UUID + create prep |
@@ -129,23 +132,32 @@ Value criteria: encodes Jamf/buddy knowledge; completes a common task without ra
 | `policies` / `policy` | List summaries; load details by `id` xor `trigger` |
 | `policy_xml` / `policy_put_xml` | Classic XML get/put |
 | `policy_set` / `policy_delete` | Basic field edits / delete |
-| `policy_copy` / `policy_migrate` | Cross-session copy (POST) / upsert migrate |
+| `policy_copy` / `policy_migrate` | Cross-session copy/migrate; remaps category/scripts/packages by name |
 
 ### Object-type coverage (MCP vs Starlark)
 
 | Family | MCP today | Still via `starlark_eval` / defer |
 |--------|-----------|-----------------------------------|
 | Platform blueprint / device / device_group / ddm / benchmark | Near-full CRUD + actions | — |
-| Pro smart/static groups | List, get, criteria bump, membership mutate, **create** | Delete; full `smart_group_put` / set_criteria |
-| Profiles | List, create, clone, **copy**, redeploy, XML get/put, patch, inspect, set_content, delete | Advanced `payloads_*` / MCX get |
-| Packages | List + ready/wait/download | get/upload/delete/put |
-| Scripts | List | get/contents/update/put |
-| Policies | List, get (id\|trigger), XML get/put, set, delete, **copy**, **migrate** | Release helpers (`policy_set_ss` / `_package` / versioned `policy_clone` / create_*) |
+| Pro smart/static groups | List, get, criteria bump, membership mutate, create, **smart clone/copy** | Delete; full `smart_group_put` / set_criteria; static copy; scope mapping |
+| Profiles | List, create, clone, **copy** (category remap), redeploy, XML get/put, patch, inspect, set_content, delete | Advanced `payloads_*` / MCX get |
+| Packages | List + ready/wait/download | get/upload/delete/put; package_copy |
+| Categories | List, clone, **copy**, **migrate** | — |
+| Scripts | List, clone, **copy**, **migrate** | get/contents/update/put |
+| Policies | List, get, XML get/put, set, delete, **copy**, **migrate** (dep remap) | Release helpers |
 | Computers | List summaries | MDM actions |
+
+### Cross-tenant migrate order
+
+1. `category_migrate` (soft-linked by name on scripts/policies/profiles)
+2. `script_migrate` (and ensure packages exist by name)
+3. `policy_copy` / `policy_migrate` / `profile_copy`
+
+Missing script/package names on policy copy **fail**; missing categories become uncategorized. Scope stays unassigned unless `scope_group_ids` set (scope name-mapping deferred).
 
 ### Defer
 
-`package` get/upload/delete; `script` / contents; computer MDM; group delete.
+`package` get/upload/delete; `script` get/contents; computer MDM; group delete; **scope mapping** on policy/profile copy.
 
 ### Cut / do not add
 

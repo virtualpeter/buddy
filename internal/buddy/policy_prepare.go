@@ -25,6 +25,7 @@ type PolicyCopySpec struct {
 	Trigger        *string
 	ScopeAll       *bool
 	ScopeGroupIDs  []int
+	CategoryID     string // optional dest category id override; empty = resolve by source name
 }
 
 // PolicyMigrateSpec is input for cross-session policy migrate (upsert by name or trigger).
@@ -35,6 +36,7 @@ type PolicyMigrateSpec struct {
 	MatchTrigger   bool // if true, find destination by trigger_other; else by exact name
 	ScopeAll       *bool
 	ScopeGroupIDs  []int
+	CategoryID     string
 }
 
 // PolicyCreateOutcome is returned after a successful policy create/copy.
@@ -129,7 +131,7 @@ func PolicyPostXML(credName string, opts Opts, xml []byte, policyName string, lo
 	return &PolicyCreateOutcome{PolicyID: id, Name: policyName, Trigger: trigger}, nil
 }
 
-// PolicyCopy fetches a policy from srcCred, prepares it for create, and POSTs on dstCred.
+// PolicyCopy fetches a policy from srcCred, prepares it for create, remaps deps on dst, and POSTs.
 func PolicyCopy(srcCred, dstCred string, opts Opts, spec PolicyCopySpec, logger *slog.Logger) (*PolicyCreateOutcome, error) {
 	if spec.SourcePolicyID <= 0 {
 		return nil, fmt.Errorf("policy_id must be positive")
@@ -148,6 +150,10 @@ func PolicyCopy(srcCred, dstCred string, opts Opts, spec PolicyCopySpec, logger 
 		ScopeAll:      spec.ScopeAll,
 		ScopeGroupIDs: spec.ScopeGroupIDs,
 	})
+	if err != nil {
+		return nil, err
+	}
+	prepared, err = RemapPolicyDepsOnDest(srcCred, dstCred, prepared, spec.CategoryID, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -172,6 +178,10 @@ func PolicyMigrate(srcCred, dstCred string, opts Opts, spec PolicyMigrateSpec, l
 		return nil, err
 	}
 	prepared, name, err := PreparePolicyMigrateXML(policyXML, spec)
+	if err != nil {
+		return nil, err
+	}
+	prepared, err = RemapPolicyDepsOnDest(srcCred, dstCred, prepared, spec.CategoryID, logger)
 	if err != nil {
 		return nil, err
 	}

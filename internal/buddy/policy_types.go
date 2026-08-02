@@ -228,26 +228,7 @@ func policyFetchList(credName string) ([]policyListItem, error) {
 
 // categoryGetByName fetches categories and returns the ID for the given name.
 func categoryGetByName(credName, name string) (string, error) {
-	body, err := jamfGET(credName, "/api/v1/categories?page-size=2000")
-	if err != nil {
-		return "", err
-	}
-	var resp struct {
-		TotalCount int `json:"totalCount"`
-		Results    []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", fmt.Errorf("parse categories: %w", err)
-	}
-	for _, c := range resp.Results {
-		if c.Name == name {
-			return c.ID, nil
-		}
-	}
-	return "", fmt.Errorf("category %q not found", name)
+	return CategoryFindIDByExactName(credName, name)
 }
 
 // iconUpload uploads an icon file and returns the new icon ID.

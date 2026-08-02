@@ -211,10 +211,18 @@ helpers (`policy_set_ss`, `policy_set_package`, versioned `policy_clone`, …) s
 on `starlark_eval` / scripts — do not overload `policy_clone` (it takes `version`
 for package-release clone).
 
-- `policy_copy(policy_id, name, trigger?, from_tenant?, from_surface?, from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name, trigger}`
-  - Fetch Classic XML on `from_*` (omit = current session); prepare (strip id, set name/trigger, default **unassigned** scope); POST on destination session kwargs.
-- `policy_migrate(policy_id, name?, trigger?, match_trigger?, from_tenant?, from_surface?, from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name, trigger, created}`
-  - Same prepare as copy; upsert on destination by exact **name** (or `trigger_other` when `match_trigger=True`). PUT preserves destination id; else POST (`created=True`).
+- `policy_copy(policy_id, name, trigger?, category_id?, from_tenant?, from_surface?, from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name, trigger}`
+  - Fetch Classic XML on `from_*` (omit = current session); prepare (strip id, set name/trigger, default **unassigned** scope); remap category/scripts/packages by **name** on destination (missing scripts/packages fail; missing category → uncategorized); POST on destination session kwargs.
+- `policy_migrate(policy_id, name?, trigger?, match_trigger?, category_id?, from_tenant?, from_surface?, from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name, trigger, created}`
+  - Same prepare/remap as copy; upsert on destination by exact **name** (or `trigger_other` when `match_trigger=True`). PUT preserves destination id; else POST (`created=True`).
+
+Recommended migrate order: `category_migrate` → `script_migrate` → `policy_migrate`. Scope name-mapping is deferred (use `scope_group_ids`).
+
+## Scripts / categories / smart groups — copy
+
+- `script_clone` / `script_copy` / `script_migrate` — Pro JSON scripts; category via `ResolveCategoryOnDest`.
+- `category_clone` / `category_copy` / `category_migrate` — Pro `{name,priority}` categories.
+- `smart_group_clone` / `smart_group_copy` — criteria/description; clears `siteId` unless `site_id` set.
 
 ## Profiles / payloads
 

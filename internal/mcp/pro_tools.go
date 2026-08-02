@@ -263,6 +263,84 @@ func registerProComputerGroupTools(server *mcpsdk.Server, defaultAuth string, mu
 		return toolOK(created, nil)
 	})
 
+	type smartGroupCloneIn struct {
+		GroupID string `json:"group_id" jsonschema:"source smart group id"`
+		Name    string `json:"name" jsonschema:"name for the new smart group"`
+		SiteID  string `json:"site_id,omitempty" jsonschema:"optional destination siteId; omit to clear"`
+		Tenant  string `json:"tenant,omitempty" jsonschema:"tenant override"`
+		Surface string `json:"surface,omitempty" jsonschema:"surface bias"`
+		Auth    string `json:"auth,omitempty" jsonschema:"auth pin"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "smart_group_clone",
+		Description: "Clone a Jamf Pro smart computer group in the current session (mutating). " +
+			"Copies criteria/description; clears siteId unless site_id set. Returns {ok, value: {id, href?}}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in smartGroupCloneIn) (*mcpsdk.CallToolResult, any, error) {
+		endSess, sessErr := applySession(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
+		if sessErr != nil {
+			return toolErr(sessErr)
+		}
+		defer endSess()
+		var sitePtr *string
+		if s := strings.TrimSpace(in.SiteID); s != "" {
+			sitePtr = &s
+		}
+		created, err := buddy.SmartGroupClone(resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth}), mutOpts(), in.GroupID, in.Name, sitePtr, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		if created == nil {
+			return toolErr(fmt.Errorf("smart_group_clone: cancelled"))
+		}
+		return toolOK(created, nil)
+	})
+
+	type smartGroupCopyIn struct {
+		GroupID     string `json:"group_id" jsonschema:"source smart group id"`
+		Name        string `json:"name" jsonschema:"name for the new smart group on destination"`
+		SiteID      string `json:"site_id,omitempty" jsonschema:"optional destination siteId; omit to clear"`
+		FromTenant  string `json:"from_tenant,omitempty" jsonschema:"source tenant override"`
+		FromSurface string `json:"from_surface,omitempty" jsonschema:"source surface bias"`
+		FromAuth    string `json:"from_auth,omitempty" jsonschema:"source auth pin"`
+		Tenant      string `json:"tenant,omitempty" jsonschema:"destination tenant override"`
+		Surface     string `json:"surface,omitempty" jsonschema:"destination surface bias"`
+		Auth        string `json:"auth,omitempty" jsonschema:"destination auth pin"`
+	}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "smart_group_copy",
+		Description: "Copy a Jamf Pro smart computer group across sessions (mutating). " +
+			"Copies criteria/description; clears siteId unless site_id set. Returns {ok, value: {id, href?}}.",
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in smartGroupCopyIn) (*mcpsdk.CallToolResult, any, error) {
+		endFrom, sessErr := applySession(sessionIn{Tenant: in.FromTenant, Surface: in.FromSurface, Auth: in.FromAuth})
+		if sessErr != nil {
+			return toolErr(sessErr)
+		}
+		src := resolve(sessionIn{Tenant: in.FromTenant, Surface: in.FromSurface, Auth: in.FromAuth})
+		endFrom()
+		endDest, sessErr := applySession(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
+		if sessErr != nil {
+			return toolErr(sessErr)
+		}
+		defer endDest()
+		dst := resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
+		var sitePtr *string
+		if s := strings.TrimSpace(in.SiteID); s != "" {
+			sitePtr = &s
+		}
+		created, err := buddy.SmartGroupCopy(src, dst, mutOpts(), buddy.SmartGroupCopySpec{
+			SourceGroupID: in.GroupID,
+			Name:          in.Name,
+			SiteID:        sitePtr,
+		}, logger)
+		if err != nil {
+			return toolErr(err)
+		}
+		if created == nil {
+			return toolErr(fmt.Errorf("smart_group_copy: cancelled"))
+		}
+		return toolOK(created, nil)
+	})
+
 	type staticGroupCreateIn struct {
 		Body map[string]any `json:"body" jsonschema:"static group JSON (name required; assignments optional list of computer id strings)"`
 		Tenant  string `json:"tenant,omitempty" jsonschema:"tenant override for this call"`
@@ -451,47 +529,43 @@ func registerProfileTools(server *mcpsdk.Server, defaultAuth string, mutOpts fun
 	})
 
 	type profileCopyIn struct {
-		ProfileID      int    `json:"profile_id" jsonschema:"source configuration profile id"`
-		Name           string `json:"name" jsonschema:"name for the new profile on destination tenant"`
-		FromTenant     string `json:"from_tenant,omitempty" jsonschema:"source tenant override"`
-		FromSurface    string `json:"from_surface,omitempty" jsonschema:"source instance or platform surface bias"`
-		FromAuth       string `json:"from_auth,omitempty" jsonschema:"source auth pin"`
-		ScopeAll       *bool  `json:"scope_all,omitempty" jsonschema:"destination scope all computers (default unassigned)"`
-		ScopeGroupIDs  []int  `json:"scope_group_ids,omitempty" jsonschema:"destination computer group ids"`
-		Tenant         string `json:"tenant,omitempty" jsonschema:"destination tenant override"`
-		Surface        string `json:"surface,omitempty" jsonschema:"destination surface bias"`
-		Auth           string `json:"auth,omitempty" jsonschema:"destination auth pin"`
+		ProfileID     int    `json:"profile_id" jsonschema:"source configuration profile id"`
+		Name          string `json:"name" jsonschema:"name for the new profile on destination tenant"`
+		CategoryID    string `json:"category_id,omitempty" jsonschema:"optional destination category id override"`
+		FromTenant    string `json:"from_tenant,omitempty" jsonschema:"source tenant override"`
+		FromSurface   string `json:"from_surface,omitempty" jsonschema:"source instance or platform surface bias"`
+		FromAuth      string `json:"from_auth,omitempty" jsonschema:"source auth pin"`
+		ScopeAll      *bool  `json:"scope_all,omitempty" jsonschema:"destination scope all computers (default unassigned)"`
+		ScopeGroupIDs []int  `json:"scope_group_ids,omitempty" jsonschema:"destination computer group ids"`
+		Tenant        string `json:"tenant,omitempty" jsonschema:"destination tenant override"`
+		Surface       string `json:"surface,omitempty" jsonschema:"destination surface bias"`
+		Auth          string `json:"auth,omitempty" jsonschema:"destination auth pin"`
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "profile_copy",
 		Description: "Copy a macOS configuration profile across sessions (mutating). " +
-			"Reads profile_id from from_tenant/from_auth (or current session), prepares UUIDs + scope, POSTs on tenant/auth destination. " +
-			"Default destination scope is unassigned. Returns {ok, value: {id, name}}.",
+			"Prepares UUIDs + unassigned scope, remaps category by name on destination (soft: missing → uncategorized), POSTs on destination. " +
+			"Returns {ok, value: {id, name}}.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in profileCopyIn) (*mcpsdk.CallToolResult, any, error) {
 		endFrom, sessErr := applySession(sessionIn{Tenant: in.FromTenant, Surface: in.FromSurface, Auth: in.FromAuth})
 		if sessErr != nil {
 			return toolErr(sessErr)
 		}
 		srcCred := resolve(sessionIn{Tenant: in.FromTenant, Surface: in.FromSurface, Auth: in.FromAuth})
-		xmlBytes, err := buddy.ProfileFetchXML(srcCred, in.ProfileID)
 		endFrom()
-		if err != nil {
-			return toolErr(err)
-		}
-		spec := buddy.ProfilePrepareSpec{Name: in.Name, ScopeGroupIDs: in.ScopeGroupIDs}
-		if in.ScopeAll != nil {
-			spec.ScopeAll = in.ScopeAll
-		}
-		prepared, err := buddy.PrepareProfileXMLForCreate(xmlBytes, spec)
-		if err != nil {
-			return toolErr(err)
-		}
 		endDest, sessErr := applySession(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
 		if sessErr != nil {
 			return toolErr(sessErr)
 		}
 		defer endDest()
-		out, err := buddy.ProfilePostXML(resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth}), mutOpts(), prepared, in.Name, logger)
+		dstCred := resolve(sessionIn{Tenant: in.Tenant, Surface: in.Surface, Auth: in.Auth})
+		out, err := buddy.ProfileCopy(srcCred, dstCred, mutOpts(), buddy.ProfileCopySpec{
+			SourceProfileID: in.ProfileID,
+			Name:            in.Name,
+			ScopeAll:        in.ScopeAll,
+			ScopeGroupIDs:   in.ScopeGroupIDs,
+			CategoryID:      in.CategoryID,
+		}, logger)
 		if err != nil {
 			return toolErr(err)
 		}

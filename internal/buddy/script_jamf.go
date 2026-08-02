@@ -251,6 +251,49 @@ func ScriptHistory(credName, id string, limit int, logger *slog.Logger) error {
 	return nil
 }
 
+// ScriptPostDetail POSTs a full script record and returns the created detail.
+func ScriptPostDetail(credName string, opts Opts, s ScriptDetail, logger *slog.Logger) (*ScriptDetail, error) {
+	s.Name = strings.TrimSpace(s.Name)
+	if s.Name == "" {
+		return nil, fmt.Errorf("script name is required")
+	}
+	s.ID = ""
+	data, err := json.Marshal(s)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	if !opts.SkipConfirm {
+		if !ConfirmPrompt(fmt.Sprintf("Create script %q", s.Name), logger) {
+			return nil, nil
+		}
+	}
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/scripts")
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	resp, err := PerformRequest(nil, req, credName)
+	if err != nil {
+		return nil, fmt.Errorf("create script: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("create script status %d: %s", resp.StatusCode, string(body))
+	}
+	var created ScriptDetail
+	if err := json.Unmarshal(body, &created); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	fmt.Printf("Created script (ID %s): %s\n", created.ID, created.Name)
+	return &created, nil
+}
+
 // ScriptCreate creates a new Jamf script, reading the script body from a local file.
 func ScriptCreate(credName string, opts Opts, name, file, category, priority, info, notes string, logger *slog.Logger) error {
 	contents, err := os.ReadFile(file)
@@ -273,40 +316,8 @@ func ScriptCreate(credName string, opts Opts, name, file, category, priority, in
 	if notes != "" {
 		s.Notes = notes
 	}
-	if !opts.SkipConfirm {
-		if !ConfirmPrompt(fmt.Sprintf("Create script %q from %q", name, file), logger) {
-			return nil
-		}
-	}
-	data, err := json.Marshal(s)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/scripts")
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return fmt.Errorf("create script: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("create script status %d: %s", resp.StatusCode, string(body))
-	}
-	var created ScriptDetail
-	if err := json.Unmarshal(body, &created); err != nil {
-		return fmt.Errorf("parse response: %w", err)
-	}
-	fmt.Printf("Created script (ID %s): %s\n", created.ID, created.Name)
-	return nil
+	_, err = ScriptPostDetail(credName, opts, s, logger)
+	return err
 }
 
 // scriptPut replaces a script record via PUT /api/v1/scripts/{id}.

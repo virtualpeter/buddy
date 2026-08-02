@@ -254,15 +254,17 @@ POLICY
       Params: at least one of enable/name/trigger/frequency.
   policy_put_xml(policy_id, xml_str, tenant?, surface?, auth?)
       → None
-  policy_copy(policy_id, name, trigger?, from_tenant?, from_surface?, from_auth?,
+  policy_copy(policy_id, name, trigger?, category_id?, from_tenant?, from_surface?, from_auth?,
               scope_all?, scope_group_ids?, tenant?, surface?, auth?)
       → value: dict {id, name, trigger}
       Params: Fetch on from_* session; POST on trailing tenant/auth (destination).
-        Default unassigned scope. Not versioned policy_clone (release helper).
-  policy_migrate(policy_id, name?, trigger?, match_trigger?, from_tenant?, from_surface?,
+        Default unassigned scope. Remaps category/scripts/packages by name on dest
+        (missing scripts/packages fail; missing category → uncategorized).
+        Not versioned policy_clone (release helper).
+  policy_migrate(policy_id, name?, trigger?, match_trigger?, category_id?, from_tenant?, from_surface?,
                  from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?)
       → value: dict {id, name, trigger, created}
-      Params: Same prepare as policy_copy; upsert on destination by exact name
+      Params: Same prepare/remap as policy_copy; upsert on destination by exact name
         (or trigger_other when match_trigger=True). Preserves dest id on update.
   policy_set_ss(policy_id, version?, group_ids?, display_name?,
                 description?, install_text?, reinstall_text?,
@@ -302,6 +304,11 @@ GROUP
   smart_group_set_version(group_id, version, tenant?, surface?, auth?) → None
   group_delete(group_id, tenant?, surface?, auth?) → None
   smart_group_create(body, tenant?, surface?, auth?) → value: dict {"id", "href"?}
+  smart_group_clone(group_id, name, site_id?, tenant?, surface?, auth?) → value: dict {"id", "href"?}
+      Params: Same-session duplicate; clears siteId unless site_id set.
+  smart_group_copy(group_id, name, site_id?, from_tenant?, from_surface?, from_auth?,
+                   tenant?, surface?, auth?) → value: dict {"id", "href"?}
+      Params: Cross-session copy of criteria/description; clears siteId unless site_id set.
   smart_group_put(group_id, body, tenant?, surface?, auth?) → None
   smart_group_get_criteria(group_id, tenant?, surface?, auth?) → value: list[dict]
   smart_group_set_criteria(group_id, criteria, tenant?, surface?, auth?) → None
@@ -503,6 +510,23 @@ SCRIPT (Jamf Pro scripts)
   script_get_contents(script_id, tenant?, surface?, auth?) → value: str
   script_update(script_id, file, tenant?, surface?, auth?) → None
   script_put(script_id, dict, tenant?, surface?, auth?) → value: dict
+  script_clone(script_id, name, category_id?, tenant?, surface?, auth?) → value: dict {id, name}
+  script_copy(script_id, name, category_id?, from_tenant?, from_surface?, from_auth?,
+              tenant?, surface?, auth?) → value: dict {id, name}
+      Params: Resolves category by name on dest (or category_id override).
+  script_migrate(script_id, name?, category_id?, from_tenant?, from_surface?, from_auth?,
+                 tenant?, surface?, auth?) → value: dict {id, name, created}
+      Params: Upsert by exact script name on destination.
+
+CATEGORY (Jamf Pro categories)
+  categories(filter?, page?, page_size?, tenant?, surface?, auth?)
+      → value: list of {id, name, priority}
+  category(id=?) | category(name=?, tenant?, surface?, auth?) → value: dict {id, name, priority}
+  category_clone(category_id, name, priority?, tenant?, surface?, auth?) → value: dict {id, name, priority?}
+  category_copy(category_id, name, priority?, from_tenant?, from_surface?, from_auth?,
+                tenant?, surface?, auth?) → value: dict {id, name, priority?}
+  category_migrate(category_id, name?, priority?, from_tenant?, from_surface?, from_auth?,
+                   tenant?, surface?, auth?) → value: dict {id, name, priority, created}
 
 COMPUTER
   computers(filter?, ids?=False, page?, page_size?, tenant?, surface?, auth?)

@@ -236,6 +236,37 @@ func PackageFindID(credName, appName, version, patternOverride string, logger *s
 	return packageFindByAppVersion(credName, appName, version, logger)
 }
 
+// PackageFindIDByExactName returns the package id whose packageName equals name (case-insensitive).
+func PackageFindIDByExactName(credName, name string, logger *slog.Logger) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("package name is required")
+	}
+	escaped := EscapeRSQLString(name)
+	rsql := `packageName=="` + escaped + `"`
+	results, err := PackageSearch(credName, rsql, PageOpts{Page: PageAll}, logger)
+	if err != nil {
+		return "", err
+	}
+	nameLower := strings.ToLower(name)
+	for _, p := range results {
+		if strings.ToLower(p.PackageName) == nameLower {
+			return p.ID, nil
+		}
+	}
+	// Client-side fallback if RSQL exact match is picky about quoting.
+	all, err := PackageSearch(credName, "", PageOpts{Page: PageAll}, logger)
+	if err != nil {
+		return "", err
+	}
+	for _, p := range all {
+		if strings.ToLower(p.PackageName) == nameLower {
+			return p.ID, nil
+		}
+	}
+	return "", fmt.Errorf("no package found with name %q", name)
+}
+
 func packageFindByAppVersion(credName, appName, version string, logger *slog.Logger) (id, name string, err error) {
 	// Build RSQL: packageName=="*appName*"
 	rsql := `packageName=="*` + appName + `*"`

@@ -997,11 +997,20 @@ func ProfileCreate(credName string, opts Opts, spec ProfileCreateSpec, logger *s
 // ProfileClone creates a copy of a configuration profile with the given name and
 // unassigned scope (all_computers=false, empty targets — not "all computers").
 func ProfileClone(credName string, opts Opts, sourceProfileID int, newName string, logger *slog.Logger) (*ProfileCreateOutcome, error) {
+	return ProfileCloneWithCategory(credName, opts, sourceProfileID, newName, "", logger)
+}
+
+// ProfileCloneWithCategory is ProfileClone with an optional destination category_id override.
+func ProfileCloneWithCategory(credName string, opts Opts, sourceProfileID int, newName, categoryID string, logger *slog.Logger) (*ProfileCreateOutcome, error) {
 	profileXML, err := profileFetchRaw(credName, sourceProfileID)
 	if err != nil {
 		return nil, err
 	}
 	prepared, err := PrepareProfileXMLForCreate(profileXML, ProfilePrepareSpec{Name: newName})
+	if err != nil {
+		return nil, err
+	}
+	prepared, err = RemapPolicyCategoryOnDest(credName, prepared, categoryID, categoryID == "")
 	if err != nil {
 		return nil, err
 	}

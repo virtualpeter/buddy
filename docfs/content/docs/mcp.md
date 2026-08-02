@@ -137,14 +137,17 @@ Tool names follow the Starlark plural/singular grammar (see [reference manual](r
 | `smart_group_get_criteria` | Criteria list | By `group_id` |
 | `smart_group_update_criterion_value` | `null` | Mutating; match criterion name substring |
 | `smart_group_create` | `{id, href?}` | Mutating; smart group JSON body |
+| `smart_group_clone` / `smart_group_copy` | `{id, href?}` | Same-session / cross-session criteria copy |
 | `static_groups` | List of `{id,name,description}` | **Explicit membership** Pro groups |
 | `static_group_list_computers` | `[{id,name,serial},…]` | Optional client-side `filter` |
 | `static_group_add_computers` / `_remove_computers` / `_set_computers` | `null` | Mutating membership |
 | `static_group_create` | `{id, href?}` | Mutating; static group JSON body |
+| `categories` | `[{id,name,priority},…]` | List categories |
+| `category_clone` / `category_copy` / `category_migrate` | `{id,…}` / `+created` | Clone / copy / upsert by name |
 | `profiles` | `[{id,name},…]` | Optional name `filter` |
 | `profile_create` | `{id, name}` | Mutating; greenfield Classic POST |
 | `profile_clone` | `{id, name}` | Mutating; UUID remap + unassigned scope |
-| `profile_copy` | `{id, name}` | Mutating; cross-session fetch/prepare/POST |
+| `profile_copy` | `{id, name}` | Mutating; cross-session; category remap by name |
 | `profile_create_xml` | `{id, name}` | Mutating; POST prepared XML |
 | `profile_delete` | `{id}` | Mutating; Classic DELETE |
 | `profile_redeploy` | `{id}` | Mutating; redeploy_on_update=All only |
@@ -159,6 +162,7 @@ Tool names follow the Starlark plural/singular grammar (see [reference manual](r
 | `profile_put_xml` | `{id}` | Mutating Classic PUT |
 | `computers` | Summary dicts (or IDs if `ids=true`) | RSQL `filter` |
 | `scripts` | Script summaries | Name substring or RSQL |
+| `script_clone` / `script_copy` / `script_migrate` | `{id,name}` / `+created` | Clone / copy / upsert by name |
 | `packages` | Package summaries | RSQL `filter` |
 | `package_ready` | `bool` | True iff exists and `cloudTransferStatus` is `READY` |
 | `package_wait_ready` | `null` | Poll until READY (default `timeout` 600s); use after upload |
@@ -167,7 +171,7 @@ Tool names follow the Starlark plural/singular grammar (see [reference manual](r
 | `policy` | Details dict | `id` xor `trigger` (same shape as Starlark) |
 | `policy_xml` / `policy_put_xml` | XML string / null | Classic get/put |
 | `policy_set` / `policy_delete` | null | Basic fields / delete |
-| `policy_copy` / `policy_migrate` | `{id,name,trigger}` / `+created` | Cross-session copy / upsert |
+| `policy_copy` / `policy_migrate` | `{id,name,trigger}` / `+created` | Remaps category/scripts/packages by name |
 
 | `blueprints` | Blueprint summaries | Platform gateway credential; `search`, `sort`, paging |
 | `blueprint` | Full blueprint JSON | By `blueprint_id` |
