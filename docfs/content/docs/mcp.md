@@ -6,9 +6,33 @@
 buddy mcp
 ```
 
-Uses stdio JSON-RPC. The active tenant/auth comes from `~/.config/buddy/config.yaml` (override with `--tenant=<name>` and/or `--user=<auth>` on the command in the host’s MCP config). MCP inherits that session’s Jamf privileges—treat it like the CLI.
+Uses **stdio** JSON-RPC (the first-class product path). The active tenant/auth comes from `~/.config/buddy/config.yaml` (override with `--tenant=<name>` and/or `--user=<auth>` on the command in the host’s MCP config). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 
 A Platform-capable tenant (`region`/`url` + `tenantId`) with a linked oauth auth works the same way: Pro tools and first-class Platform tools (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) route through the gateway.
+
+Streamable HTTP MCP under `buddy serve` is **not** offered today. Hosts (Cursor, Claude Desktop) spawn `buddy mcp` over stdio; keep that as the supported setup. A localhost streamable endpoint may be revisited later for HTTP-only clients or long-lived debug workflows — not as a replacement for stdio.
+
+---
+
+## Auth layers (stdio vs Inspector vs remote MCP)
+
+Three different “tokens” get confused. Only the middle one is Jamf:
+
+| Layer | What it is | Buddy stdio? |
+|-------|------------|--------------|
+| **Host → buddy** | Cursor/Claude spawn a local process; no MCP Bearer | Yes — this is how buddy MCP works |
+| **Buddy → Jamf** | Config + Keychain/secrets → Jamf bearer inside buddy | Yes — tools call Jamf; the host never sees that bearer |
+| **Remote MCP OAuth** | HTTPS MCP (e.g. `developer.jamf.com/mcp`) may require OAuth / `Authorization: Bearer` to talk to *that* server | No — unrelated to `buddy mcp` |
+
+**MCP Inspector 2.x** adds a fourth layer that is *neither* Jamf nor buddy:
+
+- Inspector runs a **local proxy** that can spawn stdio servers (including `buddy mcp`) or connect to HTTP MCP targets.
+- On start it prints a random **proxy session token** (or use `MCP_PROXY_AUTH_TOKEN`) and requires `x-mcp-proxy-auth: Bearer …` so a random browser tab cannot drive the proxy.
+- Open the **full** URL Inspector prints (including `?MCP_PROXY_AUTH_TOKEN=…`). Opening bare `http://localhost:6274` without the token often looks like “stdio doesn’t work.”
+- If the default browser (e.g. corporate Edge) fails to open or strips the query string, paste that full URL manually. Cursor can still use buddy via stdio even when Inspector’s browser path is broken.
+- `DANGEROUSLY_OMIT_AUTH=true` disables proxy auth for local debug only — do not leave it on.
+
+Buddy does not implement Inspector’s proxy token and does not require a Bearer for stdio.
 
 ---
 
@@ -318,6 +342,8 @@ def main():
 | Auth / API errors | Fix config with `buddy auth test`; check `--user` / default cred |
 | Agent can’t use list tools | Rebuild buddy ≥ response-envelope change; reload MCP |
 | `starlark_eval` “if not within a function” | Wrap logic in `def main(): ...` |
+| Inspector UI 401 / won’t connect | Use the printed URL with `MCP_PROXY_AUTH_TOKEN` (Inspector proxy auth — not Jamf). See [Auth layers](#auth-layers-stdio-vs-inspector-vs-remote-mcp) |
+| Inspector tab doesn’t open (Edge/corp browser) | Paste the full Inspector URL into the browser; confirm Cursor stdio still works separately |
 
 ---
 
