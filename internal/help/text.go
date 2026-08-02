@@ -254,6 +254,16 @@ POLICY
       Params: at least one of enable/name/trigger/frequency.
   policy_put_xml(policy_id, xml_str, tenant?, surface?, auth?)
       → None
+  policy_copy(policy_id, name, trigger?, from_tenant?, from_surface?, from_auth?,
+              scope_all?, scope_group_ids?, tenant?, surface?, auth?)
+      → value: dict {id, name, trigger}
+      Params: Fetch on from_* session; POST on trailing tenant/auth (destination).
+        Default unassigned scope. Not versioned policy_clone (release helper).
+  policy_migrate(policy_id, name?, trigger?, match_trigger?, from_tenant?, from_surface?,
+                 from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?)
+      → value: dict {id, name, trigger, created}
+      Params: Same prepare as policy_copy; upsert on destination by exact name
+        (or trigger_other when match_trigger=True). Preserves dest id on update.
   policy_set_ss(policy_id, version?, group_ids?, display_name?,
                 description?, install_text?, reinstall_text?,
                 force_view?, feature?, self_service?, tenant?, surface?, auth?)
@@ -268,6 +278,7 @@ POLICY
   policy_set_scope_all(policy_id, tenant?, surface?, auth?) → None
   policy_clone(policy_id, version, keep_source?, tenant?, surface?, auth?) → None
       Params: keep_source?: bool — if True, leave source enabled (default disables).
+        Versioned package-release clone — not the same as policy_copy (duplicate/migrate).
   policy_create_ss(trigger, display_name, category?, scope_group_id?, script_id?, tenant?, surface?, auth?)
       → value: int (new policy ID)
   policy_create_package(app, version, action?, scope_all?, scope_group_ids?,

@@ -86,7 +86,9 @@ Ask in natural language; the agent calls tools for you:
 - “List computers in static group Y” / “Add computer 42 to static group Y”
 - “Patch the Chrome payload in profile Z”
 - “Find computer IDs where name contains lab”
-- “Resolve policy ID for trigger install-foo-1.0”
+- “Load policy details for trigger install-foo-1.0” / “Copy policy 12 to tenant sandbox as New Name”
+- “Migrate policy 12 to prod (upsert by name)”
+
 - “List Platform blueprints” (calls `blueprints`; needs a gateway credential)
 - “Show MCP tool priority / groups vs profiles via docs” (`docs` → `mcp-tools`)
 
@@ -137,7 +139,12 @@ Tool names follow the Starlark plural/singular grammar (see [reference manual](r
 | `package_ready` | `bool` | True iff exists and `cloudTransferStatus` is `READY` |
 | `package_wait_ready` | `null` | Poll until READY (default `timeout` 600s); use after upload |
 | `package_download` | `null` | JCDS download to host path; always SHA-256 verify |
-| `policy` | `{id, trigger}` | Trigger → ID only (not full policy) |
+| `policies` | `[{id,name},…]` (or IDs) | Keyword search / all summaries |
+| `policy` | Details dict | `id` xor `trigger` (same shape as Starlark) |
+| `policy_xml` / `policy_put_xml` | XML string / null | Classic get/put |
+| `policy_set` / `policy_delete` | null | Basic fields / delete |
+| `policy_copy` / `policy_migrate` | `{id,name,trigger}` / `+created` | Cross-session copy / upsert |
+
 | `blueprints` | Blueprint summaries | Platform gateway credential; `search`, `sort`, paging |
 | `blueprint` | Full blueprint JSON | By `blueprint_id` |
 | `blueprint_status` | Deployment report | By `blueprint_id` |

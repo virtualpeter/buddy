@@ -32,7 +32,7 @@ Tool priority: (1) typed buddy tools, (2) starlark_eval with named builtins, (3)
 
 If the host also has Jamf's remote MCP (https://developer.jamf.com/mcp — list-specs, search-endpoints, execute-request): use it for official OpenAPI discovery and products buddy does not wrap (e.g. Protect/RISK/Title Editor). Do not use execute-request for Pro groups, configuration-profile payload edits, package JCDS/READY, or other workflows buddy already exposes — inventing Classic/Pro HTTP bypasses buddy's criteria-vs-membership and payload entity-encoding helpers. After discovering an unfamiliar path in Jamf MCP, prefer a buddy typed tool or named builtin when one exists.
 
-See the docs tool (query "mcp-tools" or "profile-payloads") for the scorecard, smart vs static groups, and profile payload cookbook (create/clone/edit).`
+See the docs tool (query "mcp-tools" or "profile-payloads") for the scorecard, smart vs static groups, profile payload cookbook, and policy copy/migrate.`
 
 // Run starts the MCP stdio server until the client disconnects.
 func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) error {
@@ -171,6 +171,7 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	}
 	registerProComputerGroupTools(server, credName, mutOptsEarly, logger)
 	registerProfileTools(server, credName, mutOptsEarly, logger)
+	registerPolicyTools(server, credName, mutOptsEarly, logger)
 
 	type computersIn struct {
 		Filter   string `json:"filter,omitempty" jsonschema:"name substring or RSQL filter"`
@@ -322,28 +323,7 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		return toolOK(nil, nil)
 	})
 
-	type policyIn struct {
-		Trigger string `json:"trigger" jsonschema:"policy trigger name"`
-		Tenant  string `json:"tenant,omitempty" jsonschema:"tenant override for this call"`
-		Surface string `json:"surface,omitempty" jsonschema:"instance or platform surface bias"`
-		Auth    string `json:"auth,omitempty" jsonschema:"auth name pin (optional)"`
-	}
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "policy",
-		Description: "Resolve a Jamf policy ID by custom trigger name only. Returns {ok, value: {id, trigger}} — not the full policy document. " +
-			"For full policy JSON/XML or mutates use starlark_eval with policy(id=…) / policy_xml / policy_set*.",
-	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in policyIn) (*mcpsdk.CallToolResult, any, error) {
-		endSess, sessErr := applySession(sessFrom(in.Tenant, in.Surface, in.Auth))
-		if sessErr != nil {
-			return toolErr(sessErr)
-		}
-		defer endSess()
-		id, err := buddy.PolicyFind(resolve(sessFrom(in.Tenant, in.Surface, in.Auth)), opts, in.Trigger, false, logger)
-		if err != nil {
-			return toolErr(err)
-		}
-		return toolOK(map[string]any{"id": id, "trigger": in.Trigger}, nil)
-	})
+	// Policy tools: registerPolicyTools (policies, policy, policy_xml/put_xml, policy_set/delete, copy/migrate).
 
 	// Blueprints (Platform API Gateway credential required: region/url + tenantId).
 	mutOpts := func() buddy.Opts {

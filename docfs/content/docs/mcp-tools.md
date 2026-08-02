@@ -102,7 +102,7 @@ Value criteria: encodes Jamf/buddy knowledge; completes a common task without ra
 | Tool | Confusion | Fix |
 |------|-----------|-----|
 | `smart_groups` / `static_groups` | Near-identical; no criteria vs membership | Descriptions contrast models; point at get/membership tools |
-| `policy` | Looks like full Starlark `policy` | Description: trigger → `{id,trigger}` only |
+| `policy` | Looks like full Starlark `policy` | Fixed: `id` xor `trigger` → details dict (same shape as Starlark) |
 | `computers` / `scripts` / `packages` | List-only stubs | Descriptions say summaries; singular/mutate via Starlark until expanded |
 | `starlark_eval` / `jamf_schema` | Encouraged raw `jamf_get` | Prefer typed → named builtins → `jamf_*` last |
 
@@ -126,6 +126,10 @@ Value criteria: encodes Jamf/buddy knowledge; completes a common task without ra
 | `profile_xml_extract_payloads` | Offline: payloads plist from profile XML |
 | `payloads_list_identifiers` | Offline: PayloadIdentifier list |
 | `payloads_set_content` | Offline: build PayloadContent plist for create |
+| `policies` / `policy` | List summaries; load details by `id` xor `trigger` |
+| `policy_xml` / `policy_put_xml` | Classic XML get/put |
+| `policy_set` / `policy_delete` | Basic field edits / delete |
+| `policy_copy` / `policy_migrate` | Cross-session copy (POST) / upsert migrate |
 
 ### Object-type coverage (MCP vs Starlark)
 
@@ -136,12 +140,12 @@ Value criteria: encodes Jamf/buddy knowledge; completes a common task without ra
 | Profiles | List, create, clone, **copy**, redeploy, XML get/put, patch, inspect, set_content, delete | Advanced `payloads_*` / MCX get |
 | Packages | List + ready/wait/download | get/upload/delete/put |
 | Scripts | List | get/contents/update/put |
-| Policies | Trigger→id only | Full load/set/create/clone/delete |
+| Policies | List, get (id\|trigger), XML get/put, set, delete, **copy**, **migrate** | Release helpers (`policy_set_ss` / `_package` / versioned `policy_clone` / create_*) |
 | Computers | List summaries | MDM actions |
 
 ### Defer
 
-`package` get/upload/delete; `script` / contents; full `policy`/`policies`; computer MDM; group delete.
+`package` get/upload/delete; `script` / contents; computer MDM; group delete.
 
 ### Cut / do not add
 

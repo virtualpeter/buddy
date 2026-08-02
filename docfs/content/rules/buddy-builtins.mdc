@@ -204,6 +204,18 @@ array. They return `{"ok": bool, "value": ..., "error": str}`.
     - `computer_ids` (list of int or str): Replaces the entire membership list.
     - `tenant?` / `surface?` / `auth?` (string, optional).
 
+## Policies — copy / migrate
+
+Typed MCP and Starlark expose CRUD plus cross-session copy/migrate. Fat release
+helpers (`policy_set_ss`, `policy_set_package`, versioned `policy_clone`, …) stay
+on `starlark_eval` / scripts — do not overload `policy_clone` (it takes `version`
+for package-release clone).
+
+- `policy_copy(policy_id, name, trigger?, from_tenant?, from_surface?, from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name, trigger}`
+  - Fetch Classic XML on `from_*` (omit = current session); prepare (strip id, set name/trigger, default **unassigned** scope); POST on destination session kwargs.
+- `policy_migrate(policy_id, name?, trigger?, match_trigger?, from_tenant?, from_surface?, from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name, trigger, created}`
+  - Same prepare as copy; upsert on destination by exact **name** (or `trigger_other` when `match_trigger=True`). PUT preserves destination id; else POST (`created=True`).
+
 ## Profiles / payloads
 
 Profile helpers work with Jamf macOS configuration profiles and their embedded

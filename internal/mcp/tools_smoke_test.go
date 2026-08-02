@@ -37,6 +37,14 @@ var expectedTier1Tools = []string{
 	"payloads_list_identifiers",
 	"payloads_collect_uuids",
 	"payloads_set_content",
+	"policies",
+	"policy",
+	"policy_xml",
+	"policy_put_xml",
+	"policy_set",
+	"policy_delete",
+	"policy_copy",
+	"policy_migrate",
 }
 
 func TestServerInstructions(t *testing.T) {
