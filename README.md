@@ -98,6 +98,7 @@ buddy cred use --mcp sandbox
 buddy cred store
 buddy cred delete auth sandbox-admin   # also clears store secrets
 buddy cred clean secrets               # review/delete orphaned store entries
+buddy cred clean tokens                # delete expired/corrupt disk token cache files
 ```
 
 Legacy shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auths:`) migrate automatically on load (breaking; only the new form is written back). Inline secrets: `buddy cred migrate`. Selection: `--tenant` (auto-pick auth by operation) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all). Per-client policy lives under top-level `channels:` (`access` / `tenant` / `tenants`); `tenant.cli|mcp|serve|ide` and the `serve` client are removed.

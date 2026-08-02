@@ -83,7 +83,7 @@ func TestPlatformOAuth2Token_FallbackOAuth2Token(t *testing.T) {
 	}
 }
 
-func TestPlatformOAuth2_NoKeepAliveOnNearExpiry(t *testing.T) {
+func TestPlatformOAuth2_ReusesUntilExpiry(t *testing.T) {
 	var tokenCalls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "keep-alive") {
@@ -93,7 +93,7 @@ func TestPlatformOAuth2_NoKeepAliveOnNearExpiry(t *testing.T) {
 			tokenCalls++
 			_ = json.NewEncoder(w).Encode(OAuth2TokenResponse{
 				AccessToken: "t" + string(rune('0'+tokenCalls)),
-				ExpiresIn:   60, // within proactive window
+				ExpiresIn:   60,
 			})
 			return
 		}
@@ -110,11 +110,11 @@ func TestPlatformOAuth2_NoKeepAliveOnNearExpiry(t *testing.T) {
 	if _, err := a.GetToken(); err != nil {
 		t.Fatal(err)
 	}
-	// Second call should re-request token (near expiry) rather than keep-alive.
+	// Second call should reuse the 60s token (no proactive re-auth).
 	if _, err := a.GetToken(); err != nil {
 		t.Fatal(err)
 	}
-	if tokenCalls < 2 {
-		t.Fatalf("tokenCalls = %d, want >= 2", tokenCalls)
+	if tokenCalls != 1 {
+		t.Fatalf("tokenCalls = %d, want 1", tokenCalls)
 	}
 }

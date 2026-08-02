@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestInstanceOAuth2_NoKeepAliveOnNearExpiry(t *testing.T) {
+func TestInstanceOAuth2_NoKeepAlive(t *testing.T) {
 	var tokenCalls, keepAliveCalls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -42,7 +42,7 @@ func TestInstanceOAuth2_NoKeepAliveOnNearExpiry(t *testing.T) {
 	if keepAliveCalls != 0 {
 		t.Fatalf("keep-alive calls = %d, want 0", keepAliveCalls)
 	}
-	if tokenCalls < 2 {
-		t.Fatalf("tokenCalls = %d, want >= 2", tokenCalls)
+	if tokenCalls != 1 {
+		t.Fatalf("tokenCalls = %d, want 1 (reuse 60s token)", tokenCalls)
 	}
 }

@@ -1,8 +1,14 @@
 package tokenauth
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,10 +17,89 @@ import (
 )
 
 // diskTokenFile is the on-disk shape for a cached bearer token.
+// Version 1 stores Token as base64(AES-GCM(nonce||ciphertext)) using a
+// compiled-in obfuscation key — enough to stop casual `cat` of the cache,
+// not a substitute for 0600 permissions or a real secret store.
 type diskTokenFile struct {
+	V      int       `json:"v"`
 	Token  string    `json:"token"`
 	Expiry time.Time `json:"expiry"`
-	URL    string    `json:"url,omitempty"` // base URL for sanity checks
+	URL    string    `json:"url,omitempty"`
+}
+
+const diskTokenVersion = 1
+
+// clockSkewWindow is how close to expiry a token may be and still be used.
+// Avoids sending a bearer that expires mid-request; replaces the old 3-minute
+// proactive refresh window.
+const clockSkewWindow = 15 * time.Second
+
+// Compiled obfuscation material (not a user secret). Changing this invalidates
+// existing cache files — they are deleted on the next load/sweep.
+const tokenCacheObfuscationMaterial = "buddy\x00token-cache\x00v1\x00" +
+	"7f3c9e1a2b4d6e8f0a1c3d5e7b9f2a4c6d8e0f1a3b5c7d9e"
+
+func tokenCacheAESKey() []byte {
+	sum := sha256.Sum256([]byte(tokenCacheObfuscationMaterial))
+	return sum[:]
+}
+
+func sealToken(plain string) (string, error) {
+	block, err := aes.NewCipher(tokenCacheAESKey())
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	out := gcm.Seal(nonce, nonce, []byte(plain), nil)
+	return base64.StdEncoding.EncodeToString(out), nil
+}
+
+func openToken(sealed string) (string, error) {
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(sealed))
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(tokenCacheAESKey())
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	ns := gcm.NonceSize()
+	if len(raw) < ns {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	plain, err := gcm.Open(nil, raw[:ns], raw[ns:], nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plain), nil
+}
+
+// parseDiskTokenFile unmarshals and opens the bearer. On any format/decrypt
+// failure returns ok=false (caller should delete the file).
+func parseDiskTokenFile(data []byte) (token string, expiry time.Time, url string, ok bool) {
+	var f diskTokenFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return "", time.Time{}, "", false
+	}
+	if f.V != diskTokenVersion || f.Token == "" || f.Expiry.IsZero() {
+		return "", time.Time{}, "", false
+	}
+	tok, err := openToken(f.Token)
+	if err != nil || tok == "" {
+		return "", time.Time{}, "", false
+	}
+	return tok, f.Expiry, f.URL, true
 }
 
 var (
@@ -23,10 +108,17 @@ var (
 )
 
 // SetTokenCacheDirForTest overrides the token cache directory (tests only).
-func SetTokenCacheDirForTest(dir string) {
+// Returns a restore function that puts back the previous override.
+func SetTokenCacheDirForTest(dir string) (restore func()) {
 	tokenCacheDirMu.Lock()
-	defer tokenCacheDirMu.Unlock()
+	prev := tokenCacheDirOverride
 	tokenCacheDirOverride = dir
+	tokenCacheDirMu.Unlock()
+	return func() {
+		tokenCacheDirMu.Lock()
+		tokenCacheDirOverride = prev
+		tokenCacheDirMu.Unlock()
+	}
 }
 
 func tokenCacheDir() (string, error) {
@@ -68,8 +160,16 @@ func tokenCachePath(cacheKey string) (string, error) {
 	return filepath.Join(dir, key+".json"), nil
 }
 
+func tokenUsable(expiry time.Time, minRemaining time.Duration) bool {
+	if expiry.IsZero() {
+		return false
+	}
+	return time.Until(expiry) > minRemaining
+}
+
 // loadDiskToken returns token+expiry if a valid cache file exists and is still usable.
 // usable means expiry is more than minRemaining in the future.
+// Expired, near-expiry, URL-mismatched, undecodable, or corrupt files are removed.
 func loadDiskToken(cacheKey, baseURL string, minRemaining time.Duration) (token string, expiry time.Time, ok bool) {
 	path, err := tokenCachePath(cacheKey)
 	if err != nil {
@@ -79,21 +179,20 @@ func loadDiskToken(cacheKey, baseURL string, minRemaining time.Duration) (token 
 	if err != nil {
 		return "", time.Time{}, false
 	}
-	var f diskTokenFile
-	if err := json.Unmarshal(data, &f); err != nil {
+	tok, exp, fileURL, ok := parseDiskTokenFile(data)
+	if !ok {
 		_ = os.Remove(path)
 		return "", time.Time{}, false
 	}
-	if f.Token == "" || f.Expiry.IsZero() {
+	if baseURL != "" && fileURL != "" && strings.TrimRight(fileURL, "/") != strings.TrimRight(baseURL, "/") {
+		_ = os.Remove(path)
 		return "", time.Time{}, false
 	}
-	if baseURL != "" && f.URL != "" && strings.TrimRight(f.URL, "/") != strings.TrimRight(baseURL, "/") {
+	if !tokenUsable(exp, minRemaining) {
+		_ = os.Remove(path)
 		return "", time.Time{}, false
 	}
-	if time.Until(f.Expiry) <= minRemaining {
-		return "", time.Time{}, false
-	}
-	return f.Token, f.Expiry, true
+	return tok, exp, true
 }
 
 func saveDiskToken(cacheKey, baseURL, token string, expiry time.Time) error {
@@ -105,8 +204,13 @@ func saveDiskToken(cacheKey, baseURL, token string, expiry time.Time) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	sealed, err := sealToken(token)
+	if err != nil {
+		return fmt.Errorf("seal token: %w", err)
+	}
 	f := diskTokenFile{
-		Token:  token,
+		V:      diskTokenVersion,
+		Token:  sealed,
 		Expiry: expiry.UTC(),
 		URL:    strings.TrimRight(baseURL, "/"),
 	}
@@ -118,7 +222,12 @@ func saveDiskToken(cacheKey, baseURL, token string, expiry time.Time) error {
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	// Opportunistic sweep of other stale entries (best-effort).
+	_, _ = CleanExpiredTokenCache()
+	return nil
 }
 
 func removeDiskToken(cacheKey string) {
@@ -127,4 +236,55 @@ func removeDiskToken(cacheKey string) {
 		return
 	}
 	_ = os.Remove(path)
+}
+
+// TokenCacheCleanResult summarizes a tokens/ directory sweep.
+type TokenCacheCleanResult struct {
+	Deleted int
+	Kept    int
+	Dir     string
+}
+
+// CleanExpiredTokenCache removes expired, empty, corrupt, or undecodable token cache files.
+// Still-valid entries are kept. Returns how many were deleted.
+func CleanExpiredTokenCache() (TokenCacheCleanResult, error) {
+	dir, err := tokenCacheDir()
+	if err != nil {
+		return TokenCacheCleanResult{}, err
+	}
+	out := TokenCacheCleanResult{Dir: dir}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return out, nil
+		}
+		return out, err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		if shouldDeleteTokenCacheFile(path) {
+			if err := os.Remove(path); err == nil {
+				out.Deleted++
+			}
+			continue
+		}
+		out.Kept++
+	}
+	return out, nil
+}
+
+func shouldDeleteTokenCacheFile(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return true
+	}
+	_, exp, _, ok := parseDiskTokenFile(data)
+	if !ok {
+		return true
+	}
+	// Sweep uses skew so near-expiry leftovers don't linger.
+	return !tokenUsable(exp, clockSkewWindow)
 }

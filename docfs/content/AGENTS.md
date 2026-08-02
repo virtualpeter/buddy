@@ -31,7 +31,7 @@ token_command:
 |------|------|
 | `cmd/buddy/` | CLI entry (`main.go`), dispatch, help text (`help.go`) |
 | `internal/buddy/` | Jamf API clients, config, auth, secret CLI |
-| `internal/buddy/tokenauth/` | Token acquisition, caching, proactive/reactive refresh |
+| `internal/buddy/tokenauth/` | Token acquisition, caching, reactive refresh on expiry/401 |
 | `internal/buddy/secrets/` | Platform secret stores (Keychain, file, pass) |
 | `internal/script/` | Starlark engine, builtins, `Session` (REPL/notebook/MCP eval) |
 | `internal/lsp/` | `buddy lsp` language server (editor integration) |
@@ -93,7 +93,7 @@ Selected by platform or `BUDDY_SECRET_STORE`:
 | `pass` | any | `buddy/<cred>/password`, `buddy/<cred>/client-secret` |
 | `keychain` | macOS only | Explicit Keychain |
 
-CLI: `buddy cred set tenant|auth|channel|secret …` (auth supports `--channels=`), `buddy cred delete tenant|auth|secret …` (auth delete clears store secrets; tenant delete cascades sole-linked auths), `buddy cred clean secrets` (review/delete orphaned store entries), `buddy cred use <tenant>`, `buddy cred use --cli|--mcp|--ide|--notebook <tenant>`, `buddy cred store`, `buddy cred migrate`. `buddy setup basic-setup` bootstraps the first instance tenant + basic auth; `buddy setup store-oauth` rotates a Jamf Pro *instance* API client's secret into a buddy oauth auth with `surface=instance` (Platform gateway oauth cannot manage API roles/integrations).
+CLI: `buddy cred set tenant|auth|channel|secret …` (auth supports `--channels=`), `buddy cred delete tenant|auth|secret …` (auth delete clears store secrets; tenant delete cascades sole-linked auths), `buddy cred clean secrets` (review/delete orphaned store entries), `buddy cred clean tokens` (delete expired/corrupt disk token cache files), `buddy cred use <tenant>`, `buddy cred use --cli|--mcp|--ide|--notebook <tenant>`, `buddy cred store`, `buddy cred migrate`. `buddy setup basic-setup` bootstraps the first instance tenant + basic auth; `buddy setup store-oauth` rotates a Jamf Pro *instance* API client's secret into a buddy oauth auth with `surface=instance` (Platform gateway oauth cannot manage API roles/integrations).
 
 ## Token caching
 
@@ -101,17 +101,17 @@ Three layers:
 
 1. **Process-local cache** — `credAuthCache` in `internal/buddy/common.go` holds one `tokenauth.Authenticator` per `auth@tenant` for the lifetime of the buddy process.
 2. **In-authenticator cache** — each `Authenticator` stores `token` + `tokenExpiry`.
-3. **On-disk cache** — `~/.config/buddy/tokens/<cache-key>.json` (mode `0600`), keyed by auth@tenant (platform adds `@platform:{tenantId}`). Reused across CLI invocations when expiry is more than ~3 minutes away. Skipped for `command` auth. Invalidated on failed refresh / full re-auth.
+3. **On-disk cache** — `~/.config/buddy/tokens/<cache-key>.json` (mode `0600`), keyed by auth@tenant (platform adds `@platform:{tenantId}`). Bearer is AES-GCM–obfuscated with a compiled-in key (discourages casual `cat`; not a real secret store). Reused across CLI invocations while expiry is more than ~15s away (clock skew). Skipped for `command` auth. Expired, URL-mismatched, undecodable, or corrupt files are deleted on load; `buddy cred clean tokens` sweeps the directory. Invalidated on failed refresh / full re-auth.
 
 `GetToken()` flow (`internal/buddy/tokenauth/auth.go`):
 
 - **command auth**: runs external command each time (no long-lived or disk cache).
 - **basic auth**: username/password → `/api/v1/auth/token`; expiry treated as ~18 minutes (refresh before Jamf’s 20-minute limit).
 - **oauth** (instance): client credentials → `/api/oauth/token`; expiry from `expires_in`.
-- **oauth** (Platform API Gateway, credential `tenantId` set): client credentials → `{gateway}/auth/token` (fallback `/oauth2/token`); ~900s expiry; **no keep-alive** — re-auth when near expiry.
-- **Disk hydrate**: if memory is empty and `CacheKey` is set, load a still-valid disk token before hitting Jamf.
-- **Proactive refresh**: if token expires within 3 minutes — basic auth calls `/api/v1/auth/keep-alive`; OAuth (instance and Platform) always re-auths via client credentials (never keep-alive).
-- **Reactive refresh**: on HTTP 401, `PerformRequest` refreshes once (OAuth/command: re-auth; basic: keep-alive or re-auth unless keep-alive probe still succeeds) and retries the request once.
+- **oauth** (Platform API Gateway, credential `tenantId` set): client credentials → `{gateway}/auth/token` (fallback `/oauth2/token`); ~900s expiry; **no keep-alive**.
+- **Disk hydrate**: if memory is empty and `CacheKey` is set, load a still-usable disk token before hitting Jamf.
+- **Reuse until expiry**: tokens are used until expiry minus a small skew (~15s). No proactive keep-alive or OAuth re-auth while the token is still usable.
+- **Reactive refresh**: on HTTP 401, `PerformRequest` refreshes once (OAuth/command: re-auth; basic: keep-alive or re-auth unless keep-alive probe still succeeds) and retries the request once. Explicit `buddy auth refresh` also uses keep-alive for basic tokens.
 
 CLI surfaces:
 
@@ -119,6 +119,7 @@ CLI surfaces:
 buddy auth test                              # verify active tenant/auth session
 buddy auth token [--raw] [--tenant=T] [--user=A]  # Authorization header or raw bearer
 buddy auth refresh --url=URL [TOKEN]         # keep-alive refresh (instance; direct flags supported)
+buddy cred clean tokens                      # delete expired/corrupt disk token cache files
 ```
 
 Direct auth flags (`--url`, `--tenant-id`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for one-offs.

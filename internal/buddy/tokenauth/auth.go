@@ -127,8 +127,6 @@ func (a *Authenticator) TokenExpiry() time.Time {
 	return a.tokenExpiry
 }
 
-const proactiveRefreshWindow = 3 * time.Minute
-
 // setToken stores token+expiry in memory and persists to disk when CacheKey is set.
 func (a *Authenticator) setToken(token string, expiry time.Time) {
 	a.token = token
@@ -138,6 +136,8 @@ func (a *Authenticator) setToken(token string, expiry time.Time) {
 	}
 	if err := saveDiskToken(a.cacheKey, a.baseURL, token, expiry); err != nil {
 		a.debugf("token disk cache save failed: %v", err)
+	} else {
+		a.debugf("saved token to disk cache key=%q (expires %v)", a.cacheKey, expiry)
 	}
 }
 
@@ -153,19 +153,23 @@ func (a *Authenticator) loadFromDiskIfValid() bool {
 	if a.cacheKey == "" || len(a.tokenCommand) > 0 {
 		return false
 	}
-	tok, exp, ok := loadDiskToken(a.cacheKey, a.baseURL, proactiveRefreshWindow)
+	tok, exp, ok := loadDiskToken(a.cacheKey, a.baseURL, clockSkewWindow)
 	if !ok {
 		return false
 	}
 	a.token = tok
 	a.tokenExpiry = exp
-	a.debugf("loaded token from disk cache (expires %v)", exp)
+	a.debugf("loaded token from disk cache key=%q (expires %v)", a.cacheKey, exp)
 	return true
 }
 
 func (a *Authenticator) clearMemoryToken() {
 	a.token = ""
 	a.tokenExpiry = time.Time{}
+}
+
+func (a *Authenticator) memoryTokenUsable() bool {
+	return a.token != "" && tokenUsable(a.tokenExpiry, clockSkewWindow)
 }
 
 // ensureValidToken ensures we have a valid token, refreshing if necessary
@@ -191,76 +195,39 @@ func (a *Authenticator) ensureValidToken() error {
 
 // ensureTokenCommand ensures a valid token for token command authentication
 func (a *Authenticator) ensureTokenCommand() error {
-	if a.token != "" && time.Now().Before(a.tokenExpiry) {
+	if a.memoryTokenUsable() {
 		return nil
 	}
 	return a.getTokenFromCommand()
 }
 
-// ensureOAuth2Token ensures a valid OAuth2 token
+// ensureOAuth2Token ensures a valid OAuth2 token.
+// Reuses the token until expiry (minus clock skew); refresh is reactive on 401
+// or when the token is already unusable. No proactive client-credentials re-auth.
 func (a *Authenticator) ensureOAuth2Token() error {
-	now := time.Now()
-	a.debugf("OAuth2 token check: token exists=%v, expiry=%v, now=%v", a.token != "", a.tokenExpiry, now)
-
-	// If we have no token, get a new one
-	if a.token == "" {
-		a.debugf("OAuth2 token is empty, requesting new token")
-		return a.getTokenFromOAuth2()
-	}
-
-	// If token is still valid, check if we should proactively refresh it
-	if now.Before(a.tokenExpiry) {
-		return a.handleOAuth2TokenRefresh(now)
-	}
-
-	// Token has expired, get a new one
-	timeSinceExpiry := now.Sub(a.tokenExpiry)
-	a.debugf("OAuth2 token has expired (%d seconds ago), requesting new token", int(timeSinceExpiry.Seconds()))
-	return a.getTokenFromOAuth2()
-}
-
-// handleOAuth2TokenRefresh handles OAuth2 token refresh logic when token is still valid.
-// Keep-alive is basic-auth only; client-credentials OAuth always re-auths near expiry.
-func (a *Authenticator) handleOAuth2TokenRefresh(now time.Time) error {
-	timeUntilExpiry := a.tokenExpiry.Sub(now)
-	secondsRemaining := int(timeUntilExpiry.Seconds())
-	a.debugf("OAuth2 token is valid, expires in %d seconds", secondsRemaining)
-
-	if timeUntilExpiry > proactiveRefreshWindow {
-		a.debugf("OAuth2 token is valid for more than %v (%d seconds remaining), reusing existing token", proactiveRefreshWindow, secondsRemaining)
+	if a.memoryTokenUsable() {
 		return nil
 	}
-
-	a.debugf("OAuth2 token expires soon (%d seconds), requesting new token via client credentials", secondsRemaining)
-	a.InvalidateDiskCache()
-	a.clearMemoryToken()
+	if a.token != "" {
+		a.debugf("OAuth2 token expired or within skew window; requesting new token")
+		a.InvalidateDiskCache()
+		a.clearMemoryToken()
+	}
 	return a.getTokenFromOAuth2()
 }
 
-// ensureBasicAuthToken ensures a valid token for username/password authentication
+// ensureBasicAuthToken ensures a valid token for username/password authentication.
+// Reuses until expiry (minus skew); keep-alive is only used from RefreshToken (401 / auth refresh).
 func (a *Authenticator) ensureBasicAuthToken() error {
-	// If we have no token, get a new one
-	if a.token == "" {
-		return a.getTokenFromCredentials()
+	if a.memoryTokenUsable() {
+		return nil
 	}
-
-	// If token is still valid, check if we should proactively refresh it
-	now := time.Now()
-	if now.Before(a.tokenExpiry) {
-		// Check if token expires within 3 minutes - if so, proactively refresh it
-		timeUntilExpiry := a.tokenExpiry.Sub(now)
-		if timeUntilExpiry > 3*time.Minute {
-			// Token is still good for more than 3 minutes, no need to refresh
-			return nil
-		}
-		// Token expires soon, proactively refresh it using keep-alive
-		return a.refreshTokenWithKeepAlive()
+	if a.token != "" {
+		a.InvalidateDiskCache()
+		a.clearMemoryToken()
 	}
-
-	// Token has expired, get a new one
 	return a.getTokenFromCredentials()
 }
-
 // getTokenFromCommand obtains a token by executing an external command
 func (a *Authenticator) getTokenFromCommand() error {
 	if len(a.tokenCommand) == 0 {
@@ -494,7 +461,7 @@ func (a *Authenticator) refreshTokenWithKeepAlive() error {
 		return fmt.Errorf("cannot refresh token: no token available")
 	}
 
-	a.verbosef("Proactively refreshing authentication token using keep-alive")
+	a.verbosef("Refreshing authentication token using keep-alive")
 	url := fmt.Sprintf("%s/api/v1/auth/keep-alive", a.baseURL)
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
@@ -527,7 +494,7 @@ func (a *Authenticator) refreshTokenWithKeepAlive() error {
 	return nil
 }
 
-// RefreshToken handles token refresh reactively (on 401) or proactively (before expiry)
+// RefreshToken handles token refresh reactively (on HTTP 401) or via buddy auth refresh.
 func (a *Authenticator) RefreshToken() error {
 	a.verbosef("Refreshing authentication token")
 	// If using external token command, just get a new token from the command

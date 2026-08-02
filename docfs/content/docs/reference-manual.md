@@ -55,6 +55,7 @@ Config is split into **tenant selection** (`tenant.default`), **channel policies
 - `buddy cred set secret <auth>` — store password/client secret in Keychain, file, or pass
 - `buddy cred delete auth|tenant <name>` — remove auth (+store secrets) or tenant (cascades sole-linked auths)
 - `buddy cred clean secrets` — review secret-store entries and prompt to delete orphans
+- `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`
 - `buddy cred migrate` — move inline config.yaml secrets into the secure store
 - `buddy auth test` — verify the active tenant/auth session
 - `buddy --tenant <name> ...` — select tenant (auto-picks auth); `--user`/`--auth` pins an auth

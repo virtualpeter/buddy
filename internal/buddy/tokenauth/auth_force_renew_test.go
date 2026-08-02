@@ -27,8 +27,8 @@ func TestForceRenewObtainsFreshOAuthToken(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	SetTokenCacheDirForTest(dir)
-	t.Cleanup(func() { SetTokenCacheDirForTest("") })
+	restore := SetTokenCacheDirForTest(dir)
+	t.Cleanup(restore)
 
 	a := NewAuthenticator(Config{
 		BaseURL:      srv.URL,

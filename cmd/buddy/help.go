@@ -69,6 +69,7 @@ Subcommands:
   delete tenant|auth|secret <name>  Remove a tenant (cascades sole-linked auths+secrets),
                                     auth (+secrets), or stored secrets
   clean secrets                     Review secret-store entries; prompt to delete orphans
+  clean tokens                      Delete expired/corrupt files under ~/.config/buddy/tokens/
   use [tenant]                      Show or set tenant.default
   use --cli|--mcp|--ide|--notebook [tenant]
                                     Show or set channels.<client>.tenant
@@ -112,6 +113,8 @@ Flags for 'set secret':
   Deleting an auth also removes its password/client-secret from the store.
   Deleting a tenant deletes auths linked only to that tenant (with secrets) and
   unlinks multi-tenant auths; use 'buddy cred clean secrets' for leftover orphans.
+  Token files under ~/.config/buddy/tokens/ are purged when expired (or via
+  'buddy cred clean tokens'); still-valid entries are reused across CLI runs.
   Auth channels (cli/mcp/ide/notebook) default to all. Channel policy access and
   auth access both clamp mutates (most restrictive wins). Restrict MCP e.g.:
   channels.mcp.access=readonly and/or auth channels excluding mcp from full auths.
@@ -125,6 +128,7 @@ Examples:
   buddy cred delete auth sandbox-admin
   buddy cred delete tenant sandbox
   buddy cred clean secrets
+  buddy cred clean tokens
   buddy cred use sandbox
   buddy cred use --mcp sandbox
   buddy --tenant=sandbox policy find chrome

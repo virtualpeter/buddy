@@ -1030,34 +1030,55 @@ func runCredStore() error {
 
 func runCredClean(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	if len(args) == 0 || args[0] == "help" {
-		fmt.Print(`buddy cred clean - Review and remove orphaned secrets
+		fmt.Print(`buddy cred clean - Review and remove orphaned secrets or stale tokens
 
 Usage:
   buddy [global-flags] cred clean secrets [-y]
+  buddy [global-flags] cred clean tokens
 
 Subcommands:
   secrets   List secret-store entries whose auth name is not in config; prompt to delete each
+  tokens    Delete expired or corrupt files under ~/.config/buddy/tokens/
 
 Notes:
-  Compares the platform secret store to auths: in config.yaml. Orphans are usually
-  left behind after deleting an auth without clearing the store (older buddy) or
-  renaming an auth.
+  secrets: compares the platform secret store to auths: in config.yaml. Orphans are
+  usually left behind after deleting an auth without clearing the store (older buddy)
+  or renaming an auth.
+  tokens: removes bearer cache files that are expired, corrupt, undecodable, or
+  within the skew window. Still-valid tokens are kept. No prompt (safe anytime).
 
 Examples:
   buddy cred clean secrets
   buddy cred clean secrets -y
+  buddy cred clean tokens
 `)
 		return nil
 	}
-	if args[0] != "secrets" {
-		return fmt.Errorf("unknown clean target %q; use: buddy cred clean secrets", args[0])
-	}
-	for _, a := range args[1:] {
-		if a == "-y" {
-			opts.SkipConfirm = true
+	switch args[0] {
+	case "secrets":
+		for _, a := range args[1:] {
+			if a == "-y" {
+				opts.SkipConfirm = true
+			}
 		}
+		return runCredCleanSecrets(cfg, opts)
+	case "tokens":
+		return runCredCleanTokens()
+	default:
+		return fmt.Errorf("unknown clean target %q; use: buddy cred clean secrets|tokens", args[0])
 	}
-	return runCredCleanSecrets(cfg, opts)
+}
+
+func runCredCleanTokens() error {
+	res, err := buddy.CleanExpiredTokenCache()
+	if err != nil {
+		return fmt.Errorf("clean token cache: %w", err)
+	}
+	if res.Dir != "" {
+		fmt.Printf("Token cache: %s\n", res.Dir)
+	}
+	fmt.Printf("Deleted %d stale file(s); kept %d still-valid.\n", res.Deleted, res.Kept)
+	return nil
 }
 
 func runCredCleanSecrets(cfg *buddy.Config, opts buddy.Opts) error {
