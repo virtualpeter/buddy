@@ -276,8 +276,12 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %q\n", args[0])
-		printUsage()
+		fmt.Fprintf(os.Stderr, "Unknown command: %q", args[0])
+		if s := suggestTopLevelCommand(args[0]); s != "" {
+			fmt.Fprintf(os.Stderr, "\nDid you mean %q?", s)
+		}
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Run 'buddy help' for a list of commands.")
 		os.Exit(1)
 	}
 }
@@ -322,7 +326,11 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 	case "find":
 		return runPolicyFind(credName, opts, append([]string{subcommand}, args...), log)
 	default:
-		return fmt.Errorf("policy requires 'get', 'set', 'clone', 'create', 'delete', or 'find', got %q", mode)
+		cands := []string{"get", "set", "clone", "create", "delete", "find"}
+		msg := fmt.Sprintf("unknown policy subcommand: %q", mode)
+		msg += formatDidYouMean(suggestClosest(mode, cands))
+		msg += fmt.Sprintf(" (use: %s)", strings.Join(cands, ", "))
+		return fmt.Errorf("%s", msg)
 	}
 }
 
@@ -625,7 +633,9 @@ func runPolicySet(credName string, opts buddy.Opts, subcommand string, args []st
 		return buddy.PolicyPackage(credName, opts, appName, newVersion, policyIDOverride, triggerFlag, packageFlag, disableMode, log)
 
 	default:
-		return fmt.Errorf("unknown policy set subcommand: %q (use: ss, scope, enable, disable, trigger, install, name, frequency, icon, package, xml)", subcommand)
+		return errUnknownSubcommand("policy set", subcommand, []string{
+			"ss", "scope", "enable", "disable", "trigger", "install", "name", "frequency", "icon", "package", "xml",
+		})
 	}
 }
 
@@ -787,7 +797,7 @@ func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args [
 		_, err := buddy.PolicyCreateSS(credName, opts, trigger, displayName, categoryFlag, 0, scriptID, log)
 		return err
 	default:
-		return fmt.Errorf("unknown policy create subcommand: %q (use: package, ss)", subcommand)
+		return errUnknownSubcommand("policy create", subcommand, []string{"package", "ss"})
 	}
 }
 
@@ -817,7 +827,7 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 		case "static":
 			return buddy.GroupListStatic(credName, filter, log)
 		default:
-			return fmt.Errorf("group list requires 'smart' or 'static', got %q", groupType)
+			return errUnknownSubcommand("group list", groupType, []string{"smart", "static"})
 		}
 	case "get":
 		if len(args) < 2 || args[0] != "version" {
@@ -915,10 +925,14 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 			}
 			return nil
 		default:
-			return fmt.Errorf("unknown group static subcommand %q (use: members, add, remove)", sub)
+			return errUnknownSubcommand("group static", sub, []string{"members", "add", "remove"})
 		}
 	default:
-		return fmt.Errorf("group requires 'list', 'get', 'set', 'create', 'delete', or 'static', got %q", mode)
+		cands := []string{"list", "get", "set", "create", "delete", "static"}
+		msg := fmt.Sprintf("unknown group subcommand: %q", mode)
+		msg += formatDidYouMean(suggestClosest(mode, cands))
+		msg += fmt.Sprintf(" (use: %s)", strings.Join(cands, ", "))
+		return fmt.Errorf("%s", msg)
 	}
 }
 
@@ -1043,7 +1057,7 @@ func runGroupCreate(credName string, opts buddy.Opts, args []string, log *slog.L
 		fmt.Printf("Created static group %q (ID %s)\n", name, created.ID)
 		return nil
 	default:
-		return fmt.Errorf("group create requires 'smart' or 'static', got %q", kind)
+		return errUnknownSubcommand("group create", kind, []string{"smart", "static"})
 	}
 }
 
@@ -1287,7 +1301,7 @@ func runProfile(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		}
 		return runProfileSet(credName, opts, args[0], args[1:], log)
 	default:
-		return fmt.Errorf("profile requires 'list', 'get', 'set', 'clone', or 'redeploy', got %q", mode)
+		return errUnknownSubcommand("profile", mode, []string{"list", "get", "set", "clone", "redeploy"})
 	}
 }
 
@@ -1342,7 +1356,7 @@ func runProfileGet(credName string, opts buddy.Opts, subcommand string, args []s
 		}
 		return nil
 	default:
-		return fmt.Errorf("unknown profile get subcommand: %q (use: xml, payloads, payload, list-payloads)", subcommand)
+		return errUnknownSubcommand("profile get", subcommand, []string{"xml", "payloads", "payload", "list-payloads"})
 	}
 }
 
@@ -1385,7 +1399,7 @@ func runProfileSet(credName string, opts buddy.Opts, subcommand string, args []s
 		dictFile := args[2]
 		return buddy.ProfileSetPayload(credName, opts, profileID, domain, dictFile, redeploy, log)
 	default:
-		return fmt.Errorf("unknown profile set subcommand: %q (use: xml, payload)", subcommand)
+		return errUnknownSubcommand("profile set", subcommand, []string{"xml", "payload"})
 	}
 }
 
@@ -1456,7 +1470,7 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		}
 		return buddy.PackageHistory(credName, args[0], 20, log)
 	default:
-		return fmt.Errorf("unknown package subcommand: %q (use: list, get, download, delete, set, history, upload)", subcommand)
+		return errUnknownSubcommand("package", subcommand, []string{"list", "get", "download", "delete", "set", "history", "upload"})
 	}
 }
 
@@ -1756,7 +1770,10 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 		}
 		return buddy.ComputerCertificates(credName, opts, computerIDs, log)
 	default:
-		return fmt.Errorf("unknown computer subcommand: %q (use: find, get, reboot, redeploy, shutdown, lock, logout, erase, device-info, device-location, security-info, installed-apps, managed-apps, certificates)", subcommand)
+		return errUnknownSubcommand("computer", subcommand, []string{
+			"find", "get", "reboot", "redeploy", "shutdown", "lock", "logout", "erase",
+			"device-info", "device-location", "security-info", "installed-apps", "managed-apps", "certificates",
+		})
 	}
 }
 
@@ -1816,7 +1833,7 @@ func runRole(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 	case "privileges":
 		return buddy.RolePrivileges(credName, log)
 	default:
-		return fmt.Errorf("unknown role subcommand: %q (use: list, get, create, update, delete, privileges)", subcommand)
+		return errUnknownSubcommand("role", subcommand, []string{"list", "get", "create", "update", "delete", "privileges"})
 	}
 }
 
@@ -1873,7 +1890,7 @@ func runClient(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		}
 		return runClientSet(credName, opts, args, log)
 	default:
-		return fmt.Errorf("unknown client subcommand: %q (use: list, get, create, update, delete, credentials, set)", subcommand)
+		return errUnknownSubcommand("client", subcommand, []string{"list", "get", "create", "update", "delete", "credentials", "set"})
 	}
 }
 
@@ -1996,7 +2013,7 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 		return runJamfScriptSet(credName, opts, args, log)
 
 	default:
-		return fmt.Errorf("unknown script subcommand: %q (use: list, get, history, create, upload, update, download, delete, set)", subcommand)
+		return errUnknownSubcommand("script", subcommand, []string{"list", "get", "history", "create", "upload", "update", "download", "delete", "set"})
 	}
 }
 
@@ -2225,7 +2242,9 @@ func runBlueprint(credName string, opts buddy.Opts, args []string, log *slog.Log
 		}
 		return buddy.BlueprintComponents(credName, identifier, log)
 	default:
-		return fmt.Errorf("unknown blueprint subcommand: %q (use: list, get, create, set, delete, deploy, undeploy, status, components)", subcommand)
+		return errUnknownSubcommand("blueprint", subcommand, []string{
+			"list", "get", "create", "set", "delete", "deploy", "undeploy", "status", "components",
+		})
 	}
 }
 
@@ -2250,7 +2269,7 @@ func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 		}
 		return runAuthRefresh(credName, args[1:], log)
 	default:
-		return fmt.Errorf("unknown auth subcommand: %q; run 'buddy auth help' for usage", args[0])
+		return errUnknownSubcommand("auth", args[0], []string{"token", "refresh", "test", "help"})
 	}
 }
 
@@ -2440,7 +2459,7 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		}
 		return nil
 	default:
-		return fmt.Errorf("unknown setup subcommand: %q (use: basic-setup, write-script, store-oauth)", subcommand)
+		return errUnknownSubcommand("setup", subcommand, []string{"basic-setup", "write-script", "store-oauth"})
 	}
 }
 
@@ -2468,7 +2487,7 @@ func runMCP(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		}, opts, log)
 	}
 	if len(args) > 0 {
-		return fmt.Errorf("unknown mcp subcommand %q (use: setup); run 'buddy mcp help'", args[0])
+		return errUnknownSubcommand("mcp", args[0], []string{"setup", "help"})
 	}
 	return buddymcp.Run(credName, opts, log, Version)
 }
@@ -2537,6 +2556,6 @@ func runMdm(credName string, _ buddy.Opts, args []string, log *slog.Logger) erro
 		}
 		return buddy.MdmCommandFindPrint(credName, filter, sort, pageOpts, limit, log)
 	default:
-		return fmt.Errorf("unknown mdm subcommand: %q (use: find); run 'buddy mdm help' for usage", subcommand)
+		return errUnknownSubcommand("mdm", subcommand, []string{"find"})
 	}
 }

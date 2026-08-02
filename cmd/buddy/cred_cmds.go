@@ -35,7 +35,9 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) 
 	case "migrate":
 		return runCredMigrate(cfg, opts, args[1:])
 	default:
-		return fmt.Errorf("unknown cred subcommand: %q; run 'buddy cred help' for usage", args[0])
+		return errUnknownSubcommand("cred", args[0], []string{
+			"list", "get", "set", "delete", "use", "store", "migrate", "clean", "help",
+		})
 	}
 }
 
@@ -93,7 +95,7 @@ func runCredSet(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	case "channel":
 		return runCredSetChannel(cfg, args[1:])
 	default:
-		return fmt.Errorf("unknown set target %q; use tenant, auth, channel, or secret (see 'buddy cred help')", args[0])
+		return errUnknownSubcommand("cred set", args[0], []string{"tenant", "auth", "channel", "secret"})
 	}
 }
 
@@ -118,7 +120,7 @@ func runCredDelete(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 		}
 		return runCredDeleteSecret(args[1], args[2:])
 	default:
-		return fmt.Errorf("unknown delete target %q; use tenant, auth, or secret", args[0])
+		return errUnknownSubcommand("cred delete", args[0], []string{"tenant", "auth", "secret"})
 	}
 }
 
@@ -1065,7 +1067,7 @@ Examples:
 	case "tokens":
 		return runCredCleanTokens()
 	default:
-		return fmt.Errorf("unknown clean target %q; use: buddy cred clean secrets|tokens", args[0])
+		return errUnknownSubcommand("cred clean", args[0], []string{"secrets", "tokens"})
 	}
 }
 

@@ -87,7 +87,9 @@ func runDeviceGroup(credName string, opts buddy.Opts, args []string, log *slog.L
 		}
 		return buddy.DeviceGroupSetMembers(credName, groupID, opts, body, log)
 	default:
-		return fmt.Errorf("unknown device-group subcommand: %q (use: list, get, create, set, delete, members, set-members)", subcommand)
+		return errUnknownSubcommand("device-group", subcommand, []string{
+			"list", "get", "create", "set", "delete", "members", "set-members",
+		})
 	}
 }
 
@@ -184,7 +186,9 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		}
 		return buddy.DeviceUnmanage(credName, args[0], opts, log)
 	default:
-		return fmt.Errorf("unknown device subcommand: %q (use: list, get, set, delete, applications, user, check-in, restart, shutdown, erase, unmanage)", subcommand)
+		return errUnknownSubcommand("device", subcommand, []string{
+			"list", "get", "set", "delete", "applications", "user", "check-in", "restart", "shutdown", "erase", "unmanage",
+		})
 	}
 }
 
@@ -237,10 +241,10 @@ func runDDM(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 			}
 			return buddy.DDMDeviceDeclarations(credName, deviceID, filter, sort, log)
 		default:
-			return fmt.Errorf("unknown ddm device subcommand %q (use: declarations, channels)", args[2])
+			return errUnknownSubcommand("ddm device", args[2], []string{"declarations", "channels"})
 		}
 	default:
-		return fmt.Errorf("unknown ddm subcommand: %q (use: declaration, device)", args[0])
+		return errUnknownSubcommand("ddm", args[0], []string{"declaration", "device"})
 	}
 }
 
@@ -296,6 +300,8 @@ func runBenchmark(credName string, opts buddy.Opts, args []string, log *slog.Log
 		}
 		return buddy.BenchmarkReportRules(credName, args[1], log)
 	default:
-		return fmt.Errorf("unknown benchmark subcommand: %q (use: list, get, create, delete, baselines, rules, compliance-percentage, report-devices, report-rules)", args[0])
+		return errUnknownSubcommand("benchmark", args[0], []string{
+			"list", "get", "create", "delete", "baselines", "rules", "compliance-percentage", "report-devices", "report-rules",
+		})
 	}
 }
