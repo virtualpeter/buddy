@@ -41,12 +41,6 @@ type ScriptDetail struct {
 	ScriptContents string `json:"scriptContents,omitempty"`
 }
 
-// scriptSearchResults is the paginated response from GET /api/v1/scripts.
-type scriptSearchResults struct {
-	TotalCount int            `json:"totalCount"`
-	Results    []ScriptDetail `json:"results"`
-}
-
 // ScriptHistoryEntry is one record from GET /api/v1/scripts/{id}/history.
 type ScriptHistoryEntry struct {
 	ID       int    `json:"id"`
@@ -72,26 +66,36 @@ func isRSQLFilter(s string) bool {
 	return false
 }
 
-// ScriptSearch fetches scripts via paginated requests and returns records
-// matching the optional filter. When opts.Page is PageAll, all pages are fetched.
+// ScriptSearch fetches scripts via paginated requests and returns summary records
+// matching the optional filter (id, name, category only — never scriptContents).
+// Jamf's list OpenAPI model may include full Script bodies; buddy strips them.
+// When opts.Page is PageAll, all pages are fetched.
 // Two filter modes are supported:
 //   - Plain string (e.g. "install"): fetches pages per opts, then filters client-side
 //     by case-insensitive name substring.
 //   - RSQL expression (e.g. `name=="*Jamf*"`): passes &filter= to the API on
 //     each page request so the server filters.
-func ScriptSearch(credName, filter string, opts PageOpts, logger *slog.Logger) ([]ScriptDetail, error) {
+func ScriptSearch(credName, filter string, opts PageOpts, logger *slog.Logger) ([]ScriptRecord, error) {
 	rsql := filter != "" && isRSQLFilter(filter)
 	extra := url.Values{}
 	if rsql {
 		extra.Set("filter", filter)
 	}
-	var all []ScriptDetail
+	var all []ScriptRecord
 	err := fetchJamfPaged(credName, "/api/v1/scripts", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+		// Unmarshal as full ScriptDetail (Jamf may send scriptContents), then project.
 		var page []ScriptDetail
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)
 		}
-		all = append(all, page...)
+		for _, s := range page {
+			all = append(all, ScriptRecord{
+				ID:           s.ID,
+				Name:         s.Name,
+				CategoryID:   s.CategoryID,
+				CategoryName: s.CategoryName,
+			})
+		}
 		return len(page), nil
 	})
 	if err != nil {
@@ -99,7 +103,7 @@ func ScriptSearch(credName, filter string, opts PageOpts, logger *slog.Logger) (
 	}
 	if filter != "" && !rsql {
 		filterLower := strings.ToLower(strings.TrimSpace(filter))
-		var out []ScriptDetail
+		var out []ScriptRecord
 		for _, s := range all {
 			if strings.Contains(strings.ToLower(s.Name), filterLower) {
 				out = append(out, s)

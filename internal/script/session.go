@@ -230,7 +230,7 @@ type EvalOptions struct {
 	CallMain bool
 }
 
-// EvalOpts is like Eval with options (used by MCP starlark_eval).
+// EvalOpts is like Eval with options (used by MCP buddyscript).
 func (s *Session) EvalOpts(filename, src string, opts EvalOptions) EvalResult {
 	out := s.Eval(filename, src)
 	if out.Error != "" || !opts.CallMain || out.Result != "" {

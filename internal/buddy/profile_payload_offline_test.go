@@ -1,39 +1,25 @@
-package mcp
+package buddy
 
 import (
 	"strings"
 	"testing"
-
-	"buddy/internal/buddy"
 )
 
-func TestPayloadAnyToDictXML_Object(t *testing.T) {
-	xml, err := payloadAnyToDictXML(map[string]any{
-		"PayloadIdentifier": "com.example.test",
-		"PayloadType":       "com.example.test",
-		"SomeKey":           "NewValue",
+func TestEncodeDictMapToXML(t *testing.T) {
+	xml, err := EncodeDictMapToXML(map[string]any{
+		"PayloadIdentifier": "com.google.chrome",
+		"PayloadType":       "com.google.chrome",
+		"Key":               "v",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(xml, "<dict>") || !strings.Contains(xml, "com.example.test") {
-		t.Fatalf("unexpected dict xml: %s", xml)
+	if xml == "" || xml[:5] != "<dict" {
+		t.Fatalf("want bare dict, got %q", xml)
 	}
 }
 
-func TestPayloadAnyToDictXML_String(t *testing.T) {
-	in := `<dict><key>PayloadIdentifier</key><string>com.example.test</string></dict>`
-	xml, err := payloadAnyToDictXML(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(xml, "com.example.test") {
-		t.Fatalf("%s", xml)
-	}
-}
-
-func TestProfileXMLPatchPayload_Offline(t *testing.T) {
-	// Minimal profile shell with entity-encoded payloads containing one PayloadContent dict.
+func TestPatchProfilePayload_Offline(t *testing.T) {
 	payloadsInner := `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -55,17 +41,17 @@ func TestProfileXMLPatchPayload_Offline(t *testing.T) {
 <payloads>` + escaped + `</payloads>
 </os_x_configuration_profile>`
 
-	dictXML, err := payloadAnyToDictXML(map[string]any{
+	dictXML, err := EncodeDictMapToXML(map[string]any{
 		"SomeKey": "New",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := buddy.PatchProfilePayload([]byte(profileXML), "com.example.test", dictXML)
+	updated, err := PatchProfilePayload([]byte(profileXML), "com.example.test", dictXML)
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := buddy.ExtractPayloadsFromProfileXML(updated)
+	raw, err := ExtractPayloadsFromProfileXML(updated)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,20 +61,20 @@ func TestProfileXMLPatchPayload_Offline(t *testing.T) {
 	if !strings.Contains(raw, "keep-uuid") {
 		t.Fatalf("PayloadUUID not preserved: %s", raw)
 	}
-	ids, err := buddy.PlistPayloadIdentifiers(raw)
+	ids, err := PlistPayloadIdentifiers(raw)
 	if err != nil || len(ids) != 1 || ids[0] != "com.example.test" {
 		t.Fatalf("list identifiers: %v %v", ids, err)
 	}
 }
 
 func TestSmartGroupResolveID_Xor(t *testing.T) {
-	if _, err := buddy.SmartGroupResolveID("", "", "", nil); err == nil {
+	if _, err := SmartGroupResolveID("", "", "", nil); err == nil {
 		t.Fatal("want error when both empty")
 	}
-	if _, err := buddy.SmartGroupResolveID("", "1", "n", nil); err == nil {
+	if _, err := SmartGroupResolveID("", "1", "n", nil); err == nil {
 		t.Fatal("want error when both set")
 	}
-	id, err := buddy.SmartGroupResolveID("", "42", "", nil)
+	id, err := SmartGroupResolveID("", "42", "", nil)
 	if err != nil || id != "42" {
 		t.Fatalf("id=%q err=%v", id, err)
 	}

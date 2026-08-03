@@ -208,7 +208,7 @@ array. They return `{"ok": bool, "value": ..., "error": str}`.
 
 Typed MCP and Starlark expose CRUD plus cross-session copy/migrate. Fat release
 helpers (`policy_set_ss`, `policy_set_package`, versioned `policy_clone`, …) stay
-on `starlark_eval` / scripts — do not overload `policy_clone` (it takes `version`
+on `buddyscript` / scripts — do not overload `policy_clone` (it takes `version`
 for package-release clone).
 
 - `policy_copy(policy_id, name, trigger?, category_id?, from_tenant?, from_surface?, from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name, trigger}`

@@ -8,7 +8,7 @@ buddy mcp
 
 Uses **stdio** JSON-RPC (the first-class product path). The active tenant/auth comes from `~/.config/buddy/config.yaml` (override with `--tenant=<name>` and/or `--user=<auth>` on the command in the host’s MCP config). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 
-A Platform-capable tenant (`region`/`url` + `tenantId`) with a linked oauth auth works the same way: Pro tools and first-class Platform tools (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) route through the gateway.
+A Platform-capable tenant (`region`/`url` + `tenantId`) with a linked oauth auth works the same way: Platform product builtins (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) route through the gateway via `buddyscript`.
 
 Streamable HTTP MCP under `buddy serve` is **not** offered today. Hosts (Cursor, Claude Desktop) spawn `buddy mcp` over stdio; keep that as the supported setup. A localhost streamable endpoint may be revisited later for HTTP-only clients or long-lived debug workflows — not as a replacement for stdio.
 
@@ -98,94 +98,42 @@ Docs, `AGENTS.md`, examples, and editor rules are **embedded in the buddy binary
 
 ### 3. Reload the AI host
 
-Restart or refresh MCP in your client so it picks up the new server. The server should show as ready with tools such as `buddy_info`, `auth_test`, `smart_groups`, `starlark_eval`.
+Restart or refresh MCP in your client so it picks up the new server. The server should show as ready with tools such as `buddy_info`, `buddyscript`, `docs`.
 
 ### 4. Use it in chat
 
 Ask in natural language; the agent calls tools for you:
 
 - “What buddy version / tenant is MCP using?” (`buddy_info`)
-- “Test my Jamf auth with buddy”
-- “List Jamf smart groups” / “Bump the version criterion on smart group X”
+- “List Jamf smart groups via buddyscript” / “Bump the version criterion on smart group X”
 - “List computers in static group Y” / “Add computer 42 to static group Y”
 - “Patch the Chrome payload in profile Z”
 - “Find computer IDs where name contains lab”
 - “Load policy details for trigger install-foo-1.0” / “Copy policy 12 to tenant sandbox as New Name”
 - “Migrate policy 12 to prod (upsert by name)”
-
-- “List Platform blueprints” (calls `blueprints`; needs a gateway credential)
+- “List Platform blueprints” (via `buddyscript` + `blueprints`; needs a gateway credential)
 - “Show MCP tool priority / groups vs profiles via docs” (`docs` → `mcp-tools`)
 
 Optional tool arguments `tenant`, `surface` (`instance`|`platform`), and `auth` select the session for a call (tenant-first; `auth` pins like CLI `--user`). `cred` was removed.
 
-MCP blocks Jamf token/keep-alive paths via `jamf_*` / `starlark_eval` and refuses `file_read` of buddy config/secrets/token cache files.
+MCP blocks Jamf token/keep-alive paths via `jamf_*` / `buddyscript` and refuses `file_read` of buddy config/secrets/token cache files.
 
-**Tool priority for agents:** typed MCP tool → `starlark_eval` with named builtins → `jamf_get`/`jamf_put` only if no helper exists. See [mcp-tools.md](mcp-tools.md) for the scorecard, smart vs static vs Platform groups, the profile payload cookbook, and how buddy relates to Jamf’s hosted MCP (`developer.jamf.com/mcp`). The MCP server also advertises that split in Initialize `instructions`.
+**Tool priority for agents:** `docs` → `buddyscript` with named builtins → `jamf_get`/`jamf_put` only if no helper exists. See [mcp-tools.md](mcp-tools.md) for the lean scorecard, smart vs static vs Platform groups, the profile payload cookbook, and how buddy relates to Jamf’s hosted MCP (`developer.jamf.com/mcp`). The MCP server also advertises that split in Initialize `instructions`.
 
 ---
 
 ## Tools
 
-Tool names follow the Starlark plural/singular grammar (see [reference manual](reference-manual.md#built-in-functions) or `buddy help builtins`).
+Lean surface (4 tools). Resource automation uses **named Starlark builtins** via `buddyscript` (see [reference manual](reference-manual.md#built-in-functions) or `buddy help builtins`). Full scorecard: [mcp-tools.md](mcp-tools.md).
 
 | Tool | Returns `value` | Notes |
 |------|-----------------|-------|
-| `buddy_info` | `{version, channel, tenant, auth, tenants, auths, channel_access, …}` | Binary version + mcp session selection and channel policy (no Jamf call) |
-| `auth_test` | Compact auth summary | Set `verbose: true` for full privileges payload (large) |
-| `smart_groups` | List of `{id,name,description}` | **Criteria-based** Pro groups; `filter`, paging |
-| `smart_group` | Full smart group JSON | By `id` or `name` |
-| `smart_group_get_criteria` | Criteria list | By `group_id` |
-| `smart_group_update_criterion_value` | `null` | Mutating; match criterion name substring |
-| `smart_group_create` | `{id, href?}` | Mutating; smart group JSON body |
-| `smart_group_clone` / `smart_group_copy` | `{id, href?}` | Same-session / cross-session criteria copy |
-| `static_groups` | List of `{id,name,description}` | **Explicit membership** Pro groups |
-| `static_group_list_computers` | `[{id,name,serial},…]` | Optional client-side `filter` |
-| `static_group_add_computers` / `_remove_computers` / `_set_computers` | `null` | Mutating membership |
-| `static_group_create` | `{id, href?}` | Mutating; static group JSON body |
-| `categories` | `[{id,name,priority},…]` | List categories |
-| `category_clone` / `category_copy` / `category_migrate` | `{id,…}` / `+created` | Clone / copy / upsert by name |
-| `profiles` | `[{id,name},…]` | Optional name `filter` |
-| `profile_create` | `{id, name}` | Mutating; greenfield Classic POST |
-| `profile_clone` | `{id, name}` | Mutating; UUID remap + unassigned scope |
-| `profile_copy` | `{id, name}` | Mutating; cross-session; category remap by name |
-| `profile_create_xml` | `{id, name}` | Mutating; POST prepared XML |
-| `profile_delete` | `{id}` | Mutating; Classic DELETE |
-| `profile_redeploy` | `{id}` | Mutating; redeploy_on_update=All only |
-| `profile_xml` | Profile XML string | By `profile_id` |
-| `profile_xml_randomize_uuids` | Profile XML string | Offline; remap UUIDs |
-| `profile_xml_prepare_for_create` | Profile XML string | Offline; name/scope/id/UUID prep |
-| `profile_xml_extract_payloads` | Payloads plist string | Offline extract |
-| `payloads_list_identifiers` | `[PayloadIdentifier…]` | Offline; PayloadContent only |
-| `payloads_collect_uuids` | `[PayloadUUID…]` | Offline; verify clone/copy |
-| `payloads_set_content` | Payloads plist string | Offline; build PayloadContent for create |
-| `profile_xml_patch_payload` | Updated XML | Offline merge patch; PayloadContent or MCX |
-| `profile_put_xml` | `{id}` | Mutating Classic PUT |
-| `computers` | Summary dicts (or IDs if `ids=true`) | RSQL `filter` |
-| `scripts` | Script summaries | Name substring or RSQL |
-| `script_clone` / `script_copy` / `script_migrate` | `{id,name}` / `+created` | Clone / copy / upsert by name |
-| `packages` | Package summaries | RSQL `filter` |
-| `package_ready` | `bool` | True iff exists and `cloudTransferStatus` is `READY` |
-| `package_wait_ready` | `null` | Poll until READY (default `timeout` 600s); use after upload |
-| `package_download` | `null` | JCDS download to host path; always SHA-256 verify |
-| `policies` | `[{id,name},…]` (or IDs) | Keyword search / all summaries |
-| `policy` | Details dict | `id` xor `trigger` (same shape as Starlark) |
-| `policy_xml` / `policy_put_xml` | XML string / null | Classic get/put |
-| `policy_set` / `policy_delete` | null | Basic fields / delete |
-| `policy_copy` / `policy_migrate` | `{id,name,trigger}` / `+created` | Remaps category/scripts/packages by name |
-
-| `blueprints` | Blueprint summaries | Platform gateway credential; `search`, `sort`, paging |
-| `blueprint` | Full blueprint JSON | By `blueprint_id` |
-| `blueprint_status` | Deployment report | By `blueprint_id` |
-| `blueprint_components` | Components list or one | Omit `identifier` = all |
-| `blueprint_create` / `blueprint_set` / `blueprint_delete` / `blueprint_deploy` / `blueprint_undeploy` | `{id, …}` | **Mutating** (gateway credential) |
-| `devices` / `device` / `device_set` / `device_delete` / `device_applications` | Platform device inventory | Distinct from Pro `computers` |
-| `device_check_in` / `device_restart` / `device_shutdown` / `device_erase` / `device_unmanage` | Device actions | **Mutating**; `execute:pro:device-actions` |
-| `device_groups` / `device_group` / `device_group_*` | Platform device groups | Not Pro computer groups |
-| `ddm_declaration_devices` / `ddm_device_declarations` / `ddm_device_channels` | DDM reporting | Read-only |
-| `benchmarks` / `benchmark` / `benchmark_*` | Compliance benchmarks | Beta Platform API |
-| `jamf_schema` | Operations catalog (+ optional docs) | Discovery; then prefer typed tools — see below |
-| `starlark_eval` | `{stdout, stderr, result, error}` | Named builtins escape hatch; see below |
+| `buddy_info` | `{version, channel, tenant, auth, tenants, auths, channel_access, …}` | Binary version + mcp session selection (no Jamf call). Live auth: first `buddyscript` Jamf call or CLI `buddy auth test` |
 | `docs` | Catalog entries or page markdown | Embedded buddy docs/rules; prefer `mcp-tools` for agent guidance |
+| `jamf_schema` | Operations catalog (+ optional docs) | Discovery; then prefer named builtins via `buddyscript` |
+| `buddyscript` | `{stdout, stderr, result, error}` | **Primary** automation surface; see below |
+
+Former typed MCP tools (Pro groups/profiles/policies, package READY/download, Platform CRUD, list stubs) were removed — call the same names as builtins inside `buddyscript`.
 
 ### Resources
 
@@ -254,27 +202,7 @@ Reports the buddy binary version (same as the MCP handshake `Implementation.Vers
 }
 ```
 
-`tenant` / `auth` reflect the process default (`--tenant` / `--user`, or `channels.mcp.tenant` / `tenant.default`). Empty `auth` means auto-pick. `auths` is filtered by each auth’s `channels:` list (omit = all). `channel_access` / `channel_tenants` come from top-level `channels.mcp` policy. Use `auth_test` to verify credentials against Jamf.
-
-### `auth_test` summary vs verbose
-
-Default `value` is small and agent-friendly:
-
-```json
-{
-  "ok": true,
-  "value": {
-    "username": "buddy-cli",
-    "authenticationType": "CLIENT_CREDENTIALS",
-    "accessLevel": "FullAccess",
-    "privilegeSet": "CUSTOM",
-    "privilegeCount": 420,
-    "sites": [ ... ]
-  }
-}
-```
-
-Use `verbose: true` only when you need the full privilege strings.
+`tenant` / `auth` reflect the process default (`--tenant` / `--user`, or `channels.mcp.tenant` / `tenant.default`). Empty `auth` means auto-pick. `auths` is filtered by each auth’s `channels:` list (omit = all). `channel_access` / `channel_tenants` come from top-level `channels.mcp` policy. Live Jamf auth is proven by the first `buddyscript` Jamf call, or CLI `buddy auth test`.
 
 ### `jamf_schema` tips
 
@@ -292,11 +220,11 @@ Learn endpoints from the Jamf host schemas plus the embedded Platform specs:
 - No schema requires authentication: the Pro/Classic schema documents are served publicly by the Jamf host (only data endpoints need a bearer token), and Platform specs are embedded. buddy sends no `Authorization` header for these fetches — the credential is used only to resolve the host URL for `pro`/`classic`, so discovery works even with a secret-less credential.
 - Prefer `filter` (e.g. `"blueprints deploy"`, `"policy delete"`) — space-separated terms are AND-matched against path, method, tags, summary, operationId, description.
 - Default return is a compact `operations` list (`path`, `method`, `summary`, `api`, …). Set `full: true` only when you need parameter/response schemas.
-- After discovering a path, prefer a **typed MCP tool** or `starlark_eval` with a **named builtin**. Use `jamf_get` / `jamf_put` via `starlark_eval` only when no helper exists. Do not invent Classic profile or Pro group PUT bodies from schema alone.
+- After discovering a path, prefer a **named builtin** via `buddyscript`. Use `jamf_get` / `jamf_put` via `buddyscript` only when no helper exists. Do not invent Classic profile or Pro group PUT bodies from schema alone.
 
 ### Groups and profiles
 
-See **[mcp-tools.md](mcp-tools.md)** and **[profile-payloads.md](profile-payloads.md)** for groups vs profiles and the payload cookbook (`profile_create` / `profile_clone`, or `profile_xml` → extract/list → `profile_xml_patch_payload` → `profile_put_xml`).
+See **[mcp-tools.md](mcp-tools.md)** and **[profile-payloads.md](profile-payloads.md)** for groups vs profiles and the payload cookbook (`profile_create` / `profile_clone`, or `profile_xml` → extract/list → `profile_xml_patch_payload` → `profile_put_xml`) — all via `buddyscript`.
 
 ### `docs` tips
 
@@ -311,20 +239,22 @@ Read embedded buddy documentation and editor rules (same data as `buddy://docs/.
 - Typical flow: `docs` with `query: "builtin"` or `query: "agents"`, then `action: "get"` with the page `id`.
 - `id` may be a short id (`agents`, `builtins`, `rules/buddy-builtins`) or a full `buddy://docs/…` URI (including legacy `….md` aliases).
 
-### Blueprint tips
+### Platform builtins (via `buddyscript`)
 
-- All Platform product tools (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) require a **Platform API Gateway credential** (`region`/`url` + `tenantId`); they return `{ok:false, error}` otherwise.
-- Mutating tools **do not** prompt for confirmation (there is no interactive stdin in MCP) — the host’s tool-call approval is the guard. Treat them like `-y`. Readonly auths are rejected for mutates.
+- Platform product builtins (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) require a **Platform API Gateway credential** (`region`/`url` + `tenantId`); they return `{ok:false, error}` otherwise.
+- Mutating calls **do not** prompt for confirmation in MCP (no interactive stdin) — the host’s tool-call approval is the guard. Treat them like `-y`. Readonly auths are rejected for mutates.
 - `blueprint_create` / `blueprint_set` take a JSON `body` object; `blueprint_set` is a merge-patch.
 
-### `starlark_eval` tips
+### `buddyscript` tips
 
-- Prefer typed MCP tools first; use this for multi-step workflows or builtins not exposed as MCP tools (`payloads_*`, fat policy helpers, etc.).
-- Prefer a **single expression**, or define `main()` **without** calling it (MCP sets `CallMain` and invokes `main` for you).
+- **Primary Jamf automation surface** — call named builtins here (groups, profiles, policies, Platform, …).
+- Returns `{stdout, stderr, result, error}`. **Primary output is `value.result`** (last expression or `main()` return). `stdout` is from `print` / `unwrap`; when `result` is set and `stdout` is empty, `result` is mirrored into `stdout`.
+- Prefer a **single expression**, or define `main()` **without** calling it and **without** a trailing top-level expression (MCP sets `CallMain`; a trailing expression skips `main`).
 - Top-level `if` / `for` outside a function is invalid Starlark—put control flow inside `main()`.
-- Mutating Jamf calls still respect confirmations unless the MCP process was started with global `-y` (Platform MCP mutates always skip confirm — host approval is the guard).
+- Mutating Jamf calls still respect confirmations unless the MCP process was started with global `-y` (Platform mutates always skip confirm — host approval is the guard).
 - You can `load("stdlib/….buddy", …)` the same as in CLI scripts / the notebook (e.g. `load("stdlib/release.buddy", "bump_release")`).
 - Prefer named builtins over `jamf_get`/`jamf_put` when a builtin exists.
+- **Packages / JCDS:** after upload use `package_wait_ready` before policy attach; use `package_ready` / `package_download` builtins — do not invent from schema (see [mcp-tools.md](mcp-tools.md#packages--jcds-via-buddyscript--do-not-invent-from-schema)).
 
 Example:
 
@@ -344,8 +274,8 @@ def main():
 | Server missing / failed to start | Use absolute `command` path; run `buddy mcp` in a terminal to see errors |
 | Docs resources empty / stale | Rebuild buddy (`make install`) after `make sync-docfs`; reload MCP |
 | Auth / API errors | Fix config with `buddy auth test`; check `--user` / default cred |
-| Agent can’t use list tools | Rebuild buddy ≥ response-envelope change; reload MCP |
-| `starlark_eval` “if not within a function” | Wrap logic in `def main(): ...` |
+| Empty `stdout` but data present | Read `value.result` (or rely on mirror when stdout was empty) |
+| `buddyscript` “if not within a function” | Wrap logic in `def main(): ...` |
 | Inspector UI 401 / won’t connect | Use the printed URL with `MCP_PROXY_AUTH_TOKEN` (Inspector proxy auth — not Jamf). See [Auth layers](#auth-layers-stdio-vs-inspector-vs-remote-mcp) |
 | Inspector tab doesn’t open (Edge/corp browser) | Paste the full Inspector URL into the browser; confirm Cursor stdio still works separately |
 
@@ -355,4 +285,4 @@ def main():
 
 - MCP runs as your user and uses your buddy secrets (Keychain / file store).
 - Do not point a remote or shared MCP host at production credentials without review.
-- Prefer read-only exploration tools first; treat `starlark_eval` like an interactive shell.
+- Prefer read-only exploration first; treat `buddyscript` like an interactive shell.

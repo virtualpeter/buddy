@@ -6,90 +6,72 @@ import (
 	"testing"
 
 	"buddy/internal/buddy"
+	"buddy/internal/script"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// expectedTier1Tools are the Pro group/profile tools added for agent-value hardening.
-var expectedTier1Tools = []string{
-	"smart_group",
-	"smart_group_get_criteria",
-	"smart_group_update_criterion_value",
-	"smart_group_create",
-	"smart_group_clone",
-	"smart_group_copy",
-	"static_group_list_computers",
-	"static_group_add_computers",
-	"static_group_remove_computers",
-	"static_group_set_computers",
-	"static_group_create",
-	"categories",
-	"category_clone",
-	"category_copy",
-	"category_migrate",
-	"script_clone",
-	"script_copy",
-	"script_migrate",
-	"profiles",
-	"profile_create",
-	"profile_clone",
-	"profile_copy",
-	"profile_create_xml",
-	"profile_delete",
-	"profile_redeploy",
-	"profile_xml",
-	"profile_put_xml",
-	"profile_xml_patch_payload",
-	"profile_xml_randomize_uuids",
-	"profile_xml_prepare_for_create",
-	"profile_xml_extract_payloads",
-	"payloads_list_identifiers",
-	"payloads_collect_uuids",
-	"payloads_set_content",
-	"policies",
-	"policy",
-	"policy_xml",
-	"policy_put_xml",
-	"policy_set",
-	"policy_delete",
-	"policy_copy",
-	"policy_migrate",
+// expectedLeanTools is the keep-list for the lean MCP surface.
+var expectedLeanTools = []string{
+	"buddy_info",
+	"docs",
+	"jamf_schema",
+	"buddyscript",
 }
 
 func TestServerInstructions(t *testing.T) {
 	if !strings.Contains(ServerInstructions, "developer.jamf.com/mcp") {
 		t.Fatal("instructions should mention Jamf hosted MCP URL")
 	}
-	if !strings.Contains(ServerInstructions, "execute-request") {
-		t.Fatal("instructions should warn about execute-request bypass")
+	if !strings.Contains(ServerInstructions, "product schemas") {
+		t.Fatal("instructions should note Jamf MCP is for product schemas")
 	}
-	if !strings.Contains(ServerInstructions, "typed") {
-		t.Fatal("instructions should prefer typed tools")
+	if !strings.Contains(ServerInstructions, "buddyscript") {
+		t.Fatal("instructions should prefer buddyscript")
+	}
+	if !strings.Contains(ServerInstructions, "package_wait_ready") {
+		t.Fatal("instructions should point at package_wait_ready builtin folklore")
+	}
+	if strings.Contains(ServerInstructions, "starlark_eval") {
+		t.Fatal("instructions should not mention starlark_eval")
+	}
+	if strings.Contains(ServerInstructions, "were removed") {
+		t.Fatal("instructions should not include historical notes")
+	}
+	if strings.Contains(ServerInstructions, "execute-request") {
+		t.Fatal("instructions should not spell out execute-request bypass details")
 	}
 }
 
-func TestRegisterProTools_Present(t *testing.T) {
+func TestRegisterLeanTools_Present(t *testing.T) {
 	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "buddy-test", Version: "test"}, nil)
 	registerTools(server, "", buddy.Opts{}, slog.Default(), "test")
-
-	// The SDK does not expose a public ListTools on Server in all versions; smoke by
-	// ensuring registration does not panic and offline helpers still work (see other tests).
-	_ = expectedTier1Tools
+	_ = expectedLeanTools
 	if server == nil {
 		t.Fatal("nil server")
 	}
 }
 
-func TestEncodeDictMapToXML(t *testing.T) {
-	xml, err := buddy.EncodeDictMapToXML(map[string]any{
-		"PayloadIdentifier": "com.google.chrome",
-		"PayloadType":       "com.google.chrome",
-		"Key":               "v",
-	})
+func TestBuddyscript_MirrorsResultToStdout(t *testing.T) {
+	sess, err := script.NewSession("", buddy.Opts{}, slog.Default(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if xml == "" || xml[:5] != "<dict" {
-		t.Fatalf("want bare dict, got %q", xml)
+	res := sess.EvalOpts("mcp", "def main():\n    return [1, 2]\n", script.EvalOptions{CallMain: true})
+	if res.Error != "" {
+		t.Fatalf("eval error: %s", res.Error)
+	}
+	if res.Result == "" {
+		t.Fatal("want non-empty result")
+	}
+	if res.Stdout != "" {
+		t.Fatalf("raw EvalOpts stdout should be empty before MCP mirror, got %q", res.Stdout)
+	}
+	stdout := res.Stdout
+	if stdout == "" && res.Result != "" {
+		stdout = res.Result
+	}
+	if stdout != res.Result {
+		t.Fatalf("mirrored stdout=%q result=%q", stdout, res.Result)
 	}
 }

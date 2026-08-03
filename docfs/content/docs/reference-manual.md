@@ -196,9 +196,9 @@ Speaks [Model Context Protocol](https://modelcontextprotocol.io/) over **stdio**
 
 Add a `mcpServers.buddy` entry (absolute `command` path, `args: ["mcp"]`) to your AI host’s MCP config. `buddy mcp setup` knows Cursor (`~/.cursor/mcp.json`, `.cursor/mcp.json`) and Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS). Docs resources are embedded (no `BUDDY_DOCS_ROOT` required). See [`examples/mcp.json`](../examples/mcp.json); reload/restart the host after changes.
 
-**Response shape:** every tool returns a JSON **object** `{ok, value, error?, count?}`—never a bare array—so hosts that require object `structuredContent` accept list results. `auth_test` defaults to a compact summary (`verbose: true` for full privileges).
+**Response shape:** every tool returns a JSON **object** `{ok, value, error?, count?}`—never a bare array—so hosts that require object `structuredContent` accept list results.
 
-Curated highlights: `buddy_info`, `auth_test`, Pro groups (`smart_groups` / `smart_group` / criteria helpers / `smart_group_create` / `smart_group_clone` / `smart_group_copy`, `static_groups` / membership helpers / `static_group_create`), profiles (`profiles` / `profile_create` / `profile_clone` / `profile_copy` / …), `categories` / `category_*` clone/copy/migrate, `computers`, `scripts` / `script_clone` / `script_copy` / `script_migrate`, `packages` (+ ready/download), `policy` / `policy_copy` / `policy_migrate`, Platform `blueprint*` / `device*` / `device_group*` / `ddm_*` / `benchmark*`, `jamf_schema`, `starlark_eval`, `docs`. Full table and agent priority rules: [`docs/mcp.md`](mcp.md) and [`docs/mcp-tools.md`](mcp-tools.md). Resources under `buddy://docs/...` (agents should prefer the `docs` tool).
+Curated MCP tools: `buddy_info`, `docs`, `jamf_schema`, `buddyscript` (primary automation). Pro groups, profiles, policies, package READY/download, Platform CRUD, and related helpers run as **named builtins inside `buddyscript`**. Full table and agent priority: [`docs/mcp.md`](mcp.md) and [`docs/mcp-tools.md`](mcp-tools.md). Resources under `buddy://docs/...` (agents should prefer the `docs` tool).
 
 Uses the active tenant/auth (`--tenant` / `--user` to override). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 
@@ -219,7 +219,7 @@ buddy [global-flags] [--trace] <script.buddy> [-- args...]
 - `args` after `--` are available as the global list `args`.
 - The active tenant and auth pin are available as `tenant` and `auth` (override per builtin with `tenant=` / `surface=` / `auth=`).
 - The regex module is exposed as `re` (see `buddy help starlark` for what Starlark provides globally).
-- If the script defines `main`, buddy invokes it after load (same as MCP `starlark_eval`). Do not call `main()` yourself at top level.
+- If the script defines `main`, buddy invokes it after load (same as MCP `buddyscript`). Do not call `main()` yourself at top level.
 - **`print()`** writes to stdout; buddy adds **`error(*args, ...)`** for stderr (same signature as `print`). Prefer **`error`** for progress, skips, and failures so stdout stays free for machine-readable output; reserve **`print`** for lines meant to be piped or captured as the script’s primary result.
 - **Positional `--trace` before the script path** or global **`--script-trace`** logs each builtin call (and optionally Starlark `print` tracing) to stderr. **HTTP tracing** uses the top-level `-t` / `--trace` on `buddy`: `buddy -t deploy.buddy`.
 

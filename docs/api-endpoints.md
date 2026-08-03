@@ -158,7 +158,7 @@ Base path: `/api/v1/scripts`
 - `priority` values in the v1 API are uppercase: `BEFORE`, `AFTER`, `AT_REBOOT` (Classic API used `Before`, `After`, `At Reboot`).
 - `ScriptCreate` and `ScriptUpdate` read script body from a local file and send it as the `scriptContents` JSON field.
 - `ScriptSet*` functions use a fetch-then-PUT pattern, preserving all fields not being modified.
-- The list endpoint does not return `scriptContents`; a separate `GET /api/v1/scripts/{id}` call is required to retrieve the script body.
+- Jamf’s list OpenAPI model may include `scriptContents` on each row; buddy’s `ScriptSearch` / Starlark `scripts()` strip bodies and return `{id,name,categoryId,categoryName}` only. Use `GET /api/v1/scripts/{id}` (`script(id=…)`, `script_get_contents`) for the script body.
 
 ---
 
@@ -202,9 +202,9 @@ Base path: `/api/v1/packages`
 ### Notes
 
 - `PackageGet` prints the full v1 package object (including `md5` / `sha256` / `sha3512` / `hashType` / `hashValue` / `size` / `cloudTransferStatus` when present), then adds `lastChanged` / `lastChangedBy` from `history?sort=date:desc&page-size=1`.
-- `cloudTransferStatus` is server-managed. Jamf’s UI “Availability Pending” clears when the value is `"READY"` (case-sensitive). Anything else (including empty) means not ready for policy use / JCDS download.
-- `PackageReady` / `package_ready` / MCP `package_ready` return true only when the package exists and `cloudTransferStatus == "READY"` (404 → false). `PackageWaitReady` / `package_wait_ready` / MCP `package_wait_ready` poll with backoff (default 10 minutes) and optionally POST `jcds/refresh-inventory`.
-- `PackageDownload` / `package_download` / `buddy package download` / MCP `package_download`: wait until READY **and** non-empty `sha256` → GET JCDS URI → stream to a temp file beside the destination while hashing SHA-256 → rename only on match; delete temp on failure; retry once on URI HTTP 403. **JCDS only** (Jamf Cloud); not for on-prem non-JCDS distribution points. Verify is always on (no skip flag).
+- `cloudTransferStatus` is server-managed. Jamf’s UI “Availability Pending” clears when the value is `"READY"` (case-sensitive). Anything else (including empty) means not ready for policy use / JCDS download. A successful `GET /api/v1/packages/{id}` alone does **not** mean the package is usable.
+- `PackageReady` / Starlark `package_ready` return true only when the package exists and `cloudTransferStatus == "READY"` (404 → false). `PackageWaitReady` / `package_wait_ready` poll with backoff (default 10 minutes) and best-effort POST `jcds/refresh-inventory?file-name=…` between polls. Use after upload / before attaching to a policy.
+- `PackageDownload` / `package_download` / `buddy package download`: wait until READY **and** non-empty `sha256` → GET JCDS pre-signed URI → stream to a temp file beside the destination while hashing SHA-256 → rename only on match; delete temp on failure; retry once on URI HTTP 403. **JCDS only** (Jamf Cloud); not for on-prem non-JCDS distribution points. Verify is always on (no skip flag). Do not invent this loop from OpenAPI alone — call the builtin.
 - `PackageUpload` looks up `fileName` first. If a record exists, it GETs the full object, compares local MD5/SHA-256 to server checksums, and **skips** the file transfer when they match; otherwise it streams a replacement upload. Metadata flags (`--name`, `--notes`, `--info`, `--category`, `--priority`, `--reboot`) apply on create and on update when they differ (including metadata-only updates when the file is unchanged). If no record exists, it POSTs metadata, polls GET until the ID is readable (Jamf Cloud create is async), then streams the multipart upload. After upload, scripts should use `package_wait_ready` before attaching the package to a policy.
 - `packagePut` / `PackageSetAttrs` (used by `buddy package set <id> --…`) omit server-managed `size` / `cloudTransferStatus` and client-only history fields from the PUT body so a metadata update does not blank Jamf’s size.
 - `PackageFindID` is shared between the CLI (`policy set package`) and DSL (`package(app=..., version=...)` builtin). List/search walks all pages unless a single `page` is requested from Starlark.

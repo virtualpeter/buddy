@@ -11,7 +11,7 @@ import (
 	"buddy/internal/buddy/secrets"
 )
 
-// mcpGuarded is true when the process channel is MCP (typed tools + starlark_eval).
+// mcpGuarded is true when the process channel is MCP (lean tools + buddyscript).
 func mcpGuarded() bool {
 	return buddy.ActiveChannel() == buddy.ChannelMCP
 }
@@ -45,7 +45,7 @@ func jamfAuthTokenPath(path string) bool {
 }
 
 func errMCPJamfTokenPath() error {
-	return fmt.Errorf("MCP channel blocks Jamf token/keep-alive paths (use auth_test / buddy_info)")
+	return fmt.Errorf("MCP channel blocks Jamf token/keep-alive paths (use buddy_info / CLI buddy auth test)")
 }
 
 func errMCPSecretPath() error {

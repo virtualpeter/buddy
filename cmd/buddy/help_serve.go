@@ -54,15 +54,16 @@ Flags for 'setup':
 
 Notes:
   Speaks Model Context Protocol over stdin/stdout for AI hosts (Cursor,
-  Claude Desktop, and other MCP clients). Exposes curated Jamf tools plus
-  starlark_eval, docs (embedded knowledge catalog), and buddy://docs/... resources.
+  Claude Desktop, and other MCP clients). Lean surface: buddy_info,
+  docs, jamf_schema, buddyscript (primary), plus buddy://docs/... resources.
+  Resource automation uses named builtins via buddyscript.
   Uses the active tenant/auth from config (override with --tenant / --user).
 
   Every tool returns a JSON object {ok, value, error?, count?} — never a bare
   array (hosts require object structuredContent). buddy_info reports binary
   version plus default tenant / auth pin and available tenants/auths for the
-  mcp channel. auth_test defaults to a compact summary; pass verbose=true for
-  the full privileges payload.
+  mcp channel (no Jamf call). Live auth: first buddyscript Jamf call or CLI
+  buddy auth test.
 
   Docs, AGENTS.md, examples, and editor rules are embedded in the binary and
   exposed as buddy://docs/... resources (no BUDDY_DOCS_ROOT required). Set
