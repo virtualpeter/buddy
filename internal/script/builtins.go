@@ -119,7 +119,6 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	// Fat helpers / specialized actions.
 	putBuiltin(dict, "policy_set_ss", policySetSS(credName, logger))
 	putBuiltin(dict, "policy_set_install", policySetInstall(credName, logger))
-	putBuiltin(dict, "policy_clone", policyClone(credName, logger))
 	putBuiltin(dict, "policy_create_ss", policyCreateSS(credName, logger))
 	putBuiltin(dict, "policy_create_package", policyCreatePackage(credName, logger))
 	putBuiltin(dict, "policy_set_package", policySetPackage(credName, logger))
@@ -225,6 +224,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "profile_create", profileCreate(credName, logger))
 	putBuiltin(dict, "profile_clone", profileClone(credName, logger))
 	putBuiltin(dict, "profile_copy", profileCopy(credName, logger))
+	putBuiltin(dict, "profile_migrate", profileMigrate(credName, logger))
 	putBuiltin(dict, "profile_create_xml", profileCreateXML(credName, logger))
 	putBuiltin(dict, "profile_delete", profileDelete(credName, logger))
 	putBuiltin(dict, "profile_redeploy", profileRedeploy(credName, logger))
@@ -442,41 +442,6 @@ func policySetInstall(credName string, logger *slog.Logger) func(*starlark.Threa
 		pid, _ := policyID.Int64()
 		paramIndices := []int{4, 5, 6}
 		err := buddy.PolicyInstall(c, scriptOpts, int(pid), string(version), paramIndices, logger)
-		if err != nil {
-			return resultErr(err.Error())
-		}
-		return resultOK(starlark.None), nil
-	}
-}
-
-func policyClone(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var policyID starlark.Int
-		var version starlark.String
-		keepSource := starlark.Value(starlark.None)
-		var sess sessionArgs
-		if err := starlark.UnpackArgs("policy_clone", args, kwargs,
-			"policy_id", &policyID, "version", &version,
-			"keep_source?", &keepSource,
-			"tenant?", &sess.Tenant,
-			"surface?", &sess.Surface,
-			"auth?", &sess.Auth,
-		); err != nil {
-			return nil, err
-		}
-		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
-		if sessErr != nil {
-			return resultErr(sessErr.Error())
-		}
-		defer restoreSession()
-		c := sessionPin
-		pid, _ := policyID.Int64()
-		disableMode, err := disableModeFromKeepSource(keepSource)
-		if err != nil {
-			return nil, err
-		}
-		paramIndices := []int{4, 5, 6}
-		err = buddy.PolicyClone(c, scriptOpts, int(pid), "", "", string(version), "", paramIndices, disableMode, logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -1629,65 +1594,71 @@ func policyCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var policyID starlark.Int
 		var name, trigger, categoryID starlark.String
-		var fromTenant, fromSurface, fromAuth starlark.String
+		var matchTrigger, upsert starlark.Bool
 		var scopeAll starlark.Value = starlark.None
 		var scopeGroupIDs *starlark.List
-		var destSess sessionArgs
-		if err := starlark.UnpackArgs("policy_copy", args, kwargs,
-			"policy_id", &policyID, "name", &name,
+		var dual dualSessionKwargs
+		tail := append([]any{
+			"policy_id", &policyID, "name?", &name,
 			"trigger?", &trigger,
+			"match_trigger?", &matchTrigger,
 			"category_id?", &categoryID,
-			"from_tenant?", &fromTenant,
-			"from_surface?", &fromSurface,
-			"from_auth?", &fromAuth,
+			"upsert?", &upsert,
 			"scope_all?", &scopeAll,
 			"scope_group_ids?", &scopeGroupIDs,
-			"tenant?", &destSess.Tenant,
-			"surface?", &destSess.Surface,
-			"auth?", &destSess.Auth); err != nil {
+		}, dual.unpackTail()...)
+		if err := starlark.UnpackArgs("policy_copy", args, kwargs, tail...); err != nil {
 			return nil, err
 		}
-		fromSess := sessionArgs{Tenant: fromTenant, Surface: fromSurface, Auth: fromAuth}
-		fromPin, restoreFrom, sessErr := beginSession(thread, credName, fromSess)
-		if sessErr != nil {
-			return resultErr(sessErr.Error())
+		src, dst, err := dual.refs(thread, credName)
+		if err != nil {
+			return resultErr(err.Error())
 		}
-		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
-		restoreFrom()
-		if sessErr != nil {
-			return resultErr(sessErr.Error())
-		}
-		defer restoreDest()
 		pid, _ := policyID.Int64()
+		groupIDs, scopeAllPtr, err := parseScopeKwargs(scopeAll, scopeGroupIDs)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		if bool(upsert) {
+			migSpec := buddy.PolicyMigrateSpec{
+				SourcePolicyID: int(pid),
+				Name:           string(name),
+				MatchTrigger:   bool(matchTrigger),
+				CategoryID:     string(categoryID),
+				ScopeAll:       scopeAllPtr,
+				ScopeGroupIDs:  groupIDs,
+			}
+			if t := strings.TrimSpace(string(trigger)); t != "" {
+				migSpec.Trigger = &t
+			}
+			out, err := buddy.PolicyMigrate(src, dst, scriptOpts, migSpec, logger)
+			if err != nil {
+				return resultErr(err.Error())
+			}
+			if out == nil {
+				return resultErr("policy_copy: cancelled")
+			}
+			d := new(starlark.Dict)
+			_ = d.SetKey(starlark.String("id"), starlark.MakeInt(out.PolicyID))
+			_ = d.SetKey(starlark.String("name"), starlark.String(out.Name))
+			_ = d.SetKey(starlark.String("trigger"), starlark.String(out.Trigger))
+			_ = d.SetKey(starlark.String("created"), starlark.Bool(out.Created))
+			return resultOK(d), nil
+		}
+		if strings.TrimSpace(string(name)) == "" {
+			return resultErr("policy_copy: name is required unless upsert=True")
+		}
 		spec := buddy.PolicyCopySpec{
 			SourcePolicyID: int(pid),
 			Name:           string(name),
 			CategoryID:     string(categoryID),
-		}
-		if scopeGroupIDs != nil {
-			ids := make([]int, 0, scopeGroupIDs.Len())
-			for i := 0; i < scopeGroupIDs.Len(); i++ {
-				n, ok := scopeGroupIDs.Index(i).(starlark.Int)
-				if !ok {
-					return resultErr("scope_group_ids must be a list of ints")
-				}
-				v64, _ := n.Int64()
-				ids = append(ids, int(v64))
-			}
-			spec.ScopeGroupIDs = ids
-		}
-		if scopeAll != starlark.None {
-			b, ok := scopeAll.(starlark.Bool)
-			if !ok {
-				return resultErr("scope_all must be a bool")
-			}
-			v := bool(b)
-			spec.ScopeAll = &v
+			ScopeAll:       scopeAllPtr,
+			ScopeGroupIDs:  groupIDs,
 		}
 		if t := strings.TrimSpace(string(trigger)); t != "" {
 			spec.Trigger = &t
 		}
-		out, err := buddy.PolicyCopy(fromPin, destPin, scriptOpts, spec, logger)
+		out, err := buddy.PolicyCopy(src, dst, scriptOpts, spec, logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -1703,85 +1674,34 @@ func policyCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 }
 
 func policyMigrate(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var policyID starlark.Int
-		var name, trigger, categoryID starlark.String
-		var matchTrigger starlark.Bool
-		var fromTenant, fromSurface, fromAuth starlark.String
-		var scopeAll starlark.Value = starlark.None
-		var scopeGroupIDs *starlark.List
-		var destSess sessionArgs
-		if err := starlark.UnpackArgs("policy_migrate", args, kwargs,
-			"policy_id", &policyID,
-			"name?", &name,
-			"trigger?", &trigger,
-			"match_trigger?", &matchTrigger,
-			"category_id?", &categoryID,
-			"from_tenant?", &fromTenant,
-			"from_surface?", &fromSurface,
-			"from_auth?", &fromAuth,
-			"scope_all?", &scopeAll,
-			"scope_group_ids?", &scopeGroupIDs,
-			"tenant?", &destSess.Tenant,
-			"surface?", &destSess.Surface,
-			"auth?", &destSess.Auth); err != nil {
-			return nil, err
-		}
-		fromSess := sessionArgs{Tenant: fromTenant, Surface: fromSurface, Auth: fromAuth}
-		fromPin, restoreFrom, sessErr := beginSession(thread, credName, fromSess)
-		if sessErr != nil {
-			return resultErr(sessErr.Error())
-		}
-		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
-		restoreFrom()
-		if sessErr != nil {
-			return resultErr(sessErr.Error())
-		}
-		defer restoreDest()
-		pid, _ := policyID.Int64()
-		migSpec := buddy.PolicyMigrateSpec{
-			SourcePolicyID: int(pid),
-			Name:           string(name),
-			MatchTrigger:   bool(matchTrigger),
-			CategoryID:     string(categoryID),
-		}
-		if scopeGroupIDs != nil {
-			ids := make([]int, 0, scopeGroupIDs.Len())
-			for i := 0; i < scopeGroupIDs.Len(); i++ {
-				n, ok := scopeGroupIDs.Index(i).(starlark.Int)
-				if !ok {
-					return resultErr("scope_group_ids must be a list of ints")
-				}
-				v64, _ := n.Int64()
-				ids = append(ids, int(v64))
-			}
-			migSpec.ScopeGroupIDs = ids
-		}
-		if scopeAll != starlark.None {
-			b, ok := scopeAll.(starlark.Bool)
-			if !ok {
-				return resultErr("scope_all must be a bool")
-			}
-			v := bool(b)
-			migSpec.ScopeAll = &v
-		}
-		if t := strings.TrimSpace(string(trigger)); t != "" {
-			migSpec.Trigger = &t
-		}
-		out, err := buddy.PolicyMigrate(fromPin, destPin, scriptOpts, migSpec, logger)
-		if err != nil {
-			return resultErr(err.Error())
-		}
-		if out == nil {
-			return resultErr("policy_migrate: cancelled")
-		}
-		d := new(starlark.Dict)
-		_ = d.SetKey(starlark.String("id"), starlark.MakeInt(out.PolicyID))
-		_ = d.SetKey(starlark.String("name"), starlark.String(out.Name))
-		_ = d.SetKey(starlark.String("trigger"), starlark.String(out.Trigger))
-		_ = d.SetKey(starlark.String("created"), starlark.Bool(out.Created))
-		return resultOK(d), nil
+	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		return policyCopy(credName, logger)(thread, b, args, withUpsertTrue(kwargs))
 	}
+}
+
+func parseScopeKwargs(scopeAll starlark.Value, scopeGroupIDs *starlark.List) ([]int, *bool, error) {
+	var groupIDs []int
+	if scopeGroupIDs != nil {
+		groupIDs = make([]int, 0, scopeGroupIDs.Len())
+		for i := 0; i < scopeGroupIDs.Len(); i++ {
+			n, ok := scopeGroupIDs.Index(i).(starlark.Int)
+			if !ok {
+				return nil, nil, fmt.Errorf("scope_group_ids must be a list of ints")
+			}
+			v64, _ := n.Int64()
+			groupIDs = append(groupIDs, int(v64))
+		}
+	}
+	var scopeAllPtr *bool
+	if scopeAll != nil && scopeAll != starlark.None {
+		b, ok := scopeAll.(starlark.Bool)
+		if !ok {
+			return nil, nil, fmt.Errorf("scope_all must be a bool")
+		}
+		v := bool(b)
+		scopeAllPtr = &v
+	}
+	return groupIDs, scopeAllPtr, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -3292,23 +3212,68 @@ func uuidNewBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple
 }
 
 func profileClone(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		return profileCopy(credName, logger)(thread, b, args, kwargs)
+	}
+}
+
+func profileCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var profileID starlark.Int
-		var name starlark.String
-		var sess sessionArgs
-		if err := starlark.UnpackArgs("profile_clone", args, kwargs, "profile_id", &profileID, "name", &name,
-			"tenant?", &sess.Tenant,
-			"surface?", &sess.Surface,
-			"auth?", &sess.Auth); err != nil {
+		var name, categoryID starlark.String
+		var scopeAll starlark.Value = starlark.None
+		var scopeGroupIDs *starlark.List
+		upsert := starlark.Bool(false)
+		var dual dualSessionKwargs
+		tail := append([]any{
+			"profile_id", &profileID, "name?", &name,
+			"category_id?", &categoryID,
+			"scope_all?", &scopeAll,
+			"scope_group_ids?", &scopeGroupIDs,
+			"upsert?", &upsert,
+		}, dual.unpackTail()...)
+		if err := starlark.UnpackArgs("profile_copy", args, kwargs, tail...); err != nil {
 			return nil, err
 		}
-		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
-		if sessErr != nil {
-			return resultErr(sessErr.Error())
+		src, dst, err := dual.refs(thread, credName)
+		if err != nil {
+			return resultErr(err.Error())
 		}
-		defer restoreSession()
 		pid, _ := profileID.Int64()
-		out, err := buddy.ProfileClone(sessionPin, scriptOpts, int(pid), string(name), logger)
+		groupIDs, scopeAllPtr, err := parseScopeKwargs(scopeAll, scopeGroupIDs)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		if bool(upsert) {
+			out, err := buddy.ProfileMigrate(src, dst, scriptOpts, buddy.ProfileMigrateSpec{
+				SourceProfileID: int(pid),
+				Name:            string(name),
+				ScopeAll:        scopeAllPtr,
+				ScopeGroupIDs:   groupIDs,
+				CategoryID:      string(categoryID),
+			}, logger)
+			if err != nil {
+				return resultErr(err.Error())
+			}
+			if out == nil {
+				return resultErr("profile_copy: cancelled")
+			}
+			d := starlark.NewDict(3)
+			_ = d.SetKey(starlark.String("id"), starlark.MakeInt(out.ProfileID))
+			_ = d.SetKey(starlark.String("name"), starlark.String(out.Name))
+			_ = d.SetKey(starlark.String("created"), starlark.Bool(out.Created))
+			return resultOK(d), nil
+		}
+		if strings.TrimSpace(string(name)) == "" {
+			return resultErr("profile_copy: name is required unless upsert=True")
+		}
+		out, err := buddy.ProfileCopy(src, dst, scriptOpts, buddy.ProfileCopySpec{
+			SourceProfileID: int(pid),
+			Name:            string(name),
+			ScopeAll:        scopeAllPtr,
+			ScopeGroupIDs:   groupIDs,
+			CategoryID:      string(categoryID),
+		}, logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -3316,72 +3281,9 @@ func profileClone(credName string, logger *slog.Logger) func(*starlark.Thread, *
 	}
 }
 
-func profileCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var profileID starlark.Int
-		var name starlark.String
-		var fromTenant, fromSurface, fromAuth starlark.String
-		var scopeAll starlark.Value = starlark.None
-		var scopeGroupIDs *starlark.List
-		var destSess sessionArgs
-		if err := starlark.UnpackArgs("profile_copy", args, kwargs,
-			"profile_id", &profileID, "name", &name,
-			"from_tenant?", &fromTenant,
-			"from_surface?", &fromSurface,
-			"from_auth?", &fromAuth,
-			"scope_all?", &scopeAll,
-			"scope_group_ids?", &scopeGroupIDs,
-			"tenant?", &destSess.Tenant,
-			"surface?", &destSess.Surface,
-			"auth?", &destSess.Auth); err != nil {
-			return nil, err
-		}
-		fromSess := sessionArgs{Tenant: fromTenant, Surface: fromSurface, Auth: fromAuth}
-		fromPin, restoreFrom, sessErr := beginSession(thread, credName, fromSess)
-		if sessErr != nil {
-			return resultErr(sessErr.Error())
-		}
-		pid, _ := profileID.Int64()
-		profileXML, err := buddy.ProfileFetchXML(fromPin, int(pid))
-		restoreFrom()
-		if err != nil {
-			return resultErr(err.Error())
-		}
-		spec := buddy.ProfilePrepareSpec{Name: string(name)}
-		if scopeGroupIDs != nil {
-			ids := make([]int, 0, scopeGroupIDs.Len())
-			for i := 0; i < scopeGroupIDs.Len(); i++ {
-				n, ok := scopeGroupIDs.Index(i).(starlark.Int)
-				if !ok {
-					return resultErr("scope_group_ids must be a list of ints")
-				}
-				v64, _ := n.Int64()
-				ids = append(ids, int(v64))
-			}
-			spec.ScopeGroupIDs = ids
-		}
-		if scopeAll != starlark.None {
-			b, ok := scopeAll.(starlark.Bool)
-			if !ok {
-				return resultErr("scope_all must be a bool")
-			}
-			v := bool(b)
-			spec.ScopeAll = &v
-		}
-		prepared, err := buddy.PrepareProfileXMLForCreate(profileXML, spec)
-		if err != nil {
-			return resultErr(err.Error())
-		}
-		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
-		if sessErr != nil {
-			return resultErr(sessErr.Error())
-		}
-		defer restoreDest()
-		out, err := buddy.ProfilePostXML(destPin, scriptOpts, prepared, string(name), logger)
-		if err != nil {
-			return resultErr(err.Error())
-		}
-		return profileCreateOutcomeValue(out)
+func profileMigrate(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		return profileCopy(credName, logger)(thread, b, args, withUpsertTrue(kwargs))
 	}
 }
 

@@ -438,12 +438,6 @@ buddy policy create ss <trigger> <display-name> [--category=name]
   └─ GET /api/v1/categories                  (if --category set)
   └─ POST /JSSResource/policies/id/0
 
-buddy policy clone <id> <version> [--package=<pattern>]
-  └─ GET /JSSResource/policies/id/{id}      (fetch source)
-  └─ GET /JSSResource/policies              (uniqueness check for new name)
-  └─ POST /JSSResource/policies/id/0        (create new policy)
-  └─ PUT /JSSResource/policies/id/{id}      (disable source)
-
 buddy policy delete <id> [id ...]
   └─ GET /JSSResource/policies/id/{id}      (fetch name for confirmation, per ID)
   └─ DELETE /JSSResource/policies/id/{id}   (delete, per ID)

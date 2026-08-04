@@ -143,7 +143,6 @@ Usage:
 Subcommands:
   get     Read policy properties (--trigger, enable state, xml)
   set     Modify policy properties (scope, enable/disable, trigger, name, ...)
-  clone   Clone a policy with a new version
   create  Create a new policy
   delete  Delete one or more policies
   find    Search policies by keyword
@@ -174,7 +173,7 @@ Flags for '--trigger' lookup:
 Notes:
   --trigger looks up the policy whose custom trigger (trigger_other) matches
   (with name heuristics as fallback). Prints the policy ID. Prefer this over
-  guessing IDs when scripting clone / set package.
+  guessing IDs when scripting set package.
 
 Examples:
   buddy policy get --trigger=install-chrome
@@ -254,26 +253,12 @@ Examples:
   buddy policy create ss install-chrome "Install Chrome" --script-id=12
 `
 
-const helpPolicyClone = `buddy policy clone - Clone a policy with a new version
+const helpPolicyClone = `buddy policy clone — removed
 
-Usage:
-  buddy policy clone <policy-id> <version> [flags]
-  buddy policy clone --trigger=<trigger> <version> [flags]
-        Flags: [--param=4,5,6] [--package=<pattern>]
-               [--disable-source|--keep-source]
+Versioned policy clone was retired. Prefer:
 
-Notes:
-  Source: <policy-id> or --trigger=<custom-trigger> (same lookup as
-  'policy get --trigger' / 'set package --trigger').
-  Default: disable the source after a successful create. Override with
-  --keep-source (or --disable-source to force disable). Confirm plan lists
-  source name/ID/trigger and the disable decision.
-
-Examples:
-  buddy policy clone 42 121.0
-  buddy policy clone --trigger=install-chrome 121.0 --keep-source
-  buddy policy clone 42 121.0 --param=4,5
-  buddy policy clone 42 121.0 --package=Chrome
+  • Change batches: step_clone_policy / step_set_package (see docs/change-batches.md)
+  • Starlark: policy_copy + policy_set_package / policy_set_ss / policy_set_install
 `
 
 const helpPolicyFind = `buddy policy find - Search policies by keyword

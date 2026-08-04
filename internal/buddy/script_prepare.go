@@ -8,11 +8,11 @@ import (
 
 // ScriptPrepareSpec controls transform before script create/copy/migrate.
 type ScriptPrepareSpec struct {
-	Name             string
-	CategoryID       string // explicit override on destination (wins)
-	SameSession      bool   // keep source categoryId when no override
-	DestCred         string // destination credential for category name resolve
-	SourceCategoryID string
+	Name               string
+	CategoryID         string // explicit override on destination (wins)
+	SameSession        bool   // keep source categoryId when no override
+	DestCred           string // destination credential for category name resolve
+	SourceCategoryID   string
 	SourceCategoryName string
 }
 
@@ -109,89 +109,126 @@ func ScriptClone(credName string, opts Opts, scriptID, name, categoryID string, 
 	return &ScriptCreateOutcome{ID: created.ID, Name: created.Name}, nil
 }
 
-// ScriptCopy fetches from srcCred and POSTs on dstCred.
-func ScriptCopy(srcCred, dstCred string, opts Opts, spec ScriptCopySpec, logger *slog.Logger) (*ScriptCreateOutcome, error) {
-	src, err := ScriptFetchFull(srcCred, spec.SourceScriptID)
+// ScriptCopy fetches from src and POSTs on dst.
+func ScriptCopy(src, dst SessionRef, opts Opts, spec ScriptCopySpec, logger *slog.Logger) (*ScriptCreateOutcome, error) {
+	src, err := ResolveSessionRef(src, OpRead)
 	if err != nil {
 		return nil, err
 	}
-	same := strings.TrimSpace(srcCred) == strings.TrimSpace(dstCred)
-	prepared, err := PrepareScriptForCreate(src, ScriptPrepareSpec{
-		Name:               spec.Name,
-		CategoryID:         spec.CategoryID,
-		SameSession:        same,
-		DestCred:           dstCred,
-		SourceCategoryID:   src.CategoryID,
-		SourceCategoryName: src.CategoryName,
+	dst, err = ResolveSessionRef(dst, OpMutate)
+	if err != nil {
+		return nil, err
+	}
+	var detail *ScriptDetail
+	err = WithSessionRef(src, func(pin string) error {
+		var fetchErr error
+		detail, fetchErr = ScriptFetchFull(pin, spec.SourceScriptID)
+		return fetchErr
 	})
 	if err != nil {
 		return nil, err
 	}
-	if !opts.SkipConfirm {
-		msg := fmt.Sprintf("\nCopy script (ID %s) as %q to destination?", spec.SourceScriptID, prepared.Name)
-		if !ConfirmPrompt(msg, logger) {
-			return nil, nil
+	same := src.Equal(dst)
+	var outcome *ScriptCreateOutcome
+	err = WithSessionRef(dst, func(pin string) error {
+		prepared, err := PrepareScriptForCreate(detail, ScriptPrepareSpec{
+			Name:               spec.Name,
+			CategoryID:         spec.CategoryID,
+			SameSession:        same,
+			DestCred:           pin,
+			SourceCategoryID:   detail.CategoryID,
+			SourceCategoryName: detail.CategoryName,
+		})
+		if err != nil {
+			return err
 		}
-	}
-	optsCopy := opts
-	optsCopy.SkipConfirm = true
-	created, err := ScriptPostDetail(dstCred, optsCopy, prepared, logger)
+		if !opts.SkipConfirm {
+			msg := fmt.Sprintf("\nCopy script (ID %s) as %q to destination?", spec.SourceScriptID, prepared.Name)
+			if !ConfirmPrompt(msg, logger) {
+				return nil
+			}
+		}
+		optsCopy := opts
+		optsCopy.SkipConfirm = true
+		created, err := ScriptPostDetail(pin, optsCopy, prepared, logger)
+		if err != nil {
+			return err
+		}
+		if created == nil {
+			return nil
+		}
+		outcome = &ScriptCreateOutcome{ID: created.ID, Name: created.Name}
+		return nil
+	})
+	return outcome, err
+}
+
+// ScriptMigrate fetches from src and upserts on dst by exact name.
+func ScriptMigrate(src, dst SessionRef, opts Opts, spec ScriptMigrateSpec, logger *slog.Logger) (*ScriptMigrateOutcome, error) {
+	src, err := ResolveSessionRef(src, OpRead)
 	if err != nil {
 		return nil, err
 	}
-	if created == nil {
-		return nil, nil
+	dst, err = ResolveSessionRef(dst, OpMutate)
+	if err != nil {
+		return nil, err
 	}
-	return &ScriptCreateOutcome{ID: created.ID, Name: created.Name}, nil
-}
-
-// ScriptMigrate fetches from srcCred and upserts on dstCred by exact name.
-func ScriptMigrate(srcCred, dstCred string, opts Opts, spec ScriptMigrateSpec, logger *slog.Logger) (*ScriptMigrateOutcome, error) {
-	src, err := ScriptFetchFull(srcCred, spec.SourceScriptID)
+	var detail *ScriptDetail
+	err = WithSessionRef(src, func(pin string) error {
+		var fetchErr error
+		detail, fetchErr = ScriptFetchFull(pin, spec.SourceScriptID)
+		return fetchErr
+	})
 	if err != nil {
 		return nil, err
 	}
 	name := strings.TrimSpace(spec.Name)
 	if name == "" {
-		name = src.Name
+		name = detail.Name
 	}
-	same := strings.TrimSpace(srcCred) == strings.TrimSpace(dstCred)
-	prepared, err := PrepareScriptForCreate(src, ScriptPrepareSpec{
-		Name:               name,
-		CategoryID:         spec.CategoryID,
-		SameSession:        same,
-		DestCred:           dstCred,
-		SourceCategoryID:   src.CategoryID,
-		SourceCategoryName: src.CategoryName,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if !opts.SkipConfirm {
-		msg := fmt.Sprintf("\nMigrate script (ID %s) as %q to destination (upsert by name)?", spec.SourceScriptID, prepared.Name)
-		if !ConfirmPrompt(msg, logger) {
-			return nil, nil
-		}
-	}
-	optsCopy := opts
-	optsCopy.SkipConfirm = true
-
-	destID, findErr := ScriptGetID(dstCred, prepared.Name, logger)
-	if findErr == nil && destID != "" {
-		prepared.ID = destID
-		updated, err := scriptPut(dstCred, destID, &prepared)
+	same := src.Equal(dst)
+	var outcome *ScriptMigrateOutcome
+	err = WithSessionRef(dst, func(pin string) error {
+		prepared, err := PrepareScriptForCreate(detail, ScriptPrepareSpec{
+			Name:               name,
+			CategoryID:         spec.CategoryID,
+			SameSession:        same,
+			DestCred:           pin,
+			SourceCategoryID:   detail.CategoryID,
+			SourceCategoryName: detail.CategoryName,
+		})
 		if err != nil {
-			return nil, err
+			return err
 		}
-		fmt.Printf("Updated script (ID %s): %s\n", updated.ID, updated.Name)
-		return &ScriptMigrateOutcome{ID: updated.ID, Name: updated.Name, Created: false}, nil
-	}
-	created, err := ScriptPostDetail(dstCred, optsCopy, prepared, logger)
-	if err != nil {
-		return nil, err
-	}
-	if created == nil {
-		return nil, nil
-	}
-	return &ScriptMigrateOutcome{ID: created.ID, Name: created.Name, Created: true}, nil
+		if !opts.SkipConfirm {
+			msg := fmt.Sprintf("\nMigrate script (ID %s) as %q to destination (upsert by name)?", spec.SourceScriptID, prepared.Name)
+			if !ConfirmPrompt(msg, logger) {
+				return nil
+			}
+		}
+		optsCopy := opts
+		optsCopy.SkipConfirm = true
+
+		destID, findErr := ScriptGetID(pin, prepared.Name, logger)
+		if findErr == nil && destID != "" {
+			prepared.ID = destID
+			updated, err := scriptPut(pin, destID, &prepared)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Updated script (ID %s): %s\n", updated.ID, updated.Name)
+			outcome = &ScriptMigrateOutcome{ID: updated.ID, Name: updated.Name, Created: false}
+			return nil
+		}
+		created, err := ScriptPostDetail(pin, optsCopy, prepared, logger)
+		if err != nil {
+			return err
+		}
+		if created == nil {
+			return nil
+		}
+		outcome = &ScriptMigrateOutcome{ID: created.ID, Name: created.Name, Created: true}
+		return nil
+	})
+	return outcome, err
 }

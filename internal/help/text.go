@@ -207,7 +207,12 @@ Conventions: plural nouns enumerate (policies, packages, computers);
 singular nouns load one resource (policy, package, computer); singular_verb
 mutates (policy_set, policy_put_xml, computer_reboot). Pass either id= or a
 natural key (trigger=/name=/app=+version=), not both. Resource IDs first;
-payload/options next; tenant?/surface?/auth? always last.
+payload/options next; tenant?/surface?/auth? always last (source session).
+Auth alone soft-switches tenant. Dual-session copy builtins add
+to_tenant?/to_surface?/to_auth? for destination (omit = same as source).
+*_copy is canonical; *_clone / *_migrate are aliases (migrate ⇒ upsert=True).
+Versioned release bumps use change batches (step_clone_policy), not a
+policy_clone builtin.
 
 In the notebook (or shell), evaluate a bare builtin name (no parentheses) to
 print its signature, returns, and params. Prefer change_batch + plan_change +
@@ -252,18 +257,17 @@ POLICY
       Params: at least one of enable/name/trigger/frequency.
   policy_put_xml(policy_id, xml_str, tenant?, surface?, auth?)
       → None
-  policy_copy(policy_id, name, trigger?, category_id?, from_tenant?, from_surface?, from_auth?,
-              scope_all?, scope_group_ids?, tenant?, surface?, auth?)
-      → value: dict {id, name, trigger}
-      Params: Fetch on from_* session; POST on trailing tenant/auth (destination).
+  policy_copy(policy_id, name?, trigger?, category_id?, match_trigger?, upsert?=False,
+              scope_all?, scope_group_ids?,
+              tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
+      → value: dict {id, name, trigger} or {id, name, trigger, created} when upsert
+      Params: Source session = tenant?/auth?/surface? (or process default).
+        Destination = to_tenant?/to_auth?/to_surface? (omit = same as source).
         Default unassigned scope. Remaps category/scripts/packages by name on dest
         (missing scripts/packages fail; missing category → uncategorized).
-        Not versioned policy_clone (release helper).
-  policy_migrate(policy_id, name?, trigger?, match_trigger?, category_id?, from_tenant?, from_surface?,
-                 from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?)
-      → value: dict {id, name, trigger, created}
-      Params: Same prepare/remap as policy_copy; upsert on destination by exact name
-        (or trigger_other when match_trigger=True). Preserves dest id on update.
+        upsert=True: upsert by exact name (or trigger_other when match_trigger=True);
+        name optional (defaults to source name). Alias: policy_migrate(...).
+  policy_migrate(...) → same as policy_copy(..., upsert=True)
   policy_set_ss(policy_id, version?, group_ids?, display_name?,
                 description?, install_text?, reinstall_text?,
                 force_view?, feature?, self_service?, tenant?, surface?, auth?)
@@ -276,9 +280,6 @@ POLICY
         keep_source?: optional bool overrides (mutually exclusive). Default:
         disable source only when creating a same-trigger replacement.
   policy_set_scope_all(policy_id, tenant?, surface?, auth?) → None
-  policy_clone(policy_id, version, keep_source?, tenant?, surface?, auth?) → None
-      Params: keep_source?: bool — if True, leave source enabled (default disables).
-        Versioned package-release clone — not the same as policy_copy (duplicate/migrate).
   policy_create_ss(trigger, display_name, category?, scope_group_id?, script_id?, tenant?, surface?, auth?)
       → value: int (new policy ID)
   policy_create_package(app, version, action?, scope_all?, scope_group_ids?,
@@ -303,10 +304,14 @@ GROUP
   group_delete(group_id, tenant?, surface?, auth?) → None
   smart_group_create(body, tenant?, surface?, auth?) → value: dict {"id", "href"?}
   smart_group_clone(group_id, name, site_id?, tenant?, surface?, auth?) → value: dict {"id", "href"?}
-      Params: Same-session duplicate; clears siteId unless site_id set.
-  smart_group_copy(group_id, name, site_id?, from_tenant?, from_surface?, from_auth?,
-                   tenant?, surface?, auth?) → value: dict {"id", "href"?}
-      Params: Cross-session copy of criteria/description; clears siteId unless site_id set.
+      Params: Alias of smart_group_copy without to_* (same-session).
+  smart_group_copy(group_id, name?, site_id?, upsert?=False,
+                   tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
+      → value: dict {"id", "href"?} or +name/created when upsert
+      Params: Copy criteria/description; clears siteId unless site_id set.
+        Source = tenant?/auth?; dest = to_* (omit = same session).
+        upsert=True: upsert by exact name (name optional → source name).
+  smart_group_migrate(...) → same as smart_group_copy(..., upsert=True)
   smart_group_put(group_id, body, tenant?, surface?, auth?) → None
   smart_group_get_criteria(group_id, tenant?, surface?, auth?) → value: list[dict]
   smart_group_set_criteria(group_id, criteria, tenant?, surface?, auth?) → None
@@ -420,10 +425,12 @@ PROFILE
       Params: name: str; pass payloads_plist_str and/or content (list of payload
         dicts). scope_all defaults true when scope_group_ids omitted. Classic POST.
   profile_clone(profile_id, name, tenant?, surface?, auth?) → value: dict {id, name}
-      Params: Same-tenant clone; randomizes UUIDs; unassigned scope.
-  profile_copy(profile_id, name, from_tenant?, from_surface?, from_auth?,
-               scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name}
-      Params: Fetch on from_* session; POST on trailing tenant/auth (destination). Default unassigned scope.
+      Params: Alias of profile_copy without to_* (same-session UUID remap).
+  profile_copy(profile_id, name?, category_id?, scope_all?, scope_group_ids?, upsert?=False,
+               tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name} or +created
+      Params: Source = tenant?/auth?; dest = to_* (omit = same session). UUID remap + unassigned scope.
+        upsert=True: upsert by exact name (name optional → source name).
+  profile_migrate(...) → same as profile_copy(..., upsert=True)
   profile_create_xml(xml_str, name?, tenant?, surface?, auth?) → value: dict {id, name}
       Params: POST prepared XML (after profile_xml_prepare_for_create).
   profile_delete(profile_id, tenant?, surface?, auth?) → None
@@ -509,22 +516,21 @@ SCRIPT (Jamf Pro scripts)
   script_update(script_id, file, tenant?, surface?, auth?) → None
   script_put(script_id, dict, tenant?, surface?, auth?) → value: dict
   script_clone(script_id, name, category_id?, tenant?, surface?, auth?) → value: dict {id, name}
-  script_copy(script_id, name, category_id?, from_tenant?, from_surface?, from_auth?,
-              tenant?, surface?, auth?) → value: dict {id, name}
-      Params: Resolves category by name on dest (or category_id override).
-  script_migrate(script_id, name?, category_id?, from_tenant?, from_surface?, from_auth?,
-                 tenant?, surface?, auth?) → value: dict {id, name, created}
-      Params: Upsert by exact script name on destination.
+      Params: Alias of script_copy without to_*.
+  script_copy(script_id, name?, category_id?, upsert?=False,
+              tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name} or +created
+      Params: Source = tenant?/auth?; dest = to_* (omit = same). upsert=True upserts by name.
+  script_migrate(...) → same as script_copy(..., upsert=True)
 
 CATEGORY (Jamf Pro categories)
   categories(filter?, page?, page_size?, tenant?, surface?, auth?)
       → value: list of {id, name, priority}
   category(id=?) | category(name=?, tenant?, surface?, auth?) → value: dict {id, name, priority}
   category_clone(category_id, name, priority?, tenant?, surface?, auth?) → value: dict {id, name, priority?}
-  category_copy(category_id, name, priority?, from_tenant?, from_surface?, from_auth?,
-                tenant?, surface?, auth?) → value: dict {id, name, priority?}
-  category_migrate(category_id, name?, priority?, from_tenant?, from_surface?, from_auth?,
-                   tenant?, surface?, auth?) → value: dict {id, name, priority, created}
+      Params: Alias of category_copy without to_*.
+  category_copy(category_id, name?, priority?, upsert?=False,
+                tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict …
+  category_migrate(...) → same as category_copy(..., upsert=True)
 
 COMPUTER
   computers(filter?, ids?=False, page?, page_size?, tenant?, surface?, auth?)

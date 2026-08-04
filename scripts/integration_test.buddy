@@ -160,19 +160,9 @@ def test_policy(cred, created):
     if details["enabled"]:
         error("policy expected enabled=False after disable")
 
-    # Best-effort: clone/install/package need scripts or packages on the policy.
+    # Best-effort: install/package need scripts or packages on the policy.
     before = leftovers
     before = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
-    def _clone():
-        return policy_clone(policy_id=policy_id, version="9.9.9", auth=auth)
-    cres = attempt(_clone)
-    if not cres["ok"]:
-        error("policy_clone skipped:", cres["error"])
-    else:
-        after = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
-        for pid in after:
-            if pid not in before and pid not in created["policies"]:
-                created["policies"].append(pid)
 
     def _install():
         return policy_set_install(policy_id=policy_id, version="1.2.3", auth=auth)
@@ -403,9 +393,8 @@ def test_profile_clone_copy(source_id, source_uuids, source_xml, created):
             return profile_copy(
                 profile_id=source_id,
                 name=dest_name,
-                from_auth=auth,
-                tenant=TEST_COPY_DEST_TENANT,
                 auth=auth,
+                to_tenant=TEST_COPY_DEST_TENANT,
             )
         cres = attempt(_copy)
         if cres["ok"]:

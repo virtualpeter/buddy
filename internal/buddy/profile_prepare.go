@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -27,6 +28,22 @@ type ProfileCopySpec struct {
 	ScopeAll        *bool
 	ScopeGroupIDs   []int
 	CategoryID      string // optional dest category id override
+}
+
+// ProfileMigrateSpec is input for cross-session profile migrate (upsert by name).
+type ProfileMigrateSpec struct {
+	SourceProfileID int
+	Name            string // empty => keep source name
+	ScopeAll        *bool
+	ScopeGroupIDs   []int
+	CategoryID      string
+}
+
+// ProfileMigrateOutcome is returned after profile_copy upsert.
+type ProfileMigrateOutcome struct {
+	ProfileID int
+	Name      string
+	Created   bool
 }
 
 // NewUUID returns a random RFC 4122 UUID string (offline helper).
@@ -343,8 +360,8 @@ func ProfileDelete(credName string, opts Opts, profileID int, logger *slog.Logge
 	return nil
 }
 
-// ProfileCopy fetches a profile from srcCred, prepares it for create, remaps category on dst, and POSTs.
-func ProfileCopy(srcCred, dstCred string, opts Opts, spec ProfileCopySpec, logger *slog.Logger) (*ProfileCreateOutcome, error) {
+// ProfileCopy fetches a profile from src, prepares it for create, remaps category on dst, and POSTs.
+func ProfileCopy(src, dst SessionRef, opts Opts, spec ProfileCopySpec, logger *slog.Logger) (*ProfileCreateOutcome, error) {
 	if spec.SourceProfileID <= 0 {
 		return nil, fmt.Errorf("profile_id must be positive")
 	}
@@ -352,7 +369,20 @@ func ProfileCopy(srcCred, dstCred string, opts Opts, spec ProfileCopySpec, logge
 	if name == "" {
 		return nil, fmt.Errorf("profile name is required")
 	}
-	profileXML, err := profileFetchRaw(srcCred, spec.SourceProfileID)
+	src, err := ResolveSessionRef(src, OpClassic)
+	if err != nil {
+		return nil, err
+	}
+	dst, err = ResolveSessionRef(dst, OpMutate)
+	if err != nil {
+		return nil, err
+	}
+	var profileXML []byte
+	err = WithSessionRef(src, func(pin string) error {
+		var fetchErr error
+		profileXML, fetchErr = profileFetchRaw(pin, spec.SourceProfileID)
+		return fetchErr
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -364,8 +394,12 @@ func ProfileCopy(srcCred, dstCred string, opts Opts, spec ProfileCopySpec, logge
 	if err != nil {
 		return nil, err
 	}
-	same := strings.TrimSpace(srcCred) == strings.TrimSpace(dstCred)
-	prepared, err = RemapPolicyCategoryOnDest(dstCred, prepared, spec.CategoryID, same)
+	same := src.Equal(dst)
+	err = WithSessionRef(dst, func(pin string) error {
+		var remapErr error
+		prepared, remapErr = RemapPolicyCategoryOnDest(pin, prepared, spec.CategoryID, same)
+		return remapErr
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -377,5 +411,130 @@ func ProfileCopy(srcCred, dstCred string, opts Opts, spec ProfileCopySpec, logge
 	}
 	optsCopy := opts
 	optsCopy.SkipConfirm = true // confirm once above
-	return ProfilePostXML(dstCred, optsCopy, prepared, name, logger)
+	var out *ProfileCreateOutcome
+	err = WithSessionRef(dst, func(pin string) error {
+		var postErr error
+		out, postErr = ProfilePostXML(pin, optsCopy, prepared, name, logger)
+		return postErr
+	})
+	return out, err
+}
+
+func setProfileGeneralID(profileXML []byte, id int) ([]byte, error) {
+	if id <= 0 {
+		return nil, fmt.Errorf("profile id must be positive")
+	}
+	idXML := []byte("<id>" + strconv.Itoa(id) + "</id>")
+	idRe := regexp.MustCompile(`<id>\d+</id>`)
+	if idx := idRe.FindIndex(profileXML); idx != nil {
+		return bytes.Join([][]byte{profileXML[:idx[0]], idXML, profileXML[idx[1]:]}, nil), nil
+	}
+	general := bytes.Index(profileXML, []byte("<general>"))
+	if general < 0 {
+		return nil, fmt.Errorf("profile XML has no <general>")
+	}
+	insertAt := general + len("<general>")
+	return bytes.Join([][]byte{profileXML[:insertAt], []byte("\n"), idXML, profileXML[insertAt:]}, nil), nil
+}
+
+// ProfileFindIDByExactName returns a classic profile ID for an exact name match (case-insensitive).
+func ProfileFindIDByExactName(credName, name string, logger *slog.Logger) (id int, found bool, err error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return 0, false, fmt.Errorf("profile name is required")
+	}
+	records, err := ProfileSearch(credName, name, logger)
+	if err != nil {
+		return 0, false, err
+	}
+	for _, r := range records {
+		if strings.EqualFold(strings.TrimSpace(r.Name), name) {
+			return r.ID, true, nil
+		}
+	}
+	return 0, false, nil
+}
+
+// ProfileMigrate fetches from src and upserts on dst by exact name.
+func ProfileMigrate(src, dst SessionRef, opts Opts, spec ProfileMigrateSpec, logger *slog.Logger) (*ProfileMigrateOutcome, error) {
+	if spec.SourceProfileID <= 0 {
+		return nil, fmt.Errorf("profile_id must be positive")
+	}
+	src, err := ResolveSessionRef(src, OpClassic)
+	if err != nil {
+		return nil, err
+	}
+	dst, err = ResolveSessionRef(dst, OpMutate)
+	if err != nil {
+		return nil, err
+	}
+	var profileXML []byte
+	err = WithSessionRef(src, func(pin string) error {
+		var fetchErr error
+		profileXML, fetchErr = profileFetchRaw(pin, spec.SourceProfileID)
+		return fetchErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	name := strings.TrimSpace(spec.Name)
+	if name == "" {
+		name = extractProfileNameFromXML(profileXML)
+	}
+	if name == "" {
+		return nil, fmt.Errorf("profile name is required")
+	}
+	prepared, err := PrepareProfileXMLForCreate(profileXML, ProfilePrepareSpec{
+		Name:          name,
+		ScopeAll:      spec.ScopeAll,
+		ScopeGroupIDs: spec.ScopeGroupIDs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	same := src.Equal(dst)
+	err = WithSessionRef(dst, func(pin string) error {
+		var remapErr error
+		prepared, remapErr = RemapPolicyCategoryOnDest(pin, prepared, spec.CategoryID, same)
+		return remapErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !opts.SkipConfirm {
+		msg := fmt.Sprintf("\nMigrate configuration profile (ID %d) as %q to destination (upsert by name)?", spec.SourceProfileID, name)
+		if !ConfirmPrompt(msg, logger) {
+			return nil, nil
+		}
+	}
+	optsCopy := opts
+	optsCopy.SkipConfirm = true
+	var outcome *ProfileMigrateOutcome
+	err = WithSessionRef(dst, func(pin string) error {
+		destID, found, err := ProfileFindIDByExactName(pin, name, logger)
+		if err != nil {
+			return err
+		}
+		if found {
+			putXML, err := setProfileGeneralID(prepared, destID)
+			if err != nil {
+				return err
+			}
+			if err := ProfilePutXML(pin, optsCopy, destID, putXML, false, logger); err != nil {
+				return err
+			}
+			outcome = &ProfileMigrateOutcome{ProfileID: destID, Name: name, Created: false}
+			return nil
+		}
+		out, err := ProfilePostXML(pin, optsCopy, prepared, name, logger)
+		if err != nil {
+			return err
+		}
+		if out == nil {
+			return nil
+		}
+		outcome = &ProfileMigrateOutcome{ProfileID: out.ProfileID, Name: out.Name, Created: true}
+		return nil
+	})
+	return outcome, err
 }

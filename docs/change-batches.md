@@ -6,7 +6,7 @@ This guide is the intended use of:
 
 - `change_batch` / `plan_change` / `run_change`
 - `note=` on steps, `step_note`, `step_with_note`
-- Related CLI confirms for `policy set package` / `policy clone`
+- Related CLI confirms for `policy set package` / change-batch `step_clone_policy`
 
 Canonical signatures: `buddy help builtins` (sections **DECLARATIVE WORKFLOW** and **CHANGE BATCH**).
 
@@ -16,9 +16,9 @@ Canonical signatures: `buddy help builtins` (sections **DECLARATIVE WORKFLOW** a
 
 | Tool | Use it for |
 |------|------------|
-| **CLI** (`buddy policy set package`, `clone`, …) | One-off ops; interactive confirm shows source ID/trigger and disable decision |
+| **CLI** (`buddy policy set package`, …) | One-off ops; interactive confirm shows source ID/trigger and disable decision |
 | **`run_workflow([step_…])`** | Quick multi-step script with one Proceed? — no change-record markdown |
-| **`plan_change` + `run_change`** | Lodge a CAB/change ticket, then apply the same batch later |
+| **Change batch** (`change_batch` → `plan_change` → approve → `run_change`) | CAB / ticket workflow; version bumps via `step_clone_policy` / `step_set_package` |
 
 Prefer **triggers** (`from_trigger=` / `--trigger=`) over app-name heuristics when naming a source policy.
 
@@ -133,14 +133,14 @@ Copy the printed markdown (or `planned["markdown"]`) into ServiceNow / Jira / yo
 
 ## Disable-source rules (defaults)
 
-These match CLI / `policy_set_package` / `policy_clone` and appear in every plan line:
+These match CLI / `policy_set_package` / change-batch `step_clone_policy` and appear in every plan line:
 
 | Operation | Default | Override |
 |-----------|---------|----------|
 | Versioned create (new trigger, e.g. `cache-app-1.0` → `cache-app-2.0`) | Do **not** disable source | `--disable-source` / `disable_source=True` |
 | Unversioned replacement (same trigger, e.g. `install-app-next`) | **Disable** source | `--keep-source` / `keep_source=True` |
 | Same-version in-place package update | No disable | — |
-| `clone` | **Disable** source | `keep_source=True` / `--keep-source` |
+| `step_clone_policy` | **Disable** source | `keep_source=True` / `--keep-source` |
 
 CLI confirms and change-batch plans both spell this out as `Disable source: yes/no (reason)`.
 
@@ -240,5 +240,5 @@ Prefs: `prefs_payload(domain, settings)` for a simple preference-domain payload,
 - New-app example: [`examples/setup-app-classic.buddy`](../examples/setup-app-classic.buddy)
 - Examples index: [`examples/README.md`](../examples/README.md)
 - Builtins reference: `buddy help builtins`
-- CLI: `buddy policy set help`, `buddy policy clone help`
+- CLI: `buddy policy set help`
 - Reference manual: [`reference-manual.md`](reference-manual.md)

@@ -17,28 +17,28 @@ var (
 )
 
 // RemapPolicyDepsOnDest rewrites category, script, and package ids in prepared policy XML
-// for the destination tenant. Same-session (srcCred == dstCred) keeps embedded ids.
+// for the destination tenant. Same-session (src.Equal(dst)) keeps embedded ids.
 // Missing script/package names fail hard; missing category becomes uncategorized.
-func RemapPolicyDepsOnDest(srcCred, dstCred string, policyXML []byte, categoryOverride string, logger *slog.Logger) ([]byte, error) {
-	same := strings.TrimSpace(srcCred) == strings.TrimSpace(dstCred)
-	out := policyXML
-	var err error
-	out, err = RemapPolicyCategoryOnDest(dstCred, out, categoryOverride, same)
-	if err != nil {
-		return nil, err
-	}
-	if same {
-		return out, nil
-	}
-	out, err = RemapPolicyScriptsByName(dstCred, out, logger)
-	if err != nil {
-		return nil, err
-	}
-	out, err = RemapPolicyPackagesByName(dstCred, out, logger)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
+func RemapPolicyDepsOnDest(src, dst SessionRef, policyXML []byte, categoryOverride string, logger *slog.Logger) ([]byte, error) {
+	same := src.Equal(dst)
+	var out []byte
+	err := WithSessionRef(dst, func(pin string) error {
+		var err error
+		out, err = RemapPolicyCategoryOnDest(pin, policyXML, categoryOverride, same)
+		if err != nil {
+			return err
+		}
+		if same {
+			return nil
+		}
+		out, err = RemapPolicyScriptsByName(pin, out, logger)
+		if err != nil {
+			return err
+		}
+		out, err = RemapPolicyPackagesByName(pin, out, logger)
+		return err
+	})
+	return out, err
 }
 
 // RemapPolicyCategoryOnDest replaces the general <category> block using ResolveCategoryOnDest.

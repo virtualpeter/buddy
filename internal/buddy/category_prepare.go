@@ -66,13 +66,25 @@ func CategoryClone(credName string, opts Opts, categoryID, name string, priority
 	return CategoryPost(credName, opts, prepared, logger)
 }
 
-// CategoryCopy fetches from srcCred and POSTs on dstCred.
-func CategoryCopy(srcCred, dstCred string, opts Opts, spec CategoryCopySpec, logger *slog.Logger) (*GroupCreateResult, error) {
-	src, err := CategoryFetch(srcCred, spec.SourceCategoryID)
+// CategoryCopy fetches from src and POSTs on dst.
+func CategoryCopy(src, dst SessionRef, opts Opts, spec CategoryCopySpec, logger *slog.Logger) (*GroupCreateResult, error) {
+	src, err := ResolveSessionRef(src, OpRead)
 	if err != nil {
 		return nil, err
 	}
-	prepared, err := PrepareCategoryForCreate(src, CategoryPrepareSpec{Name: spec.Name, Priority: spec.Priority})
+	dst, err = ResolveSessionRef(dst, OpMutate)
+	if err != nil {
+		return nil, err
+	}
+	var prepared CategoryDetail
+	err = WithSessionRef(src, func(pin string) error {
+		s, err := CategoryFetch(pin, spec.SourceCategoryID)
+		if err != nil {
+			return err
+		}
+		prepared, err = PrepareCategoryForCreate(s, CategoryPrepareSpec{Name: spec.Name, Priority: spec.Priority})
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -84,20 +96,38 @@ func CategoryCopy(srcCred, dstCred string, opts Opts, spec CategoryCopySpec, log
 	}
 	optsCopy := opts
 	optsCopy.SkipConfirm = true
-	return CategoryPost(dstCred, optsCopy, prepared, logger)
+	var created *GroupCreateResult
+	err = WithSessionRef(dst, func(pin string) error {
+		var postErr error
+		created, postErr = CategoryPost(pin, optsCopy, prepared, logger)
+		return postErr
+	})
+	return created, err
 }
 
-// CategoryMigrate fetches from srcCred and upserts on dstCred by exact name.
-func CategoryMigrate(srcCred, dstCred string, opts Opts, spec CategoryMigrateSpec, logger *slog.Logger) (*CategoryMigrateOutcome, error) {
-	src, err := CategoryFetch(srcCred, spec.SourceCategoryID)
+// CategoryMigrate fetches from src and upserts on dst by exact name.
+func CategoryMigrate(src, dst SessionRef, opts Opts, spec CategoryMigrateSpec, logger *slog.Logger) (*CategoryMigrateOutcome, error) {
+	src, err := ResolveSessionRef(src, OpRead)
 	if err != nil {
 		return nil, err
 	}
-	name := strings.TrimSpace(spec.Name)
-	if name == "" {
-		name = src.Name
+	dst, err = ResolveSessionRef(dst, OpMutate)
+	if err != nil {
+		return nil, err
 	}
-	prepared, err := PrepareCategoryForCreate(src, CategoryPrepareSpec{Name: name, Priority: spec.Priority})
+	var prepared CategoryDetail
+	err = WithSessionRef(src, func(pin string) error {
+		s, err := CategoryFetch(pin, spec.SourceCategoryID)
+		if err != nil {
+			return err
+		}
+		name := strings.TrimSpace(spec.Name)
+		if name == "" {
+			name = s.Name
+		}
+		prepared, err = PrepareCategoryForCreate(s, CategoryPrepareSpec{Name: name, Priority: spec.Priority})
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -110,22 +140,28 @@ func CategoryMigrate(srcCred, dstCred string, opts Opts, spec CategoryMigrateSpe
 	optsCopy := opts
 	optsCopy.SkipConfirm = true
 
-	existing, found, err := CategoryFindByExactName(dstCred, prepared.Name)
-	if err != nil {
-		return nil, err
-	}
-	if found {
-		if err := CategoryPut(dstCred, optsCopy, existing.ID, prepared, logger); err != nil {
-			return nil, err
+	var outcome *CategoryMigrateOutcome
+	err = WithSessionRef(dst, func(pin string) error {
+		existing, found, err := CategoryFindByExactName(pin, prepared.Name)
+		if err != nil {
+			return err
 		}
-		return &CategoryMigrateOutcome{ID: existing.ID, Name: prepared.Name, Priority: prepared.Priority, Created: false}, nil
-	}
-	created, err := CategoryPost(dstCred, optsCopy, prepared, logger)
-	if err != nil {
-		return nil, err
-	}
-	if created == nil {
-		return nil, nil
-	}
-	return &CategoryMigrateOutcome{ID: created.ID, Name: prepared.Name, Priority: prepared.Priority, Created: true}, nil
+		if found {
+			if err := CategoryPut(pin, optsCopy, existing.ID, prepared, logger); err != nil {
+				return err
+			}
+			outcome = &CategoryMigrateOutcome{ID: existing.ID, Name: prepared.Name, Priority: prepared.Priority, Created: false}
+			return nil
+		}
+		created, err := CategoryPost(pin, optsCopy, prepared, logger)
+		if err != nil {
+			return err
+		}
+		if created == nil {
+			return nil
+		}
+		outcome = &CategoryMigrateOutcome{ID: created.ID, Name: prepared.Name, Priority: prepared.Priority, Created: true}
+		return nil
+	})
+	return outcome, err
 }

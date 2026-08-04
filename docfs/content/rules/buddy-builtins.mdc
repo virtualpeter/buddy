@@ -208,25 +208,27 @@ array. They return bare values and raise on failure.
     - `computer_ids` (list of int or str): Replaces the entire membership list.
     - `tenant?` / `surface?` / `auth?` (string, optional).
 
-## Policies — copy / migrate
+## Policies — copy / upsert
 
-Typed MCP and Starlark expose CRUD plus cross-session copy/migrate. Fat release
-helpers (`policy_set_ss`, `policy_set_package`, versioned `policy_clone`, …) stay
-on `buddyscript` / scripts — do not overload `policy_clone` (it takes `version`
-for package-release clone).
+Typed MCP and Starlark expose CRUD plus cross-session copy. Fat release helpers
+(`policy_set_ss`, `policy_set_package`, …) stay on Starlark / scripts. Versioned
+release bumps use change batches (`step_clone_policy` / `step_set_package`) or
+compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.
 
-- `policy_copy(policy_id, name, trigger?, category_id?, from_tenant?, from_surface?, from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name, trigger}`
-  - Fetch Classic XML on `from_*` (omit = current session); prepare (strip id, set name/trigger, default **unassigned** scope); remap category/scripts/packages by **name** on destination (missing scripts/packages fail; missing category → uncategorized); POST on destination session kwargs.
-- `policy_migrate(policy_id, name?, trigger?, match_trigger?, category_id?, from_tenant?, from_surface?, from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name, trigger, created}`
-  - Same prepare/remap as copy; upsert on destination by exact **name** (or `trigger_other` when `match_trigger=True`). PUT preserves destination id; else POST (`created=True`).
+- `policy_copy(policy_id, name?, trigger?, category_id?, scope_all?, scope_group_ids?, upsert?=False, match_trigger?, tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name, trigger}` (+ `created` when upsert)
+  - Source session = `tenant`/`auth`/`surface` (same as other builtins). Destination = `to_*` (omit = same as source).
+  - Fetch Classic XML on source; prepare (strip id, set name/trigger, default **unassigned** scope); remap category/scripts/packages by **name** on destination (missing scripts/packages fail; missing category → uncategorized); POST (or upsert PUT/POST when `upsert=True`).
+- `policy_migrate(...)` — alias of `policy_copy(..., upsert=True)`.
 
-Recommended migrate order: `category_migrate` → `script_migrate` → `policy_migrate`. Scope name-mapping is deferred (use `scope_group_ids`).
+Recommended migrate order: `category_copy(..., upsert=True)` → `script_copy(..., upsert=True)` → `policy_copy(..., upsert=True)`. Scope name-mapping is deferred (use `scope_group_ids`).
 
 ## Scripts / categories / smart groups — copy
 
-- `script_clone` / `script_copy` / `script_migrate` — Pro JSON scripts; category via `ResolveCategoryOnDest`.
-- `category_clone` / `category_copy` / `category_migrate` — Pro `{name,priority}` categories.
-- `smart_group_clone` / `smart_group_copy` — criteria/description; clears `siteId` unless `site_id` set.
+- `script_copy` / `category_copy` / `smart_group_copy` / `profile_copy` — canonical; `*_clone` = same-session alias; `*_migrate` = `upsert=True`.
+- Scripts: Pro JSON; category via `ResolveCategoryOnDest`.
+- Categories: Pro `{name,priority}`.
+- Smart groups: criteria/description; clears `siteId` unless `site_id` set. Upsert by exact name.
+- Profiles: UUID remap + unassigned scope; upsert by exact name.
 
 ## Profiles / payloads
 
@@ -242,7 +244,7 @@ Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…
 - `uuid_new() → value: str` — offline random UUID.
 - `profile_clone(profile_id, name, tenant?, surface?, auth?) → value: dict {id, name}` — same session; UUID remap + unassigned scope.
 - `profile_acs_bind_uuid(profile_id, payload_uuid) → value: None` — seed process cache for ACS payload UUID when legacy HTML scrape fails (API tokens).
-- `profile_copy(profile_id, name, from_tenant?, from_surface?, from_auth?, scope_all?, scope_group_ids?, tenant?, surface?, auth?) → value: dict {id, name}` — fetch on from_* session; POST on destination session kwargs.
+- `profile_copy(profile_id, name, category_id?, scope_all?, scope_group_ids?, tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name}` — source = tenant/auth; dest = to_* (omit = same).
 - `profile_create_xml(xml_str, name?, tenant?, surface?, auth?) → value: dict {id, name}` — POST prepared XML.
 - `profile_delete(profile_id, tenant?, surface?, auth?) → value: None`
 - `profile_xml_randomize_uuids(profile_xml_str) → value: str` — offline UUID remap only.

@@ -309,7 +309,7 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 	case "set":
 		return runPolicySet(credName, opts, subcommand, args, log)
 	case "clone":
-		return runPolicyClone(credName, opts, append([]string{subcommand}, args...), log)
+		return fmt.Errorf("buddy policy clone was removed; use change batches (step_clone_policy / step_set_package) or policy_copy + policy_set_package in Starlark")
 	case "create":
 		return runPolicyCreate(credName, opts, subcommand, args, log)
 	case "delete":
@@ -326,7 +326,7 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 	case "find":
 		return runPolicyFind(credName, opts, append([]string{subcommand}, args...), log)
 	default:
-		cands := []string{"get", "set", "clone", "create", "delete", "find"}
+		cands := []string{"get", "set", "create", "delete", "find"}
 		msg := fmt.Sprintf("unknown policy subcommand: %q", mode)
 		msg += formatDidYouMean(suggestClosest(mode, cands))
 		msg += fmt.Sprintf(" (use: %s)", strings.Join(cands, ", "))
@@ -652,63 +652,8 @@ func parseDisableSourceFlags(disableSource, keepSource bool) (buddy.DisableSourc
 	return buddy.DisableSourceAuto, nil
 }
 
-func runPolicyClone(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) > 0 && args[0] == "help" {
-		fmt.Print(helpPolicyClone)
-		return nil
-	}
-	var packageFlag, triggerFlag string
-	var keepSource, disableSource bool
-	var cloneFiltered []string
-	for _, a := range args {
-		switch {
-		case strings.HasPrefix(a, "--package="):
-			packageFlag = strings.TrimPrefix(a, "--package=")
-		case strings.HasPrefix(a, "--trigger="):
-			triggerFlag = strings.TrimPrefix(a, "--trigger=")
-		case a == "--keep-source":
-			keepSource = true
-		case a == "--disable-source":
-			disableSource = true
-		default:
-			cloneFiltered = append(cloneFiltered, a)
-		}
-	}
-	args = cloneFiltered
-	disableMode, err := parseDisableSourceFlags(disableSource, keepSource)
-	if err != nil {
-		return err
-	}
-	paramIndices, filtered, err := parseParamArgs(args)
-	if err != nil {
-		return err
-	}
-	args = filtered
-	var policyID int
-	var newVersion string
-	if triggerFlag != "" {
-		if len(args) < 1 {
-			return fmt.Errorf("missing version; run 'buddy policy clone help' for usage")
-		}
-		newVersion = strings.TrimSpace(args[0])
-		policyID, err = buddy.PolicyFind(credName, opts, triggerFlag, false, log)
-		if err != nil {
-			return err
-		}
-		if opts.Verbose {
-			fmt.Fprintf(os.Stderr, "Resolved --trigger=%s -> policy ID %d\n", triggerFlag, policyID)
-		}
-	} else {
-		if len(args) < 2 {
-			return fmt.Errorf("missing policy-id or version; run 'buddy policy clone help' for usage")
-		}
-		policyID, err = parseInt(args[0], "policy-id")
-		if err != nil {
-			return err
-		}
-		newVersion = strings.TrimSpace(args[1])
-	}
-	return buddy.PolicyClone(credName, opts, policyID, "", "", newVersion, packageFlag, paramIndices, disableMode, log)
+func runPolicyClone(_ string, _ buddy.Opts, _ []string, _ *slog.Logger) error {
+	return fmt.Errorf("buddy policy clone was removed; use change batches (step_clone_policy / step_set_package) or policy_copy + policy_set_package in Starlark")
 }
 
 func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {

@@ -88,16 +88,76 @@ func withSession(thread *starlark.Thread, defaultAuth string, s sessionArgs, fn 
 	return fn(pin)
 }
 
-// resultWithSession wraps withSession; session override errors raise like other builtins.
-func resultWithSession(thread *starlark.Thread, defaultAuth string, s sessionArgs, fn func(authPin string) (starlark.Value, error)) (starlark.Value, error) {
-	var out starlark.Value
-	err := withSession(thread, defaultAuth, s, func(authPin string) error {
-		v, e := fn(authPin)
-		out = v
-		return e
-	})
-	if err != nil {
-		return resultErr(err.Error())
+// sessionRefFromArgs builds a SessionRef from source session kwargs.
+// When tenant and auth are both empty, Auth is set to the process/thread default pin
+// so ResolveSessionRef matches beginSession behavior.
+func sessionRefFromArgs(thread *starlark.Thread, defaultAuth string, s sessionArgs) (buddy.SessionRef, error) {
+	if err := validateSurfaceArg(s.Surface); err != nil {
+		return buddy.SessionRef{}, err
 	}
-	return out, nil
+	tenant := strings.TrimSpace(string(s.Tenant))
+	auth := strings.TrimSpace(string(s.Auth))
+	surface := strings.TrimSpace(string(s.Surface))
+	if tenant == "" && auth == "" {
+		auth = getAuth(thread, defaultAuth)
+	}
+	return buddy.SessionRef{Tenant: tenant, Auth: auth, Surface: surface}, nil
+}
+
+// destSessionRef returns the destination ref for dual-session copy.
+// When all to_* are empty, destination equals source (same-tenant copy).
+func destSessionRef(src buddy.SessionRef, toTenant, toSurface, toAuth starlark.String) (buddy.SessionRef, error) {
+	if err := validateSurfaceArg(toSurface); err != nil {
+		return buddy.SessionRef{}, err
+	}
+	t := strings.TrimSpace(string(toTenant))
+	a := strings.TrimSpace(string(toAuth))
+	s := strings.TrimSpace(string(toSurface))
+	if t == "" && a == "" && s == "" {
+		return src, nil
+	}
+	return buddy.SessionRef{Tenant: t, Auth: a, Surface: s}, nil
+}
+
+// rejectLegacyFromKwargs errors if removed from_* kwargs are passed.
+func rejectLegacyFromKwargs(fromTenant, fromSurface, fromAuth starlark.String) error {
+	if strings.TrimSpace(string(fromTenant)) != "" ||
+		strings.TrimSpace(string(fromSurface)) != "" ||
+		strings.TrimSpace(string(fromAuth)) != "" {
+		return fmt.Errorf("from_tenant/from_auth/from_surface removed; use tenant=/auth=/surface= for source and to_tenant=/to_auth=/to_surface= for destination")
+	}
+	return nil
+}
+
+// dualSessionUnpackKeys are shared optional kwargs for copy builtins (source + dest + legacy reject).
+type dualSessionKwargs struct {
+	Src                                             sessionArgs
+	ToTenant, ToSurface, ToAuth                     starlark.String
+	FromTenant, FromSurface, FromAuth               starlark.String // rejected if set
+}
+
+func (d *dualSessionKwargs) unpackTail() []any {
+	return []any{
+		"from_tenant?", &d.FromTenant,
+		"from_surface?", &d.FromSurface,
+		"from_auth?", &d.FromAuth,
+		"tenant?", &d.Src.Tenant,
+		"surface?", &d.Src.Surface,
+		"auth?", &d.Src.Auth,
+		"to_tenant?", &d.ToTenant,
+		"to_surface?", &d.ToSurface,
+		"to_auth?", &d.ToAuth,
+	}
+}
+
+func (d *dualSessionKwargs) refs(thread *starlark.Thread, defaultAuth string) (src, dst buddy.SessionRef, err error) {
+	if err := rejectLegacyFromKwargs(d.FromTenant, d.FromSurface, d.FromAuth); err != nil {
+		return buddy.SessionRef{}, buddy.SessionRef{}, err
+	}
+	src, err = sessionRefFromArgs(thread, defaultAuth, d.Src)
+	if err != nil {
+		return buddy.SessionRef{}, buddy.SessionRef{}, err
+	}
+	dst, err = destSessionRef(src, d.ToTenant, d.ToSurface, d.ToAuth)
+	return src, dst, err
 }

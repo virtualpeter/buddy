@@ -170,7 +170,7 @@ buddy policy set xml <policy-id>                                  # PUT policy f
 #### Clone
 
 ```sh
-buddy policy clone <policy-id> <version> [--param=4,5,6] [--package=<pattern>]   # Clone policy with new version, disable source
+buddy policy set package --trigger=install-app <version>   # Attach package by trigger
 ```
 
 ### Group Commands

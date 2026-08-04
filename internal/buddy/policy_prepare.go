@@ -131,8 +131,8 @@ func PolicyPostXML(credName string, opts Opts, xml []byte, policyName string, lo
 	return &PolicyCreateOutcome{PolicyID: id, Name: policyName, Trigger: trigger}, nil
 }
 
-// PolicyCopy fetches a policy from srcCred, prepares it for create, remaps deps on dst, and POSTs.
-func PolicyCopy(srcCred, dstCred string, opts Opts, spec PolicyCopySpec, logger *slog.Logger) (*PolicyCreateOutcome, error) {
+// PolicyCopy fetches a policy from src, prepares it for create, remaps deps on dst, and POSTs.
+func PolicyCopy(src, dst SessionRef, opts Opts, spec PolicyCopySpec, logger *slog.Logger) (*PolicyCreateOutcome, error) {
 	if spec.SourcePolicyID <= 0 {
 		return nil, fmt.Errorf("policy_id must be positive")
 	}
@@ -140,7 +140,20 @@ func PolicyCopy(srcCred, dstCred string, opts Opts, spec PolicyCopySpec, logger 
 	if name == "" {
 		return nil, fmt.Errorf("policy name is required")
 	}
-	policyXML, err := PolicyFetchXML(srcCred, spec.SourcePolicyID)
+	src, err := ResolveSessionRef(src, OpClassic)
+	if err != nil {
+		return nil, err
+	}
+	dst, err = ResolveSessionRef(dst, OpMutate)
+	if err != nil {
+		return nil, err
+	}
+	var policyXML []byte
+	err = WithSessionRef(src, func(pin string) error {
+		var fetchErr error
+		policyXML, fetchErr = PolicyFetchXML(pin, spec.SourcePolicyID)
+		return fetchErr
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +166,7 @@ func PolicyCopy(srcCred, dstCred string, opts Opts, spec PolicyCopySpec, logger 
 	if err != nil {
 		return nil, err
 	}
-	prepared, err = RemapPolicyDepsOnDest(srcCred, dstCred, prepared, spec.CategoryID, logger)
+	prepared, err = RemapPolicyDepsOnDest(src, dst, prepared, spec.CategoryID, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -165,15 +178,34 @@ func PolicyCopy(srcCred, dstCred string, opts Opts, spec PolicyCopySpec, logger 
 	}
 	optsCopy := opts
 	optsCopy.SkipConfirm = true
-	return PolicyPostXML(dstCred, optsCopy, prepared, name, logger)
+	var out *PolicyCreateOutcome
+	err = WithSessionRef(dst, func(pin string) error {
+		var postErr error
+		out, postErr = PolicyPostXML(pin, optsCopy, prepared, name, logger)
+		return postErr
+	})
+	return out, err
 }
 
-// PolicyMigrate fetches from srcCred and upserts on dstCred by name (or trigger_other).
-func PolicyMigrate(srcCred, dstCred string, opts Opts, spec PolicyMigrateSpec, logger *slog.Logger) (*PolicyMigrateOutcome, error) {
+// PolicyMigrate fetches from src and upserts on dst by name (or trigger_other).
+func PolicyMigrate(src, dst SessionRef, opts Opts, spec PolicyMigrateSpec, logger *slog.Logger) (*PolicyMigrateOutcome, error) {
 	if spec.SourcePolicyID <= 0 {
 		return nil, fmt.Errorf("policy_id must be positive")
 	}
-	policyXML, err := PolicyFetchXML(srcCred, spec.SourcePolicyID)
+	src, err := ResolveSessionRef(src, OpClassic)
+	if err != nil {
+		return nil, err
+	}
+	dst, err = ResolveSessionRef(dst, OpMutate)
+	if err != nil {
+		return nil, err
+	}
+	var policyXML []byte
+	err = WithSessionRef(src, func(pin string) error {
+		var fetchErr error
+		policyXML, fetchErr = PolicyFetchXML(pin, spec.SourcePolicyID)
+		return fetchErr
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +213,7 @@ func PolicyMigrate(srcCred, dstCred string, opts Opts, spec PolicyMigrateSpec, l
 	if err != nil {
 		return nil, err
 	}
-	prepared, err = RemapPolicyDepsOnDest(srcCred, dstCred, prepared, spec.CategoryID, logger)
+	prepared, err = RemapPolicyDepsOnDest(src, dst, prepared, spec.CategoryID, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +226,13 @@ func PolicyMigrate(srcCred, dstCred string, opts Opts, spec PolicyMigrateSpec, l
 	}
 	optsCopy := opts
 	optsCopy.SkipConfirm = true
-	return PolicyUpsertPrepared(dstCred, optsCopy, prepared, name, spec.MatchTrigger, logger)
+	var out *PolicyMigrateOutcome
+	err = WithSessionRef(dst, func(pin string) error {
+		var upErr error
+		out, upErr = PolicyUpsertPrepared(pin, optsCopy, prepared, name, spec.MatchTrigger, logger)
+		return upErr
+	})
+	return out, err
 }
 
 // PolicyUpsertPrepared upserts already-prepared policy XML on credName (PUT if match exists, else POST).

@@ -15,7 +15,7 @@ How to edit Jamf macOS configuration profile payloads with buddy — without inv
 
 **Create / clone / copy**
 
-1. Prefer **`profile_clone`** (same tenant) or **`profile_copy`** (`from_tenant`/`from_auth` → destination `tenant`/`auth`) — buddy randomizes general + PayloadUUID values and sets unassigned scope by default.
+1. Prefer **`profile_clone`** (same tenant) or **`profile_copy`** (`tenant`/`auth` = source; `to_tenant`/`to_auth` = destination) — buddy randomizes general + PayloadUUID values and sets unassigned scope by default.
 2. Or offline: `profile_xml_prepare_for_create` → `profile_create_xml`.
 3. Or greenfield: `profile_create` with `payloads_set_content` / `content`.
 
