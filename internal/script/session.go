@@ -163,6 +163,7 @@ func (s *Session) Eval(filename, src string) EvalResult {
 	}()
 
 	src = strings.TrimSpace(src)
+	src = stripTrailingNoise(src)
 	if src == "" {
 		return EvalResult{}
 	}
@@ -189,13 +190,7 @@ func (s *Session) Eval(filename, src string) EvalResult {
 		return out
 	}
 
-	var lastExpr syntax.Expr
-	if n := len(f.Stmts); n > 0 {
-		if es, ok := f.Stmts[n-1].(*syntax.ExprStmt); ok {
-			lastExpr = es.X
-			f.Stmts = f.Stmts[:n-1]
-		}
-	}
+	lastExpr := peelLastExpr(f)
 
 	if len(f.Stmts) > 0 {
 		if err := starlark.ExecREPLChunk(f, s.thread, s.globals); err != nil {

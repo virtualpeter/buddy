@@ -86,7 +86,7 @@ const docsTmplSrc = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Title}} · buddy</title>
+<title>buddy docs</title>
 {{chromeHead}}
 <style>
 body {
@@ -170,6 +170,7 @@ pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow
   </aside>
 </div>
 <script>
+try { sessionStorage.setItem('buddy-serve-docs-last', '{{.ActiveID}}'); } catch (e) {}
 const hits = document.getElementById('hits');
 const q = document.getElementById('q');
 let t = null;

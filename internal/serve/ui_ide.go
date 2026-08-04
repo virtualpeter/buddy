@@ -244,6 +244,41 @@ function setPath(p) {
 function markDirty(d) {
   state.dirty = !!d;
   document.getElementById("path").classList.toggle("dirty", state.dirty);
+  scheduleDraftSave();
+}
+
+const IDE_DRAFT_KEY = "buddy-serve-ide-draft";
+let draftSaveTimer = null;
+function collectDraft() {
+  return {
+    source: document.getElementById("editor").value,
+    path: state.path || "",
+    args: document.getElementById("args").value,
+    dirty: !!state.dirty,
+    trace: document.getElementById("trace").checked,
+  };
+}
+function saveDraft() {
+  buddyServeStore.set(IDE_DRAFT_KEY, collectDraft());
+}
+function scheduleDraftSave() {
+  clearTimeout(draftSaveTimer);
+  draftSaveTimer = setTimeout(saveDraft, 200);
+}
+function restoreDraft() {
+  const d = buddyServeStore.get(IDE_DRAFT_KEY);
+  if (!d || typeof d !== "object") return false;
+  if (typeof d.source === "string") document.getElementById("editor").value = d.source;
+  if (typeof d.args === "string") document.getElementById("args").value = d.args;
+  if (typeof d.trace === "boolean") document.getElementById("trace").checked = d.trace;
+  state.dirty = !!d.dirty;
+  if (typeof d.path === "string" && d.path) {
+    setPath(d.path);
+  } else {
+    document.getElementById("path").classList.toggle("dirty", state.dirty);
+  }
+  saveDraft();
+  return true;
 }
 
 function parseArgs(raw) {
@@ -587,16 +622,9 @@ document.querySelector(".editor-wrap").addEventListener("mousedown", (e) => {
 });
 document.getElementById("editor").addEventListener("input", () => markDirty(true));
 document.getElementById("editor").addEventListener("keydown", (e) => {
-  // Keep Tab in the buffer instead of moving focus.
-  if (e.key === "Tab" && !e.metaKey && !e.ctrlKey && !e.altKey) {
-    e.preventDefault();
-    const ta = e.target;
-    const start = ta.selectionStart, end = ta.selectionEnd;
-    ta.value = ta.value.slice(0, start) + "\t" + ta.value.slice(end);
-    ta.selectionStart = ta.selectionEnd = start + 1;
-    markDirty(true);
-  }
+  if (buddyServeSoftTab(e.target, e)) markDirty(true);
 });
+document.getElementById("args").addEventListener("input", () => scheduleDraftSave());
 document.getElementById("dlg-form").addEventListener("submit", (ev) => {
   onDlgSubmit(ev).catch(e => setStatus(e.message));
 });
@@ -604,6 +632,7 @@ document.getElementById("auth").addEventListener("change", () => {
   ensureSession(true).catch(e => setStatus(e.message));
 });
 document.getElementById("trace").addEventListener("change", () => {
+  scheduleDraftSave();
   applyConfig().catch(e => setStatus(e.message));
 });
 document.querySelectorAll(".out-tabs button").forEach(btn => {
@@ -628,7 +657,9 @@ document.addEventListener("keydown", (e) => {
     openFile().catch(err => setStatus(err.message));
   }
 });
+window.addEventListener("beforeunload", () => saveDraft());
 
+restoreDraft();
 loadCreds().then(() => ensureSession(true)).then(() => focusEditor()).catch(e => setStatus(e.message));
 </script>
 ` + chromeToggleScript() + `

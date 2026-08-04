@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 
 	"buddy/internal/buddy"
 
@@ -120,18 +121,13 @@ func RunSource(credName string, opts buddy.Opts, source string, args []string, l
 		GlobalReassign:  true,
 	}
 	const filename = "<eval>"
+	source = stripTrailingNoise(strings.TrimSpace(source))
 	f, err := fileOpts.Parse(filename, source, 0)
 	if err != nil {
 		return err
 	}
 
-	var lastExpr syntax.Expr
-	if n := len(f.Stmts); n > 0 {
-		if es, ok := f.Stmts[n-1].(*syntax.ExprStmt); ok {
-			lastExpr = es.X
-			f.Stmts = f.Stmts[:n-1]
-		}
-	}
+	lastExpr := peelLastExpr(f)
 
 	if len(f.Stmts) > 0 {
 		if err := starlark.ExecREPLChunk(f, thread, globals); err != nil {

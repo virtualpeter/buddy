@@ -59,6 +59,7 @@ textarea {
   width: 100%; min-height: 5.5rem; resize: vertical;
   border: 0; padding: .75rem; background: var(--code-bg); color: var(--ink);
   font: inherit; line-height: 1.45;
+  tab-size: 4;
 }
 html[data-theme="light"] textarea { color: var(--code-fg); }
 .out {
@@ -163,6 +164,21 @@ let cells = [];
 let focusedTa = null;
 let libCache = {};
 let authCatalog = [];
+const NB_DRAFT_KEY = 'buddy-serve-notebook-draft';
+let draftSaveTimer = null;
+
+function collectNotebookDraft() {
+  return {
+    cells: cells.map(c => ({ source: c.el.querySelector('textarea').value }))
+  };
+}
+function saveNotebookDraft() {
+  buddyServeStore.set(NB_DRAFT_KEY, collectNotebookDraft());
+}
+function scheduleNotebookDraftSave() {
+  clearTimeout(draftSaveTimer);
+  draftSaveTimer = setTimeout(saveNotebookDraft, 200);
+}
 
 async function ensureSession() {
   if (sessionId) return sessionId;
@@ -266,10 +282,19 @@ function addCell(src='') {
   const ta = wrap.querySelector('textarea');
   ta.value = src;
   ta.addEventListener('focus', () => { focusedTa = ta; });
+  ta.addEventListener('input', () => scheduleNotebookDraftSave());
+  ta.addEventListener('keydown', (e) => {
+    if (buddyServeSoftTab(ta, e)) scheduleNotebookDraftSave();
+  });
   wrap.querySelector('.run').onclick = () => runCell(wrap, id);
-  wrap.querySelector('.rm').onclick = () => { wrap.remove(); cells = cells.filter(c => c.el !== wrap); };
+  wrap.querySelector('.rm').onclick = () => {
+    wrap.remove();
+    cells = cells.filter(c => c.el !== wrap);
+    scheduleNotebookDraftSave();
+  };
   document.getElementById('cells').appendChild(wrap);
   cells.push({id, el: wrap});
+  scheduleNotebookDraftSave();
   return wrap;
 }
 
@@ -313,6 +338,7 @@ function insertAtCursor(text) {
   const pos = (before + pad + text).length;
   ta.selectionStart = ta.selectionEnd = pos;
   focusedTa = ta;
+  scheduleNotebookDraftSave();
 }
 
 async function fetchLibrary(id) {
@@ -435,10 +461,16 @@ document.getElementById('toggleLibs').onclick = (e) => {
 document.getElementById('libSearch').addEventListener('input', () => {
   if (document.getElementById('layout').classList.contains('libs-open')) renderLibraries();
 });
+window.addEventListener('beforeunload', () => saveNotebookDraft());
 
 (async () => {
   await loadCreds();
-  addCell('print("buddy notebook ready")\nerror("stderr demo")\n1 + 1');
+  const draft = buddyServeStore.get(NB_DRAFT_KEY);
+  if (draft && Array.isArray(draft.cells) && draft.cells.length) {
+    draft.cells.forEach(c => addCell(typeof c.source === 'string' ? c.source : ''));
+  } else {
+    addCell('print("buddy notebook ready")\nerror("stderr demo")\n1 + 1');
+  }
 })();
 </script>
 ` + chromeToggleScript() + `

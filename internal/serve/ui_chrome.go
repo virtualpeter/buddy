@@ -145,21 +145,134 @@ const chromeThemeToggleJS = `(function(){
   }catch(e){}
 })();`
 
+// sessionStorage helpers for IDE/notebook drafts and last-docs id.
+const chromePersistHelpersJS = `(function(){
+  window.buddyServeStore = {
+    get: function(k){ try{ var v=sessionStorage.getItem(k); return v?JSON.parse(v):null; }catch(e){ return null; } },
+    set: function(k,v){ try{ sessionStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
+    getStr: function(k){ try{ return sessionStorage.getItem(k); }catch(e){ return null; } },
+    setStr: function(k,v){ try{ sessionStorage.setItem(k, v); }catch(e){} }
+  };
+})();`
+
+// Rewrite chrome /docs/ links to the last viewed docs page (runs after header is in DOM).
+const chromeDocsLinkRewriteJS = `(function(){
+  try {
+    var id = window.buddyServeStore && window.buddyServeStore.getStr('buddy-serve-docs-last');
+    if (id) {
+      document.querySelectorAll('a[href="/docs/"]').forEach(function(a){
+        a.setAttribute('href', '/docs/' + id);
+      });
+    }
+  } catch(e){}
+})();`
+
+// Focus an existing named surface tab without navigating (preserves scroll/editor state).
+// First visit still opens via href. Modifier/middle-clicks keep browser default.
+const chromeNamedTabFocusJS = `(function(){
+  function isBlank(w){
+    try {
+      var h = w.location.href;
+      return !h || h === 'about:blank';
+    } catch(e) { return false; }
+  }
+  function openOrFocus(name, href){
+    if (window.name === name) return;
+    var w = null;
+    try { w = window.open('', name); } catch(e) { w = null; }
+    if (!w) {
+      window.open(href, name);
+      return;
+    }
+    try {
+      if (w.closed) {
+        window.open(href, name);
+        return;
+      }
+      if (isBlank(w)) w.location.href = href;
+      try { w.focus(); } catch(e){}
+    } catch(e) {
+      window.open(href, name);
+    }
+  }
+  document.querySelectorAll('a[target^="buddy-"]').forEach(function(a){
+    a.addEventListener('click', function(e){
+      if (e.defaultPrevented || e.button !== 0) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      var name = a.getAttribute('target');
+      var href = a.getAttribute('href');
+      if (!name || !href) return;
+      e.preventDefault();
+      openOrFocus(name, href);
+    });
+  });
+})();`
+
+// Soft Tab/Shift+Tab: insert or remove 4 spaces (shared by IDE + notebook textareas).
+const chromeSoftTabJS = `(function(){
+  var INDENT = '    ';
+  function lineStart(s, i){ while(i>0 && s[i-1]!=='\n') i--; return i; }
+  function lineEnd(s, i){ while(i<s.length && s[i]!=='\n') i++; return i; }
+  window.buddyServeSoftTab = function(ta, e){
+    if (e.key !== 'Tab' || e.metaKey || e.ctrlKey || e.altKey) return false;
+    e.preventDefault();
+    var start = ta.selectionStart, end = ta.selectionEnd, val = ta.value;
+    if (e.shiftKey) {
+      var ls = lineStart(val, start);
+      var le = end > start && val[end-1]==='\n' ? end-1 : end;
+      le = lineEnd(val, le);
+      var block = val.slice(ls, le);
+      var removedFirst = 0, totalRemoved = 0;
+      var out = block.split('\n').map(function(line, idx){
+        var n = 0;
+        while (n < INDENT.length && line[n]===' ') n++;
+        if (idx===0) removedFirst = n;
+        totalRemoved += n;
+        return line.slice(n);
+      }).join('\n');
+      ta.value = val.slice(0, ls) + out + val.slice(le);
+      ta.selectionStart = Math.max(ls, start - removedFirst);
+      ta.selectionEnd = Math.max(ta.selectionStart, end - totalRemoved);
+    } else if (start === end) {
+      ta.value = val.slice(0, start) + INDENT + val.slice(end);
+      ta.selectionStart = ta.selectionEnd = start + INDENT.length;
+    } else {
+      var ls2 = lineStart(val, start);
+      var le2 = end > start && val[end-1]==='\n' ? end-1 : end;
+      le2 = lineEnd(val, le2);
+      var block2 = val.slice(ls2, le2);
+      var lines = block2.split('\n');
+      var out2 = lines.map(function(line){ return INDENT + line; }).join('\n');
+      ta.value = val.slice(0, ls2) + out2 + val.slice(le2);
+      ta.selectionStart = ls2;
+      ta.selectionEnd = ls2 + out2.length;
+    }
+    return true;
+  };
+})();`
+
 // chromeHeader builds the shared sticky top bar.
 // active is "docs", "notebook", or "ide".
 // sessionHTML typically holds tenant/user selects; actionsHTML page controls;
 // runHTML the primary run button (placed before the dark toggle).
+// Nav/brand links use named browsing contexts (target="buddy-*") so each
+// surface opens or focuses its own browser tab instead of replacing the current one.
 func chromeHeader(active, sessionHTML, actionsHTML, runHTML string) string {
 	nav := func(id, href, label string) string {
 		cls := ""
 		if id == active {
 			cls = ` class="active"`
 		}
-		return `<a href="` + href + `"` + cls + `>` + label + `</a>`
+		return `<a href="` + href + `" target="buddy-` + id + `"` + cls + `>` + label + `</a>`
 	}
 	var b strings.Builder
+	// Claim this tab's name so later chrome clicks from another surface find it
+	// even if the tab was opened via URL/bookmark rather than a named target.
+	if active == "docs" || active == "notebook" || active == "ide" {
+		b.WriteString(`<script>window.name="buddy-` + active + `";</script>`)
+	}
 	b.WriteString(`<header class="app-header">`)
-	b.WriteString(`<div class="brand"><a href="/docs/">buddy</a></div>`)
+	b.WriteString(`<div class="brand"><a href="/docs/" target="buddy-docs">buddy</a></div>`)
 	b.WriteString(`<nav class="app-nav">`)
 	b.WriteString(nav("docs", "/docs/", "docs"))
 	b.WriteString(nav("notebook", "/notebook", "notebook"))
@@ -181,9 +294,14 @@ func chromeHeader(active, sessionHTML, actionsHTML, runHTML string) string {
 }
 
 func chromeHeadTags() string {
-	return `<script>` + chromeThemeBootJS + `</script>` + "\n<style>\n" + chromeCSS + "\n</style>\n"
+	return `<script>` + chromeThemeBootJS + `</script>` +
+		`<script>` + chromePersistHelpersJS + `</script>` +
+		`<script>` + chromeSoftTabJS + `</script>` +
+		"\n<style>\n" + chromeCSS + "\n</style>\n"
 }
 
 func chromeToggleScript() string {
-	return `<script>` + chromeThemeToggleJS + `</script>`
+	return `<script>` + chromeThemeToggleJS + `</script>` +
+		`<script>` + chromeDocsLinkRewriteJS + `</script>` +
+		`<script>` + chromeNamedTabFocusJS + `</script>`
 }
