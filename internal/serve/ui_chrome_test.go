@@ -133,6 +133,9 @@ func TestDocsTemplateHasChrome(t *testing.T) {
 	if strings.Contains(docsTmplSrc, "{{.Title}} · buddy") {
 		t.Fatal("docs should not change browser tab title per section")
 	}
+	if !strings.Contains(docsTmplSrc, "Try it") || !strings.Contains(docsTmplSrc, "buddy-serve-ide-try") {
+		t.Fatal("docs should offer Try it → IDE handoff")
+	}
 	if !strings.Contains(docsTmplSrc, "side-nav") {
 		t.Fatal("docs should use side-nav class")
 	}
@@ -162,7 +165,13 @@ func TestChromePersistAndSoftTab(t *testing.T) {
 	if !strings.Contains(foot, `window.open('', name)`) {
 		t.Error("named tab focus should open('', name) to avoid reloading existing tabs")
 	}
+	if !strings.Contains(foot, `buddyServeOpenOrFocus`) {
+		t.Error("named tab focus should expose buddyServeOpenOrFocus")
+	}
 	if !strings.Contains(foot, `a[target^="buddy-"]`) {
 		t.Error("named tab focus should intercept buddy-* target links")
+	}
+	if !strings.Contains(ideHTML, `buddy-serve-ide-try`) || !strings.Contains(ideHTML, `buddy-ide-try`) {
+		t.Error("ide should consume docs Try it payloads")
 	}
 }

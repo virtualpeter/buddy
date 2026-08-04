@@ -129,6 +129,15 @@ main > h1:first-child { margin-top: 0; }
 h1,h2,h3 { line-height: 1.25; }
 pre, code { font-family: var(--mono); font-size: .88em; }
 pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow: auto; border-radius: 4px; }
+.code-try { position: relative; margin: 0 0 1.15rem; }
+.code-try > pre { margin: 0; padding-top: 2.1rem; }
+.code-try .try-it {
+  position: absolute; top: .45rem; right: .45rem; z-index: 1;
+  font: inherit; font-family: var(--mono); font-size: .72rem;
+  padding: .25rem .55rem; border-radius: 4px; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink); border: 0; font-weight: 600;
+}
+.code-try .try-it:hover { filter: brightness(1.08); }
 .search, .page-filter {
   width: 100%; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 4px;
   font: inherit; font-family: var(--mono); margin: 0 0 1rem;
@@ -244,6 +253,47 @@ if (pageFilter) {
 }
 </script>
 {{chromeToggle}}
+<script>
+(function(){
+  const TRY_KEY = 'buddy-serve-ide-try';
+  function isTryableScript(text) {
+    const t = (text || '').trim();
+    if (t.length < 8) return false;
+    const first = (t.split('\n').find(l => l.trim()) || '').trim();
+    if (/^(buddy\s|\$\s|curl\s|make\s|npm\s|go\s)/.test(first) && !/\bdef\s/.test(first)) return false;
+    if (first.startsWith('{') || first.startsWith('[')) return false;
+    return /\bdef\s+\w+\s*\(/.test(t)
+      || /\bload\s*\(/.test(t)
+      || /#!\/usr\/bin\/env\s+buddy/.test(t)
+      || /\b(plan_change|run_change|change_batch|prefs_payload|pppc_fda)\s*\(/.test(t);
+  }
+  function tryInIde(source) {
+    try { localStorage.setItem(TRY_KEY, JSON.stringify({ source: source, t: Date.now() })); } catch (e) {}
+    const msg = { type: 'buddy-ide-try', source: source };
+    if (typeof buddyServeOpenOrFocus === 'function') {
+      buddyServeOpenOrFocus('buddy-ide', '/ide', msg);
+    } else {
+      window.open('/ide', 'buddy-ide');
+    }
+  }
+  document.querySelectorAll('main pre').forEach(pre => {
+    if (pre.closest('.code-try')) return;
+    const src = pre.textContent || '';
+    if (!isTryableScript(src)) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'code-try';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'try-it';
+    btn.textContent = 'Try it';
+    btn.title = 'Open this example in the IDE';
+    btn.addEventListener('click', () => tryInIde(src.replace(/\n$/, '')));
+    wrap.appendChild(btn);
+  });
+})();
+</script>
 </body>
 </html>
 `

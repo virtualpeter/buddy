@@ -604,6 +604,42 @@ async function loadCreds() {
   });
 }
 
+function loadTrySource(source) {
+  if (typeof source !== "string") return false;
+  document.getElementById("editor").value = source;
+  state.fileHandle = null;
+  state.localOnly = false;
+  state.path = "";
+  setPath("");
+  markDirty(true);
+  setStatus("loaded from docs");
+  focusEditor();
+  return true;
+}
+
+const TRY_KEY = "buddy-serve-ide-try";
+function consumeTryPayload() {
+  let raw = null;
+  try { raw = localStorage.getItem(TRY_KEY); } catch (_) {}
+  if (!raw) return false;
+  try { localStorage.removeItem(TRY_KEY); } catch (_) {}
+  try {
+    const d = JSON.parse(raw);
+    if (d && typeof d.source === "string") return loadTrySource(d.source);
+  } catch (_) {}
+  return false;
+}
+
+window.addEventListener("message", (e) => {
+  if (e.origin !== location.origin) return;
+  if (!e.data || e.data.type !== "buddy-ide-try") return;
+  loadTrySource(e.data.source);
+});
+window.addEventListener("storage", (e) => {
+  if (e.key !== TRY_KEY || !e.newValue) return;
+  consumeTryPayload();
+});
+
 document.getElementById("btn-run").onclick = () => run();
 document.getElementById("btn-reset").onclick = () => resetSession().catch(e => setStatus(e.message));
 document.getElementById("btn-open").onclick = () => openFile().catch(e => setStatus(e.message));
@@ -660,6 +696,7 @@ document.addEventListener("keydown", (e) => {
 window.addEventListener("beforeunload", () => saveDraft());
 
 restoreDraft();
+consumeTryPayload(); // docs "Try it" wins over restored draft when present
 loadCreds().then(() => ensureSession(true)).then(() => focusEditor()).catch(e => setStatus(e.message));
 </script>
 ` + chromeToggleScript() + `

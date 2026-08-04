@@ -169,6 +169,7 @@ const chromeDocsLinkRewriteJS = `(function(){
 
 // Focus an existing named surface tab without navigating (preserves scroll/editor state).
 // First visit still opens via href. Modifier/middle-clicks keep browser default.
+// Optional msg is postMessage'd to an already-open tab (same-origin).
 const chromeNamedTabFocusJS = `(function(){
   function isBlank(w){
     try {
@@ -176,25 +177,32 @@ const chromeNamedTabFocusJS = `(function(){
       return !h || h === 'about:blank';
     } catch(e) { return false; }
   }
-  function openOrFocus(name, href){
-    if (window.name === name) return;
+  window.buddyServeOpenOrFocus = function(name, href, msg){
+    if (window.name === name) {
+      if (msg) try { window.postMessage(msg, window.location.origin); } catch(e){}
+      return window;
+    }
     var w = null;
     try { w = window.open('', name); } catch(e) { w = null; }
     if (!w) {
-      window.open(href, name);
-      return;
+      w = window.open(href, name);
+      return w;
     }
     try {
       if (w.closed) {
-        window.open(href, name);
-        return;
+        return window.open(href, name);
       }
-      if (isBlank(w)) w.location.href = href;
+      if (isBlank(w)) {
+        w.location.href = href;
+      } else if (msg) {
+        try { w.postMessage(msg, window.location.origin); } catch(e){}
+      }
       try { w.focus(); } catch(e){}
     } catch(e) {
-      window.open(href, name);
+      return window.open(href, name);
     }
-  }
+    return w;
+  };
   document.querySelectorAll('a[target^="buddy-"]').forEach(function(a){
     a.addEventListener('click', function(e){
       if (e.defaultPrevented || e.button !== 0) return;
@@ -203,7 +211,7 @@ const chromeNamedTabFocusJS = `(function(){
       var href = a.getAttribute('href');
       if (!name || !href) return;
       e.preventDefault();
-      openOrFocus(name, href);
+      window.buddyServeOpenOrFocus(name, href);
     });
   });
 })();`
