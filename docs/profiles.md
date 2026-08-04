@@ -36,4 +36,4 @@ def main():
 - [Profile payloads](profile-payloads.md) — dissect / assemble
 - [Categories](categories.md) — category remap on copy
 - [API endpoints](api-endpoints.md) — Configuration Profiles + ACS
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

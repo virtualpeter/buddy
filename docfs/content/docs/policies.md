@@ -36,7 +36,7 @@ Recommended migrate order: [categories](categories.md) → [scripts](scripts.md)
 | `policy_put_xml` / `policy_create` / `policy_delete` | XML / lifecycle |
 | `policy_copy` / `policy_migrate` | Cross-session copy / upsert |
 
-Full signatures: [Starlark builtins](/docs/builtins) (`buddy help builtins`). Endpoints: [api-endpoints.md](api-endpoints.md).
+Full signatures: [Function index](/docs/builtins) (`buddy help builtins`). Endpoints: [api-endpoints.md](api-endpoints.md).
 
 ```python
 def main():

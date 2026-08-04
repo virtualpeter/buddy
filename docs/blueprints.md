@@ -28,4 +28,4 @@ def main():
 - [Platform devices](devices.md), [device groups](device-groups.md)
 - [API endpoints](api-endpoints.md) — Blueprints
 - [MCP](mcp.md) — Platform builtin notes
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

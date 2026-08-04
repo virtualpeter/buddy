@@ -19,7 +19,8 @@ func TestLoadHumanEmbedded(t *testing.T) {
 		"docs/computers", "docs/mdm", "docs/api-roles", "docs/api-clients",
 		"docs/blueprints", "docs/devices", "docs/device-groups", "docs/ddm", "docs/benchmarks",
 		"docs/reference-manual", "docs/change-batches", "docs/api-endpoints",
-		"docs/mcp", "docs/mcp-tools", "docs/profile-payloads", "docs/editor", "builtins",
+		"docs/mcp", "docs/mcp-tools", "docs/profile-payloads", "docs/editor",
+		"docs/buddyscript", "docs/buddyscript-syntax", "docs/buddyscript-stdlib", "builtins",
 		"examples/bump-release.buddy", "examples/change-batch-santa.buddy",
 		"examples/setup-app-classic.buddy",
 		"examples/README.md", "examples/mcp.json",
@@ -44,7 +45,7 @@ func TestLoadHumanEmbedded(t *testing.T) {
 		}
 	}
 	secs := NavSections(res.Pages)
-	wantSec := map[string]bool{"Start here": true, "Resources": true, "Platform": true, "Guides": true}
+	wantSec := map[string]bool{"Start here": true, "Resources": true, "Platform": true, "BuddyScript": true, "Guides": true}
 	for s := range wantSec {
 		found := false
 		for _, got := range secs {
@@ -56,6 +57,10 @@ func TestLoadHumanEmbedded(t *testing.T) {
 		if !found {
 			t.Errorf("missing nav section %q in %v", s, secs)
 		}
+	}
+	bi := ByID(res.Pages, "builtins")
+	if bi == nil || bi.Title != "Function index" || bi.Section != "BuddyScript" {
+		t.Fatalf("builtins page want Function index / BuddyScript, got %+v", bi)
 	}
 }
 

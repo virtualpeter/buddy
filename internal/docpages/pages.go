@@ -186,9 +186,17 @@ var curatedDocEntries = []curatedDoc{
 	{"docs/benchmarks", "Compliance benchmarks", "Platform", "benchmarks.md",
 		[]string{"benchmark", "benchmarks", "compliance", "baseline", "baselines"}},
 
+	// BuddyScript — language guide (function index appended as builtins page)
+	{"docs/buddyscript", "Overview", "BuddyScript", "buddyscript.md",
+		[]string{"buddyscript", "starlark", "script", "main", "shell", "notebook", "ide"}},
+	{"docs/buddyscript-syntax", "Syntax", "BuddyScript", "buddyscript-syntax.md",
+		[]string{"syntax", "starlark", "python", "types", "load", "spec"}},
+	{"docs/buddyscript-stdlib", "Stdlib", "BuddyScript", "buddyscript-stdlib.md",
+		[]string{"stdlib", "load", "bump_release", "setup_app_classic", "release"}},
+
 	// Guides — cross-cutting
 	{"docs/reference-manual", "Reference manual", "Guides", "reference-manual.md",
-		[]string{"config", "credentials", "cli", "starlark", "install"}},
+		[]string{"config", "credentials", "cli", "starlark", "buddyscript", "install"}},
 	{"docs/change-batches", "Change batches", "Guides", "change-batches.md",
 		[]string{"change", "batch", "batches", "plan_change", "run_change", "step_", "release", "bump"}},
 	{"docs/api-endpoints", "API endpoints", "Guides", "api-endpoints.md",
@@ -397,15 +405,15 @@ func loadAgentFromEmbedded() ([]Page, error) {
 func builtinsPage() Page {
 	return Page{
 		ID:      "builtins",
-		Title:   "Starlark builtins",
-		Section: "Starlark",
+		Title:   "Function index",
+		Section: "BuddyScript",
 		Markdown: help.BuiltinsMarkdown(),
 		Source:  "builtin:help.BuiltinsMarkdown",
 		Keywords: []string{
 			"policy", "policies", "smart_group", "static_group", "profile", "package",
 			"script", "category", "computer", "mdm", "role", "client",
 			"blueprint", "device", "device_group", "ddm", "benchmark",
-			"builtin", "builtins", "starlark",
+			"builtin", "builtins", "starlark", "buddyscript", "function", "index",
 		},
 	}
 }

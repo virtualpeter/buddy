@@ -1,9 +1,9 @@
 ---
-description: Starlark builtin naming and argument order for buddy
+description: buddyscript builtin naming and argument order for buddy
 alwaysApply: true
 ---
 
-# Buddy Starlark builtin conventions
+# BuddyScript builtin conventions
 
 When adding or changing builtins in `internal/script/builtins.go` / `builtins_v3.go`, follow these rules.
 
@@ -37,7 +37,7 @@ When adding or changing builtins in `internal/script/builtins.go` / `builtins_v3
 
 ## Pagination (list builtins)
 
-Jamf collection list APIs that support `page` / `page-size` use this pattern on Starlark list builtins:
+Jamf collection list APIs that support `page` / `page-size` use this pattern on buddyscript list builtins:
 
 - `page?` (int, 0-based): when **omitted**, fetch **all** pages and return the combined result.
 - `page_size?` (int): defaults to 200 when omitted or ≤ 0.
@@ -61,7 +61,7 @@ Local filesystem helpers return bare values like other builtins (raise on failur
 
 ## Print / diagnostics
 
-- Starlark `print()` is wired to **stdout** (`thread.Print` in `internal/script/script.go`).
+- buddyscript `print()` is wired to **stdout** (`thread.Print` in `internal/script/script.go`).
 - Buddy adds **`error(*args, sep=...)`** — same behavior as `print` but writes to **stderr** (`errorBuiltin` in `builtins.go`).
 - **`confirm(msg?, default?, yes?, no?)`** — returns `bool` (`True`/`False`); prompts `"<msg> [y/N]:"` on stdin (msg defaults to `"Proceed?"`). `yes`/`no` are the accept tokens (default `"y"`/`"n"`); `default` is which Enter selects (defaults to `no`). Capitalization in the hint marks the default (`[confirm/ABORT]`). Invalid input re-prompts. If the process was started with global **`-y`**, returns `True` without reading stdin (`runnerOpts.SkipConfirm`).
 
@@ -210,8 +210,8 @@ array. They return bare values and raise on failure.
 
 ## Policies — copy / upsert
 
-Typed MCP and Starlark expose CRUD plus cross-session copy. Fat release helpers
-(`policy_set_ss`, `policy_set_package`, …) stay on Starlark / scripts. Versioned
+Typed MCP and buddyscript expose CRUD plus cross-session copy. Fat release helpers
+(`policy_set_ss`, `policy_set_package`, …) stay on buddyscript / scripts. Versioned
 release bumps use change batches (`step_clone_policy` / `step_set_package`) or
 compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.
 
@@ -234,7 +234,7 @@ Recommended migrate order: `category_copy(..., upsert=True)` → `script_copy(..
 
 Profile helpers work with Jamf macOS configuration profiles and their embedded
 payload plists. They compose with `plist_decode` / `plist_encode` to let you
-edit payload dicts in Starlark.
+edit payload dicts in buddyscript.
 
 Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…)` /
 `profile(id=…)` (same XML) and `profile_put_xml` to load and save.

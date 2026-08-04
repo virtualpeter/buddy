@@ -10,7 +10,7 @@ How AI agents should use buddy MCP tools after the lean-surface cut.
 
 Do **not** invent Classic/Pro HTTP from `jamf_schema` when a named builtin already covers the job. Schema is for discovery; builtins encode Jamf quirks (pagination, READY polling, criteria vs membership, payload entity encoding, ACS).
 
-Typed per-resource MCP tools (smart/static groups, profiles, policies, packages READY/download, Platform CRUD, list stubs) were **removed** to cut host schema token cost. The same capabilities remain as Starlark builtins — lean MCP did **not** remove ACS/profile quirk handling.
+Typed per-resource MCP tools (smart/static groups, profiles, policies, packages READY/download, Platform CRUD, list stubs) were **removed** to cut host schema token cost. The same capabilities remain as buddyscript builtins — lean MCP did **not** remove ACS/profile quirk handling.
 
 ---
 
@@ -61,9 +61,9 @@ Hosts may also connect Jamf’s remote MCP at `https://developer.jamf.com/mcp` (
 | `jamf_schema` | Endpoint discovery only |
 | `buddyscript` | **Primary** automation (all Pro + Platform builtins) |
 
-### Starlark return contract
+### buddyscript return contract
 
-- **Inside Starlark:** builtins return **bare values**; failures **raise**. No `{ok, value, error}` ceremony; do not use `unwrap` for correctness.
+- **In buddyscript:** builtins return **bare values**; failures **raise**. No `{ok, value, error}` ceremony; do not use `unwrap` for correctness.
 - **MCP tool boundary only:** `buddyscript` returns `{ok, value: {stdout, stderr, result, error}}`.
 - **`unwrap`** is optional JSON-print for CLI/`jq` (legacy envelopes still peel; `ok=false` raises).
 

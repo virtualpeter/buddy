@@ -12,7 +12,7 @@ Flags for 'serve':
 
 Notes:
   Serves a curated user docs UI (guides, builtins, examples) plus:
-  /notebook — REPL-style Starlark cells (explore builtins interactively)
+  /notebook — REPL-style buddyscript cells (explore builtins interactively)
   /ide      — Single-buffer script runner (open/save, args, trace, Run as file)
   Contributor/agent knowledge (AGENTS, Cursor rules) is
   embedded for MCP only — not listed in the HTML sidebar.
@@ -24,7 +24,7 @@ Notes:
   args from the form, optional builtin-call trace). Line breakpoints / stepping
   are not supported (Starlark-go has no pause API); a soft breakpoint() builtin
   may come later.
-  Starlark cells and IDE runs use the same builtins as the CLI. Interactive
+  buddyscript cells and IDE runs use the same builtins as the CLI. Interactive
   confirm() and Jamf mutate confirms open a dialog in the browser (not the
   serve terminal). Global -y / --yes skips confirms entirely. Notebook and IDE
   each use their own client channel (notebook / ide) with optional channels.*
@@ -96,7 +96,7 @@ Examples:
   buddy -y mcp setup --write --create --host=cursor
 `
 
-const helpLSP = `buddy lsp - Language server for buddy Starlark (.buddy)
+const helpLSP = `buddy lsp - Language server for buddyscript (.buddy)
 
 Usage:
   buddy lsp

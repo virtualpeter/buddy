@@ -124,7 +124,7 @@ MCP blocks Jamf token/keep-alive paths via `jamf_*` / `buddyscript` and refuses 
 
 ## Tools
 
-Lean surface (4 tools). Resource automation uses **named Starlark builtins** via `buddyscript` (see [reference manual](reference-manual.md#built-in-functions) or `buddy help builtins`). Full scorecard: [mcp-tools.md](mcp-tools.md).
+Lean surface (4 tools). Resource automation uses **named buddyscript builtins** via `buddyscript` (see [reference manual](reference-manual.md#built-in-functions) or `buddy help builtins`). Full scorecard: [mcp-tools.md](mcp-tools.md).
 
 | Tool | Returns `value` | Notes |
 |------|-----------------|-------|
@@ -141,7 +141,7 @@ MCP also exposes the **full agent knowledge** catalog as `buddy://docs/...` reso
 
 | URI | Content |
 |-----|---------|
-| `buddy://docs/builtins` | Starlark builtins (Markdown) |
+| `buddy://docs/builtins` | Function index (Markdown) |
 | `buddy://docs/docs/*` | User docs (getting started, reference, API, MCP, …) |
 | `buddy://docs/agents` | `AGENTS.md` (auth, secrets, contributor context) |
 | `buddy://docs/readme` | `README.md` |
@@ -177,7 +177,7 @@ On failure:
 
 **Why:** Some MCP hosts validate `structuredContent` as an object. Returning a raw list caused errors such as `expected record, received array`. List payloads always live under `value`, with optional `count`.
 
-Starlark builtins return bare values and raise on failure; the `{ok, value}` envelope is **MCP-only**.
+buddyscript builtins return bare values and raise on failure; the `{ok, value}` envelope is **MCP-only**.
 
 ### `buddy_info`
 
@@ -235,7 +235,7 @@ Read embedded buddy documentation and editor rules (same data as `buddy://docs/.
 | `list` (default) | optional `query` | `[{id, title, section, uri}, …]` |
 | `get` | `id` required | `{id, title, uri, markdown}` |
 
-- Prefer `docs` before inventing buddy CLI/Starlark conventions.
+- Prefer `docs` before inventing buddy CLI/buddyscript conventions.
 - Typical flow: `docs` with a **resource noun** (`query: "policy"`) or page id (`"builtins"`, `"agents"`), then `action: "get"` with the page `id` (e.g. `docs/policies`).
 - `query` is a case-insensitive substring on **id / title / section / keywords** (not full-text markdown body).
 - `id` may be a short id (`agents`, `builtins`, `docs/policies`) or a full `buddy://docs/…` URI (including legacy `….md` aliases).
@@ -249,7 +249,7 @@ Read embedded buddy documentation and editor rules (same data as `buddy://docs/.
 ### `buddyscript` tips
 
 - **Primary Jamf automation surface** — call named builtins here (groups, profiles, policies, Platform, …).
-- Inside Starlark, builtins return **bare values** and **raise** on failure. Do not use `unwrap` / `r["ok"]` for correctness; `unwrap` is optional JSON-print for CLI/`jq`.
+- In buddyscript, builtins return **bare values** and **raise** on failure. Do not use `unwrap` / `r["ok"]` for correctness; `unwrap` is optional JSON-print for CLI/`jq`.
 - MCP returns `{ok, value: {stdout, stderr, result, error}}`. **Primary output is `value.result`** (last expression or `main()` return). `stdout` is from `print` / `unwrap`; when `result` is set and `stdout` is empty, `result` is mirrored into `stdout`.
 - Prefer a **single expression**, or define `main()` **without** calling it and **without** a trailing top-level expression (MCP sets `CallMain`; a trailing expression skips `main`).
 - Top-level `if` / `for` outside a function is invalid Starlark—put control flow inside `main()`.

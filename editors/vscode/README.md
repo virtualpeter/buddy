@@ -1,6 +1,6 @@
-# Buddy Starlark (VS Code / Cursor)
+# BuddyScript (VS Code / Cursor)
 
-Thin editor client for buddy Starlark (`.buddy` files): syntax highlighting + LSP via `buddy lsp`.
+Thin editor client for buddyscript (`.buddy` files): syntax highlighting + LSP via `buddy lsp`.
 
 **Full howto** (build VSIX, install into Cursor/VS Code, settings, verify): see [docs/editor.md](https://github.com/virtualpeter/buddy/blob/main/docs/editor.md).
 

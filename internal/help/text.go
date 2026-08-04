@@ -5,9 +5,9 @@ package help
 const Root = `buddy - Jamf Pro management CLI
 
 Usage:
-  buddy [global-flags]                              Interactive Starlark shell
-  buddy [global-flags] <script.buddy> [-- args...]  Run a Starlark script (.buddy preferred; .star still works)
-  buddy [global-flags] -e <code> [-- args...]       Eval a Starlark one-liner
+  buddy [global-flags]                              Interactive buddyscript shell
+  buddy [global-flags] <script.buddy> [-- args...]  Run a buddyscript script (.buddy preferred; .star still works)
+  buddy [global-flags] -e <code> [-- args...]       Eval a buddyscript one-liner
   buddy [global-flags] <command> [subcommand] [args...]
   buddy help [command] [subcommand]
 
@@ -31,48 +31,48 @@ Commands:
   setup    basic-setup (first tenant/auth); write-script; store-oauth (instance)
   serve    Local docs + notebook + script IDE web UI
   mcp      MCP stdio server for AI tools (setup discovers host configs)
-  lsp      Language server for buddy Starlark (editor integration)
+  lsp      Language server for buddyscript (editor integration)
 
 Global flags:
   --version           Print version and exit
-  -e, --eval <code>   Run a Starlark snippet and exit (see 'buddy help shell')
+  -e, --eval <code>   Run a buddyscript snippet and exit (see 'buddy help shell')
   -y                  Skip confirmation prompts (buddy CLI and confirm() in scripts)
   -v, --verbose       Verbose output
   -t, --trace         Trace HTTP requests and responses to stderr (headers and bodies; Authorization/Cookie redacted)
-  --script-trace      Trace Starlark builtin calls and print() in scripts and the interactive shell
+  --script-trace      Trace buddyscript builtin calls and print() in scripts and the interactive shell
   --tenant <name>     Tenant from config (default: config.tenant); auto-picks auth
   --user <name>       Pin an auth name (--auth alias)
   --auth <name>       Pin an auth name (same as --user)
 
 First time? Run 'buddy setup basic-setup' (then 'buddy auth test'). See 'buddy setup help'.
-Use 'buddy help starlark' or 'buddy help builtins' for Starlark scripting reference.
+Use 'buddy help starlark' or 'buddy help builtins' for buddyscript reference.
 Use 'buddy help <command>' or 'buddy <command> help' for command details.
 Use 'buddy <command> <subcommand> help' for subcommand details.
 `
 
-const Shell = `buddy - Starlark shell and scripts
+const Shell = `buddy - buddyscript shell and scripts
 
 Usage:
-  buddy [global-flags]                              Interactive Starlark shell
+  buddy [global-flags]                              Interactive buddyscript shell
   buddy [global-flags] [--trace] <script.buddy> [-- args...]
   buddy [global-flags] -e <code> [-- args...]
   buddy [global-flags] --eval=<code> [-- args...]
 
 Arguments:
-  <script.buddy>  Path to a buddy Starlark script (.buddy preferred; .star still works)
-  -e, --eval      Starlark snippet to run (filename for errors: <eval>)
+  <script.buddy>  Path to a buddyscript script (.buddy preferred; .star still works)
+  -e, --eval      buddyscript snippet to run (filename for errors: <eval>)
   [-- args...]    Optional arguments passed through to the script (available as args)
 
 Flags:
   --trace         Positional flag before the script path: log each buddy builtin call to
                   stderr with its source position, arguments, and return value. Also logs
-                  a trace line to stderr for each Starlark print() (the message itself
+                  a trace line to stderr for each buddyscript print() (the message itself
                   goes to stdout). Buddy's error() writes to stderr only.
 
 Notes:
-  With no arguments, buddy starts an interactive Starlark REPL on stdin/stdout.
+  With no arguments, buddy starts an interactive buddyscript REPL on stdin/stdout.
 
-  -e / --eval runs a one-liner in the normal buddy Starlark environment (builtins,
+  -e / --eval runs a one-liner in the normal buddyscript environment (builtins,
   args, load("stdlib/…")). If main is defined, it is called (same as file scripts).
   If the last statement is an expression, its value is printed to stdout as
   JSON-friendly text (same rendering as notebook Out), unless the expression
@@ -198,7 +198,7 @@ WHAT IS NOT IN STARLARK (vs Python)
 Use 'buddy help builtins' for buddy-specific functions.
 `
 
-const Builtins = `buddy built-in functions for Starlark scripts
+const Builtins = `buddy built-in functions for buddyscript scripts
 ===============================================
 Builtins return bare values on success and raise on failure.
 (MCP tools still wrap {ok, value} at the tool boundary only.)
@@ -228,8 +228,8 @@ Each builtin lists its signature, then → value (or None). Indented "Params:"
 lines describe arguments; "Returns:" states the value shape on success.
 
 STDLIB
-  Complex CLI-style workflows live in embedded Starlark modules under stdlib/.
-  Load them with Starlark load() (same mechanism as load("re", ...)):
+  Complex CLI-style workflows live in embedded buddyscript modules under stdlib/.
+  Load them with load() (same mechanism as load("re", ...)):
 
     load("stdlib/release.buddy", "bump_release")
     out = bump_release(trigger_prefix="install-app-", app="app", version="1.2.3")
@@ -607,9 +607,9 @@ JAMF API
 
 SERIALIZATION
   Data flow (important):
-    • Jamf builtins return bare Starlark values (dict/list/str/None/…). Failures raise.
+    • Jamf builtins return bare buddyscript values (dict/list/str/None/…). Failures raise.
       MCP tools wrap {ok, value} only at the tool boundary.
-    • print(x) and bare Starlark display look JSON-ish but are NOT JSON.
+    • print(x) and bare buddyscript display look JSON-ish but are NOT JSON.
       Notebook "Out" pretty-prints dicts/lists as real JSON text.
     • For jq / stdout JSON, use unwrap (optional helper — not the error model):
         data = unwrap(jamf_schema(filter="smtp"))
@@ -619,7 +619,7 @@ SERIALIZATION
 
   unwrap(result, pretty?=True)
       → prints JSON of result to stdout and returns result
-      Params: result: any Starlark value. Optional CLI/jq helper.
+      Params: result: any buddyscript value. Optional CLI/jq helper.
         Legacy {"ok","value"/"error"} envelopes are peeled; ok=false raises.
         pretty?=True indents; pretty=False for compact jq input.
   attempt(fn)
@@ -628,21 +628,21 @@ SERIALIZATION
         Prefer bare builtin calls; use attempt only for expected-reject / optional paths.
   json_decode(json_str)
       → value: dict or list
-      Params: json_str: str. Returns: Starlark dict/list from JSON.
+      Params: json_str: str. Returns: dict/list from JSON.
   json_encode(value)
       → value: str (JSON)
-      Params: value: Starlark dict, list, or primitive. Returns: compact JSON string
+      Params: value: dict, list, or primitive. Returns: compact JSON string
       (not printed). Prefer unwrap for stdout.
   json_pretty(value)
       → value: str (indented JSON)
-      Params: value: Starlark dict, list, or primitive. Returns indented JSON string
+      Params: value: dict, list, or primitive. Returns indented JSON string
       (not printed). Prefer unwrap(result) to print real newlines to stdout.
   plist_decode(plist_xml_str)
       → value: dict or list
-      Params: plist_xml_str: str (plist XML). Returns: Starlark dict/list.
+      Params: plist_xml_str: str (plist XML). Returns: dict/list.
   plist_encode(value)
       → value: str (plist XML)
-      Params: value: Starlark dict, list, or primitive. Returns: plist XML string.
+      Params: value: dict, list, or primitive. Returns: plist XML string.
   uuid_new() → value: str
       Params: Offline; random RFC 4122 UUID (for payload builders).
   xml_escape(s)

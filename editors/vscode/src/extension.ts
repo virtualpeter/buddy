@@ -56,7 +56,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   };
 
-  client = new LanguageClient("buddy", "Buddy Starlark", serverOptions, clientOptions);
+  client = new LanguageClient("buddy", "BuddyScript", serverOptions, clientOptions);
   context.subscriptions.push(client);
   await client.start();
 

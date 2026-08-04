@@ -4,7 +4,7 @@ This file captures project context for AI agents (and humans) picking up work on
 
 ## What buddy is
 
-**buddy** is a Go CLI for Jamf Pro automation: policies, groups, profiles, packages, Platform API (blueprints, devices, device-groups, DDM report, compliance benchmarks), Starlark workflows, and API auth/token helpers. Config lives at `~/.config/buddy/config.yaml`.
+**buddy** is a Go CLI for Jamf Pro automation: policies, groups, profiles, packages, Platform API (blueprints, devices, device-groups, DDM report, compliance benchmarks), buddyscript workflows, and API auth/token helpers. Config lives at `~/.config/buddy/config.yaml`.
 
 Sibling project **meliorate** (separate repo under `../meliorate`) tracks Jamf config in Git. It can call buddy as an external token helper via `jamfpro.token_command`.
 
@@ -33,15 +33,15 @@ token_command:
 | `internal/buddy/` | Jamf API clients, config, auth, secret CLI |
 | `internal/buddy/tokenauth/` | Token acquisition, caching, reactive refresh on expiry/401 |
 | `internal/buddy/secrets/` | Platform secret stores (Keychain, file, pass) |
-| `internal/script/` | Starlark engine, builtins, `Session` (REPL/notebook/MCP eval) |
+| `internal/script/` | buddyscript engine (Starlark), builtins, `Session` (REPL/notebook/MCP eval) |
 | `internal/lsp/` | `buddy lsp` language server (editor integration) |
-| `stdlib/` | Embedded Starlark libraries (`load("stdlib/….buddy", …)`); composed on builtins |
+| `stdlib/` | Embedded buddyscript libraries (`load("stdlib/….buddy", …)`); composed on builtins |
 | `editors/vscode/` | Cursor/VS Code extension (language id `buddy`, `.buddy` files) |
 | `internal/serve/` | `buddy serve` local docs + notebook + `/ide` script runner |
 | `internal/mcp/` | `buddy mcp` stdio MCP server |
 | `internal/help/` | Shared CLI help strings (builtins/shell/starlark/root) |
 | `docs/` | User-facing reference manual |
-| `.cursor/rules/` | Persistent Cursor rules (CLI + Starlark conventions) |
+| `.cursor/rules/` | Persistent Cursor rules (CLI + buddyscript conventions) |
 
 Build: `make buddy` → `./buddy`. Tests: `go test ./...`. Docs UI: `make docs-serve`. Extension VSIX: `make extension-package` (`PUBLISHER` defaults to `virtualpete`).
 
@@ -56,7 +56,7 @@ See **[docs/mcp.md](docs/mcp.md)** for MCP host setup and **[docs/mcp-tools.md](
 - Prefer an absolute `command` path and `args: ["mcp"]`.
 - Docs/AGENTS/examples/editor rules are embedded in the binary (`docfs/`; refresh with `make sync-docfs`). `BUDDY_DOCS_ROOT` is an optional live override. Agents should use the MCP `docs` tool (list/get); the same pages are also `buddy://docs/...` resources. List `query` matches id/title/section/**keywords** (resource nouns like `policy`, `jcds`, `blueprint`) — then `get` the object cookbook (`docs/policies`, …).
 - Prefer named builtins (smart criteria vs static membership, profile payload edits) via `buddyscript`; do not invent Classic PUTs from `jamf_schema` alone.
-- Tool results are always `{ok, value, ...}` objects (lists under `value`) so hosts accept `structuredContent`. Starlark builtins return bare values and raise on failure; the envelope is MCP-only.
+- Tool results are always `{ok, value, ...}` objects (lists under `value`) so hosts accept `structuredContent`. buddyscript builtins return bare values and raise on failure; the envelope is MCP-only.
 - Reload or restart the AI host after changing MCP config or rebuilding buddy.
 
 
@@ -66,7 +66,7 @@ Config is **tenants** + **auths** + optional **channels** policies (breaking cha
 
 - **Tenant** — Jamf environment: instance `url` and/or Platform `region` + `tenantId`.
 - **Auth** — secret-bearing principal (`command` / `basic` / `oauth`) linked to one or more tenants via `tenants: […]`. A platform clientId may list multiple tenants. Optional `access` (`full`|`readonly`) and `surface` (`any`|`platform`|`instance`).
-- **Tenant selection** — `tenant.default` plus optional `channels.<cli|mcp|ide|notebook>.tenant`. Global `--tenant` still wins; `--user` / `--auth` pins an auth. Starlark/MCP use tenant-first session kwargs (`tenant=` / `surface=` / `auth=`); `cred=` was removed.
+- **Tenant selection** — `tenant.default` plus optional `channels.<cli|mcp|ide|notebook>.tenant`. Global `--tenant` still wins; `--user` / `--auth` pins an auth. buddyscript/MCP use tenant-first session kwargs (`tenant=` / `surface=` / `auth=`); `cred=` was removed.
 - **Channel policy** — optional `channels.<client>.access` (`readonly`|`full`), `tenant`, and `tenants` allowlist. Clamps mutates and filters selectable tenants (most restrictive with auth access wins).
 - **Auth channels** — optional `channels: [cli, mcp, ide, notebook]` on each auth (omit = all). Filters auto-pick and rejects pins / UI choices. Notebook and IDE are separate clients (no shared `serve` channel).
 
@@ -125,7 +125,7 @@ buddy cred clean tokens                      # delete expired/corrupt disk token
 
 Direct auth flags (`--url`, `--tenant-id`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for one-offs.
 
-When the resolved session uses a platform surface, paths are rewritten via `RewriteJamfPath` / `ResolveEndpoint` (Pro → `/api/pro/vN/tenant/{id}/…`, Classic → `/api/proclassic/tenant/{id}/JSSResource/…`, Platform product APIs → inject `/tenant/{id}` after version for blueprints/devices/device-groups/device-actions/ddm/report/compliance-benchmarks). Platform product commands require a platform-capable tenant+auth (`buddy blueprint|device|device-group|ddm|benchmark`, matching Starlark/MCP tools).
+When the resolved session uses a platform surface, paths are rewritten via `RewriteJamfPath` / `ResolveEndpoint` (Pro → `/api/pro/vN/tenant/{id}/…`, Classic → `/api/proclassic/tenant/{id}/JSSResource/…`, Platform product APIs → inject `/tenant/{id}` after version for blueprints/devices/device-groups/device-actions/ddm/report/compliance-benchmarks). Platform product commands require a platform-capable tenant+auth (`buddy blueprint|device|device-group|ddm|benchmark`, matching buddyscript/MCP tools).
 
 ## Jamf Pro API versions (groups / inventory)
 
@@ -138,7 +138,7 @@ See [`docs/api-endpoints.md`](docs/api-endpoints.md) for the full endpoint map.
 
 ## API schemas (jamf_schema)
 
-`jamf_schema` (Starlark builtin + MCP tool) discovers endpoints. Pro (`/api/schema`) and Classic (`/classicapi/doc/swagger.yaml`) are fetched **live** from the credential's host. The **Platform API Gateway has no live schema endpoint**, so its per-service OpenAPI specs are vendored (MIT, from `Jamf-Concepts/jamf-cli`) into `internal/buddy/platformschema/specs/` and embedded via `go:embed`. Refresh with `make sync-platform-schema` and commit. `api="all"` (default) covers pro+classic+platform; `api="platform"` needs no credential.
+`jamf_schema` (buddyscript builtin + MCP tool) discovers endpoints. Pro (`/api/schema`) and Classic (`/classicapi/doc/swagger.yaml`) are fetched **live** from the credential's host. The **Platform API Gateway has no live schema endpoint**, so its per-service OpenAPI specs are vendored (MIT, from `Jamf-Concepts/jamf-cli`) into `internal/buddy/platformschema/specs/` and embedded via `go:embed`. Refresh with `make sync-platform-schema` and commit. `api="all"` (default) covers pro+classic+platform; `api="platform"` needs no credential.
 
 None of the schema documents require authentication: the Pro/Classic schema endpoints are public on the Jamf host (only data endpoints need a bearer token) and Platform specs are embedded. buddy fetches Pro/Classic schemas with no `Authorization` header (`JamfRequestOpts.Unauthenticated` → `PerformRequestNoAuth`), using the credential only to resolve the base URL — so schema discovery works even when the credential has no stored secret.
 
@@ -155,8 +155,8 @@ buddy resolves secrets from the platform store at runtime, so meliorate config d
 ## Conventions (follow existing rules)
 
 - **CLI help**: see `.cursor/rules/buddy-cli.mdc` — usage lines, subcommand naming, placeholders.
-- **Starlark builtins**: see `.cursor/rules/buddy-builtins.mdc` and [docs/reference-manual.md](docs/reference-manual.md#built-in-functions) — plural/singular grammar (`policies` / `policy` / `policy_set`), resource IDs first on mutate helpers, `tenant?` / `surface?` / `auth?` last. Do not reintroduce removed legacy aliases (`package_list`, `policy_find_ids`, …).
-- **Starlark stdlib**: multi-step helpers in `stdlib/*.buddy` via `load("stdlib/release.buddy", "bump_release")` (etc.). Notebook Libraries drawer browses builtins + stdlib (Getting started / Advanced).
+- **buddyscript builtins**: see `.cursor/rules/buddy-builtins.mdc` and [docs/reference-manual.md](docs/reference-manual.md#built-in-functions) — plural/singular grammar (`policies` / `policy` / `policy_set`), resource IDs first on mutate helpers, `tenant?` / `surface?` / `auth?` last. Do not reintroduce removed legacy aliases (`package_list`, `policy_find_ids`, …).
+- **buddyscript stdlib**: multi-step helpers in `stdlib/*.buddy` via `load("stdlib/release.buddy", "bump_release")` (etc.). Notebook Libraries drawer browses builtins + stdlib (Getting started / Advanced).
 - **Script file extension**: user scripts and stdlib modules use `.buddy` (editor language id / LSP). Keep accepting `.star` (and any path) for legacy scripts.
 - **User docs**: `README.md`, `docs/reference-manual.md` — keep in sync when adding commands or secret behavior.
 - **Scope**: minimal diffs; match existing patterns; no over-engineering.
@@ -166,7 +166,7 @@ buddy resolves secrets from the platform store at runtime, so meliorate config d
 - `internal/buddy/auth_test.go` — direct auth opts, OAuth creds file
 - `internal/buddy/auth_resolve_test.go` — secret resolution with mock store
 - `internal/buddy/secrets/file_test.go` — file store round-trips
-- `cmd/buddy/*_test.go`, `internal/script/*_test.go` — CLI and Starlark
+- `cmd/buddy/*_test.go`, `internal/script/*_test.go` — CLI and buddyscript
 
 Use `secrets.SetStore(mock)` in tests to override the platform store.
 

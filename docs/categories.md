@@ -1,6 +1,6 @@
 # Categories
 
-Jamf Pro categories — mostly Starlark-first (no fat CLI surface). Used heavily when copying scripts/policies across tenants.
+Jamf Pro categories — mostly buddyscript-first (no fat CLI surface). Used heavily when copying scripts/policies across tenants.
 
 ## Happy path (preferred)
 
@@ -22,4 +22,4 @@ def main():
 
 - [Scripts](scripts.md), [Policies](policies.md), [Profiles](profiles.md)
 - [API endpoints](api-endpoints.md) — Categories
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

@@ -19,8 +19,8 @@ func BuiltinsMarkdown() string {
 func formatBuiltinsMarkdown(src string) string {
 	lines := strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n")
 	var b strings.Builder
-	b.WriteString("# Starlark builtins\n\n")
-	b.WriteString("Canonical reference for buddy’s Starlark built-in functions ")
+	b.WriteString("# Function index\n\n")
+	b.WriteString("Canonical reference for buddy’s buddyscript built-in functions ")
 	b.WriteString("(same text as `buddy help builtins`, rendered for browsing).\n\n")
 
 	i := 0

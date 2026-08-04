@@ -7,7 +7,7 @@ import (
 
 func TestBuiltinsMarkdownHasSectionsAndFuncs(t *testing.T) {
 	md := BuiltinsMarkdown()
-	if !strings.Contains(md, "# Starlark builtins") {
+	if !strings.Contains(md, "# Function index") {
 		t.Fatal("missing title")
 	}
 	if !strings.Contains(md, `<h2 id="section-policy">POLICY</h2>`) {

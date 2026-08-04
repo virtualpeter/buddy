@@ -25,4 +25,4 @@ def main():
 - [Smart computer groups](smart-groups.md), [Static computer groups](static-groups.md)
 - [Platform devices](devices.md)
 - [API endpoints](api-endpoints.md) — Platform device groups
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

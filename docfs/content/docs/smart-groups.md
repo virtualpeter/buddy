@@ -35,4 +35,4 @@ def main():
 - [Static computer groups](static-groups.md) — membership by computer ID
 - [Platform device groups](device-groups.md) — Platform gateway only
 - [API endpoints](api-endpoints.md) — Computer Groups section
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

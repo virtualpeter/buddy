@@ -17,10 +17,10 @@ def main():
     return ddm_declaration_devices()
 ```
 
-Exact names: `ddm_declaration_devices`, `ddm_device_declarations`, `ddm_device_channels` — see [Starlark builtins](/docs/builtins).
+Exact names: `ddm_declaration_devices`, `ddm_device_declarations`, `ddm_device_channels` — see [Function index](/docs/builtins).
 
 ## Related
 
 - [Blueprints](blueprints.md)
 - [API endpoints](api-endpoints.md) — DDM declaration reporting
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

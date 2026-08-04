@@ -29,4 +29,4 @@ def main():
 - [Categories](categories.md) — first step in cross-tenant migrate
 - [Policies](policies.md) — scripts remapped by name on `policy_copy`
 - [API endpoints](api-endpoints.md)
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

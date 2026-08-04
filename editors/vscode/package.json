@@ -1,7 +1,7 @@
 {
   "name": "buddy",
-  "displayName": "Buddy Starlark",
-  "description": "Language support for buddy Starlark scripts (.buddy)",
+  "displayName": "BuddyScript",
+  "description": "Language support for buddyscript (.buddy files)",
   "version": "0.1.1",
   "publisher": "virtualpete",
   "repository": {
@@ -23,7 +23,8 @@
       {
         "id": "buddy",
         "aliases": [
-          "Buddy Starlark",
+          "BuddyScript",
+          "buddyscript",
           "buddy"
         ],
         "extensions": [

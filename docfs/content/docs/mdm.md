@@ -23,4 +23,4 @@ def main():
 
 - [Computers](computers.md) — issue actions
 - [API endpoints](api-endpoints.md) — MDM Commands + RSQL
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

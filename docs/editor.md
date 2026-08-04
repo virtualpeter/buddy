@@ -3,7 +3,7 @@
 Buddy scripts use the **`.buddy`** file extension. Editor support is two pieces:
 
 1. **`buddy lsp`** — language server over stdio (diagnostics, completions, hover, signature help)
-2. **Buddy Starlark** extension under [`editors/vscode`](../editors/vscode) — syntax highlighting + LSP client for VS Code and Cursor
+2. **BuddyScript** extension under [`editors/vscode`](../editors/vscode) — syntax highlighting + LSP client for VS Code and Cursor
 
 Prefer `.buddy` for new scripts and stdlib modules (`load("stdlib/<name>.buddy", …)`). Existing `.star` paths still run; optionally associate them via settings.
 
@@ -66,7 +66,7 @@ cursor --install-extension editors/vscode/buddy-0.1.1.vsix
 3. Choose `editors/vscode/buddy-0.1.1.vsix`
 4. Reload the window if prompted
 
-Open a `.buddy` file — status bar language should show **Buddy Starlark**. Completions/hover require a working `buddy` on `PATH` (or set `buddy.path` below).
+Open a `.buddy` file — status bar language should show **BuddyScript**. Completions/hover require a working `buddy` on `PATH` (or set `buddy.path` below).
 
 ## Install into VS Code
 

@@ -32,4 +32,4 @@ def main():
 - [Policies](policies.md) — attach packages only after READY
 - [API endpoints](api-endpoints.md) — Packages + JCDS
 - [Change batches](change-batches.md) — versioned package bumps
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

@@ -75,7 +75,7 @@ Requires a source profile named `buddy-test-source-profile` on a non-production 
 
 Optional: set `TEST_COPY_DEST_TENANT` in the script for cross-tenant `profile_copy` smoke.
 
-## Advanced Starlark pattern
+## Advanced buddyscript pattern
 
 ```python
 def main():

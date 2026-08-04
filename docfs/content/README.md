@@ -2,7 +2,7 @@
 
 CLI tool for managing Jamf Pro policies and smart groups. Automates common tasks like version bumps, policy cloning, scope changes, and package updates via the Jamf Pro API.
 
-Includes a Starlark scripting engine for composing multi-step workflows.
+Includes a buddyscript engine (Starlark-based) for composing multi-step workflows.
 
 ## Documentation
 
@@ -129,7 +129,7 @@ The role the script targets may include **destructive or high-impact privileges*
 ## Usage
 
 ```
-buddy [flags]                              # interactive Starlark shell
+buddy [flags]                              # interactive buddyscript shell
 buddy [flags] <script.buddy> [-- args...]  # run a script (.buddy preferred; .star still works)
 buddy [flags] <command> <subcommand> [args...]
 ```
@@ -142,7 +142,7 @@ buddy [flags] <command> <subcommand> [args...]
 | `-v, --verbose` | Verbose output (show payloads)  |
 | `--tenant <name>` | Tenant from config (auto-picks auth) |
 | `--user <name>` | Pin an auth (`--auth` alias) |
-| `--script-trace` | Trace Starlark builtin calls in scripts and the shell |
+| `--script-trace` | Trace buddyscript builtin calls in scripts and the shell |
 
 ### Policy Commands
 
@@ -182,10 +182,10 @@ buddy group set version <group-id> <version>      # Update version criterion
 
 ### Scripting
 
-buddy embeds a [Starlark](https://github.com/google/starlark-go) interpreter with builtins for policies, groups, profiles, packages, scripts, computers, MDM, roles, clients, JSON/plist/XML helpers, RSQL filter builders, and more.
+buddy runs **buddyscript** on a [Starlark](https://github.com/google/starlark-go) interpreter with builtins for policies, groups, profiles, packages, scripts, computers, MDM, roles, clients, JSON/plist/XML helpers, RSQL filter builders, and more.
 
 ```sh
-buddy                              # interactive Starlark shell
+buddy                              # interactive buddyscript shell
 buddy <script.buddy> [-- args...]  # .buddy preferred; any existing path (including .star) still runs
 ```
 
@@ -197,7 +197,7 @@ Prefer the **`.buddy`** extension for scripts and stdlib modules (`load("stdlib/
 buddy help starlark   # language subset
 buddy help builtins   # full builtin reference (canonical)
 buddy help lsp        # language server for the editor extension
-make docs-serve       # local docs + Starlark notebook (buddy serve --open)
+make docs-serve       # local docs + buddyscript notebook (buddy serve --open)
 buddy mcp             # MCP stdio server for AI tools (see docs/mcp.md)
 buddy mcp setup       # discover/write well-known MCP host configs
 make sync-docfs       # refresh embedded knowledge after editing docs/rules/AGENTS
@@ -262,7 +262,7 @@ buddy/
 │   │   ├── role.go
 │   │   ├── setup.go      # Setup script generator (role + client)
 │   │   └── script_jamf.go
-│   ├── script/         # Starlark runner and builtins
+│   ├── script/         # buddyscript runner and builtins
 │   └── lsp/            # buddy lsp (editor language server)
 ├── editors/vscode/      # Cursor/VS Code extension (.buddy)
 ├── scripts/

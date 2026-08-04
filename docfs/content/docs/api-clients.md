@@ -25,4 +25,4 @@ def main():
 - [API roles](api-roles.md)
 - [Getting started](index.md) / reference manual — credentials
 - [API endpoints](api-endpoints.md) — API Integrations
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

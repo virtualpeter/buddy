@@ -1,6 +1,6 @@
 # Buddy reference manual
 
-**buddy** is a command-line tool for [Jamf Pro](https://www.jamf.com/products/jamf-pro/) automation: policies, computer groups, configuration profiles, packages, scripts, computers / MDM, API roles, and API clients. It includes a [Starlark](https://github.com/google/starlark-go) runtime so multi-step workflows can live in `.buddy` scripts (`.star` still works).
+**buddy** is a command-line tool for [Jamf Pro](https://www.jamf.com/products/jamf-pro/) automation: policies, computer groups, configuration profiles, packages, scripts, computers / MDM, API roles, and API clients. It includes a **buddyscript** runtime (built on [Starlark](https://github.com/google/starlark-go)) so multi-step workflows can live in `.buddy` scripts (`.star` still works).
 
 **New install?** Start with [`buddy setup basic-setup`](#first-time-api-setup) (also covered in [Getting started](index.md)), then come back here for the full picture.
 
@@ -17,7 +17,7 @@ This manual describes how the pieces fit together. For behavior that must stay i
 5. [CLI overview](#cli-overview)
 6. [Local docs, notebook, and script IDE](#local-docs-notebook-and-script-ide)
 7. [MCP server](#mcp-server)
-8. [Starlark shell and scripts](#starlark-shell-and-scripts)
+8. [buddyscript shell and scripts](#buddyscript-shell-and-scripts)
 9. [Built-in functions](#built-in-functions)
 10. [Change batches](#change-batches)
 11. [HTTP API usage](#http-api-usage)
@@ -143,7 +143,7 @@ buddy help [command] [subcommand]
 | `ddm` | Platform DDM declaration reporting (read-only) |
 | `benchmark` | Platform compliance benchmarks (beta) |
 | `setup` | Generate setup scripts and OAuth config helpers |
-| `serve` | Local docs browser + Starlark notebook + script IDE |
+| `serve` | Local docs browser + buddyscript notebook + script IDE |
 | `mcp` | MCP stdio server for AI tools (`mcp setup` writes host configs) |
 | `lsp` | Language server for the Cursor/VS Code buddy extension |
 
@@ -172,7 +172,7 @@ buddy serve --addr=127.0.0.1:8742
 
 - Binds **localhost only** (default `127.0.0.1:8742`).
 - `/docs/` — Curated user guides (overview, reference, builtins, API, MCP, examples). Contributor/agent material (AGENTS, Cursor rules) is MCP-only.
-- `/notebook` — Interactive Starlark cells against your configured credential (same builtins as the CLI/REPL).
+- `/notebook` — Interactive buddyscript cells against your configured credential (same builtins as the CLI/REPL).
 - `/ide` — Single-buffer script runner with open/save, args, optional `--script-trace`-style builtin tracing, Run (file dialect + call `main()` if present), and a post-run Variables panel. Open/save is limited to the process cwd or `BUDDY_IDE_ROOT`. Matches CLI file semantics; not a replacement for the notebook.
 - Line breakpoints and stepping are **not** available (Starlark-go has no pause/step API). A soft `breakpoint()` builtin that only stops when the script calls it may be added later.
 - Optional `--docs-root` / `BUDDY_DOCS_ROOT` to override embedded markdown with live files while editing.
@@ -204,24 +204,24 @@ Uses the active tenant/auth (`--tenant` / `--user` to override). MCP inherits th
 
 ---
 
-## Starlark shell and scripts
+## buddyscript shell and scripts
 
 **Usage**
 
 ```sh
-buddy [global-flags]                              # interactive Starlark shell
+buddy [global-flags]                              # interactive buddyscript shell
 buddy [global-flags] [--trace] <script.buddy> [-- args...]
 ```
 
-- With no arguments, buddy starts an interactive Starlark REPL on stdin/stdout.
-- Scripts are **Starlark** (a deterministic Python-like language). See **Language** below.
+- With no arguments, buddy starts an interactive buddyscript REPL on stdin/stdout.
+- Scripts are **buddyscript** (Starlark-based — a deterministic Python-like language). See **Language** below.
 - Prefer the **`.buddy`** file extension for user scripts and stdlib modules (Cursor/VS Code language id + `buddy lsp`). Load with `load("stdlib/<name>.buddy", …)`. Existing **`.star`** paths still run.
 - `args` after `--` are available as the global list `args`.
 - The active tenant and auth pin are available as `tenant` and `auth` (override per builtin with `tenant=` / `surface=` / `auth=`).
 - The regex module is exposed as `re` (see `buddy help starlark` for what Starlark provides globally).
 - If the script defines `main`, buddy invokes it after load (same as MCP `buddyscript`). Do not call `main()` yourself at top level.
 - **`print()`** writes to stdout; buddy adds **`error(*args, ...)`** for stderr (same signature as `print`). Prefer **`error`** for progress, skips, and failures so stdout stays free for machine-readable output; reserve **`print`** for lines meant to be piped or captured as the script’s primary result.
-- **Positional `--trace` before the script path** or global **`--script-trace`** logs each builtin call (and optionally Starlark `print` tracing) to stderr. **HTTP tracing** uses the top-level `-t` / `--trace` on `buddy`: `buddy -t deploy.buddy`.
+- **Positional `--trace` before the script path** or global **`--script-trace`** logs each builtin call (and optionally buddyscript `print` tracing) to stderr. **HTTP tracing** uses the top-level `-t` / `--trace` on `buddy`: `buddy -t deploy.buddy`.
 
 ### Editor / language server
 
@@ -234,7 +234,14 @@ make extension-package   # → editors/vscode/buddy-*.vsix (PUBLISHER=virtualpet
 
 ### Language
 
-Starlark quick-reference (types, control flow, string/list/dict methods, what is intentionally absent vs Python):
+See the **BuddyScript** docs section:
+
+- [Overview](buddyscript.md) — runners, `main()`, return contract
+- [Syntax](buddyscript-syntax.md) — Starlark subset + [language spec](https://github.com/bazelbuild/starlark/blob/master/spec.md)
+- [Stdlib](buddyscript-stdlib.md) — `load("stdlib/….buddy", …)`
+- [Function index](/docs/builtins) — every builtin (`buddy help builtins`)
+
+Compact terminal cheat sheet:
 
 ```sh
 buddy help starlark
@@ -242,7 +249,7 @@ buddy help starlark
 
 ### Result convention
 
-Jamf-related builtins return **bare values** on success and **raise** on failure. There is no `{ok, value, error}` envelope inside Starlark (MCP tools still wrap `{ok, value}` at the tool boundary only).
+Jamf-related builtins return **bare values** on success and **raise** on failure. There is no `{ok, value, error}` envelope in buddyscript (MCP tools still wrap `{ok, value}` at the tool boundary only).
 
 ```python
 xml = profile_xml(id=42)          # str

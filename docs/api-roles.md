@@ -25,4 +25,4 @@ def main():
 - [API clients](api-clients.md) — integrations that bind to roles
 - [Getting started](index.md) — setup path
 - [API endpoints](api-endpoints.md) — API Roles
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

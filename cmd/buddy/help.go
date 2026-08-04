@@ -258,7 +258,7 @@ const helpPolicyClone = `buddy policy clone — removed
 Versioned policy clone was retired. Prefer:
 
   • Change batches: step_clone_policy / step_set_package (see docs/change-batches.md)
-  • Starlark: policy_copy + policy_set_package / policy_set_ss / policy_set_install
+  • buddyscript: policy_copy + policy_set_package / policy_set_ss / policy_set_install
 `
 
 const helpPolicyFind = `buddy policy find - Search policies by keyword
@@ -341,7 +341,7 @@ Subcommands:
     optionally --name for the auth; default <tenant>-admin).
 
   write-script [path]
-    Writes a Starlark script that creates a Jamf Pro API role with privileges
+    Writes a buddyscript script that creates a Jamf Pro API role with privileges
     needed for buddy and an API client (integration) scoped to that role.
     Default path is setup_buddy_role.buddy.
 

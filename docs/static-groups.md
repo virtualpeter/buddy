@@ -31,4 +31,4 @@ def main():
 - [Smart computer groups](smart-groups.md) — criteria-based membership
 - [Computers](computers.md) — inventory IDs used in assignments
 - [API endpoints](api-endpoints.md)
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

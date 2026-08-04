@@ -56,7 +56,7 @@ func main() {
 		os.Exit(2)
 	}
 	if globals.evalMissing {
-		fmt.Fprintln(os.Stderr, "buddy: -e / --eval requires a Starlark snippet")
+		fmt.Fprintln(os.Stderr, "buddy: -e / --eval requires a buddyscript snippet")
 		os.Exit(2)
 	}
 
@@ -309,7 +309,7 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 	case "set":
 		return runPolicySet(credName, opts, subcommand, args, log)
 	case "clone":
-		return fmt.Errorf("buddy policy clone was removed; use change batches (step_clone_policy / step_set_package) or policy_copy + policy_set_package in Starlark")
+		return fmt.Errorf("buddy policy clone was removed; use change batches (step_clone_policy / step_set_package) or policy_copy + policy_set_package in buddyscript")
 	case "create":
 		return runPolicyCreate(credName, opts, subcommand, args, log)
 	case "delete":
@@ -653,7 +653,7 @@ func parseDisableSourceFlags(disableSource, keepSource bool) (buddy.DisableSourc
 }
 
 func runPolicyClone(_ string, _ buddy.Opts, _ []string, _ *slog.Logger) error {
-	return fmt.Errorf("buddy policy clone was removed; use change batches (step_clone_policy / step_set_package) or policy_copy + policy_set_package in Starlark")
+		return fmt.Errorf("buddy policy clone was removed; use change batches (step_clone_policy / step_set_package) or policy_copy + policy_set_package in buddyscript")
 }
 
 func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {

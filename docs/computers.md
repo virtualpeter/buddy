@@ -27,4 +27,4 @@ def main():
 - [MDM command history](mdm.md)
 - [Static computer groups](static-groups.md) — membership by computer ID
 - [Platform devices](devices.md)
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

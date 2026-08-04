@@ -26,4 +26,4 @@ def main():
 - [Computers](computers.md) — Pro inventory / MDM actions
 - [Device groups](device-groups.md)
 - [API endpoints](api-endpoints.md) — Platform devices + device-actions
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)

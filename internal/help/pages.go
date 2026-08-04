@@ -13,6 +13,6 @@ func CLIPages() []CLIPage {
 		{ID: "root", Title: "CLI overview", Body: Root},
 		{ID: "shell", Title: "Shell & scripts", Body: Shell},
 		{ID: "starlark", Title: "Starlark language", Body: Starlark},
-		{ID: "builtins", Title: "Starlark builtins", Body: Builtins},
+		{ID: "builtins", Title: "buddyscript builtins", Body: Builtins},
 	}
 }

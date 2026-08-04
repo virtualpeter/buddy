@@ -23,4 +23,4 @@ def main():
 
 - [API endpoints](api-endpoints.md) — Compliance benchmarks
 - [MCP](mcp.md) — Platform notes
-- Full signatures: [Starlark builtins](/docs/builtins)
+- Full signatures: [Function index](/docs/builtins)
