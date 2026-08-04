@@ -32,6 +32,18 @@ func TestServerInstructions(t *testing.T) {
 	if !strings.Contains(ServerInstructions, "package_wait_ready") {
 		t.Fatal("instructions should point at package_wait_ready builtin folklore")
 	}
+	if !strings.Contains(ServerInstructions, "profile-payloads") {
+		t.Fatal("instructions should point agents at profile-payloads docs")
+	}
+	if !strings.Contains(ServerInstructions, "profile_put_xml") {
+		t.Fatal("instructions should name profile_put_xml (ACS quirks)")
+	}
+	if !strings.Contains(ServerInstructions, "smart_group") {
+		t.Fatal("instructions should distinguish smart vs static groups")
+	}
+	if !strings.Contains(ServerInstructions, "never invent Classic PUT") {
+		t.Fatal("instructions should forbid inventing Classic profile PUTs")
+	}
 	if strings.Contains(ServerInstructions, "starlark_eval") {
 		t.Fatal("instructions should not mention starlark_eval")
 	}

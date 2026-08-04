@@ -41,11 +41,6 @@ MARKER_KEY = "BuddyAcs7Marker"
 MARKER_VAL = "buddy-acs7-integration"
 
 
-def require_ok(res, ctx):
-    if not res["ok"]:
-        fail("%s: %s" % (ctx, res["error"]))
-
-
 def section(title, why):
     print("")
     print("=== " + title + " ===")
@@ -85,9 +80,7 @@ def extract_first_uuid(xml):
 
 
 def discover_mcx_domains(payloads_plist):
-    res = plist_decode(payloads_plist)
-    require_ok(res, "plist_decode (discover domains)")
-    root = res["value"]
+    root = plist_decode(payloads_plist)
     domains = []
     content = root.get("PayloadContent", [])
     if type(content) != "list":
@@ -107,13 +100,9 @@ def discover_mcx_domains(payloads_plist):
 
 def load_acs(profile_id, domain):
     """Fetch profile (hydrated), return xml, payloads, domain, settings dict, mcx_dict_xml, general_uuid."""
-    res = profile_xml(id=profile_id, auth=auth)
-    require_ok(res, "profile_xml id=%d" % profile_id)
-    xml = res["value"]
+    xml = profile_xml(id=profile_id, auth=auth)
     general_uuid = extract_first_uuid(xml)
-    res = profile_xml_extract_payloads(xml)
-    require_ok(res, "profile_xml_extract_payloads")
-    payloads = res["value"]
+    payloads = profile_xml_extract_payloads(xml)
     if domain == "":
         domains = discover_mcx_domains(payloads)
         if not domains:
@@ -121,12 +110,8 @@ def load_acs(profile_id, domain):
         domain = domains[0]
         if len(domains) > 1:
             print("note: multiple MCX domains %r — using %r" % (domains, domain))
-    res = payloads_get_mcx_dict(payloads, domain)
-    require_ok(res, "payloads_get_mcx_dict domain=%r" % domain)
-    mcx_xml = res["value"]
-    res = plist_decode(mcx_xml)
-    require_ok(res, "plist_decode mcx")
-    settings = res["value"]
+    mcx_xml = payloads_get_mcx_dict(payloads, domain)
+    settings = plist_decode(mcx_xml)
     if type(settings) != "dict":
         fail("mcx settings not a dict: %r" % type(settings))
     return {
@@ -141,33 +126,22 @@ def load_acs(profile_id, domain):
 
 def put_mcx_dict_xml(profile_id, domain, mcx_dict_xml, ctx):
     """Replace preference-domain settings exactly, then PUT."""
-    res = profile_xml(id=profile_id, auth=auth)
-    require_ok(res, "profile_xml before put (%s)" % ctx)
-    xml = res["value"]
-    res = profile_xml_extract_payloads(xml)
-    require_ok(res, "extract before put (%s)" % ctx)
-    res = payloads_replace_mcx_dict(res["value"], domain, mcx_dict_xml)
-    require_ok(res, "payloads_replace_mcx_dict (%s)" % ctx)
-    res = profile_xml_replace_payloads(xml, res["value"])
-    require_ok(res, "profile_xml_replace_payloads (%s)" % ctx)
-    res = profile_put_xml(profile_id=profile_id, xml_str=res["value"], auth=auth)
-    require_ok(res, "profile_put_xml (%s)" % ctx)
+    xml = profile_xml(id=profile_id, auth=auth)
+    payloads = profile_xml_extract_payloads(xml)
+    payloads = payloads_replace_mcx_dict(payloads, domain, mcx_dict_xml)
+    xml = profile_xml_replace_payloads(xml, payloads)
+    profile_put_xml(profile_id=profile_id, xml_str=xml, auth=auth)
 
 
 def put_mcx_settings_map(profile_id, domain, settings, ctx):
-    res = plist_encode(settings)
-    require_ok(res, "plist_encode settings (%s)" % ctx)
-    res = plist_normalise_dict(res["value"])
-    require_ok(res, "plist_normalise_dict (%s)" % ctx)
-    put_mcx_dict_xml(profile_id, domain, res["value"], ctx)
+    mcx_xml = plist_normalise_dict(plist_encode(settings))
+    put_mcx_dict_xml(profile_id, domain, mcx_xml, ctx)
 
 
 def restore_original(profile_id, domain, original_mcx_xml, ctx):
     put_mcx_dict_xml(profile_id, domain, original_mcx_xml, "restore (%s)" % ctx)
     got = load_acs(profile_id, domain)
-    res = plist_decode(original_mcx_xml)
-    require_ok(res, "plist_decode original for compare (%s)" % ctx)
-    want = res["value"]
+    want = plist_decode(original_mcx_xml)
     if not settings_equal(got["settings"], want):
         fail("%s: restore mismatch want=%r got=%r" % (ctx, want, got["settings"]))
 
@@ -205,8 +179,7 @@ def case_idempotent_put(profile_id, snap):
         "Case 2 — idempotent PUT",
         "PUT current hydrated XML unchanged; settings + general <uuid> must stay stable (no orphan UUID swap).",
     )
-    res = profile_put_xml(profile_id=profile_id, xml_str=snap["xml"], auth=auth)
-    require_ok(res, "profile_put_xml (idempotent)")
+    profile_put_xml(profile_id=profile_id, xml_str=snap["xml"], auth=auth)
     after = load_acs(profile_id, snap["domain"])
     if after["general_uuid"] != snap["general_uuid"]:
         fail("case 2: general uuid changed %s → %s (orphan risk)" % (snap["general_uuid"], after["general_uuid"]))
@@ -272,10 +245,8 @@ def case_patch_merge(profile_id, snap):
     full = copy_dict(snap["settings"])
     full[MARKER_KEY] = MARKER_VAL + "-patch"
     state = load_acs(profile_id, snap["domain"])
-    res = profile_xml_patch_payload(state["xml"], snap["domain"], full)
-    require_ok(res, "profile_xml_patch_payload (case 5a full)")
-    res = profile_put_xml(profile_id=profile_id, xml_str=res["value"], auth=auth)
-    require_ok(res, "profile_put_xml (case 5a)")
+    patched = profile_xml_patch_payload(state["xml"], snap["domain"], full)
+    profile_put_xml(profile_id=profile_id, xml_str=patched, auth=auth)
     after = load_acs(profile_id, snap["domain"])
     assert_settings_contain(after["settings"], [MARKER_KEY], "case 5a")
     for k in snap["settings"]:
@@ -284,10 +255,8 @@ def case_patch_merge(profile_id, snap):
 
     # 5b — partial patch replaces entire settings dict (documented MCX behaviour).
     state = load_acs(profile_id, snap["domain"])
-    res = profile_xml_patch_payload(state["xml"], snap["domain"], {MARKER_KEY: "partial-only"})
-    require_ok(res, "profile_xml_patch_payload (case 5b partial)")
-    res = profile_put_xml(profile_id=profile_id, xml_str=res["value"], auth=auth)
-    require_ok(res, "profile_put_xml (case 5b)")
+    patched = profile_xml_patch_payload(state["xml"], snap["domain"], {MARKER_KEY: "partial-only"})
+    profile_put_xml(profile_id=profile_id, xml_str=patched, auth=auth)
     after = load_acs(profile_id, snap["domain"])
     if after["settings"].get(MARKER_KEY) != "partial-only":
         fail("case 5b: expected partial-only marker, got %r" % after["settings"])
@@ -342,9 +311,10 @@ def case_bare_amp_reject(profile_id, snap):
     state = load_acs(profile_id, snap["domain"])
     bad = copy_dict(state["settings"])
     bad["ExampleURL"] = BARE_AMP_URL
-    res = profile_xml_patch_payload(state["xml"], snap["domain"], bad)
-    require_ok(res, "profile_xml_patch_payload (case 8 setup)")
-    put = profile_put_xml(profile_id=profile_id, xml_str=res["value"], auth=auth)
+    patched = profile_xml_patch_payload(state["xml"], snap["domain"], bad)
+    def _put():
+        return profile_put_xml(profile_id=profile_id, xml_str=patched, auth=auth)
+    put = attempt(_put)
     if put["ok"]:
         restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 8 unexpected ok")
         fail("case 8: bare '&' put returned ok")
@@ -381,7 +351,9 @@ def case_under_encoded_reject(profile_id, snap):
         print("case 9 skip: could not locate Apply-form outer encoding to under-encode")
         restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 9 skip")
         return
-    put = profile_put_xml(profile_id=profile_id, xml_str=under, auth=auth)
+    def _put():
+        return profile_put_xml(profile_id=profile_id, xml_str=under, auth=auth)
+    put = attempt(_put)
     if put["ok"]:
         restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 9 unexpected ok")
         fail("case 9: under-encoded put returned ok")
@@ -435,19 +407,18 @@ def case_clone_copy(profile_id, snap, created):
         return
 
     clone_name = TEST_PREFIX + "clone"
-    res = profile_clone(profile_id=profile_id, name=clone_name, auth=auth)
-    require_ok(res, "profile_clone")
-    clone_id = res["value"]["id"]
+    cloned = profile_clone(profile_id=profile_id, name=clone_name, auth=auth)
+    clone_id = cloned["id"]
     created.append(clone_id)
-    cloned = load_acs(clone_id, snap["domain"])
+    cloned_snap = load_acs(clone_id, snap["domain"])
     for k in snap["settings"]:
-        if k not in cloned["settings"]:
-            fail("case 11 clone missing key %r (got %r)" % (k, cloned["settings"].keys()))
-    if cloned["general_uuid"] == snap["general_uuid"]:
+        if k not in cloned_snap["settings"]:
+            fail("case 11 clone missing key %r (got %r)" % (k, cloned_snap["settings"].keys()))
+    if cloned_snap["general_uuid"] == snap["general_uuid"]:
         fail("case 11 clone reused general uuid %s" % snap["general_uuid"])
 
     # Mutate clone only (parent must stay at original).
-    cset = copy_dict(cloned["settings"])
+    cset = copy_dict(cloned_snap["settings"])
     cset[MARKER_KEY] = "on-clone"
     put_mcx_settings_map(clone_id, snap["domain"], cset, "case 11 mutate clone")
     parent = load_acs(profile_id, snap["domain"])
@@ -455,13 +426,12 @@ def case_clone_copy(profile_id, snap, created):
         fail("case 11: parent drifted while mutating clone")
 
     copy_name = TEST_PREFIX + "copy"
-    res = profile_copy(profile_id=profile_id, name=copy_name, auth=auth)
-    require_ok(res, "profile_copy")
-    copy_id = res["value"]["id"]
+    copied = profile_copy(profile_id=profile_id, name=copy_name, auth=auth)
+    copy_id = copied["id"]
     created.append(copy_id)
-    copied = load_acs(copy_id, snap["domain"])
+    copied_snap = load_acs(copy_id, snap["domain"])
     for k in snap["settings"]:
-        if k not in copied["settings"]:
+        if k not in copied_snap["settings"]:
             fail("case 11 copy missing key %r" % k)
 
     print("case 11 ok: clone_id=%d copy_id=%d" % (clone_id, copy_id))
@@ -475,25 +445,32 @@ def case_redeploy(profile_id, snap):
     if TEST_SKIP_REDEPLOY == "1":
         print("case 12 skip: TEST_SKIP_REDEPLOY=1")
         return
-    res = profile_redeploy(profile_id=profile_id, auth=auth)
-    require_ok(res, "profile_redeploy")
+    profile_redeploy(profile_id=profile_id, auth=auth)
     after = load_acs(profile_id, snap["domain"])
     if not settings_equal(after["settings"], snap["settings"]):
         fail("case 12: settings changed after redeploy")
     print("case 12 ok: redeploy")
 
 
+def try_profile_delete_pid(pid):
+    def _delete():
+        return profile_delete(profile_id=pid, auth=auth)
+    return attempt(_delete)
+
+
 def cleanup_created(created):
     section("Cleanup clones/copies", "Delete buddy-test-acs7-* profiles created this run.")
     for pid in created:
-        res = profile_delete(profile_id=pid, auth=auth)
+        res = try_profile_delete_pid(pid)
         if not res["ok"]:
             error("profile_delete %d: %s" % (pid, res["error"]))
     created.clear()
-    res = profiles(filter=TEST_PREFIX)
+    def _list():
+        return profiles(filter=TEST_PREFIX)
+    res = attempt(_list)
     if res["ok"]:
         for p in res["value"]:
-            require_ok(profile_delete(profile_id=p["id"], auth=auth), "delete leftover %s" % p["id"])
+            profile_delete(profile_id=p["id"], auth=auth)
 
 
 def main(auth=None):
@@ -505,8 +482,7 @@ def main(auth=None):
     )
 
     if TEST_ACS_PAYLOAD_UUID != "":
-        res = profile_acs_bind_uuid(profile_id=profile_id, payload_uuid=TEST_ACS_PAYLOAD_UUID)
-        require_ok(res, "profile_acs_bind_uuid")
+        profile_acs_bind_uuid(profile_id=profile_id, payload_uuid=TEST_ACS_PAYLOAD_UUID)
         print("bound ACS payload UUID for classic id %d" % profile_id)
 
     snap = load_acs(profile_id, TEST_ACS_DOMAIN)

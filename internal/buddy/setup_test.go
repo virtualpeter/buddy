@@ -27,7 +27,7 @@ func TestWriteSetupScript(t *testing.T) {
 		`client_name = "buddy-cli"`,
 		"roles()",
 		"role_privileges()",
-		"role_create(role_name, pl[\"value\"])",
+		"role_create(role_name, pl)",
 		"client_create(client_name, [role_name])",
 		"clients()",
 		"buddy setup store-oauth",
@@ -46,6 +46,9 @@ func TestWriteSetupScript(t *testing.T) {
 		"roles(auth=auth)",
 		"role_privileges(auth=auth)",
 		"configure-oauth",
+		`pl["value"]`,
+		`rl["ok"]`,
+		`c["value"]`,
 	}
 	for _, s := range forbidden {
 		if strings.Contains(script, s) {

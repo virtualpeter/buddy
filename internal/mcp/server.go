@@ -27,12 +27,15 @@ type ToolResult struct {
 // buddy usage guidance (including how buddy relates to Jamf's hosted MCP).
 const ServerInstructions = `buddy is a local Jamf automation MCP using your buddy config/secrets.
 
-Tools: buddy_info (session selection), docs, jamf_schema (discovery), buddyscript (primary — named builtins for Pro/Platform work).
-Priority: docs → buddyscript builtins → jamf_get/jamf_put via buddyscript only when no builtin exists.
-buddyscript: prefer def main(): … return … (or a single expression). Primary output is value.result; stdout is print/unwrap (result is mirrored into stdout when empty).
-Package JCDS: use package_ready / package_wait_ready / package_download — do not invent from schema (docs: mcp-tools, api-endpoints).
-Jamf remote MCP (developer.jamf.com/mcp) is useful for Jamf product schemas; prefer buddy builtins for tenant changes.
-docs query "mcp-tools" or "profile-payloads" for cookbooks.`
+Tools: buddy_info (session), docs, jamf_schema (discovery only), buddyscript (primary — named builtins).
+Priority: docs → buddyscript named builtins → jamf_get/jamf_put via buddyscript only when no builtin exists.
+
+Before profile/group/package mutates: docs query "profile-payloads", "mcp-tools", or "api-endpoints".
+Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic PUT from schema (ACS + entity-encoding live in these builtins).
+Packages/JCDS: package_ready / package_wait_ready / package_download.
+Groups: smart_group* (criteria) vs static_group* (membership) — do not mix.
+buddyscript: prefer def main(): … return …; builtins return bare values and raise on failure; MCP wraps {ok,value} only at the tool boundary.
+Jamf remote MCP (developer.jamf.com/mcp) is useful for product schemas; prefer buddy builtins for tenant changes.`
 
 // Run starts the MCP stdio server until the client disconnects.
 func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) error {
@@ -92,9 +95,10 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		Description: "Discover Jamf API operations (Pro OpenAPI, Classic Swagger, embedded Platform specs). " +
 			"Default api=all. Use filter (e.g. \"blueprints\" or \"policy delete\") to narrow. " +
 			"Returns {ok, value: {api, count, operations:[...], …}}. Set full=true only for parameter/response schemas. " +
+			"Schema is discovery only — not a license to PUT profiles/groups/packages. " +
 			"After finding a path, prefer a named builtin via buddyscript; " +
 			"use jamf_get/jamf_put via buddyscript only when no builtin exists. " +
-			"Do not invent Classic profile/group PUT bodies from schema alone.",
+			"Never invent Classic profile XML PUTs or smart/static group bodies from schema alone (use profile_* / smart_group* / static_group*).",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in schemaIn) (*mcpsdk.CallToolResult, any, error) {
 		endSess, sessErr := applySession(sessFrom(in.Tenant, in.Surface, in.Auth))
 		if sessErr != nil {
@@ -121,13 +125,15 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "buddyscript",
-		Description: "Primary Jamf automation surface: evaluate buddy Starlark with named builtins in a fresh session. " +
-			"Returns {ok, value: {stdout, stderr, result, error}}. " +
-			"PRIMARY OUTPUT is value.result (last expression or main() return). stdout is print/unwrap only; " +
+		Description: "Primary Jamf automation: evaluate buddy Starlark with named builtins in a fresh session. " +
+			"Returns {ok, value: {stdout, stderr, result, error}} at the MCP boundary only. " +
+			"Starlark builtins return bare values and raise on failure (no {ok,value} inside scripts). " +
+			"PRIMARY OUTPUT is value.result (last expression or main() return). stdout is print/unwrap; " +
 			"when result is set and stdout empty, result is mirrored into stdout. " +
 			"Prefer def main(): … return … (no trailing top-level expr), or a single bare expression. " +
-			"See docs (query mcp-tools, builtins, profile-payloads, api-endpoints). " +
-			"Package JCDS: package_ready / package_wait_ready / package_download — do not invent from schema. " +
+			"Before profile/group/package work: docs (profile-payloads, mcp-tools). " +
+			"Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload — never jamf_put Classic profile XML. " +
+			"Packages: package_wait_ready / package_download. Groups: smart_group* vs static_group*. " +
 			"jamf_get/jamf_put only when no builtin exists. Top-level if/for must be inside functions.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in evalIn) (*mcpsdk.CallToolResult, any, error) {
 		endSess, sessErr := applySession(sessFrom(in.Tenant, in.Surface, in.Auth))

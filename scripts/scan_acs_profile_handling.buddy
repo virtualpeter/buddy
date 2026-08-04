@@ -49,18 +49,17 @@ def section(title, why):
         print(why)
 
 
-def jamf_body(res):
+def jamf_body(value):
     """Normalize jamf_get value to body (dict or string)."""
-    if not res["ok"]:
-        return None, res.get("error", "jamf_get failed")
-    v = res["value"]
-    if type(v) == "dict" and "body" in v:
-        return v["body"], ""
-    return v, ""
+    if type(value) == "dict" and "body" in value:
+        return value["body"], ""
+    return value, ""
 
 
 def extract_payloads_raw(classic_xml):
-    res = profile_xml_extract_payloads(classic_xml)
+    def _extract():
+        return profile_xml_extract_payloads(classic_xml)
+    res = attempt(_extract)
     if not res["ok"]:
         return "", res["error"]
     return res["value"], ""
@@ -71,7 +70,9 @@ def classic_mcx_domains(payloads_plist):
     out = {}
     if payloads_plist == None or payloads_plist == "":
         return out
-    res = plist_decode(payloads_plist)
+    def _decode():
+        return plist_decode(payloads_plist)
+    res = attempt(_decode)
     if not res["ok"]:
         return out
     root = res["value"]
@@ -174,12 +175,16 @@ def acs_forced_domains(doc):
 
 
 def fetch_classic_raw(profile_id):
-    res = jamf_get(
-        path="/JSSResource/osxconfigurationprofiles/id/%d" % profile_id,
-        accept="application/xml",
-        parse=False,
-    )
-    body, err = jamf_body(res)
+    def _get():
+        return jamf_get(
+            path="/JSSResource/osxconfigurationprofiles/id/%d" % profile_id,
+            accept="application/xml",
+            parse=False,
+        )
+    res = attempt(_get)
+    if not res["ok"]:
+        return "", res["error"]
+    body, err = jamf_body(res["value"])
     if err != "":
         return "", err
     if type(body) != "string":
@@ -188,10 +193,32 @@ def fetch_classic_raw(profile_id):
 
 
 def fetch_acs_profile_id(profile_id):
-    res = jamf_get(path="/api/config-profiles/macos/profile/%d" % profile_id)
-    body, err = jamf_body(res)
+    def _get():
+        return jamf_get(path="/api/config-profiles/macos/profile/%d" % profile_id)
+    res = attempt(_get)
+    if not res["ok"]:
+        return None, res["error"]
+    body, err = jamf_body(res["value"])
     if err != "":
         return None, err
+    return body, ""
+
+
+def fetch_legacy_html_mode(profile_id, mode):
+    def _get():
+        return jamf_get(
+            path="/legacy/OSXConfigurationProfiles.html?id=%d&o=%s" % (profile_id, mode),
+            accept="text/html",
+            parse=False,
+        )
+    res = attempt(_get)
+    if not res["ok"]:
+        return "", res["error"]
+    body, err = jamf_body(res["value"])
+    if err != "":
+        return "", err
+    if type(body) != "string":
+        return "", "html not string"
     return body, ""
 
 
@@ -199,17 +226,9 @@ def fetch_legacy_html(profile_id):
     last = ""
     last_err = ""
     for mode in ["u", "r"]:
-        res = jamf_get(
-            path="/legacy/OSXConfigurationProfiles.html?id=%d&o=%s" % (profile_id, mode),
-            accept="text/html",
-            parse=False,
-        )
-        body, err = jamf_body(res)
+        body, err = fetch_legacy_html_mode(profile_id, mode)
         if err != "":
             last_err = err
-            continue
-        if type(body) != "string":
-            last_err = "html not string"
             continue
         last = body
         if parse_field_external_uuid(body) != "":
@@ -222,8 +241,12 @@ def fetch_legacy_html(profile_id):
 
 
 def fetch_acs_by_uuid(payload_uuid):
-    res = jamf_get(path="/api/config-profiles/macos/%s" % payload_uuid)
-    body, err = jamf_body(res)
+    def _get():
+        return jamf_get(path="/api/config-profiles/macos/%s" % payload_uuid)
+    res = attempt(_get)
+    if not res["ok"]:
+        return None, res["error"]
+    body, err = jamf_body(res["value"])
     if err != "":
         return None, err
     return body, ""
@@ -300,7 +323,9 @@ def classify_profile(profile_id, name):
     row["acs_forced_domains"] = forced.keys()
 
     if len(empty) > 0:
-        href = profile_xml(id=profile_id)
+        def _hydrate():
+            return profile_xml(id=profile_id)
+        href = attempt(_hydrate)
         if href["ok"]:
             hp, herr = extract_payloads_raw(href["value"])
             if herr == "":
@@ -374,10 +399,7 @@ def main(auth=None):
         "Read-only. Lists profiles where buddy may need ACS hydrate / UUID bind.",
     )
 
-    res = profiles(filter=NAME_FILTER)
-    if not res["ok"]:
-        fail("profiles: %s" % res["error"])
-    items = res["value"]
+    items = profiles(filter=NAME_FILTER)
     print("listed %d profile(s)%s" % (
         len(items),
         (" matching filter %r" % NAME_FILTER) if NAME_FILTER != "" else "",

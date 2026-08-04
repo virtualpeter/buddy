@@ -8,9 +8,22 @@ How AI agents should use buddy MCP tools after the lean-surface cut.
 2. **`buddyscript`** with **named builtins** (`smart_group_*`, `policy_migrate`, `profile_xml_*`, `package_wait_ready`, `blueprint_*`, …) for Jamf work.
 3. **`jamf_get` / `jamf_put` / …** via `buddyscript` only when no named builtin exists.
 
-Do **not** invent Classic/Pro HTTP from `jamf_schema` when a named builtin already covers the job. Schema is for discovery; builtins encode Jamf quirks (pagination, READY polling, criteria vs membership, payload entity encoding).
+Do **not** invent Classic/Pro HTTP from `jamf_schema` when a named builtin already covers the job. Schema is for discovery; builtins encode Jamf quirks (pagination, READY polling, criteria vs membership, payload entity encoding, ACS).
 
-Typed per-resource MCP tools (smart/static groups, profiles, policies, packages READY/download, Platform CRUD, list stubs) were **removed** to cut host schema token cost. The same capabilities remain as Starlark builtins.
+Typed per-resource MCP tools (smart/static groups, profiles, policies, packages READY/download, Platform CRUD, list stubs) were **removed** to cut host schema token cost. The same capabilities remain as Starlark builtins — lean MCP did **not** remove ACS/profile quirk handling.
+
+---
+
+## Pathfinding map
+
+| Task | Docs query first | Named builtins (via `buddyscript`) | Do not |
+|------|------------------|--------------------------------------|--------|
+| Edit profile / ACS prefs | `profile-payloads` | `profile_xml` → `profile_xml_patch_payload` → `profile_put_xml`; `profile_acs_bind_uuid` if needed | Classic PUT from schema / Jamf `execute-request` |
+| Create/clone profile | `profile-payloads` | `profile_create` / `profile_clone` / `profile_copy` / `profile_create_xml` | Hand-edit UUIDs |
+| Package after upload | `api-endpoints`, `mcp-tools` | `package_wait_ready` / `package_ready` / `package_download` | Attach/download before READY |
+| Smart group criteria | `mcp-tools` | `smart_group*` / `smart_group_get_criteria` / `smart_group_update_criterion_value` | `static_group*` / invent criteria PUT |
+| Static membership | `mcp-tools` | `static_group_list_computers` / add/remove/set | `smart_group*` |
+| Unknown endpoint | `jamf_schema` then `builtins` | Prefer named builtin; else `jamf_get`/`jamf_put` | Schema as license to PUT profiles/groups |
 
 ---
 
@@ -37,6 +50,12 @@ Hosts may also connect Jamf’s remote MCP at `https://developer.jamf.com/mcp` (
 | `jamf_schema` | Endpoint discovery only |
 | `buddyscript` | **Primary** automation (all Pro + Platform builtins) |
 
+### Starlark return contract
+
+- **Inside Starlark:** builtins return **bare values**; failures **raise**. No `{ok, value, error}` ceremony; do not use `unwrap` for correctness.
+- **MCP tool boundary only:** `buddyscript` returns `{ok, value: {stdout, stderr, result, error}}`.
+- **`unwrap`** is optional JSON-print for CLI/`jq` (legacy envelopes still peel; `ok=false` raises).
+
 ### `buddyscript` output contract
 
 Returns `{ok, value: {stdout, stderr, result, error}}`.
@@ -48,7 +67,7 @@ Returns `{ok, value: {stdout, stderr, result, error}}`.
 
 ```python
 def main():
-    return unwrap(scripts(filter="Chrome"))
+    return scripts(filter="Chrome")
 ```
 
 ---
@@ -69,10 +88,8 @@ Do **not** hand-roll: single GET “exists?”, raw JCDS URI save without hash, 
 
 ```python
 def main():
-    r = package_wait_ready(id="42")
-    if not r["ok"]:
-        fail(r["error"])
-    return unwrap(package_ready(id="42"))
+    package_wait_ready(id="42")
+    return package_ready(id="42")
 ```
 
 ---
@@ -89,14 +106,12 @@ def main():
 
 ```python
 def main():
-    r = smart_group_update_criterion_value(
+    smart_group_update_criterion_value(
         group_id="123",
         name_substring="version",
         new_value="2.0.0",
     )
-    if not r["ok"]:
-        fail(r["error"])
-    return r
+    return "ok"
 ```
 
 **Static membership:** `static_group_list_computers` then `static_group_add_computers` / `_remove_computers` / `_set_computers`.
@@ -105,13 +120,22 @@ def main():
 
 ## Profiles / payloads (via buddyscript)
 
-See **[profile-payloads.md](profile-payloads.md)**. Prefer builtins:
+See **[profile-payloads.md](profile-payloads.md)**. ACS / entity-encoding / UUID remap still live in Go helpers + these builtins (lean MCP only removed typed tool wrappers):
 
 - Create/clone/copy: `profile_create`, `profile_clone`, `profile_copy` (UUID remap; do not hand-edit UUIDs).
 - Edit: `profile_xml` → `profile_xml_patch_payload` → `profile_put_xml`.
 - Advanced extract/replace/MCX: `payloads_*` / `plist_*`.
+- ACS seed: `profile_acs_bind_uuid` when legacy HTML scrape fails.
 
 Do **not** invent a Classic PUT body from `jamf_schema` alone.
+
+```python
+def main():
+    xml = profile_xml(id=42)
+    xml = profile_xml_patch_payload(xml, "com.example", {"Key": "New"})
+    profile_put_xml(profile_id=42, xml_str=xml)
+    return "ok"
+```
 
 ---
 
@@ -148,4 +172,4 @@ Former typed tools: Pro smart/static groups, profiles/payloads helpers, policies
 ### Do not add
 
 - First-class MCP `jamf_get`/`jamf_post`/…
-- Dumping every Starlark builtin back onto MCP as typed tools
+- Restoring dozens of typed profile/group tools (pathfinding is docs + named builtins)

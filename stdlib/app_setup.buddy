@@ -4,10 +4,10 @@
 #
 # Returns a list of step dicts for plan_change / run_change. Does not write to Jamf.
 
-def _require_ok(r, label):
-    if not r["ok"]:
-        fail(label + ": " + r["error"])
-    return r["value"]
+def _require(r, label):
+    # Builtins return bare values and raise on failure; keep label for clarity if needed later.
+    _ = label
+    return r
 
 # setup_app_classic — build prefs + PPPC profiles, cache/install policies, optional SS steps.
 #
@@ -54,7 +54,7 @@ def setup_app_classic(
     if pppc == None:
         if pppc_services == None:
             fail("setup_app_classic requires pppc_services or pppc_payload_dict")
-        pppc = _require_ok(pppc_payload(services = pppc_services), "pppc_payload")
+        pppc = _require(pppc_payload(services = pppc_services), "pppc_payload")
 
     steps.append(step_create_profile(
         name = pppc_name,

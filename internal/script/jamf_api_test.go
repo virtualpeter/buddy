@@ -57,16 +57,12 @@ func TestJamfGetBuiltin(t *testing.T) {
 	}
 	src := `
 r = jamf_get("/api/v1/packages")
-ok = r["ok"]
-status = r["value"]["status"]
-body = r["value"]["body"]
+status = r["status"]
+body = r["body"]
 `
 	globals, err := starlark.ExecFile(thread, "jamf_get_test.star", src, predeclared)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if globals["ok"] != starlark.True {
-		t.Fatalf("ok=%v", globals["ok"])
 	}
 	if globals["status"] != starlark.MakeInt(200) {
 		t.Fatalf("status=%v", globals["status"])

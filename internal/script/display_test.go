@@ -42,14 +42,22 @@ func TestFormatDisplayValueStringRaw(t *testing.T) {
 	}
 }
 
-func TestResultEnvelope(t *testing.T) {
-	env := resultOK(starlark.String("x"))
+func TestResultEnvelopeLegacy(t *testing.T) {
+	// resultOK is bare; construct a legacy envelope for peel tests.
+	env := new(starlark.Dict)
+	_ = env.SetKey(starlark.String("ok"), starlark.True)
+	_ = env.SetKey(starlark.String("value"), starlark.String("x"))
+	_ = env.SetKey(starlark.String("error"), starlark.String(""))
 	ok, val, _, isEnv := resultEnvelope(env)
 	if !isEnv || !ok {
 		t.Fatal("expected ok envelope")
 	}
 	if string(val.(starlark.String)) != "x" {
 		t.Fatalf("val %v", val)
+	}
+	bare := resultOK(starlark.String("x"))
+	if _, ok := bare.(starlark.String); !ok {
+		t.Fatalf("resultOK should be bare, got %T", bare)
 	}
 	plain := new(starlark.Dict)
 	_ = plain.SetKey(starlark.String("api"), starlark.String("pro"))
@@ -80,27 +88,71 @@ v
 	}
 }
 
-func TestUnwrapSoftError(t *testing.T) {
+func TestUnwrapBareJSONPrint(t *testing.T) {
+	sess, err := NewSession("default", buddy.Opts{}, slog.Default(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := sess.Eval("unwrap_bare", `
+v = unwrap({"hello": "world"}, pretty=False)
+v
+`)
+	if res.Error != "" {
+		t.Fatal(res.Error)
+	}
+	got := strings.TrimSpace(res.Stdout)
+	if got != `{"hello":"world"}` {
+		t.Fatalf("stdout=%q", res.Stdout)
+	}
+}
+
+func TestUnwrapHardError(t *testing.T) {
 	sess, err := NewSession("default", buddy.Opts{}, slog.Default(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	res := sess.Eval("unwrap_err", `
-v = unwrap({"ok": False, "error": "boom", "value": None})
-v == None
+unwrap({"ok": False, "error": "boom", "value": None})
 `)
-	if res.Error != "" {
-		t.Fatalf("should not abort: %v", res.Error)
+	if res.Error == "" {
+		t.Fatal("expected error on ok=false envelope")
 	}
-	if !strings.Contains(res.Stderr, "boom") {
-		t.Fatalf("stderr=%q", res.Stderr)
-	}
-	// Bool last-expr is shown as JSON true/false.
-	if strings.TrimSpace(res.Result) != "true" {
-		t.Fatalf("Result=%q want true (v == None)", res.Result)
+	if !strings.Contains(res.Error, "boom") {
+		t.Fatalf("Error=%q", res.Error)
 	}
 	if strings.TrimSpace(res.Stdout) != "" {
 		t.Fatalf("stdout should be empty on error, got %q", res.Stdout)
+	}
+}
+
+func TestAttemptSoft(t *testing.T) {
+	sess, err := NewSession("default", buddy.Opts{}, slog.Default(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := sess.Eval("attempt_ok", `
+def ok():
+    return 42
+a = attempt(ok)
+a["ok"] == True and a["value"] == 42
+`)
+	if res.Error != "" {
+		t.Fatal(res.Error)
+	}
+	if strings.TrimSpace(res.Result) != "true" {
+		t.Fatalf("Result=%q", res.Result)
+	}
+	res = sess.Eval("attempt_err", `
+def boom():
+    fail("nope")
+a = attempt(boom)
+a["ok"] == False and "nope" in a["error"]
+`)
+	if res.Error != "" {
+		t.Fatal(res.Error)
+	}
+	if strings.TrimSpace(res.Result) != "true" {
+		t.Fatalf("Result=%q", res.Result)
 	}
 }
 

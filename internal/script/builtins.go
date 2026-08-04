@@ -25,18 +25,16 @@ var scriptOpts = buddy.Opts{SkipConfirm: true, Verbose: false}
 // Set by script.Run before executing a script.
 var runnerOpts buddy.Opts
 
-func resultOK(value starlark.Value) *starlark.Dict {
-	d := new(starlark.Dict)
-	_ = d.SetKey(starlark.String("ok"), starlark.Bool(true))
-	_ = d.SetKey(starlark.String("value"), value)
-	return d
+func resultOK(value starlark.Value) starlark.Value {
+	if value == nil {
+		return starlark.None
+	}
+	return value
 }
 
-func resultErr(msg string) *starlark.Dict {
-	d := new(starlark.Dict)
-	_ = d.SetKey(starlark.String("ok"), starlark.Bool(false))
-	_ = d.SetKey(starlark.String("error"), starlark.String(msg))
-	return d
+// resultErr returns a Starlark-level failure (raises when returned as (nil, err)).
+func resultErr(msg string) (starlark.Value, error) {
+	return nil, fmt.Errorf("%s", msg)
 }
 
 // pageOptsFromArgs builds buddy.PageOpts from optional Starlark page / page_size.
@@ -161,6 +159,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "jamf_schema", jamfSchemaBuiltin(credName, logger))
 
 	putBuiltin(dict, "unwrap", unwrapBuiltin)
+	putBuiltin(dict, "attempt", attemptBuiltin)
 	putBuiltin(dict, "json_decode", jsonDecodeBuiltin)
 	putBuiltin(dict, "json_encode", jsonEncodeBuiltin)
 	putBuiltin(dict, "json_pretty", jsonPrettyBuiltin)
@@ -372,7 +371,7 @@ func policySetSS(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -417,7 +416,7 @@ func policySetSS(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		}
 		err := buddy.PolicySSUpdate(c, scriptOpts, int(pid), ssOpts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -436,7 +435,7 @@ func policySetInstall(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -444,7 +443,7 @@ func policySetInstall(credName string, logger *slog.Logger) func(*starlark.Threa
 		paramIndices := []int{4, 5, 6}
 		err := buddy.PolicyInstall(c, scriptOpts, int(pid), string(version), paramIndices, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -467,7 +466,7 @@ func policyClone(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -479,7 +478,7 @@ func policyClone(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		paramIndices := []int{4, 5, 6}
 		err = buddy.PolicyClone(c, scriptOpts, int(pid), "", "", string(version), "", paramIndices, disableMode, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -547,7 +546,7 @@ func policyCreateSS(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -555,7 +554,7 @@ func policyCreateSS(credName string, logger *slog.Logger) func(*starlark.Thread,
 		sid, _ := scriptID.Int64()
 		policyID, err := buddy.PolicyCreateSS(c, scriptOpts, string(trigger), string(displayName), string(category), int(sgid), int(sid), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.MakeInt(policyID)), nil
 	}
@@ -582,7 +581,7 @@ func policyCreatePackage(credName string, logger *slog.Logger) func(*starlark.Th
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -595,7 +594,7 @@ func policyCreatePackage(credName string, logger *slog.Logger) func(*starlark.Th
 			for i := 0; i < scopeGroupIDs.Len(); i++ {
 				n, ok := scopeGroupIDs.Index(i).(starlark.Int)
 				if !ok {
-					return resultErr("scope_group_ids must be a list of ints"), nil
+					return resultErr("scope_group_ids must be a list of ints")
 				}
 				v64, _ := n.Int64()
 				groupIDs = append(groupIDs, int(v64))
@@ -605,16 +604,16 @@ func policyCreatePackage(credName string, logger *slog.Logger) func(*starlark.Th
 		if scopeAll != nil && scopeAll != starlark.None {
 			b, ok := scopeAll.(starlark.Bool)
 			if !ok {
-				return resultErr("scope_all must be a bool"), nil
+				return resultErr("scope_all must be a bool")
 			}
 			all = bool(b)
 		}
 		out, err := buddy.PolicyCreatePackage(c, scriptOpts, string(app), string(version), act, all, groupIDs, string(category), string(packagePattern), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultOK(starlark.None), nil
+			return resultErr("policy_create_package: cancelled")
 		}
 		d := new(starlark.Dict)
 		_ = d.SetKey(starlark.String("id"), starlark.MakeInt(out.PolicyID))
@@ -643,7 +642,7 @@ func policySetPackage(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -662,7 +661,7 @@ func policySetPackage(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		err = buddy.PolicyPackage(c, scriptOpts, strings.ToLower(string(app)), string(version), int(pid), triggerOverride, packageOverride, disableMode, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -694,7 +693,7 @@ func groupListBuiltin(name string, search groupSearchFunc, credName string, logg
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -704,7 +703,7 @@ func groupListBuiltin(name string, search groupSearchFunc, credName string, logg
 		}
 		records, err := search(c, string(filter), opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		for _, g := range records {
@@ -731,13 +730,13 @@ func staticGroupListComputers(credName string, logger *slog.Logger) func(*starla
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		members, err := buddy.StaticGroupFetchMembers(c, string(groupID))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		members = buddy.FilterStaticGroupMembers(members, string(filter))
 		list := starlark.NewList(nil)
@@ -786,7 +785,7 @@ func staticGroupAddComputers(credName string, logger *slog.Logger) func(*starlar
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -796,7 +795,7 @@ func staticGroupAddComputers(credName string, logger *slog.Logger) func(*starlar
 		}
 		_, err = buddy.StaticGroupAddComputers(c, scriptOpts, string(groupID), ids, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -816,7 +815,7 @@ func staticGroupRemoveComputers(credName string, logger *slog.Logger) func(*star
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -826,7 +825,7 @@ func staticGroupRemoveComputers(credName string, logger *slog.Logger) func(*star
 		}
 		_, err = buddy.StaticGroupRemoveComputers(c, scriptOpts, string(groupID), ids, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -846,7 +845,7 @@ func staticGroupSetComputers(credName string, logger *slog.Logger) func(*starlar
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -856,7 +855,7 @@ func staticGroupSetComputers(credName string, logger *slog.Logger) func(*starlar
 		}
 		_, err = buddy.StaticGroupSetComputers(c, scriptOpts, string(groupID), ids, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -875,22 +874,22 @@ func smartGroupCreate(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		jsonStr, err := StarlarkToJSON(body)
 		if err != nil {
-			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err))
 		}
 		opts := scriptOpts
 		opts.SkipConfirm = true
 		created, err := buddy.GroupCreateSmart(c, opts, []byte(jsonStr), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if created == nil {
-			return resultErr("smart_group_create: cancelled"), nil
+			return resultErr("smart_group_create: cancelled")
 		}
 		return groupCreateResultValue(created)
 	}
@@ -909,22 +908,22 @@ func staticGroupCreate(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		jsonStr, err := StarlarkToJSON(body)
 		if err != nil {
-			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err))
 		}
 		opts := scriptOpts
 		opts.SkipConfirm = true
 		created, err := buddy.GroupCreateStatic(c, opts, []byte(jsonStr), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if created == nil {
-			return resultErr("static_group_create: cancelled"), nil
+			return resultErr("static_group_create: cancelled")
 		}
 		return groupCreateResultValue(created)
 	}
@@ -933,11 +932,11 @@ func staticGroupCreate(credName string, logger *slog.Logger) func(*starlark.Thre
 func groupCreateResultValue(created *buddy.GroupCreateResult) (starlark.Value, error) {
 	b, err := json.Marshal(created)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	val, err := JSONDecodeToStarlark(string(b))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(val), nil
 }
@@ -956,19 +955,19 @@ func smartGroupPut(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		jsonStr, err := StarlarkToJSON(body)
 		if err != nil {
-			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err))
 		}
 		// For scripts, always skip confirm.
 		opts := scriptOpts
 		opts.SkipConfirm = true
 		if err := buddy.GroupPutSmartRaw(c, opts, string(groupID), []byte(jsonStr), logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -987,32 +986,32 @@ func smartGroupGetCriteria(credName string, logger *slog.Logger) func(*starlark.
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		body, err := buddy.GroupFetchSmartRaw(c, string(groupID))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		root, err := JSONDecodeToStarlark(string(body))
 		if err != nil {
-			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err))
 		}
 		d, ok := root.(*starlark.Dict)
 		if !ok {
-			return resultErr("smart group JSON root is not a dict"), nil
+			return resultErr("smart group JSON root is not a dict")
 		}
 		critVal, found, err := d.Get(starlark.String("criteria"))
 		if err != nil {
-			return resultErr(fmt.Sprintf("lookup criteria: %v", err)), nil
+			return resultErr(fmt.Sprintf("lookup criteria: %v", err))
 		}
 		if !found {
 			// No criteria field: return empty list.
 			return resultOK(starlark.NewList(nil)), nil
 		}
 		if _, ok := critVal.(*starlark.List); !ok {
-			return resultErr("smart group criteria is not a list"), nil
+			return resultErr("smart group criteria is not a list")
 		}
 		return resultOK(critVal), nil
 	}
@@ -1032,33 +1031,33 @@ func smartGroupSetCriteria(credName string, logger *slog.Logger) func(*starlark.
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		body, err := buddy.GroupFetchSmartRaw(c, string(groupID))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		root, err := JSONDecodeToStarlark(string(body))
 		if err != nil {
-			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err))
 		}
 		d, ok := root.(*starlark.Dict)
 		if !ok {
-			return resultErr("smart group JSON root is not a dict"), nil
+			return resultErr("smart group JSON root is not a dict")
 		}
 		if err := d.SetKey(starlark.String("criteria"), criteria); err != nil {
-			return resultErr(fmt.Sprintf("set criteria: %v", err)), nil
+			return resultErr(fmt.Sprintf("set criteria: %v", err))
 		}
 		jsonStr, err := StarlarkToJSON(d)
 		if err != nil {
-			return resultErr(fmt.Sprintf("encode updated smart group JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("encode updated smart group JSON: %v", err))
 		}
 		opts := scriptOpts
 		opts.SkipConfirm = true
 		if err := buddy.GroupPutSmartRaw(c, opts, string(groupID), []byte(jsonStr), logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -1077,32 +1076,32 @@ func smartGroupFindCriteria(credName string, logger *slog.Logger) func(*starlark
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		body, err := buddy.GroupFetchSmartRaw(c, string(groupID))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		root, err := JSONDecodeToStarlark(string(body))
 		if err != nil {
-			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err))
 		}
 		d, ok := root.(*starlark.Dict)
 		if !ok {
-			return resultErr("smart group JSON root is not a dict"), nil
+			return resultErr("smart group JSON root is not a dict")
 		}
 		critVal, found, err := d.Get(starlark.String("criteria"))
 		if err != nil {
-			return resultErr(fmt.Sprintf("lookup criteria: %v", err)), nil
+			return resultErr(fmt.Sprintf("lookup criteria: %v", err))
 		}
 		if !found {
 			return resultOK(starlark.NewList(nil)), nil
 		}
 		lst, ok := critVal.(*starlark.List)
 		if !ok {
-			return resultErr("smart group criteria is not a list"), nil
+			return resultErr("smart group criteria is not a list")
 		}
 		nameLower := strings.ToLower(string(nameSubstr))
 		out := starlark.NewList(nil)
@@ -1142,32 +1141,32 @@ func smartGroupUpdateCriterionValue(credName string, logger *slog.Logger) func(*
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		body, err := buddy.GroupFetchSmartRaw(c, string(groupID))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		root, err := JSONDecodeToStarlark(string(body))
 		if err != nil {
-			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err))
 		}
 		d, ok := root.(*starlark.Dict)
 		if !ok {
-			return resultErr("smart group JSON root is not a dict"), nil
+			return resultErr("smart group JSON root is not a dict")
 		}
 		critVal, found, err := d.Get(starlark.String("criteria"))
 		if err != nil {
-			return resultErr(fmt.Sprintf("lookup criteria: %v", err)), nil
+			return resultErr(fmt.Sprintf("lookup criteria: %v", err))
 		}
 		if !found {
-			return resultErr("smart group has no criteria array"), nil
+			return resultErr("smart group has no criteria array")
 		}
 		lst, ok := critVal.(*starlark.List)
 		if !ok {
-			return resultErr("smart group criteria is not a list"), nil
+			return resultErr("smart group criteria is not a list")
 		}
 		nameLower := strings.ToLower(string(nameSubstr))
 		changed := false
@@ -1187,22 +1186,22 @@ func smartGroupUpdateCriterionValue(credName string, logger *slog.Logger) func(*
 			}
 			if strings.Contains(strings.ToLower(nameStr), nameLower) {
 				if err := cd.SetKey(starlark.String("value"), newValue); err != nil {
-					return resultErr(fmt.Sprintf("set criterion value: %v", err)), nil
+					return resultErr(fmt.Sprintf("set criterion value: %v", err))
 				}
 				changed = true
 			}
 		}
 		if !changed {
-			return resultErr(fmt.Sprintf("no criteria found with name containing %q", string(nameSubstr))), nil
+			return resultErr(fmt.Sprintf("no criteria found with name containing %q", string(nameSubstr)))
 		}
 		jsonStr, err := StarlarkToJSON(d)
 		if err != nil {
-			return resultErr(fmt.Sprintf("encode updated smart group JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("encode updated smart group JSON: %v", err))
 		}
 		opts := scriptOpts
 		opts.SkipConfirm = true
 		if err := buddy.GroupPutSmartRaw(c, opts, string(groupID), []byte(jsonStr), logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -1219,13 +1218,13 @@ func rolePrivilegesList(credName string, logger *slog.Logger) func(*starlark.Thr
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		privs, err := buddy.RolePrivilegesList(c, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		elems := make([]starlark.Value, len(privs))
 		for i, p := range privs {
@@ -1249,22 +1248,22 @@ func rolePut(credName string, logger *slog.Logger) func(*starlark.Thread, *starl
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		g, err := StarlarkValueToGo(bodyVal)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		m, ok := g.(map[string]interface{})
 		if !ok {
-			return resultErr("dict must be a map/dict"), nil
+			return resultErr("dict must be a map/dict")
 		}
 		// Resolve desired fields, preserving existing where unspecified.
 		existing, err := buddy.RoleFetch(c, string(roleID), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		displayName := existing.DisplayName
 		if v, ok := m["displayName"].(string); ok && v != "" {
@@ -1289,18 +1288,18 @@ func rolePut(credName string, logger *slog.Logger) func(*starlark.Thread, *starl
 		}
 		updated, err := buddy.RoleUpdateWithResult(c, string(roleID), scriptOpts, displayName, privs, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if updated == nil {
-			return resultErr("role_put: cancelled"), nil
+			return resultErr("role_put: cancelled")
 		}
 		b, err := json.Marshal(updated)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -1321,17 +1320,17 @@ func roleCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 					"auth?", &sess.Auth)
 				sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 				if sessErr != nil {
-					return resultErr(sessErr.Error()), nil
+					return resultErr(sessErr.Error())
 				}
 				defer restoreSession()
 				c := sessionPin
 				g, err := StarlarkValueToGo(d)
 				if err != nil {
-					return resultErr(err.Error()), nil
+					return resultErr(err.Error())
 				}
 				m, ok := g.(map[string]interface{})
 				if !ok {
-					return resultErr("role_create: dict must be a map"), nil
+					return resultErr("role_create: dict must be a map")
 				}
 				displayName, _ := m["displayName"].(string)
 				var privs []string
@@ -1348,14 +1347,14 @@ func roleCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 					}
 				}
 				if displayName == "" {
-					return resultErr("role_create: missing displayName"), nil
+					return resultErr("role_create: missing displayName")
 				}
 				role, err := buddy.RoleCreateWithID(c, scriptOpts, displayName, privs, logger)
 				if err != nil {
-					return resultErr(err.Error()), nil
+					return resultErr(err.Error())
 				}
 				if role == nil {
-					return resultErr("role_create: cancelled"), nil
+					return resultErr("role_create: cancelled")
 				}
 				return resultOK(starlark.String(role.ID)), nil
 			}
@@ -1372,7 +1371,7 @@ func roleCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -1387,10 +1386,10 @@ func roleCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 		}
 		role, err := buddy.RoleCreateWithID(c, scriptOpts, string(displayName), privs, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if role == nil {
-			return resultErr("role_create: cancelled"), nil
+			return resultErr("role_create: cancelled")
 		}
 		return resultOK(starlark.String(role.ID)), nil
 	}
@@ -1410,32 +1409,32 @@ func clientPut(credName string, logger *slog.Logger) func(*starlark.Thread, *sta
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		g, err := StarlarkValueToGo(bodyVal)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		m, ok := g.(map[string]interface{})
 		if !ok {
-			return resultErr("dict must be a map/dict"), nil
+			return resultErr("dict must be a map/dict")
 		}
 		updated, err := buddy.ClientPutFields(c, scriptOpts, string(clientID), m, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if updated == nil {
-			return resultErr("client_put: cancelled"), nil
+			return resultErr("client_put: cancelled")
 		}
 		b, err := json.Marshal(updated)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -1456,17 +1455,17 @@ func clientCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *
 					"auth?", &sess.Auth)
 				sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 				if sessErr != nil {
-					return resultErr(sessErr.Error()), nil
+					return resultErr(sessErr.Error())
 				}
 				defer restoreSession()
 				c := sessionPin
 				g, err := StarlarkValueToGo(d)
 				if err != nil {
-					return resultErr(err.Error()), nil
+					return resultErr(err.Error())
 				}
 				m, ok := g.(map[string]interface{})
 				if !ok {
-					return resultErr("client_create: dict must be a map"), nil
+					return resultErr("client_create: dict must be a map")
 				}
 				displayName, _ := m["displayName"].(string)
 				var scopeList []string
@@ -1483,14 +1482,14 @@ func clientCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *
 					}
 				}
 				if displayName == "" {
-					return resultErr("client_create: missing displayName"), nil
+					return resultErr("client_create: missing displayName")
 				}
 				client, err := buddy.ClientCreateWithResult(c, scriptOpts, displayName, scopeList, logger)
 				if err != nil {
-					return resultErr(err.Error()), nil
+					return resultErr(err.Error())
 				}
 				if client == nil {
-					return resultErr("client_create: cancelled"), nil
+					return resultErr("client_create: cancelled")
 				}
 				out := new(starlark.Dict)
 				_ = out.SetKey(starlark.String("id"), starlark.String(strconv.Itoa(client.ID)))
@@ -1510,7 +1509,7 @@ func clientCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -1529,10 +1528,10 @@ func clientCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		client, err := buddy.ClientCreateWithResult(c, scriptOpts, string(displayName), scopeList, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if client == nil {
-			return resultErr("client_create: cancelled"), nil
+			return resultErr("client_create: cancelled")
 		}
 		d := new(starlark.Dict)
 		_ = d.SetKey(starlark.String("id"), starlark.String(strconv.Itoa(client.ID)))
@@ -1553,14 +1552,14 @@ func policySetScopeAll(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		pid, _ := policyID.Int64()
 		err := buddy.PolicyScopeAll(c, scriptOpts, int(pid), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -1578,7 +1577,7 @@ func policyDelete(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -1593,7 +1592,7 @@ func policyDelete(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		err := buddy.PolicyDelete(c, scriptOpts, ids, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -1613,14 +1612,14 @@ func policyPutXML(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		pid, _ := policyID.Int64()
 		err := buddy.PolicyPutXML(c, scriptOpts, int(pid), []byte(string(xmlStr)), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -1651,12 +1650,12 @@ func policyCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 		fromSess := sessionArgs{Tenant: fromTenant, Surface: fromSurface, Auth: fromAuth}
 		fromPin, restoreFrom, sessErr := beginSession(thread, credName, fromSess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
 		restoreFrom()
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreDest()
 		pid, _ := policyID.Int64()
@@ -1670,7 +1669,7 @@ func policyCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 			for i := 0; i < scopeGroupIDs.Len(); i++ {
 				n, ok := scopeGroupIDs.Index(i).(starlark.Int)
 				if !ok {
-					return resultErr("scope_group_ids must be a list of ints"), nil
+					return resultErr("scope_group_ids must be a list of ints")
 				}
 				v64, _ := n.Int64()
 				ids = append(ids, int(v64))
@@ -1680,7 +1679,7 @@ func policyCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 		if scopeAll != starlark.None {
 			b, ok := scopeAll.(starlark.Bool)
 			if !ok {
-				return resultErr("scope_all must be a bool"), nil
+				return resultErr("scope_all must be a bool")
 			}
 			v := bool(b)
 			spec.ScopeAll = &v
@@ -1690,10 +1689,10 @@ func policyCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 		}
 		out, err := buddy.PolicyCopy(fromPin, destPin, scriptOpts, spec, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("policy_copy: cancelled"), nil
+			return resultErr("policy_copy: cancelled")
 		}
 		d := new(starlark.Dict)
 		_ = d.SetKey(starlark.String("id"), starlark.MakeInt(out.PolicyID))
@@ -1731,12 +1730,12 @@ func policyMigrate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		fromSess := sessionArgs{Tenant: fromTenant, Surface: fromSurface, Auth: fromAuth}
 		fromPin, restoreFrom, sessErr := beginSession(thread, credName, fromSess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
 		restoreFrom()
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreDest()
 		pid, _ := policyID.Int64()
@@ -1751,7 +1750,7 @@ func policyMigrate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			for i := 0; i < scopeGroupIDs.Len(); i++ {
 				n, ok := scopeGroupIDs.Index(i).(starlark.Int)
 				if !ok {
-					return resultErr("scope_group_ids must be a list of ints"), nil
+					return resultErr("scope_group_ids must be a list of ints")
 				}
 				v64, _ := n.Int64()
 				ids = append(ids, int(v64))
@@ -1761,7 +1760,7 @@ func policyMigrate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		if scopeAll != starlark.None {
 			b, ok := scopeAll.(starlark.Bool)
 			if !ok {
-				return resultErr("scope_all must be a bool"), nil
+				return resultErr("scope_all must be a bool")
 			}
 			v := bool(b)
 			migSpec.ScopeAll = &v
@@ -1771,10 +1770,10 @@ func policyMigrate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		out, err := buddy.PolicyMigrate(fromPin, destPin, scriptOpts, migSpec, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("policy_migrate: cancelled"), nil
+			return resultErr("policy_migrate: cancelled")
 		}
 		d := new(starlark.Dict)
 		_ = d.SetKey(starlark.String("id"), starlark.MakeInt(out.PolicyID))
@@ -1803,29 +1802,29 @@ func packagePut(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		g, err := StarlarkValueToGo(bodyVal)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		m, ok := g.(map[string]interface{})
 		if !ok {
-			return resultErr("dict must be a map/dict"), nil
+			return resultErr("dict must be a map/dict")
 		}
 		updated, err := buddy.PackagePutFields(c, scriptOpts, string(id), m, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, mErr := json.Marshal(updated)
 		if mErr != nil {
-			return resultErr(mErr.Error()), nil
+			return resultErr(mErr.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -1844,7 +1843,7 @@ func packageDelete(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -1862,7 +1861,7 @@ func packageDelete(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			}
 		}
 		if err := buddy.PackageDelete(c, scriptOpts, idStrs, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -1886,7 +1885,7 @@ func packageUpload(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -1922,7 +1921,7 @@ func packageUpload(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		err := buddy.PackageUpload(c, scriptOpts, string(file), attrs, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -1941,7 +1940,7 @@ func packageReady(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -1951,7 +1950,7 @@ func packageReady(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		ready, err := buddy.PackageReady(c, id)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		_ = logger
 		return resultOK(starlark.Bool(ready)), nil
@@ -1973,7 +1972,7 @@ func packageWaitReady(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -1994,7 +1993,7 @@ func packageWaitReady(credName string, logger *slog.Logger) func(*starlark.Threa
 			d = time.Duration(secs) * time.Second
 		}
 		if err := buddy.PackageWaitReady(c, id, d, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -2014,7 +2013,7 @@ func packageDownload(credName string, logger *slog.Logger) func(*starlark.Thread
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -2023,7 +2022,7 @@ func packageDownload(credName string, logger *slog.Logger) func(*starlark.Thread
 			return nil, err
 		}
 		if err := buddy.PackageDownload(c, id, string(path), logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -2042,13 +2041,13 @@ func scriptGetContents(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		contents, err := buddy.ScriptGetContentsStr(c, string(scriptID))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(contents)), nil
 	}
@@ -2067,12 +2066,12 @@ func scriptUpdate(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		if err := buddy.ScriptUpdate(c, scriptOpts, string(scriptID), string(file), logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -2090,13 +2089,13 @@ func groupDelete(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		err := buddy.GroupDelete(c, scriptOpts, string(groupID), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -2169,17 +2168,17 @@ func authBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		info, err := buddy.AuthInfo(c, bool(renew), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := GoValueToStarlark(info)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -2217,7 +2216,7 @@ func jsonDecodeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tu
 	}
 	val, err := JSONDecodeToStarlark(string(jsonStr))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(val), nil
 }
@@ -2230,7 +2229,7 @@ func jsonEncodeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tu
 	}
 	s, err := StarlarkToJSON(val)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(s)), nil
 }
@@ -2243,7 +2242,7 @@ func jsonPrettyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tu
 	}
 	s, err := StarlarkToJSONPretty(val)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(s)), nil
 }
@@ -2256,7 +2255,7 @@ func plistDecodeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 	val, err := PlistDecodeToStarlark(string(plistStr))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(val), nil
 }
@@ -2269,7 +2268,7 @@ func plistEncodeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 	s, err := StarlarkToPlist(val)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(s)), nil
 }
@@ -2323,7 +2322,7 @@ func xmlSortBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple
 		Recursive:  bool(recursive),
 	})
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(out)), nil
 }
@@ -2359,14 +2358,14 @@ func versionSortBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		return nil, err
 	}
 	if items == nil {
-		return resultErr("items is required"), nil
+		return resultErr("items is required")
 	}
 	orderStr := strings.ToLower(strings.TrimSpace(string(order)))
 	if orderStr == "" {
 		orderStr = "asc"
 	}
 	if orderStr != "asc" && orderStr != "desc" {
-		return resultErr(fmt.Sprintf("order must be \"asc\" or \"desc\", got %q", string(order))), nil
+		return resultErr(fmt.Sprintf("order must be \"asc\" or \"desc\", got %q", string(order)))
 	}
 	desc := orderStr == "desc"
 	n := items.Len()
@@ -2383,16 +2382,16 @@ func versionSortBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		switch tv := v.(type) {
 		case starlark.String:
 			if keyName != "" {
-				return resultErr("key is only valid when items are dicts"), nil
+				return resultErr("key is only valid when items are dicts")
 			}
 			sortKeys[i] = string(tv)
 		case *starlark.Dict:
 			if keyName == "" {
-				return resultErr("key is required when items are dicts"), nil
+				return resultErr("key is required when items are dicts")
 			}
 			fv, found, err := tv.Get(starlark.String(keyName))
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			if !found {
 				sortKeys[i] = ""
@@ -2407,7 +2406,7 @@ func versionSortBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 				sortKeys[i] = fv.String()
 			}
 		default:
-			return resultErr("items must be a list of str or a list of dict"), nil
+			return resultErr("items must be a list of str or a list of dict")
 		}
 	}
 
@@ -2477,11 +2476,11 @@ func rsqlCompareBuiltin(name string, args starlark.Tuple, kwargs []starlark.Tupl
 	}
 	gv, err := rsqlStarlarkValue(value)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	out, err := fn(string(field), gv)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(out)), nil
 }
@@ -2493,7 +2492,7 @@ func rsqlContainsBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	}
 	out, err := buddy.RSQLContains(string(field), string(substring))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(out)), nil
 }
@@ -2508,13 +2507,13 @@ func rsqlInBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple,
 	for i := 0; i < values.Len(); i++ {
 		gv, err := rsqlStarlarkValue(values.Index(i))
 		if err != nil {
-			return resultErr(fmt.Sprintf("values[%d]: %v", i, err)), nil
+			return resultErr(fmt.Sprintf("values[%d]: %v", i, err))
 		}
 		items = append(items, gv)
 	}
 	out, err := buddy.RSQLIn(string(field), items)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(out)), nil
 }
@@ -2536,13 +2535,13 @@ func rsqlJoinBuiltin(name string, args starlark.Tuple, kwargs []starlark.Tuple, 
 	for i := 0; i < clauses.Len(); i++ {
 		s, ok := clauses.Index(i).(starlark.String)
 		if !ok {
-			return resultErr(fmt.Sprintf("clauses[%d]: must be a string", i)), nil
+			return resultErr(fmt.Sprintf("clauses[%d]: must be a string", i))
 		}
 		parts = append(parts, string(s))
 	}
 	out, err := fn(parts)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(out)), nil
 }
@@ -2563,7 +2562,7 @@ func rsqlDatetimeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	s, _ := second.Int64()
 	out, err := buddy.RSQLDateTime(int(y), int(mo), int(d), int(h), int(mi), int(s))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(out)), nil
 }
@@ -2582,7 +2581,7 @@ func rsqlDaysAgoBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 	n, err := rsqlNumber(days)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(buddy.RSQLDaysAgo(n))), nil
 }
@@ -2594,7 +2593,7 @@ func rsqlHoursAgoBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	}
 	n, err := rsqlNumber(hours)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(buddy.RSQLHoursAgo(n))), nil
 }
@@ -2635,21 +2634,21 @@ func rsqlNumber(v starlark.Value) (float64, error) {
 	}
 }
 
-// file_read(path) → {ok, value: str} — UTF-8 text only; use file_read_bytes for binary.
+// file_read(path) → str — UTF-8 text only; use file_read_bytes for binary.
 func fileReadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path starlark.String
 	if err := starlark.UnpackArgs("file_read", args, kwargs, "path", &path); err != nil {
 		return nil, err
 	}
 	if mcpGuarded() && buddySecretPath(string(path)) {
-		return resultErr(errMCPSecretPath().Error()), nil
+		return resultErr(errMCPSecretPath().Error())
 	}
 	b, err := os.ReadFile(string(path))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	if !utf8.Valid(b) {
-		return resultErr("file is not valid UTF-8; use file_read_bytes for binary data"), nil
+		return resultErr("file is not valid UTF-8; use file_read_bytes for binary data")
 	}
 	return resultOK(starlark.String(string(b))), nil
 }
@@ -2661,16 +2660,16 @@ func fileReadBytesBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		return nil, err
 	}
 	if mcpGuarded() && buddySecretPath(string(path)) {
-		return resultErr(errMCPSecretPath().Error()), nil
+		return resultErr(errMCPSecretPath().Error())
 	}
 	b, err := os.ReadFile(string(path))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.Bytes(b)), nil
 }
 
-// file_write(path, data) → {ok, value: None} — data is str (UTF-8) or bytes.
+// file_write(path, data) → None — data is str (UTF-8) or bytes.
 func fileWriteBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path starlark.String
 	var data starlark.Value
@@ -2684,10 +2683,10 @@ func fileWriteBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tup
 	case starlark.Bytes:
 		raw = []byte(d)
 	default:
-		return resultErr("data must be str or bytes"), nil
+		return resultErr("data must be str or bytes")
 	}
 	if err := os.WriteFile(string(path), raw, 0o644); err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.None), nil
 }
@@ -3041,7 +3040,7 @@ func profileGetPayloads(credName string, logger *slog.Logger) func(*starlark.Thr
 		cred := credName
 		var buf bytes.Buffer
 		if err := buddy.ProfileGetPayloads(cred, int(pid), &buf, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(buf.String())), nil
 	}
@@ -3059,7 +3058,7 @@ func profileGetPayload(credName string, logger *slog.Logger) func(*starlark.Thre
 		cred := credName
 		var buf bytes.Buffer
 		if err := buddy.ProfileGetPayloadByDomain(cred, int(pid), string(domain), &buf, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(buf.String())), nil
 	}
@@ -3076,7 +3075,7 @@ func profileListPayloads(credName string, logger *slog.Logger) func(*starlark.Th
 		cred := credName
 		domains, err := buddy.ProfileListPayloads(cred, int(pid), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := new(starlark.List)
 		for _, d := range domains {
@@ -3101,13 +3100,13 @@ func profileRedeploy(credName string, logger *slog.Logger) func(*starlark.Thread
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		pid, _ := profileID.Int64()
 		err := buddy.ProfileRedeploy(sessionPin, scriptOpts, int(pid), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -3128,7 +3127,7 @@ func profileACSBindUUIDBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	pid, _ := profileID.Int64()
 	u := strings.TrimSpace(string(payloadUUID))
 	if pid <= 0 || u == "" {
-		return resultErr("profile_id and payload_uuid are required"), nil
+		return resultErr("profile_id and payload_uuid are required")
 	}
 	buddy.CacheACSPayloadUUID(int(pid), u)
 	return resultOK(starlark.None), nil
@@ -3153,13 +3152,13 @@ func profileSetPayload(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		pid, _ := profileID.Int64()
 		err := buddy.ProfileSetPayload(sessionPin, scriptOpts, int(pid), string(domain), string(dictFile), bool(redeploy), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -3180,13 +3179,13 @@ func profileSetXML(logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin
 		pid, _ := profileID.Int64()
 		f, err := os.Open(string(xmlFile))
 		if err != nil {
-			return resultErr(fmt.Sprintf("open %s: %v", string(xmlFile), err)), nil
+			return resultErr(fmt.Sprintf("open %s: %v", string(xmlFile), err))
 		}
 		defer f.Close()
 		cred := getAuth(thread, "")
 		err = buddy.ProfileSetXML(cred, scriptOpts, int(pid), f, bool(redeploy), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -3215,7 +3214,7 @@ func profileCreate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -3225,25 +3224,25 @@ func profileCreate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			for i := 0; i < content.Len(); i++ {
 				g, err := StarlarkValueToGo(content.Index(i))
 				if err != nil {
-					return resultErr(fmt.Sprintf("content[%d]: %v", i, err)), nil
+					return resultErr(fmt.Sprintf("content[%d]: %v", i, err))
 				}
 				items = append(items, g)
 			}
 			updated, err := buddy.PlistSetPayloadContent(plistStr, items)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			plistStr = updated
 		}
 		if strings.TrimSpace(plistStr) == "" {
-			return resultErr("profile_create requires payloads_plist_str or content"), nil
+			return resultErr("profile_create requires payloads_plist_str or content")
 		}
 		var groupIDs []int
 		if scopeGroupIDs != nil {
 			for i := 0; i < scopeGroupIDs.Len(); i++ {
 				n, ok := scopeGroupIDs.Index(i).(starlark.Int)
 				if !ok {
-					return resultErr("scope_group_ids must be a list of ints"), nil
+					return resultErr("scope_group_ids must be a list of ints")
 				}
 				v64, _ := n.Int64()
 				groupIDs = append(groupIDs, int(v64))
@@ -3253,7 +3252,7 @@ func profileCreate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		if scopeAll != nil && scopeAll != starlark.None {
 			b, ok := scopeAll.(starlark.Bool)
 			if !ok {
-				return resultErr("scope_all must be a bool"), nil
+				return resultErr("scope_all must be a bool")
 			}
 			all = bool(b)
 		}
@@ -3266,10 +3265,10 @@ func profileCreate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			RedeployOnUpdate: string(redeployOnUpdate),
 		}, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultOK(starlark.None), nil
+			return resultErr("profile_create: cancelled")
 		}
 		return resultOK(starlark.MakeInt(out.ProfileID)), nil
 	}
@@ -3277,7 +3276,7 @@ func profileCreate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 
 func profileCreateOutcomeValue(out *buddy.ProfileCreateOutcome) (starlark.Value, error) {
 	if out == nil {
-		return resultOK(starlark.None), nil
+		return resultErr("profile create: cancelled")
 	}
 	d := starlark.NewDict(2)
 	_ = d.SetKey(starlark.String("id"), starlark.MakeInt(out.ProfileID))
@@ -3305,13 +3304,13 @@ func profileClone(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		pid, _ := profileID.Int64()
 		out, err := buddy.ProfileClone(sessionPin, scriptOpts, int(pid), string(name), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return profileCreateOutcomeValue(out)
 	}
@@ -3340,13 +3339,13 @@ func profileCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		fromSess := sessionArgs{Tenant: fromTenant, Surface: fromSurface, Auth: fromAuth}
 		fromPin, restoreFrom, sessErr := beginSession(thread, credName, fromSess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		pid, _ := profileID.Int64()
 		profileXML, err := buddy.ProfileFetchXML(fromPin, int(pid))
 		restoreFrom()
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		spec := buddy.ProfilePrepareSpec{Name: string(name)}
 		if scopeGroupIDs != nil {
@@ -3354,7 +3353,7 @@ func profileCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 			for i := 0; i < scopeGroupIDs.Len(); i++ {
 				n, ok := scopeGroupIDs.Index(i).(starlark.Int)
 				if !ok {
-					return resultErr("scope_group_ids must be a list of ints"), nil
+					return resultErr("scope_group_ids must be a list of ints")
 				}
 				v64, _ := n.Int64()
 				ids = append(ids, int(v64))
@@ -3364,23 +3363,23 @@ func profileCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		if scopeAll != starlark.None {
 			b, ok := scopeAll.(starlark.Bool)
 			if !ok {
-				return resultErr("scope_all must be a bool"), nil
+				return resultErr("scope_all must be a bool")
 			}
 			v := bool(b)
 			spec.ScopeAll = &v
 		}
 		prepared, err := buddy.PrepareProfileXMLForCreate(profileXML, spec)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreDest()
 		out, err := buddy.ProfilePostXML(destPin, scriptOpts, prepared, string(name), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return profileCreateOutcomeValue(out)
 	}
@@ -3399,7 +3398,7 @@ func profileCreateXML(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		name := string(profileName)
@@ -3414,7 +3413,7 @@ func profileCreateXML(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		out, err := buddy.ProfilePostXML(sessionPin, scriptOpts, []byte(string(xmlStr)), name, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return profileCreateOutcomeValue(out)
 	}
@@ -3432,12 +3431,12 @@ func profileDelete(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		pid, _ := profileID.Int64()
 		if err := buddy.ProfileDelete(sessionPin, scriptOpts, int(pid), logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -3459,7 +3458,7 @@ func profilePutXML(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -3467,7 +3466,7 @@ func profilePutXML(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		credResolved := c
 		err := buddy.ProfilePutXML(credResolved, scriptOpts, int(pid), []byte(string(xmlStr)), bool(redeploy), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -3481,7 +3480,7 @@ func profileXMLExtractPayloadsBuiltin(_ *starlark.Thread, _ *starlark.Builtin, a
 	}
 	payloads, err := buddy.ExtractPayloadsFromProfileXML([]byte(string(xmlStr)))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(payloads)), nil
 }
@@ -3494,7 +3493,7 @@ func profileXMLRandomizeUUIDsBuiltin(_ *starlark.Thread, _ *starlark.Builtin, ar
 	}
 	out, err := buddy.RandomizeProfileUUIDs([]byte(string(xmlStr)))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(string(out))), nil
 }
@@ -3516,7 +3515,7 @@ func profileXMLPrepareForCreateBuiltin(_ *starlark.Thread, _ *starlark.Builtin, 
 		for i := 0; i < scopeGroupIDs.Len(); i++ {
 			n, ok := scopeGroupIDs.Index(i).(starlark.Int)
 			if !ok {
-				return resultErr("scope_group_ids must be a list of ints"), nil
+				return resultErr("scope_group_ids must be a list of ints")
 			}
 			v64, _ := n.Int64()
 			ids = append(ids, int(v64))
@@ -3526,14 +3525,14 @@ func profileXMLPrepareForCreateBuiltin(_ *starlark.Thread, _ *starlark.Builtin, 
 	if scopeAll != starlark.None {
 		b, ok := scopeAll.(starlark.Bool)
 		if !ok {
-			return resultErr("scope_all must be a bool"), nil
+			return resultErr("scope_all must be a bool")
 		}
 		v := bool(b)
 		spec.ScopeAll = &v
 	}
 	out, err := buddy.PrepareProfileXMLForCreate([]byte(string(xmlStr)), spec)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(string(out))), nil
 }
@@ -3547,7 +3546,7 @@ func profileXMLReplacePayloadsBuiltin(_ *starlark.Thread, _ *starlark.Builtin, a
 	}
 	out, err := buddy.ReplacePayloadsContent([]byte(string(profileXMLStr)), string(payloadsStr))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(string(out))), nil
 }
@@ -3573,11 +3572,11 @@ func profileXMLPatchPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args
 	}
 	dictXML, err := payloadValueToDictXML(newPayload)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	updated, err := buddy.PatchProfilePayload([]byte(string(xmlStr)), string(domain), dictXML)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(string(updated))), nil
 }
@@ -3590,7 +3589,7 @@ func plistNormaliseDictBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	}
 	out, err := buddy.NormaliseDictXML([]byte(string(data)))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(out)), nil
 }
@@ -3603,7 +3602,7 @@ func payloadsListIdentifiersBuiltin(_ *starlark.Thread, _ *starlark.Builtin, arg
 	}
 	ids, err := buddy.PlistPayloadIdentifiers(string(plistStr))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	list := new(starlark.List)
 	for _, id := range ids {
@@ -3620,7 +3619,7 @@ func payloadsCollectUUIDsBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args s
 	}
 	uuids, err := buddy.PlistCollectPayloadUUIDs(string(plistStr))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	list := new(starlark.List)
 	for _, u := range uuids {
@@ -3637,7 +3636,7 @@ func payloadsGetPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	}
 	out, err := buddy.PlistGetPayloadByDomain(string(plistStr), string(domain))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(string(out))), nil
 }
@@ -3656,29 +3655,29 @@ func payloadsReplacePayload(logger *slog.Logger) func(*starlark.Thread, *starlar
 		case *starlark.Dict:
 			g, err := StarlarkValueToGo(v)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			payloadMap = g
 		case starlark.String:
 			decoded, err := PlistDecodeToStarlark(string(v))
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			d, ok := decoded.(*starlark.Dict)
 			if !ok {
-				return resultErr("new_payload plist string must decode to a dict"), nil
+				return resultErr("new_payload plist string must decode to a dict")
 			}
 			g, err := StarlarkValueToGo(d)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			payloadMap = g
 		default:
-			return resultErr("new_payload must be dict or plist XML string"), nil
+			return resultErr("new_payload must be dict or plist XML string")
 		}
 		updated, err := buddy.PlistReplacePayloadByDomain(string(plistStr), string(domain), payloadMap)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(updated)), nil
 	}
@@ -3694,7 +3693,7 @@ func payloadsReplaceMCXDictBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args
 	}
 	updated, err := buddy.ReplaceMCXDict(string(plistStr), string(domain), string(dictXML))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(updated)), nil
 }
@@ -3708,7 +3707,7 @@ func payloadsGetMCXDictBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	}
 	out, err := buddy.GetMCXDict(string(plistStr), string(domain))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(out)), nil
 }
@@ -3726,13 +3725,13 @@ func payloadsSetContentBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	for i := 0; i < content.Len(); i++ {
 		g, err := StarlarkValueToGo(content.Index(i))
 		if err != nil {
-			return resultErr(fmt.Sprintf("content[%d]: %v", i, err)), nil
+			return resultErr(fmt.Sprintf("content[%d]: %v", i, err))
 		}
 		items = append(items, g)
 	}
 	updated, err := buddy.PlistSetPayloadContent(string(plistStr), items)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(updated)), nil
 }
@@ -3748,11 +3747,11 @@ func payloadsAddPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	}
 	payloadMap, err := payloadValueToGoMap(newPayload)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	updated, err := buddy.PlistAddPayload(string(plistStr), string(domain), payloadMap)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(updated)), nil
 }
@@ -3766,7 +3765,7 @@ func payloadsRemovePayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args 
 	}
 	updated, err := buddy.PlistRemovePayload(string(plistStr), string(domain))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(updated)), nil
 }
@@ -3996,7 +3995,7 @@ func pppcFDABuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple
 	entry := buddy.PPPCFDA(string(bundleID), string(codeRequirement), string(comment))
 	v, err := GoValueToStarlark(entry)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(v), nil
 }
@@ -4014,11 +4013,11 @@ func pppcPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 	g, err := StarlarkValueToGo(services)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	svcMap, ok := g.(map[string]interface{})
 	if !ok {
-		return resultErr("services must be a dict"), nil
+		return resultErr("services must be a dict")
 	}
 	payload, err := buddy.PPPCPayload(svcMap, buddy.PayloadMetaOpts{
 		PayloadIdentifier:  string(payloadIdentifier),
@@ -4026,11 +4025,11 @@ func pppcPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		PayloadDisplayName: string(displayName),
 	})
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	v, err := GoValueToStarlark(payload)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(v), nil
 }
@@ -4052,11 +4051,11 @@ func prefsPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	if settings != nil {
 		g, err := StarlarkValueToGo(settings)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		m, ok := g.(map[string]interface{})
 		if !ok {
-			return resultErr("settings must be a dict"), nil
+			return resultErr("settings must be a dict")
 		}
 		settingsMap = m
 	}
@@ -4066,11 +4065,11 @@ func prefsPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 		PayloadDisplayName: string(displayName),
 	})
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	v, err := GoValueToStarlark(payload)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(v), nil
 }
@@ -4089,29 +4088,29 @@ func scriptPutBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		g, err := StarlarkValueToGo(bodyVal)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		m, ok := g.(map[string]interface{})
 		if !ok {
-			return resultErr("dict must be a map/dict"), nil
+			return resultErr("dict must be a map/dict")
 		}
 		updated, err := buddy.ScriptPutFields(c, scriptOpts, string(scriptID), m, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, mErr := json.Marshal(updated)
 		if mErr != nil {
-			return resultErr(mErr.Error()), nil
+			return resultErr(mErr.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -4134,7 +4133,7 @@ func computerReboot(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4143,7 +4142,7 @@ func computerReboot(credName string, logger *slog.Logger) func(*starlark.Thread,
 			return nil, err
 		}
 		if err := buddy.ComputerReboot(c, scriptOpts, ids, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4162,7 +4161,7 @@ func computerRedeploy(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4171,7 +4170,7 @@ func computerRedeploy(credName string, logger *slog.Logger) func(*starlark.Threa
 			return nil, err
 		}
 		if err := buddy.ComputerRedeploy(c, scriptOpts, ids, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4210,7 +4209,7 @@ func computerSendMDMCommand(credName string, logger *slog.Logger) func(*starlark
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4222,16 +4221,16 @@ func computerSendMDMCommand(credName string, logger *slog.Logger) func(*starlark
 		if commandDataVal != nil && commandDataVal != starlark.None {
 			g, err := StarlarkValueToGo(commandDataVal)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			m, ok := g.(map[string]interface{})
 			if !ok {
-				return resultErr("command_data must be a dict"), nil
+				return resultErr("command_data must be a dict")
 			}
 			cmdData = m
 		}
 		if err := buddy.ComputerSendMDMCommand(c, ids, string(commandType), cmdData, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4250,7 +4249,7 @@ func computerShutdown(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4259,7 +4258,7 @@ func computerShutdown(credName string, logger *slog.Logger) func(*starlark.Threa
 			return nil, err
 		}
 		if err := buddy.ComputerShutdown(c, scriptOpts, ids, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4281,7 +4280,7 @@ func computerLock(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4290,7 +4289,7 @@ func computerLock(credName string, logger *slog.Logger) func(*starlark.Thread, *
 			return nil, err
 		}
 		if err := buddy.ComputerLock(c, scriptOpts, ids, string(message), string(phone), string(pin), logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4309,7 +4308,7 @@ func computerLogout(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4318,7 +4317,7 @@ func computerLogout(credName string, logger *slog.Logger) func(*starlark.Thread,
 			return nil, err
 		}
 		if err := buddy.ComputerLogOut(c, scriptOpts, ids, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4339,7 +4338,7 @@ func computerErase(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4348,7 +4347,7 @@ func computerErase(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			return nil, err
 		}
 		if err := buddy.ComputerErase(c, scriptOpts, ids, string(pin), string(obliteration), false, false, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4369,7 +4368,7 @@ func computerDeviceInfo(credName string, logger *slog.Logger) func(*starlark.Thr
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4387,7 +4386,7 @@ func computerDeviceInfo(credName string, logger *slog.Logger) func(*starlark.Thr
 			}
 		}
 		if err := buddy.ComputerDeviceInfo(c, scriptOpts, ids, q, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4406,7 +4405,7 @@ func computerDeviceLocation(credName string, logger *slog.Logger) func(*starlark
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4415,7 +4414,7 @@ func computerDeviceLocation(credName string, logger *slog.Logger) func(*starlark
 			return nil, err
 		}
 		if err := buddy.ComputerDeviceLocation(c, scriptOpts, ids, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4434,7 +4433,7 @@ func computerSecurityInfo(credName string, logger *slog.Logger) func(*starlark.T
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4443,7 +4442,7 @@ func computerSecurityInfo(credName string, logger *slog.Logger) func(*starlark.T
 			return nil, err
 		}
 		if err := buddy.ComputerSecurityInfo(c, scriptOpts, ids, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4464,7 +4463,7 @@ func computerInstalledApps(credName string, logger *slog.Logger) func(*starlark.
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4482,7 +4481,7 @@ func computerInstalledApps(credName string, logger *slog.Logger) func(*starlark.
 			}
 		}
 		if err := buddy.ComputerInstalledApps(c, scriptOpts, ids, idList, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4503,7 +4502,7 @@ func computerManagedApps(credName string, logger *slog.Logger) func(*starlark.Th
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4521,7 +4520,7 @@ func computerManagedApps(credName string, logger *slog.Logger) func(*starlark.Th
 			}
 		}
 		if err := buddy.ComputerManagedApps(c, scriptOpts, ids, idList, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4540,7 +4539,7 @@ func computerCertificates(credName string, logger *slog.Logger) func(*starlark.T
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4549,7 +4548,7 @@ func computerCertificates(credName string, logger *slog.Logger) func(*starlark.T
 			return nil, err
 		}
 		if err := buddy.ComputerCertificates(c, scriptOpts, ids, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -4581,7 +4580,7 @@ func mdmCommandFind(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4596,7 +4595,7 @@ func mdmCommandFind(credName string, logger *slog.Logger) func(*starlark.Thread,
 		lim, _ := limit.Int64()
 		records, err := buddy.MdmCommandFind(c, string(filter), sortStr, opts, int(lim), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		for _, r := range records {
@@ -4634,7 +4633,7 @@ func mdmFetchCommands(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -4649,7 +4648,7 @@ func mdmFetchCommands(credName string, logger *slog.Logger) func(*starlark.Threa
 		lim, _ := limit.Int64()
 		records, err := buddy.MdmCommandFind(c, string(filter), sortStr, opts, int(lim), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		for _, r := range records {
@@ -4703,7 +4702,7 @@ func planChangeBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		md, fps, err := planChange(cred, change, stepVals, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		fpList := starlark.NewList(nil)
 		for _, fp := range fps {
@@ -4764,7 +4763,7 @@ func runChangeBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		md, err := runChange(cred, change, stepVals, fps, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(md)), nil
 	}

@@ -2,12 +2,6 @@
 #
 # load("stdlib/release.buddy", "bump_release")
 
-def _ok(value):
-    return {"ok": True, "value": value, "error": ""}
-
-def _err(msg):
-    return {"ok": False, "value": None, "error": msg}
-
 def _session_kwargs(tenant = None, surface = None, auth = None):
     out = {}
     if tenant != None and tenant != "":
@@ -20,7 +14,7 @@ def _session_kwargs(tenant = None, surface = None, auth = None):
 
 # bump_release — resolve policy by trigger, set package/install/SS, optional smart-group version.
 #
-# Returns {"ok", "value", "error"}. value is {"policy_id": int} on success.
+# Returns {"policy_id": int}. Builtin failures raise.
 def bump_release(
         trigger_prefix,
         app,
@@ -35,28 +29,16 @@ def bump_release(
     sk = _session_kwargs(tenant = tenant, surface = surface, auth = auth)
     trigger = trigger_prefix + version
 
-    r = policy(trigger = trigger, force_refresh = True, **sk)
-    if not r["ok"]:
-        return _err("policy: " + r["error"])
-    policy_id = r["value"]["id"]
-
-    r = policy_set_package(app = app, version = version, policy_id = policy_id, **sk)
-    if not r["ok"]:
-        return _err("policy_set_package: " + r["error"])
+    policy_id = policy(trigger = trigger, force_refresh = True, **sk)["id"]
+    policy_set_package(app = app, version = version, policy_id = policy_id, **sk)
 
     install_id = install_policy_id if install_policy_id else policy_id
-    r = policy_set_install(policy_id = install_id, version = version, **sk)
-    if not r["ok"]:
-        return _err("policy_set_install: " + r["error"])
+    policy_set_install(policy_id = install_id, version = version, **sk)
 
     ss_id = self_service_policy_id if self_service_policy_id else policy_id
-    r = policy_set_ss(policy_id = ss_id, version = version, **sk)
-    if not r["ok"]:
-        return _err("policy_set_ss: " + r["error"])
+    policy_set_ss(policy_id = ss_id, version = version, **sk)
 
     if version_group_id:
-        r = smart_group_set_version(group_id = version_group_id, version = version, **sk)
-        if not r["ok"]:
-            return _err("smart_group_set_version: " + r["error"])
+        smart_group_set_version(group_id = version_group_id, version = version, **sk)
 
-    return _ok({"policy_id": policy_id})
+    return {"policy_id": policy_id}

@@ -7,12 +7,13 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// unwrap(result, pretty?=True) → value or None
+// unwrap(result, pretty?=True) → value
 //
-// Soft helper for result envelopes:
-//   - ok=True: print JSON of value to stdout, return value
-//   - ok=False: print error to stderr, return None (no process exit)
-//   - plain value: print JSON of it, return it
+// Optional CLI/jq helper: JSON-print a value to stdout and return it.
+// Not part of the error model — builtins raise on failure.
+//
+// Legacy: if result is still an old {"ok","value"/"error"} envelope, peel it;
+// ok=false raises (no soft None).
 func unwrapBuiltin(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var result starlark.Value
 	pretty := starlark.Bool(true)
@@ -30,8 +31,7 @@ func unwrapBuiltin(thread *starlark.Thread, _ *starlark.Builtin, args starlark.T
 			if errMsg == "" {
 				errMsg = "result ok=false"
 			}
-			fmt.Fprintln(writerFromLocal(thread, localStderr, os.Stderr), errMsg)
-			return starlark.None, nil
+			return nil, fmt.Errorf("%s", errMsg)
 		}
 		out = inner
 	}
@@ -48,4 +48,30 @@ func unwrapBuiltin(thread *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 	fmt.Fprintln(writerFromLocal(thread, localStdout, os.Stdout), s)
 	return out, nil
+}
+
+// attempt(fn) → {"ok": bool, "value": …, "error": str}
+//
+// Soft wrapper for rare cases that must observe failure without aborting
+// (e.g. expected-reject integration checks). Prefer bare calls; builtins raise.
+func attemptBuiltin(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var fn starlark.Callable
+	if err := starlark.UnpackArgs("attempt", args, kwargs, "fn", &fn); err != nil {
+		return nil, err
+	}
+	val, err := starlark.Call(thread, fn, nil, nil)
+	d := new(starlark.Dict)
+	if err != nil {
+		_ = d.SetKey(starlark.String("ok"), starlark.False)
+		_ = d.SetKey(starlark.String("value"), starlark.None)
+		_ = d.SetKey(starlark.String("error"), starlark.String(err.Error()))
+		return d, nil
+	}
+	if val == nil {
+		val = starlark.None
+	}
+	_ = d.SetKey(starlark.String("ok"), starlark.True)
+	_ = d.SetKey(starlark.String("value"), val)
+	_ = d.SetKey(starlark.String("error"), starlark.String(""))
+	return d, nil
 }

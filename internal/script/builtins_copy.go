@@ -36,16 +36,16 @@ func categoriesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		pin, restore, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restore()
 		opts, err := pageOptsFromArgs(page, pageSize)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		cats, err := buddy.CategorySearch(pin, string(filter), opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := make([]starlark.Value, 0, len(cats))
 		for _, c := range cats {
@@ -71,11 +71,11 @@ func categoryBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 		idStr := strings.TrimSpace(string(id))
 		nameStr := strings.TrimSpace(string(name))
 		if (idStr == "") == (nameStr == "") {
-			return resultErr("pass either id= or name=, not both"), nil
+			return resultErr("pass either id= or name=, not both")
 		}
 		pin, restore, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restore()
 		var c *buddy.CategoryDetail
@@ -90,7 +90,7 @@ func categoryBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 			}
 		}
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		d := new(starlark.Dict)
 		_ = d.SetKey(starlark.String("id"), starlark.String(c.ID))
@@ -112,19 +112,19 @@ func categoryClone(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		pin, restore, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restore()
 		pri, err := optionalIntPtr(priority)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		out, err := buddy.CategoryClone(pin, scriptOpts, string(categoryID), string(name), pri, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("category_clone: cancelled"), nil
+			return resultErr("category_clone: cancelled")
 		}
 		return categoryResultDict(out.ID, string(name), pri), nil
 	}
@@ -145,17 +145,17 @@ func categoryCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		fromSess := sessionArgs{Tenant: fromTenant, Surface: fromSurface, Auth: fromAuth}
 		fromPin, restoreFrom, sessErr := beginSession(thread, credName, fromSess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
 		restoreFrom()
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreDest()
 		pri, err := optionalIntPtr(priority)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		out, err := buddy.CategoryCopy(fromPin, destPin, scriptOpts, buddy.CategoryCopySpec{
 			SourceCategoryID: string(categoryID),
@@ -163,10 +163,10 @@ func categoryCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *
 			Priority:         pri,
 		}, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("category_copy: cancelled"), nil
+			return resultErr("category_copy: cancelled")
 		}
 		return categoryResultDict(out.ID, string(name), pri), nil
 	}
@@ -187,17 +187,17 @@ func categoryMigrate(credName string, logger *slog.Logger) func(*starlark.Thread
 		fromSess := sessionArgs{Tenant: fromTenant, Surface: fromSurface, Auth: fromAuth}
 		fromPin, restoreFrom, sessErr := beginSession(thread, credName, fromSess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
 		restoreFrom()
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreDest()
 		pri, err := optionalIntPtr(priority)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		out, err := buddy.CategoryMigrate(fromPin, destPin, scriptOpts, buddy.CategoryMigrateSpec{
 			SourceCategoryID: string(categoryID),
@@ -205,10 +205,10 @@ func categoryMigrate(credName string, logger *slog.Logger) func(*starlark.Thread
 			Priority:         pri,
 		}, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("category_migrate: cancelled"), nil
+			return resultErr("category_migrate: cancelled")
 		}
 		d := new(starlark.Dict)
 		_ = d.SetKey(starlark.String("id"), starlark.String(out.ID))
@@ -253,15 +253,15 @@ func scriptClone(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		}
 		pin, restore, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restore()
 		out, err := buddy.ScriptClone(pin, scriptOpts, string(scriptID), string(name), string(categoryID), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("script_clone: cancelled"), nil
+			return resultErr("script_clone: cancelled")
 		}
 		return scriptOutcomeDict(out.ID, out.Name), nil
 	}
@@ -280,12 +280,12 @@ func scriptCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 		}
 		fromPin, restoreFrom, sessErr := beginSession(thread, credName, sessionArgs{Tenant: fromTenant, Surface: fromSurface, Auth: fromAuth})
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
 		restoreFrom()
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreDest()
 		out, err := buddy.ScriptCopy(fromPin, destPin, scriptOpts, buddy.ScriptCopySpec{
@@ -294,10 +294,10 @@ func scriptCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 			CategoryID:     string(categoryID),
 		}, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("script_copy: cancelled"), nil
+			return resultErr("script_copy: cancelled")
 		}
 		return scriptOutcomeDict(out.ID, out.Name), nil
 	}
@@ -316,12 +316,12 @@ func scriptMigrate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		fromPin, restoreFrom, sessErr := beginSession(thread, credName, sessionArgs{Tenant: fromTenant, Surface: fromSurface, Auth: fromAuth})
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
 		restoreFrom()
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreDest()
 		out, err := buddy.ScriptMigrate(fromPin, destPin, scriptOpts, buddy.ScriptMigrateSpec{
@@ -330,10 +330,10 @@ func scriptMigrate(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			CategoryID:     string(categoryID),
 		}, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("script_migrate: cancelled"), nil
+			return resultErr("script_migrate: cancelled")
 		}
 		d := new(starlark.Dict)
 		_ = d.SetKey(starlark.String("id"), starlark.String(out.ID))
@@ -361,7 +361,7 @@ func smartGroupClone(credName string, logger *slog.Logger) func(*starlark.Thread
 		}
 		pin, restore, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restore()
 		var sitePtr *string
@@ -370,10 +370,10 @@ func smartGroupClone(credName string, logger *slog.Logger) func(*starlark.Thread
 		}
 		out, err := buddy.SmartGroupClone(pin, scriptOpts, string(groupID), string(name), sitePtr, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("smart_group_clone: cancelled"), nil
+			return resultErr("smart_group_clone: cancelled")
 		}
 		return groupCreateDict(out), nil
 	}
@@ -392,12 +392,12 @@ func smartGroupCopy(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		fromPin, restoreFrom, sessErr := beginSession(thread, credName, sessionArgs{Tenant: fromTenant, Surface: fromSurface, Auth: fromAuth})
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		destPin, restoreDest, sessErr := beginSession(thread, credName, destSess)
 		restoreFrom()
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreDest()
 		var sitePtr *string
@@ -410,10 +410,10 @@ func smartGroupCopy(credName string, logger *slog.Logger) func(*starlark.Thread,
 			SiteID:        sitePtr,
 		}, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("smart_group_copy: cancelled"), nil
+			return resultErr("smart_group_copy: cancelled")
 		}
 		return groupCreateDict(out), nil
 	}

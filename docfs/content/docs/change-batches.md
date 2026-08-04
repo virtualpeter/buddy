@@ -82,16 +82,12 @@ Self Service already calls install-app-next.""",
     ]
 
     planned = plan_change(change = change, steps = steps)
-    if not planned["ok"]:
-        fail(planned["error"])
 
     if mode != "apply":
         print("Plan only. Re-run with: buddy this-script.buddy -- apply")
         return
 
-    r = run_change(change = change, steps = steps, planned = planned["value"])
-    if not r["ok"]:
-        fail(r["error"])
+    run_change(change = change, steps = steps, planned = planned)
 ```
 
 Runnable sample: [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy).
@@ -131,7 +127,7 @@ Typical markdown from `plan_change`:
 **Included (known before write):** source policy IDs, package IDs, triggers, disable decision.  
 **Excluded until Outcomes:** IDs of policies that will be created.
 
-Copy the printed markdown (or `planned["value"]["markdown"]`) into ServiceNow / Jira / your CAB form.
+Copy the printed markdown (or `planned["markdown"]`) into ServiceNow / Jira / your CAB form.
 
 ---
 
@@ -156,7 +152,7 @@ Pass the `plan_change` result into apply:
 
 ```python
 planned = plan_change(change, steps)
-run_change(change, steps, planned = planned["value"])
+run_change(change, steps, planned = planned)
 ```
 
 `run_change` **re-resolves** against Jamf. Fingerprints cover source ID, modify vs create, names/triggers, package ID, and disable intent — not created policy IDs.
@@ -179,7 +175,7 @@ On success, markdown continues with **## Outcomes**, for example:
 - `Disabled source "Install App 1.0" (ID 20)`
 - Notes echoed per step
 
-`run_change` returns `{ok, value}` where `value` is the full markdown (plan + outcomes) for logging or attaching to the closed change record.
+`run_change` returns the full markdown string (plan + outcomes) for logging or attaching to the closed change record. Failures raise.
 
 ---
 
@@ -207,11 +203,11 @@ For a brand-new app, compose a greenfield batch with **two profiles** (prefs and
 ```python
 load("stdlib/app_setup.buddy", "setup_app_classic")
 
-prefs = prefs_payload(domain = "com.example.app", settings = {"Foo": True})["value"]
+prefs = prefs_payload(domain = "com.example.app", settings = {"Foo": True})
 fda = pppc_fda(
     bundle_id = "com.example.app",
     code_requirement = 'identifier "com.example.app" and anchor apple generic',
-)["value"]
+)
 
 steps = setup_app_classic(
     app = "example",

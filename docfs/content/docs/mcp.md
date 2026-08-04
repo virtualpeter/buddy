@@ -177,7 +177,7 @@ On failure:
 
 **Why:** Some MCP hosts validate `structuredContent` as an object. Returning a raw list caused errors such as `expected record, received array`. List payloads always live under `value`, with optional `count`.
 
-This mirrors Starlark builtins (`{"ok", "value"}` / `{"ok", "error"}`).
+Starlark builtins return bare values and raise on failure; the `{ok, value}` envelope is **MCP-only**.
 
 ### `buddy_info`
 
@@ -248,22 +248,21 @@ Read embedded buddy documentation and editor rules (same data as `buddy://docs/.
 ### `buddyscript` tips
 
 - **Primary Jamf automation surface** — call named builtins here (groups, profiles, policies, Platform, …).
-- Returns `{stdout, stderr, result, error}`. **Primary output is `value.result`** (last expression or `main()` return). `stdout` is from `print` / `unwrap`; when `result` is set and `stdout` is empty, `result` is mirrored into `stdout`.
+- Inside Starlark, builtins return **bare values** and **raise** on failure. Do not use `unwrap` / `r["ok"]` for correctness; `unwrap` is optional JSON-print for CLI/`jq`.
+- MCP returns `{ok, value: {stdout, stderr, result, error}}`. **Primary output is `value.result`** (last expression or `main()` return). `stdout` is from `print` / `unwrap`; when `result` is set and `stdout` is empty, `result` is mirrored into `stdout`.
 - Prefer a **single expression**, or define `main()` **without** calling it and **without** a trailing top-level expression (MCP sets `CallMain`; a trailing expression skips `main`).
 - Top-level `if` / `for` outside a function is invalid Starlark—put control flow inside `main()`.
 - Mutating Jamf calls still respect confirmations unless the MCP process was started with global `-y` (Platform mutates always skip confirm — host approval is the guard).
 - You can `load("stdlib/….buddy", …)` the same as in CLI scripts / the notebook (e.g. `load("stdlib/release.buddy", "bump_release")`).
-- Prefer named builtins over `jamf_get`/`jamf_put` when a builtin exists.
+- Prefer named builtins over `jamf_get`/`jamf_put` when a builtin exists. Before profile/group/package mutates, see [mcp-tools.md](mcp-tools.md) (pathfinding map) and [profile-payloads.md](profile-payloads.md).
 - **Packages / JCDS:** after upload use `package_wait_ready` before policy attach; use `package_ready` / `package_download` builtins — do not invent from schema (see [mcp-tools.md](mcp-tools.md#packages--jcds-via-buddyscript--do-not-invent-from-schema)).
 
 Example:
 
 ```python
 def main():
-    r = smart_groups()
-    if not r["ok"]:
-        return r
-    return {"count": len(r["value"]), "names": [g["name"] for g in r["value"]]}
+    groups = smart_groups()
+    return {"count": len(groups), "names": [g["name"] for g in groups]}
 ```
 ---
 

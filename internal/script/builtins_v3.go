@@ -31,7 +31,7 @@ func policiesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -49,7 +49,7 @@ func policiesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 		}
 		summaries, err := buddy.PolicyFindSummariesByKeywords(c, scriptOpts, kw, exclude, bool(forceRefresh), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		if bool(idsOnly) {
@@ -85,7 +85,7 @@ func policyBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -104,13 +104,13 @@ func policyBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		} else {
 			id, err := buddy.PolicyFind(c, scriptOpts, string(trigger), bool(forceRefresh), logger)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			pid = id
 		}
 		d, err := buddy.PolicyGetDetails(c, pid, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(policyDetailsToStarlark(d)), nil
 	}
@@ -129,7 +129,7 @@ func policyXMLBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -139,7 +139,7 @@ func policyXMLBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		xmlBytes, err := buddy.PolicyFetchXML(c, pid)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(string(xmlBytes))), nil
 	}
@@ -163,7 +163,7 @@ func policySetBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -177,22 +177,22 @@ func policySetBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 				return nil, fmt.Errorf("policy_set: enable must be a bool")
 			}
 			if err := buddy.PolicyEnable(c, scriptOpts, int(pid), bool(b), logger); err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 		}
 		if name != "" {
 			if err := buddy.PolicySetName(c, scriptOpts, int(pid), string(name), logger); err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 		}
 		if trigger != "" {
 			if err := buddy.PolicyTrigger(c, scriptOpts, int(pid), string(trigger), logger); err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 		}
 		if frequency != "" {
 			if err := buddy.PolicySetFrequency(c, scriptOpts, int(pid), string(frequency), logger); err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 		}
 		return resultOK(starlark.None), nil
@@ -214,7 +214,7 @@ func packagesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -224,7 +224,7 @@ func packagesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 		}
 		results, err := buddy.PackageSearch(c, string(filter), opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		for _, p := range results {
@@ -254,7 +254,7 @@ func packageBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -273,15 +273,15 @@ func packageBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 			}
 			pkg, err := buddy.PackageFetchFull(c, id)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			b, mErr := json.Marshal(pkg)
 			if mErr != nil {
-				return resultErr(mErr.Error()), nil
+				return resultErr(mErr.Error())
 			}
 			val, err := JSONDecodeToStarlark(string(b))
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			return resultOK(val), nil
 		}
@@ -294,10 +294,10 @@ func packageBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		id, name, err := buddy.PackageFindID(c, string(app), string(version), patternOverride, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if id == "" {
-			return resultErr(fmt.Sprintf("no package found for app %q version %q", string(app), string(version))), nil
+			return resultErr(fmt.Sprintf("no package found for app %q version %q", string(app), string(version)))
 		}
 		d := new(starlark.Dict)
 		_ = d.SetKey(starlark.String("id"), starlark.String(id))
@@ -321,7 +321,7 @@ func scriptsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -331,7 +331,7 @@ func scriptsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		results, err := buddy.ScriptSearch(c, string(filter), opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		for _, s := range results {
@@ -360,7 +360,7 @@ func scriptBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -372,7 +372,7 @@ func scriptBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		if keySet {
 			id, err := buddy.ScriptGetID(c, string(name), logger)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			return resultOK(starlark.String(id)), nil
 		}
@@ -382,15 +382,15 @@ func scriptBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		s, err := buddy.ScriptFetchFull(c, id)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, mErr := json.Marshal(s)
 		if mErr != nil {
-			return resultErr(mErr.Error()), nil
+			return resultErr(mErr.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -414,7 +414,7 @@ func computersBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -424,7 +424,7 @@ func computersBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		records, err := buddy.ComputerSearch(c, string(filter), opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		if bool(idsOnly) {
@@ -462,7 +462,7 @@ func computerBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -472,7 +472,7 @@ func computerBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 		}
 		rec, err := buddy.ComputerGetValue(c, idStr, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		d := new(starlark.Dict)
 		for k, v := range rec {
@@ -508,7 +508,7 @@ func mdmCommandsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -523,7 +523,7 @@ func mdmCommandsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 		lim, _ := limit.Int64()
 		records, err := buddy.MdmCommandFind(c, string(filter), sortStr, opts, int(lim), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		for _, r := range records {
@@ -551,13 +551,13 @@ func profilesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		records, err := buddy.ProfileSearch(c, string(filter), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := new(starlark.List)
 		for _, r := range records {
@@ -584,7 +584,7 @@ func profileBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -596,10 +596,10 @@ func profileBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		if keySet {
 			id, profileName, err := buddy.ProfileFindID(c, string(name), logger)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			if id == 0 {
-				return resultErr(fmt.Sprintf("no profile found for name %q", string(name))), nil
+				return resultErr(fmt.Sprintf("no profile found for name %q", string(name)))
 			}
 			d := new(starlark.Dict)
 			_ = d.SetKey(starlark.String("id"), starlark.MakeInt(id))
@@ -612,7 +612,7 @@ func profileBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		xmlBytes, err := buddy.ProfileFetchXML(c, pid)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(string(xmlBytes))), nil
 	}
@@ -631,7 +631,7 @@ func profileXMLBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -641,7 +641,7 @@ func profileXMLBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		xmlBytes, err := buddy.ProfileFetchXML(c, pid)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(string(xmlBytes))), nil
 	}
@@ -670,7 +670,7 @@ func smartGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -683,10 +683,10 @@ func smartGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		if keySet {
 			id, _, err := buddy.GroupFindID(c, string(name), logger)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			if id == "" {
-				return resultErr(fmt.Sprintf("no smart group found for name %q", string(name))), nil
+				return resultErr(fmt.Sprintf("no smart group found for name %q", string(name)))
 			}
 			groupID = id
 		} else {
@@ -698,11 +698,11 @@ func smartGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		body, err := buddy.GroupFetchSmartRaw(c, groupID)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(body))
 		if err != nil {
-			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err))
 		}
 		// v3 GET /smart-groups/{id} omits id in the body; inject so value matches list summaries.
 		val = starlarkDictSetIDIfMissing(val, groupID)
@@ -736,7 +736,7 @@ func staticGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -746,7 +746,7 @@ func staticGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 		}
 		groups, err := buddy.GroupSearchStatic(c, "", buddy.PageOpts{Page: buddy.PageAll}, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		for _, g := range groups {
 			if g.ID == wantID {
@@ -757,7 +757,7 @@ func staticGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 				return resultOK(d), nil
 			}
 		}
-		return resultErr(fmt.Sprintf("no static group found for id %q", wantID)), nil
+		return resultErr(fmt.Sprintf("no static group found for id %q", wantID))
 	}
 }
 
@@ -776,7 +776,7 @@ func rolesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -786,16 +786,16 @@ func rolesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		roles, err := buddy.RoleListValues(c, opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if bool(full) {
 			b, err := json.Marshal(roles)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			val, err := JSONDecodeToStarlark(string(b))
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			return resultOK(val), nil
 		}
@@ -823,7 +823,7 @@ func roleBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -833,15 +833,15 @@ func roleBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		}
 		role, err := buddy.RoleFetch(c, roleID, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, err := json.Marshal(role)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -869,7 +869,7 @@ func clientsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -879,15 +879,15 @@ func clientsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		clients, err := buddy.ClientListValues(c, opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, err := json.Marshal(clients)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -906,7 +906,7 @@ func clientBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -916,15 +916,15 @@ func clientBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		client, err := buddy.ClientFetch(c, clientID, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, err := json.Marshal(client)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -942,13 +942,13 @@ func smartGroupGetVersionNamed(credName string, logger *slog.Logger) func(*starl
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		version, err := buddy.GroupGetVersionValue(c, string(groupID), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(version)), nil
 	}
@@ -966,13 +966,13 @@ func smartGroupSetVersionNamed(credName string, logger *slog.Logger) func(*starl
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		err := buddy.GroupVersion(c, scriptOpts, string(groupID), string(version), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -993,7 +993,7 @@ func blueprintsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -1006,15 +1006,15 @@ func blueprintsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 			Page:   opts,
 		}, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, err := json.Marshal(items)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -1033,21 +1033,21 @@ func blueprintBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		out, err := buddy.BlueprintGetValue(c, string(id), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, err := json.Marshal(out)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -1065,28 +1065,28 @@ func blueprintCreateBuiltin(credName string, logger *slog.Logger) func(*starlark
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		jsonStr, err := StarlarkToJSON(body)
 		if err != nil {
-			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err))
 		}
 		out, err := buddy.BlueprintCreateValue(c, scriptOpts, []byte(jsonStr), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("blueprint_create: cancelled"), nil
+			return resultErr("blueprint_create: cancelled")
 		}
 		b, err := json.Marshal(out)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -1105,16 +1105,16 @@ func blueprintSetBuiltin(credName string, logger *slog.Logger) func(*starlark.Th
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		jsonStr, err := StarlarkToJSON(body)
 		if err != nil {
-			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err))
 		}
 		if err := buddy.BlueprintSetValue(c, string(blueprintID), scriptOpts, []byte(jsonStr), logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -1132,12 +1132,12 @@ func blueprintDeleteBuiltin(credName string, logger *slog.Logger) func(*starlark
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		if err := buddy.BlueprintDeleteValue(c, string(blueprintID), scriptOpts, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -1155,12 +1155,12 @@ func blueprintDeployBuiltin(credName string, logger *slog.Logger) func(*starlark
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		if err := buddy.BlueprintDeploy(c, string(blueprintID), scriptOpts, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -1178,12 +1178,12 @@ func blueprintUndeployBuiltin(credName string, logger *slog.Logger) func(*starla
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		if err := buddy.BlueprintUndeploy(c, string(blueprintID), scriptOpts, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -1201,21 +1201,21 @@ func blueprintStatusBuiltin(credName string, logger *slog.Logger) func(*starlark
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		out, err := buddy.BlueprintStatusValue(c, string(blueprintID), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, err := json.Marshal(out)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -1234,7 +1234,7 @@ func blueprintComponentsBuiltin(credName string, logger *slog.Logger) func(*star
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -1244,15 +1244,15 @@ func blueprintComponentsBuiltin(credName string, logger *slog.Logger) func(*star
 		}
 		items, err := buddy.BlueprintComponentsValues(c, opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, err := json.Marshal(items)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
@@ -1270,21 +1270,21 @@ func blueprintComponentBuiltin(credName string, logger *slog.Logger) func(*starl
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		out, err := buddy.BlueprintComponentValue(c, string(id), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, err := json.Marshal(out)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}

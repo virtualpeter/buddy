@@ -242,14 +242,14 @@ buddy help starlark
 
 ### Result convention
 
-Almost all Jamf-related builtins return a **result dictionary**:
+Jamf-related builtins return **bare values** on success and **raise** on failure. There is no `{ok, value, error}` envelope inside Starlark (MCP tools still wrap `{ok, value}` at the tool boundary only).
 
 ```python
-{"ok": True, "value": ...}     # success
-{"ok": False, "error": "..."}  # failure
+xml = profile_xml(id=42)          # str
+profile_put_xml(profile_id=42, xml_str=xml)  # None; raises on API error
 ```
 
-Always check `ok` before using `value`. Helpers like `fail()` (if exposed) or explicit checks keep scripts safe.
+`unwrap` is optional JSON-print for CLI/`jq` — not the error model. Scripts that used `r["ok"]` / `r["value"]` must use return values and let errors raise. For rare expected-reject checks, `attempt(fn)` returns a soft `{ok, value, error}` without aborting.
 
 ---
 

@@ -43,13 +43,9 @@ Replace install-santa-next with the 2026.3 package; Self Service already calls t
     ]
 
     planned = plan_change(change = change, steps = steps)
-    if not planned["ok"]:
-        fail(planned["error"])
 
     if mode != "apply":
         print("Plan only. Re-run with: buddy examples/change-batch-santa.buddy -- apply")
         return
 
-    r = run_change(change = change, steps = steps, planned = planned["value"])
-    if not r["ok"]:
-        fail(r["error"])
+    run_change(change = change, steps = steps, planned = planned)

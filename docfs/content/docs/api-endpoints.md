@@ -703,11 +703,11 @@ buddy mdm find --filter='dateCompleted=ge=2024-01-01T00:00:00Z;status==Acknowled
 In Starlark scripts, prefer the `rsql_*` builders (see `buddy help builtins`) so dates and quoting stay correct:
 
 ```python
-since = rsql_days_ago(7)["value"]
+since = rsql_days_ago(7)
 filt = rsql_and([
-    rsql_ge("dateCompleted", since)["value"],
-    rsql_eq("status", "Acknowledged")["value"],
-])["value"]
+    rsql_ge("dateCompleted", since),
+    rsql_eq("status", "Acknowledged"),
+])
 mdm_commands(filter=filt)
 ```
 

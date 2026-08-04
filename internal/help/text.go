@@ -200,9 +200,8 @@ Use 'buddy help builtins' for buddy-specific functions.
 
 const Builtins = `buddy built-in functions for Starlark scripts
 ===============================================
-All functions return a result dict: {"ok": True, "value": ...}
-                                 or {"ok": False, "error": "..."}
-Check ok before using value.
+Builtins return bare values on success and raise on failure.
+(MCP tools still wrap {ok, value} at the tool boundary only.)
 
 Conventions: plural nouns enumerate (policies, packages, computers);
 singular nouns load one resource (policy, package, computer); singular_verb
@@ -221,18 +220,17 @@ use ids=True on policies/computers for a bare ID list. policies() with no
 keywords returns every Classic policy summary.
 
 Each builtin lists its signature, then → value (or None). Indented "Params:"
-lines describe arguments; "Returns:" states the value shape when ok.
+lines describe arguments; "Returns:" states the value shape on success.
 
 STDLIB
   Complex CLI-style workflows live in embedded Starlark modules under stdlib/.
   Load them with Starlark load() (same mechanism as load("re", ...)):
 
     load("stdlib/release.buddy", "bump_release")
-    r = bump_release(trigger_prefix="install-app-", app="app", version="1.2.3")
-    if not r["ok"]:
-      fail(r["error"])
+    out = bump_release(trigger_prefix="install-app-", app="app", version="1.2.3")
+    # out is {"policy_id": int}; builtin failures raise
 
-  Modules compose the builtins below and return the same {"ok","value","error"} dicts
+  Modules compose the builtins below (bare returns; failures raise)
   (except setup_app_classic, which returns a list of step dicts for plan_change).
   Browse modules and builtins in the notebook Libraries drawer (buddy serve → /notebook).
   Current modules: stdlib/release.buddy (bump_release), stdlib/app_setup.buddy
@@ -388,7 +386,7 @@ PACKAGE
   package_ready(id=, tenant?, surface?, auth?) → value: bool
       Params: id=: package id; tenant?/surface?/auth?: str.
       Returns: True iff the package exists and cloudTransferStatus is "READY";
-        False if missing or not ready. API errors → ok=false.
+        False if missing or not ready. API errors raise.
   package_wait_ready(id=, timeout?, tenant?, surface?, auth?) → value: None
       Params: id=: package id; timeout?: int seconds (default 600); tenant?/surface?/auth?: str.
       Polls until cloudTransferStatus is READY (nudges JCDS refresh-inventory).
@@ -572,7 +570,7 @@ JAMF API
   Path is host-relative (must start with /). Defaults: /JSSResource… → XML
   Classic API; /api/… → JSON Jamf Pro API.
   value is always {status: int, body: str|dict|list|bytes, content_type: str}.
-  On non-2xx: ok=false, error describes the status, and value is still set.
+  On non-2xx: raises with status/path (and a short body preview).
 
   jamf_get(path, accept?, parse?=True, tenant?, surface?, auth?)
       → value: {status, body, content_type}
@@ -603,33 +601,36 @@ JAMF API
 
 SERIALIZATION
   Data flow (important):
-    • Jamf builtins return a result envelope: {"ok": bool, "value": …} or
-      {"ok": False, "error": "…"}. That envelope is a Starlark dict, not a JSON string.
+    • Jamf builtins return bare Starlark values (dict/list/str/None/…). Failures raise.
+      MCP tools wrap {ok, value} only at the tool boundary.
     • print(x) and bare Starlark display look JSON-ish but are NOT JSON.
       Notebook "Out" pretty-prints dicts/lists as real JSON text.
-    • For jq / stdout JSON, use unwrap (prints value on ok, returns it; soft on error):
+    • For jq / stdout JSON, use unwrap (optional helper — not the error model):
         data = unwrap(jamf_schema(filter="smtp"))
         buddy script.buddy | jq '.operations[0]'
-    • json_encode / json_pretty return JSON strings *inside* the envelope — prefer
-      unwrap when you want stdout bytes for tools.
+    • json_encode / json_pretty return JSON strings — prefer unwrap when you want
+      stdout bytes for tools.
 
   unwrap(result, pretty?=True)
-      → value on ok, or None on error (soft; does not exit)
-      Params: result: usually a builtin return dict (plain values also accepted).
-        On ok=True: writes JSON of value to stdout and returns value.
-        On ok=False: writes error to stderr and returns None (script continues).
+      → prints JSON of result to stdout and returns result
+      Params: result: any Starlark value. Optional CLI/jq helper.
+        Legacy {"ok","value"/"error"} envelopes are peeled; ok=false raises.
         pretty?=True indents; pretty=False for compact jq input.
+  attempt(fn)
+      → {"ok": bool, "value": …, "error": str}
+      Params: fn: zero-arg callable. Soft wrapper — returns ok=false instead of raising.
+        Prefer bare builtin calls; use attempt only for expected-reject / optional paths.
   json_decode(json_str)
       → value: dict or list
       Params: json_str: str. Returns: Starlark dict/list from JSON.
   json_encode(value)
       → value: str (JSON)
       Params: value: Starlark dict, list, or primitive. Returns: compact JSON string
-      inside the envelope (not printed). Prefer unwrap for stdout.
+      (not printed). Prefer unwrap for stdout.
   json_pretty(value)
       → value: str (indented JSON)
       Params: value: Starlark dict, list, or primitive. Returns indented JSON string
-      inside the envelope. Prefer unwrap(result) to print real newlines to stdout.
+      (not printed). Prefer unwrap(result) to print real newlines to stdout.
   plist_decode(plist_xml_str)
       → value: dict or list
       Params: plist_xml_str: str (plist XML). Returns: Starlark dict/list.
@@ -814,7 +815,7 @@ MISC
       Params: renew?: bool — if True, discard cached token and obtain a fresh one first.
         tenant?/surface?/auth?: str. Uses GET /api/v1/auth; does not return the raw bearer token.
   error(*args, sep?)
-      → None (writes to stderr like print, but does not return a result dict)
+      → None (writes to stderr like print)
       Params: *args: values to print; sep?: str (default " ").
   confirm(msg?, default?, yes?, no?)
       → value: bool
@@ -834,11 +835,7 @@ MISC
       Params: code?: int (exit code, default 0).
 
 EXAMPLE — imperative style
-  r = policy(trigger="install-chrome")
-  if not r["ok"]:
-      error("not found:", r["error"])
-      exit(1)
-  policy_id = r["value"]["id"]
+  policy_id = policy(trigger="install-chrome")["id"]
   policy_set_install(policy_id=policy_id, version="130.0", auth="default")
 
 EXAMPLE — declarative workflow

@@ -54,11 +54,6 @@ created = {
 }
 
 
-def require_ok(res, ctx):
-    if not res["ok"]:
-        fail("%s: %s" % (ctx, res["error"]))
-
-
 def section(title, why):
     print("")
     print("=== " + title + " ===")
@@ -81,21 +76,14 @@ def test_policy(cred, created):
     )
 
     name = TEST_PREFIX + "policy"
-    res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
-    require_ok(res, "policies")
-    leftovers = res["value"]
+    leftovers = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
     if leftovers:
-        dres = policy_delete(policy_ids=leftovers, auth=auth)
-        require_ok(dres, "policy_delete (leftovers)")
+        policy_delete(policy_ids=leftovers, auth=auth)
 
-    res = policy_create_ss(trigger="buddy-test", display_name=name, scope_group_id=0, auth=auth)
-    require_ok(res, "policy_create_ss")
-    policy_id = res["value"]
+    policy_id = policy_create_ss(trigger="buddy-test", display_name=name, scope_group_id=0, auth=auth)
     created["policies"].append(policy_id)
 
-    res = policy(id=policy_id, auth=auth)
-    require_ok(res, "policy")
-    details = res["value"]
+    details = policy(id=policy_id, auth=auth)
     if details["enabled"] not in [True, False]:
         fail("policy enabled unexpected value: %r" % details["enabled"])
     expected_name = name + " [SS]"
@@ -103,9 +91,7 @@ def test_policy(cred, created):
         fail("policy name mismatch: %r" % details["name"])
 
     # policy(trigger=) matches on policy name heuristics — use install-* + name substring.
-    res = policy_xml(id=policy_id, auth=auth)
-    require_ok(res, "policy_xml")
-    xml = res["value"]
+    xml = policy_xml(id=policy_id, auth=auth)
     initial_trigger = "install-" + TEST_PREFIX + "policy-%d" % policy_id
     if "<trigger_other></trigger_other>" in xml:
         xml2 = xml.replace("<trigger_other></trigger_other>", "<trigger_other>%s</trigger_other>" % initial_trigger, 1)
@@ -114,97 +100,89 @@ def test_policy(cred, created):
     else:
         xml2 = ""
     if xml2:
-        res = policy_put_xml(policy_id=policy_id, xml_str=xml2, auth=auth)
-        require_ok(res, "policy_put_xml (set trigger_other)")
-        res = policy_xml(id=policy_id, auth=auth)
-        require_ok(res, "policy_xml (post put)")
-        if initial_trigger not in res["value"]:
+        policy_put_xml(policy_id=policy_id, xml_str=xml2, auth=auth)
+        xml = policy_xml(id=policy_id, auth=auth)
+        if initial_trigger not in xml:
             fail("policy_put_xml did not persist trigger_other")
 
         new_trigger = "install-" + TEST_PREFIX + "policy-%d" % policy_id
-        require_ok(policy_set(policy_id=policy_id, trigger=new_trigger, auth=auth), "policy_set(trigger)")
-        res = policy(trigger=new_trigger, force_refresh=True)
-        if not res["ok"]:
-            error("policy(trigger=) skipped:", res["error"])
+        policy_set(policy_id=policy_id, trigger=new_trigger, auth=auth)
+        def _policy_by_trigger():
+            return policy(trigger=new_trigger, force_refresh=True)
+        tres = attempt(_policy_by_trigger)
+        if not tres["ok"]:
+            error("policy(trigger=) skipped:", tres["error"])
         else:
-            if res["value"]["id"] != policy_id:
-                fail("policy(trigger=) mismatch: got %r want %r" % (res["value"]["id"], policy_id))
+            if tres["value"]["id"] != policy_id:
+                fail("policy(trigger=) mismatch: got %r want %r" % (tres["value"]["id"], policy_id))
 
-        res = policy(id=policy_id, auth=auth)
-        require_ok(res, "policy (post set_trigger)")
-        if res["value"]["trigger_other"] != new_trigger:
-            fail("policy_set did not persist trigger_other: %r" % res["value"]["trigger_other"])
+        details = policy(id=policy_id, auth=auth)
+        if details["trigger_other"] != new_trigger:
+            fail("policy_set did not persist trigger_other: %r" % details["trigger_other"])
     else:
         error("policy_put_xml trigger_other setup skipped (no trigger_other element found)")
 
-    require_ok(policy_set(policy_id=policy_id, frequency="Ongoing", auth=auth), "policy_set(frequency)")
-    res = policy(id=policy_id, auth=auth)
-    require_ok(res, "policy (post frequency)")
-    if res["value"]["frequency"] != "Ongoing":
+    policy_set(policy_id=policy_id, frequency="Ongoing", auth=auth)
+    details = policy(id=policy_id, auth=auth)
+    if details["frequency"] != "Ongoing":
         fail("policy_set frequency did not persist")
 
-    require_ok(policy_set_scope_all(policy_id=policy_id, auth=auth), "policy_set_scope_all")
-    res = policy(id=policy_id, auth=auth)
-    require_ok(res, "policy (post scope_all)")
-    if not res["value"]["scope"]["all_computers"]:
+    policy_set_scope_all(policy_id=policy_id, auth=auth)
+    details = policy(id=policy_id, auth=auth)
+    if not details["scope"]["all_computers"]:
         fail("policy_set_scope_all did not persist")
 
     new_name = TEST_PREFIX + "policy-renamed-%d" % policy_id
-    require_ok(policy_set(policy_id=policy_id, name=new_name, auth=auth), "policy_set(name)")
-    res = policy(id=policy_id, auth=auth)
-    require_ok(res, "policy (post set_name)")
-    if res["value"]["name"] != new_name:
-        fail("policy_set name did not persist: %r" % res["value"]["name"])
+    policy_set(policy_id=policy_id, name=new_name, auth=auth)
+    details = policy(id=policy_id, auth=auth)
+    if details["name"] != new_name:
+        fail("policy_set name did not persist: %r" % details["name"])
 
     ss_desc = "Buddy integration test (policy_id=%d)" % policy_id
-    require_ok(
-        policy_set_ss(
-            policy_id=policy_id,
-            description=ss_desc,
-            install_text="Install",
-            reinstall_text="Reinstall",
-            auth=auth,
-        ),
-        "policy_set_ss",
+    policy_set_ss(
+        policy_id=policy_id,
+        description=ss_desc,
+        install_text="Install",
+        reinstall_text="Reinstall",
+        auth=auth,
     )
-    res = policy_xml(id=policy_id, auth=auth)
-    require_ok(res, "policy_xml (post set_ss)")
-    if ss_desc not in res["value"]:
+    xml = policy_xml(id=policy_id, auth=auth)
+    if ss_desc not in xml:
         error("policy_set_ss verify skipped (description not found in XML)")
 
-    require_ok(policy_set(policy_id=policy_id, enable=True, auth=auth), "policy_set(enable=True)")
-    res = policy(id=policy_id, auth=auth)
-    require_ok(res, "policy (post enable)")
-    if not res["value"]["enabled"]:
+    policy_set(policy_id=policy_id, enable=True, auth=auth)
+    details = policy(id=policy_id, auth=auth)
+    if not details["enabled"]:
         error("policy expected enabled=True after enable")
 
-    require_ok(policy_set(policy_id=policy_id, enable=False, auth=auth), "policy_set(enable=False)")
-    res = policy(id=policy_id, auth=auth)
-    require_ok(res, "policy (post disable)")
-    if res["value"]["enabled"]:
+    policy_set(policy_id=policy_id, enable=False, auth=auth)
+    details = policy(id=policy_id, auth=auth)
+    if details["enabled"]:
         error("policy expected enabled=False after disable")
 
     # Best-effort: clone/install/package need scripts or packages on the policy.
     before = leftovers
-    res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
-    require_ok(res, "policies (pre clone)")
-    before = res["value"]
-    cres = policy_clone(policy_id=policy_id, version="9.9.9", auth=auth)
+    before = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
+    def _clone():
+        return policy_clone(policy_id=policy_id, version="9.9.9", auth=auth)
+    cres = attempt(_clone)
     if not cres["ok"]:
         error("policy_clone skipped:", cres["error"])
     else:
-        res = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
-        require_ok(res, "policies (post clone)")
-        after = res["value"]
+        after = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
         for pid in after:
             if pid not in before and pid not in created["policies"]:
                 created["policies"].append(pid)
 
-    ires = policy_set_install(policy_id=policy_id, version="1.2.3", auth=auth)
+    def _install():
+        return policy_set_install(policy_id=policy_id, version="1.2.3", auth=auth)
+    ires = attempt(_install)
     if not ires["ok"]:
         error("policy_set_install skipped:", ires["error"])
 
-    pres = policy_set_package(app="chrome", version="1.2.3", policy_id=policy_id, auth=auth)
+    def _package():
+        return policy_set_package(app="chrome", version="1.2.3", policy_id=policy_id, auth=auth)
+    pres = attempt(_package)
     if not pres["ok"]:
         error("policy_set_package skipped:", pres["error"])
 
@@ -221,10 +199,24 @@ def test_policy(cred, created):
 def cleanup_policy(cred, created):
     if not created["policies"]:
         return
-    res = policy_delete(policy_ids=created["policies"], auth=auth)
-    if not res["ok"]:
-        error("cleanup policy_delete error:", res["error"])
+    def _delete():
+        return policy_delete(policy_ids=created["policies"], auth=auth)
+    dres = attempt(_delete)
+    if not dres["ok"]:
+        error("cleanup policy_delete error:", dres["error"])
     created["policies"].clear()
+
+
+def try_group_delete(gid):
+    def _delete():
+        return group_delete(group_id=gid, auth=auth)
+    return attempt(_delete)
+
+
+def try_profile_delete(pid):
+    def _delete():
+        return profile_delete(profile_id=pid, auth=auth)
+    return attempt(_delete)
 
 
 def test_smart_group(cred, created):
@@ -233,14 +225,12 @@ def test_smart_group(cred, created):
         "Create via v3 API, load by name, read criteria, update a criterion value.",
     )
 
-    res = smart_groups(filter=TEST_PREFIX, auth=auth)
-    require_ok(res, "smart_groups")
-    for g in res["value"]:
+    for g in smart_groups(filter=TEST_PREFIX, auth=auth):
         gid = g.get("id", "")
         if gid == "":
             error("cleanup old smart_groups: skipping entry without id:", g)
             continue
-        dres = group_delete(group_id=gid, auth=auth)
+        dres = try_group_delete(gid)
         if not dres["ok"]:
             error("cleanup old group_delete error:", dres["error"])
 
@@ -258,33 +248,29 @@ def test_smart_group(cred, created):
             },
         ],
     }
-    res = smart_group_create(body=body, auth=auth)
-    require_ok(res, "smart_group_create")
-    group_id = str(res["value"]["id"])
+    created_info = smart_group_create(body=body, auth=auth)
+    group_id = str(created_info["id"])
     created["groups"].append(group_id)
 
-    res = smart_group(name=group_name, auth=auth)
-    require_ok(res, "smart_group")
-    if str(res["value"]["id"]) != group_id:
+    loaded = smart_group(name=group_name, auth=auth)
+    if str(loaded["id"]) != group_id:
         fail("smart_group id mismatch after create")
 
-    res = smart_group_get_criteria(group_id=group_id, auth=auth)
-    require_ok(res, "smart_group_get_criteria")
-    if len(res["value"]) < 1:
+    criteria = smart_group_get_criteria(group_id=group_id, auth=auth)
+    if len(criteria) < 1:
         fail("expected at least one criterion")
 
-    res = smart_group_update_criterion_value(
+    smart_group_update_criterion_value(
         group_id=group_id,
         name_substring="Application",
         new_value="Example Application",
         auth=auth,
     )
-    require_ok(res, "smart_group_update_criterion_value")
 
 
 def cleanup_smart_group(cred, created):
     for gid in created["groups"]:
-        res = group_delete(group_id=gid, auth=auth)
+        res = try_group_delete(gid)
         if not res["ok"]:
             error("cleanup group_delete error:", res["error"])
     created["groups"].clear()
@@ -298,23 +284,16 @@ def test_static_group_list(cred):
     if TEST_STATIC_GROUP_ID == "":
         error("static_group_list_computers: skipped (set TEST_STATIC_GROUP_ID)")
         return
-    res = static_group_list_computers(group_id=TEST_STATIC_GROUP_ID, auth=auth)
-    require_ok(res, "static_group_list_computers")
-    if type(res["value"]) != "list":
+    members = static_group_list_computers(group_id=TEST_STATIC_GROUP_ID, auth=auth)
+    if type(members) != "list":
         fail("static_group_list_computers: expected list")
 
 
 def build_acs_payloads_plist(settings):
     """Jamf ACS layout: ManagedClient.preferences + nested preference domain + Forced settings."""
-    res = uuid_new()
-    require_ok(res, "uuid_new")
-    general_uuid = res["value"]
-    res = uuid_new()
-    require_ok(res, "uuid_new")
-    payload_uuid = res["value"]
-    res = uuid_new()
-    require_ok(res, "uuid_new")
-    acs_payload_id = res["value"]
+    general_uuid = uuid_new()
+    payload_uuid = uuid_new()
+    acs_payload_id = uuid_new()
     mcx_payload = {
         "PayloadType": "com.apple.ManagedClient.preferences",
         "PayloadVersion": 1,
@@ -330,27 +309,19 @@ def build_acs_payloads_plist(settings):
             },
         },
     }
-    res = plist_encode({
+    return plist_encode({
         "PayloadUUID": general_uuid,
         "PayloadType": "Configuration",
         "PayloadVersion": 1,
         "PayloadContent": [mcx_payload],
     })
-    require_ok(res, "plist_encode (acs)")
-    return res["value"]
 
 
 def assert_classic_mcx_keys(profile_id, required_keys, ctx):
-    res = profile_xml(id=profile_id, auth=auth)
-    require_ok(res, "profile_xml (%s)" % ctx)
-    xml = res["value"]
-    res = profile_xml_extract_payloads(xml)
-    require_ok(res, "profile_xml_extract_payloads (%s)" % ctx)
-    res = payloads_get_mcx_dict(res["value"], MCX_DOMAIN)
-    require_ok(res, "payloads_get_mcx_dict (%s)" % ctx)
-    res = plist_decode(res["value"])
-    require_ok(res, "plist_decode mcx (%s)" % ctx)
-    settings = res["value"]
+    xml = profile_xml(id=profile_id, auth=auth)
+    payloads = profile_xml_extract_payloads(xml)
+    mcx_xml = payloads_get_mcx_dict(payloads, MCX_DOMAIN)
+    settings = plist_decode(mcx_xml)
     for k in required_keys:
         if k not in settings:
             fail("%s: Classic MCX missing key %r (got %r)" % (ctx, k, settings.keys()))
@@ -368,23 +339,17 @@ def create_simple_classic_profile(created):
             "Profile fixture",
             "Using TEST_SOURCE_PROFILE=%r instead of built-in ACS fixture." % TEST_SOURCE_PROFILE,
         )
-        res = profile(name=TEST_SOURCE_PROFILE)
-        if not res["ok"]:
-            fail("TEST_SOURCE_PROFILE not found: %r" % TEST_SOURCE_PROFILE)
-        source_id = res["value"]["id"]
-        res = profile_xml(id=source_id, auth=auth)
-        require_ok(res, "profile_xml (TEST_SOURCE_PROFILE)")
-        res = profile_xml_extract_payloads(res["value"])
-        require_ok(res, "profile_xml_extract_payloads (TEST_SOURCE_PROFILE)")
-        return source_id, res["value"]
+        source = profile(name=TEST_SOURCE_PROFILE)
+        source_id = source["id"]
+        xml = profile_xml(id=source_id, auth=auth)
+        payloads = profile_xml_extract_payloads(xml)
+        return source_id, payloads
 
     payloads_plist = build_acs_payloads_plist({"BuddyTestSeed": TEST_PREFIX})
-    require_ok(payloads_get_mcx_dict(payloads_plist, MCX_DOMAIN), "payloads_get_mcx_dict (phase A)")
+    payloads_get_mcx_dict(payloads_plist, MCX_DOMAIN)
 
     name = TEST_PREFIX + "acs-seed-classic"
-    res = profile_create(name=name, payloads_plist_str=payloads_plist, scope_all=True, auth=auth)
-    require_ok(res, "profile_create (phase A classic)")
-    source_id = res["value"]
+    source_id = profile_create(name=name, payloads_plist_str=payloads_plist, scope_all=True, auth=auth)
     created["profiles"].append(source_id)
     assert_classic_mcx_keys(source_id, ["BuddyTestSeed"], "phase A read-back")
     return source_id, payloads_plist
@@ -396,17 +361,12 @@ def test_profile_offline_helpers(source_xml, source_payloads):
         "UUID helpers and payload UUID collection (no Jamf writes).",
     )
 
-    res = uuid_new()
-    require_ok(res, "uuid_new")
-    if len(res["value"]) != 36:
+    u = uuid_new()
+    if len(u) != 36:
         fail("uuid_new: expected RFC-4122 length 36")
 
-    res = profile_xml_randomize_uuids(source_xml)
-    require_ok(res, "profile_xml_randomize_uuids")
-
-    res = payloads_collect_uuids(source_payloads)
-    require_ok(res, "payloads_collect_uuids (source)")
-    return res["value"]
+    profile_xml_randomize_uuids(source_xml)
+    return payloads_collect_uuids(source_payloads)
 
 
 def test_profile_clone_copy(source_id, source_uuids, source_xml, created):
@@ -418,55 +378,45 @@ def test_profile_clone_copy(source_id, source_uuids, source_xml, created):
 
     # Clone is the lineage used for Classic edit (phase B) and &amp; inject (phase C).
     clone_name = TEST_PREFIX + "clone-then-edit-amp"
-    res = profile_clone(profile_id=source_id, name=clone_name, auth=auth)
-    require_ok(res, "profile_clone")
-    profile_id = res["value"]["id"]
+    cloned = profile_clone(profile_id=source_id, name=clone_name, auth=auth)
+    profile_id = cloned["id"]
     created["profiles"].append(profile_id)
 
-    res = profile_xml(id=profile_id, auth=auth)
-    require_ok(res, "profile_xml (clone)")
-    res = profile_xml_extract_payloads(res["value"])
-    require_ok(res, "profile_xml_extract_payloads (clone)")
-    res = payloads_collect_uuids(res["value"])
-    require_ok(res, "payloads_collect_uuids (clone)")
-    if source_uuids and res["value"] and not uuids_disjoint(source_uuids, res["value"]):
+    clone_payloads = profile_xml_extract_payloads(profile_xml(id=profile_id, auth=auth))
+    clone_uuids = payloads_collect_uuids(clone_payloads)
+    if source_uuids and clone_uuids and not uuids_disjoint(source_uuids, clone_uuids):
         fail("profile_clone: PayloadUUID overlap with source")
 
     copy_name = TEST_PREFIX + "copy-same-tenant"
-    res = profile_copy(profile_id=source_id, name=copy_name, auth=auth)
-    require_ok(res, "profile_copy")
-    copy_id = res["value"]["id"]
+    copied = profile_copy(profile_id=source_id, name=copy_name, auth=auth)
+    copy_id = copied["id"]
     created["profiles"].append(copy_id)
 
-    res = profile_xml(id=copy_id, auth=auth)
-    require_ok(res, "profile_xml (copy)")
-    res = profile_xml_extract_payloads(res["value"])
-    require_ok(res, "profile_xml_extract_payloads (copy)")
-    res = payloads_collect_uuids(res["value"])
-    require_ok(res, "payloads_collect_uuids (copy)")
-    if source_uuids and res["value"] and not uuids_disjoint(source_uuids, res["value"]):
+    copy_payloads = profile_xml_extract_payloads(profile_xml(id=copy_id, auth=auth))
+    copy_uuids = payloads_collect_uuids(copy_payloads)
+    if source_uuids and copy_uuids and not uuids_disjoint(source_uuids, copy_uuids):
         fail("profile_copy: PayloadUUID overlap with source")
 
     if TEST_COPY_DEST_TENANT != "":
         dest_name = TEST_PREFIX + "copy-cross-tenant"
-        res = profile_copy(
-            profile_id=source_id,
-            name=dest_name,
-            from_auth=auth,
-            tenant=TEST_COPY_DEST_TENANT,
-            auth=auth,
-        )
-        if res["ok"]:
-            created["profiles"].append({"id": res["value"]["id"], "tenant": TEST_COPY_DEST_TENANT})
+        def _copy():
+            return profile_copy(
+                profile_id=source_id,
+                name=dest_name,
+                from_auth=auth,
+                tenant=TEST_COPY_DEST_TENANT,
+                auth=auth,
+            )
+        cres = attempt(_copy)
+        if cres["ok"]:
+            created["profiles"].append({"id": cres["value"]["id"], "tenant": TEST_COPY_DEST_TENANT})
         else:
-            error("profile_copy cross-tenant skipped:", res["error"])
+            error("profile_copy cross-tenant skipped:", cres["error"])
 
     prepared_name = TEST_PREFIX + "prepare-then-create-xml"
     prep = profile_xml_prepare_for_create(source_xml, name=prepared_name)
-    require_ok(prep, "profile_xml_prepare_for_create")
-    res = profile_create_xml(xml_str=prep["value"], name=prepared_name, auth=auth)
-    require_ok(res, "profile_create_xml")
-    created["profiles"].append(res["value"]["id"])
+    created_xml = profile_create_xml(xml_str=prep, name=prepared_name, auth=auth)
+    created["profiles"].append(created_xml["id"])
 
     return profile_id
 
@@ -480,10 +430,8 @@ def test_profile_mutate_classic(profile_id):
 
     xml, settings = assert_classic_mcx_keys(profile_id, ["BuddyTestSeed"], "phase B pre-mutate")
     settings["BuddyTestKey"] = TEST_PREFIX
-    res = profile_xml_patch_payload(xml, MCX_DOMAIN, settings)
-    require_ok(res, "profile_xml_patch_payload (phase B)")
-    res = profile_put_xml(profile_id=profile_id, xml_str=res["value"], auth=auth)
-    require_ok(res, "profile_put_xml (phase B classic)")
+    patched = profile_xml_patch_payload(xml, MCX_DOMAIN, settings)
+    profile_put_xml(profile_id=profile_id, xml_str=patched, auth=auth)
     assert_classic_mcx_keys(profile_id, ["BuddyTestSeed", "BuddyTestKey"], "phase B post-mutate")
 
 
@@ -531,11 +479,8 @@ def test_profile_inject_ampersand(profile_id, created):
     for k in settings:
         good[k] = settings[k]
     good["ExampleURL"] = APPLY_FORM_URL
-    res = profile_xml_patch_payload(xml, MCX_DOMAIN, good)
-    require_ok(res, "profile_xml_patch_payload (phase C case 1 &amp;)")
-    patched_apply = res["value"]
-    res = profile_put_xml(profile_id=profile_id, xml_str=patched_apply, auth=auth)
-    require_ok(res, "profile_put_xml (phase C case 1 &amp;)")
+    patched_apply = profile_xml_patch_payload(xml, MCX_DOMAIN, good)
+    profile_put_xml(profile_id=profile_id, xml_str=patched_apply, auth=auth)
     _, settings_ok = assert_classic_mcx_keys(
         profile_id,
         ["BuddyTestSeed", "ExampleURL"],
@@ -558,9 +503,10 @@ def test_profile_inject_ampersand(profile_id, created):
     for k in settings:
         bad[k] = settings[k]
     bad["ExampleURL"] = BARE_AMP_URL
-    res = profile_xml_patch_payload(xml, MCX_DOMAIN, bad)
-    require_ok(res, "profile_xml_patch_payload (phase C case 2 bare amp setup)")
-    put = profile_put_xml(profile_id=profile_id, xml_str=res["value"], auth=auth)
+    patched_bad = profile_xml_patch_payload(xml, MCX_DOMAIN, bad)
+    def _put_bare():
+        return profile_put_xml(profile_id=profile_id, xml_str=patched_bad, auth=auth)
+    put = attempt(_put_bare)
     if put["ok"]:
         fail("phase C case 2: bare '&' put returned ok (expected rejection)")
     err = put["error"]
@@ -580,9 +526,7 @@ def test_profile_inject_ampersand(profile_id, created):
         "BuddyTestSeed": TEST_PREFIX,
         "ExampleURL": ACS_APPLY_URL,
     })
-    res = profile_create(name=create_name, payloads_plist_str=payloads, scope_all=True, auth=auth)
-    require_ok(res, "profile_create (phase C case 3 Apply-form)")
-    created_id = res["value"]
+    created_id = profile_create(name=create_name, payloads_plist_str=payloads, scope_all=True, auth=auth)
     created["profiles"].append(created_id)
     _, settings_c3 = assert_classic_mcx_keys(
         created_id,
@@ -600,7 +544,9 @@ def test_profile_inject_ampersand(profile_id, created):
     under_xml, from_enc, to_enc = under_encode_apply_form_url(patched_apply)
     if under_xml == None:
         fail("phase C case 4: could not locate Apply-form amp encoding in patched XML to under-encode")
-    put = profile_put_xml(profile_id=profile_id, xml_str=under_xml, auth=auth)
+    def _put_under():
+        return profile_put_xml(profile_id=profile_id, xml_str=under_xml, auth=auth)
+    put = attempt(_put_under)
     if put["ok"]:
         fail("phase C case 4: under-encoded put returned ok (expected rejection)")
     err = put["error"]
@@ -617,18 +563,18 @@ def test_profile(cred, created):
         "Phase A Classic → B clone/copy/edit → C Apply-form ACS+Classic / rejects.",
     )
 
-    res = profiles(filter=TEST_PREFIX)
+    def _list_profiles():
+        return profiles(filter=TEST_PREFIX)
+    res = attempt(_list_profiles)
     if res["ok"]:
         for p in res["value"]:
-            dres = profile_delete(profile_id=p["id"], auth=auth)
+            dres = try_profile_delete(p["id"])
             if not dres["ok"]:
                 error("cleanup old profile_delete error:", dres["error"])
 
     source_id, source_payloads = create_simple_classic_profile(created)
 
-    res = profile_xml(id=source_id, auth=auth)
-    require_ok(res, "profile_xml (source)")
-    source_xml = res["value"]
+    source_xml = profile_xml(id=source_id, auth=auth)
 
     source_uuids = test_profile_offline_helpers(source_xml, source_payloads)
     profile_id = test_profile_clone_copy(source_id, source_uuids, source_xml, created)
@@ -641,14 +587,15 @@ def cleanup_profile(cred, created):
         pid = entry["id"] if type(entry) == "dict" else entry
         tenant = entry.get("tenant", "") if type(entry) == "dict" else ""
         if tenant != "":
-            res = profile_delete(profile_id=pid, tenant=tenant, auth=auth)
+            profile_delete(profile_id=pid, tenant=tenant, auth=auth)
         else:
-            res = profile_delete(profile_id=pid, auth=auth)
-        require_ok(res, "profile_delete")
-    res = profiles(filter=TEST_PREFIX)
+            profile_delete(profile_id=pid, auth=auth)
+    def _list_profiles():
+        return profiles(filter=TEST_PREFIX)
+    res = attempt(_list_profiles)
     if res["ok"]:
         for p in res["value"]:
-            require_ok(profile_delete(profile_id=p["id"], auth=auth), "profile_delete (leftover)")
+            profile_delete(profile_id=p["id"], auth=auth)
     created["profiles"].clear()
 
 
@@ -658,26 +605,20 @@ def test_package_and_script(cred):
         "List + load one of each (read-only smoke).",
     )
 
-    res = packages(filter="")
-    require_ok(res, "packages")
-    pkgs = res["value"]
+    pkgs = packages(filter="")
     if pkgs:
         first = pkgs[0]
         pkg_id = first["id"] if type(first) == "dict" else first
-        res2 = package(id=pkg_id, auth=auth)
-        require_ok(res2, "package")
-        if "packageName" not in res2["value"]:
+        pkg = package(id=pkg_id, auth=auth)
+        if "packageName" not in pkg:
             fail("package: missing packageName")
 
-    res = scripts(auth=auth)
-    require_ok(res, "scripts")
-    script_list = res["value"]
+    script_list = scripts(auth=auth)
     if script_list:
         first = script_list[0]
         script_id = first["id"] if type(first) == "dict" else first
-        res2 = script(id=script_id, auth=auth)
-        require_ok(res2, "script")
-        if not res2["value"]:
+        body = script(id=script_id, auth=auth)
+        if not body:
             fail("script returned empty body for script_id=%r" % script_id)
 
 

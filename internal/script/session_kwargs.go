@@ -88,7 +88,7 @@ func withSession(thread *starlark.Thread, defaultAuth string, s sessionArgs, fn 
 	return fn(pin)
 }
 
-// resultWithSession wraps withSession and turns override errors into result dicts.
+// resultWithSession wraps withSession; session override errors raise like other builtins.
 func resultWithSession(thread *starlark.Thread, defaultAuth string, s sessionArgs, fn func(authPin string) (starlark.Value, error)) (starlark.Value, error) {
 	var out starlark.Value
 	err := withSession(thread, defaultAuth, s, func(authPin string) error {
@@ -97,7 +97,7 @@ func resultWithSession(thread *starlark.Thread, defaultAuth string, s sessionArg
 		return e
 	})
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return out, nil
 }

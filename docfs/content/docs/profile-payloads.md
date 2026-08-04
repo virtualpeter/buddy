@@ -4,12 +4,14 @@ How to edit Jamf macOS configuration profile payloads with buddy — without inv
 
 ## Happy path (preferred)
 
+**Do not** invent Classic profile PUT bodies from `jamf_schema` or Jamf MCP `execute-request`. ACS entity-encoding and UI APIs live inside buddy's profile builtins.
+
 **Edit existing**
 
-1. `profile_xml(id=…)` or MCP `profile_xml` — full Classic XML (preserves outer UUID).
+1. `profile_xml(id=…)` — full Classic XML (preserves outer UUID).
 2. Optional inspect: `profile_xml_extract_payloads` → `payloads_list_identifiers` (PayloadContent) or `payloads_get_mcx_dict` (MCX).
 3. `profile_xml_patch_payload(xml, domain, new_payload)` — offline patch (**merge** for PayloadContent).
-4. `profile_put_xml(profile_id, xml_str)` — write back.
+4. `profile_put_xml(profile_id, xml_str)` — write back (ACS quirks inside).
 
 **Create / clone / copy**
 
@@ -19,7 +21,13 @@ How to edit Jamf macOS configuration profile payloads with buddy — without inv
 
 Do **not** hand-edit UUIDs in Classic XML — patch preserves PayloadUUID on in-place edits; clone/copy mint new ones.
 
-Do **not** hand-build Classic XML from `jamf_schema` / Jamf hosted MCP `execute-request`.
+```python
+def main():
+    xml = profile_xml(id=42)
+    xml = profile_xml_patch_payload(xml, "com.example", {"Key": "New"})
+    profile_put_xml(profile_id=42, xml_str=xml)
+    return "ok"
+```
 
 ## PayloadContent vs MCX
 
@@ -44,15 +52,15 @@ Do **not** hand-build Classic XML from `jamf_schema` / Jamf hosted MCP `execute-
 
 | Cluster | Action |
 |---------|--------|
-| `profile_xml`, `profile_put_xml`, `profile_xml_patch_payload` (+ MCP) | keep + harden (merge, docs) |
+| `profile_xml`, `profile_put_xml`, `profile_xml_patch_payload` (via `buddyscript`) | keep + harden (merge, docs) |
 | `profile_xml_extract/replace_payloads`, `payloads_*`, `plist_*` | keep; advanced path |
 | `profile_get_payload(s)` / list / CLI get | describe-fix: PayloadContent only |
 | `profile` vs `profile_xml`, `set_xml` vs `put_xml` | keep; prefer table above |
 | `prefs_payload` / `pppc_*` | keep (builders) |
 | Missing `<payloads>` on replace | **error** (no silent no-op) |
 | `payloads_get_mcx_dict` | **expand** (MCX inspect) |
-| MCP `profile_xml_extract_payloads`, `payloads_list_identifiers` | **expand** (inspect before patch) |
-| MCP `profile_create` / `profile_clone` / `profile_copy` / `profile_redeploy` / `payloads_set_content` | **expand** (create path) |
+| `profile_xml_extract_payloads`, `payloads_list_identifiers` | **expand** (inspect before patch) |
+| `profile_create` / `profile_clone` / `profile_copy` / `profile_redeploy` / `payloads_set_content` | **expand** (create path; ACS quirks stay in builtins) |
 | `profile_xml_randomize_uuids` / `profile_xml_prepare_for_create` / `profile_create_xml` / `profile_delete` | **expand** (UUID + lifecycle) |
 | `payloads_collect_uuids` | **expand** (verify remap) |
 
@@ -70,13 +78,15 @@ Optional: set `TEST_COPY_DEST_TENANT` in the script for cross-tenant `profile_co
 ## Advanced Starlark pattern
 
 ```python
-xml = unwrap(profile_xml(id=42))
-payloads = unwrap(profile_xml_extract_payloads(xml))
-chrome = unwrap(plist_decode(unwrap(payloads_get_payload(payloads, "com.google.chrome"))))
-chrome["SomeKey"] = "NewValue"
-payloads = unwrap(payloads_replace_payload(payloads, "com.google.chrome", chrome))  # full replace
-xml = unwrap(profile_xml_replace_payloads(xml, payloads))
-unwrap(profile_put_xml(profile_id=42, xml_str=xml))
+def main():
+    xml = profile_xml(id=42)
+    payloads = profile_xml_extract_payloads(xml)
+    chrome = plist_decode(payloads_get_payload(payloads, "com.google.chrome"))
+    chrome["SomeKey"] = "NewValue"
+    payloads = payloads_replace_payload(payloads, "com.google.chrome", chrome)  # full replace
+    xml = profile_xml_replace_payloads(xml, payloads)
+    profile_put_xml(profile_id=42, xml_str=xml)
+    return "ok"
 ```
 
 For a one-key change, prefer **patch** (merge) instead of full replace.

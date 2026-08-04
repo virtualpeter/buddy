@@ -40,18 +40,18 @@ func jamfSchemaBuiltin(credName string, logger *slog.Logger) builtinFn {
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		_ = logger
 		res, err := buddy.FetchJamfSchema(c, string(api), string(filter), bool(full))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := GoValueToStarlark(schemaResultToMap(res))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}

@@ -56,7 +56,7 @@ See **[docs/mcp.md](docs/mcp.md)** for MCP host setup and **[docs/mcp-tools.md](
 - Prefer an absolute `command` path and `args: ["mcp"]`.
 - Docs/AGENTS/examples/editor rules are embedded in the binary (`docfs/`; refresh with `make sync-docfs`). `BUDDY_DOCS_ROOT` is an optional live override. Agents should use the MCP `docs` tool (list/get); the same pages are also `buddy://docs/...` resources.
 - Prefer named builtins (smart criteria vs static membership, profile payload edits) via `buddyscript`; do not invent Classic PUTs from `jamf_schema` alone.
-- Tool results are always `{ok, value, ...}` objects (lists under `value`) so hosts accept `structuredContent`.
+- Tool results are always `{ok, value, ...}` objects (lists under `value`) so hosts accept `structuredContent`. Starlark builtins return bare values and raise on failure; the envelope is MCP-only.
 - Reload or restart the AI host after changing MCP config or rebuilding buddy.
 
 

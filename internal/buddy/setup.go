@@ -77,32 +77,23 @@ def main():
     client_name = "buddy-cli"
 
     rl = roles()
-    if not rl["ok"]:
-        fail("roles failed: " + rl["error"])
     role_id = None
-    for row in rl["value"]:
+    for row in rl:
         if row["display_name"] == role_name:
             role_id = row["id"]
             break
     if role_id == None:
         pl = role_privileges()
-        if not pl["ok"]:
-            fail("role_privileges failed: " + pl["error"])
-        r = role_create(role_name, pl["value"])
-        if not r["ok"]:
-            fail("role_create failed: " + r["error"])
-        role_id = r["value"]
+        role_id = role_create(role_name, pl)
         error("Created role %s (ID %s)" % (role_name, role_id))
     else:
         error("Using existing role %s (ID %s)" % (role_name, role_id))
 
     # Create API client scoped to that role (authorizationScopes expects role display name)
     cl = clients()
-    if not cl["ok"]:
-        fail("clients failed: " + cl["error"])
     client_id = None
     client_oauth_id = None
-    for row in cl["value"]:
+    for row in cl:
         name = row.get("displayName") or row.get("display_name") or ""
         if name == client_name:
             client_id = str(row["id"])
@@ -110,10 +101,8 @@ def main():
             break
     if client_id == None:
         c = client_create(client_name, [role_name])
-        if not c["ok"]:
-            fail("client_create failed: " + c["error"])
-        client_id = c["value"]["id"]
-        client_oauth_id = c["value"]["client_id"]
+        client_id = c["id"]
+        client_oauth_id = c["client_id"]
         error("Created API client %s (ID %s, clientId %s)" % (client_name, client_id, client_oauth_id))
     else:
         error("Using existing API client %s (ID %s, clientId %s)" % (client_name, client_id, client_oauth_id))

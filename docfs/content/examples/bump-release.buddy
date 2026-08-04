@@ -26,7 +26,7 @@ def main():
         exit(1)
 
     version = args[0]
-    r = bump_release(
+    out = bump_release(
         trigger_prefix = TRIGGER_PREFIX,
         app = APP_NAME,
         version = version,
@@ -34,8 +34,5 @@ def main():
         self_service_policy_id = SELF_SERVICE_POLICY_ID,
         version_group_id = VERSION_GROUP_ID,
     )
-    if not r["ok"]:
-        error(r["error"])
-        exit(1)
 
-    error("Done. Bumped to", version, "policy_id=", r["value"]["policy_id"])
+    error("Done. Bumped to", version, "policy_id=", out["policy_id"])

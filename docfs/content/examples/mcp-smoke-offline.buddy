@@ -1,7 +1,7 @@
 # Offline smoke: profile payload patch path agents should use via MCP.
 def main():
     xml = """<?xml version="1.0"?><os_x_configuration_profile><general><id>1</id></general><payloads>&lt;?xml version="1.0"?&gt;&lt;plist version="1.0"&gt;&lt;dict&gt;&lt;key&gt;PayloadContent&lt;/key&gt;&lt;array&gt;&lt;dict&gt;&lt;key&gt;PayloadIdentifier&lt;/key&gt;&lt;string&gt;com.example.test&lt;/string&gt;&lt;key&gt;PayloadType&lt;/key&gt;&lt;string&gt;com.example.test&lt;/string&gt;&lt;key&gt;SomeKey&lt;/key&gt;&lt;string&gt;Old&lt;/string&gt;&lt;/dict&gt;&lt;/array&gt;&lt;/dict&gt;&lt;/plist&gt;</payloads></os_x_configuration_profile>"""
-    r = profile_xml_patch_payload(
+    patched = profile_xml_patch_payload(
         xml,
         "com.example.test",
         {
@@ -10,9 +10,7 @@ def main():
             "SomeKey": "New",
         },
     )
-    if not r["ok"]:
-        fail(r["error"])
-    payloads = profile_xml_extract_payloads(r["value"])["value"]
+    payloads = profile_xml_extract_payloads(patched)
     if "New" not in payloads:
         fail("patch did not apply")
     # Group helper builtins must be registered (MCP wraps these).

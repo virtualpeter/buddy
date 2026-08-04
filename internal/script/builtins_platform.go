@@ -47,15 +47,15 @@ func registerPlatformBuiltins(dict starlark.StringDict, credName string, logger 
 
 func jsonResult(v interface{}, err error) (starlark.Value, error) {
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	val, err := JSONDecodeToStarlark(string(b))
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	return resultOK(val), nil
 }
@@ -74,7 +74,7 @@ func devicesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -101,7 +101,7 @@ func deviceBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -123,16 +123,16 @@ func deviceSetBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		jsonStr, err := StarlarkToJSON(body)
 		if err != nil {
-			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err))
 		}
 		if err := buddy.DeviceSetValue(c, string(deviceID), scriptOpts, []byte(jsonStr), logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -150,12 +150,12 @@ func deviceDeleteBuiltin(credName string, logger *slog.Logger) func(*starlark.Th
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		if err := buddy.DeviceDeleteValue(c, string(deviceID), scriptOpts, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -175,7 +175,7 @@ func deviceApplicationsBuiltin(credName string, logger *slog.Logger) func(*starl
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -200,12 +200,12 @@ func deviceActionBuiltin(credName string, logger *slog.Logger, name string, fn f
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		if err := fn(c, string(deviceID), scriptOpts, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -225,7 +225,7 @@ func deviceGroupsBuiltin(credName string, logger *slog.Logger) func(*starlark.Th
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -252,7 +252,7 @@ func deviceGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -273,20 +273,20 @@ func deviceGroupCreateBuiltin(credName string, logger *slog.Logger) func(*starla
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		jsonStr, err := StarlarkToJSON(body)
 		if err != nil {
-			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err))
 		}
 		out, err := buddy.DeviceGroupCreateValue(c, scriptOpts, []byte(jsonStr), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("device_group_create: cancelled"), nil
+			return resultErr("device_group_create: cancelled")
 		}
 		return jsonResult(out, nil)
 	}
@@ -305,16 +305,16 @@ func deviceGroupSetBuiltin(credName string, logger *slog.Logger) func(*starlark.
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		jsonStr, err := StarlarkToJSON(body)
 		if err != nil {
-			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err))
 		}
 		if err := buddy.DeviceGroupSetValue(c, string(groupID), scriptOpts, []byte(jsonStr), logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -332,12 +332,12 @@ func deviceGroupDeleteBuiltin(credName string, logger *slog.Logger) func(*starla
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		if err := buddy.DeviceGroupDeleteValue(c, string(groupID), scriptOpts, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -355,7 +355,7 @@ func deviceGroupMembersBuiltin(credName string, logger *slog.Logger) func(*starl
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -377,16 +377,16 @@ func deviceGroupSetMembersBuiltin(credName string, logger *slog.Logger) func(*st
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		jsonStr, err := StarlarkToJSON(body)
 		if err != nil {
-			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err))
 		}
 		if err := buddy.DeviceGroupSetMembersValue(c, string(groupID), scriptOpts, []byte(jsonStr), logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -406,7 +406,7 @@ func ddmDeclarationDevicesBuiltin(credName string, logger *slog.Logger) func(*st
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -433,7 +433,7 @@ func ddmDeviceDeclarationsBuiltin(credName string, logger *slog.Logger) func(*st
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -458,7 +458,7 @@ func ddmDeviceChannelsBuiltin(credName string, logger *slog.Logger) func(*starla
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -478,7 +478,7 @@ func benchmarksBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -499,7 +499,7 @@ func benchmarkBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -520,20 +520,20 @@ func benchmarkCreateBuiltin(credName string, logger *slog.Logger) func(*starlark
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		jsonStr, err := StarlarkToJSON(body)
 		if err != nil {
-			return resultErr(fmt.Sprintf("encode body as JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err))
 		}
 		out, err := buddy.BenchmarkCreateValue(c, scriptOpts, []byte(jsonStr), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if out == nil {
-			return resultErr("benchmark_create: cancelled"), nil
+			return resultErr("benchmark_create: cancelled")
 		}
 		return jsonResult(out, nil)
 	}
@@ -551,12 +551,12 @@ func benchmarkDeleteBuiltin(credName string, logger *slog.Logger) func(*starlark
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
 		if err := buddy.BenchmarkDeleteValue(c, string(benchmarkID), scriptOpts, logger); err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
@@ -573,7 +573,7 @@ func benchmarkBaselinesBuiltin(credName string, logger *slog.Logger) func(*starl
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -594,7 +594,7 @@ func benchmarkCatalogRulesBuiltin(credName string, logger *slog.Logger) func(*st
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -615,7 +615,7 @@ func benchmarkComplianceBuiltin(credName string, logger *slog.Logger) func(*star
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -636,7 +636,7 @@ func benchmarkReportDevicesBuiltin(credName string, logger *slog.Logger) func(*s
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -657,7 +657,7 @@ func benchmarkReportRulesBuiltin(credName string, logger *slog.Logger) func(*sta
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin

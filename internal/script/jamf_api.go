@@ -12,12 +12,11 @@ import (
 	"go.starlark.net/starlark"
 )
 
-func resultErrValue(msg string, value starlark.Value) *starlark.Dict {
-	d := new(starlark.Dict)
-	_ = d.SetKey(starlark.String("ok"), starlark.Bool(false))
-	_ = d.SetKey(starlark.String("error"), starlark.String(msg))
-	_ = d.SetKey(starlark.String("value"), value)
-	return d
+func resultErrValue(msg string, value starlark.Value) (starlark.Value, error) {
+	// value is intentionally dropped: domain failures raise; callers that need
+	// the HTTP body should include a summary in msg.
+	_ = value
+	return nil, fmt.Errorf("%s", msg)
 }
 
 func jamfRequestBuiltin(credName string, logger *slog.Logger) builtinFn {
@@ -42,7 +41,7 @@ func jamfRequestBuiltin(credName string, logger *slog.Logger) builtinFn {
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -67,7 +66,7 @@ func jamfGetBuiltin(credName string, logger *slog.Logger) builtinFn {
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -104,7 +103,7 @@ func jamfDeleteBuiltin(credName string, logger *slog.Logger) builtinFn {
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -133,7 +132,7 @@ func jamfMutateBuiltin(credName string, logger *slog.Logger, method string) buil
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
-			return resultErr(sessErr.Error()), nil
+			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
 		c := sessionPin
@@ -144,11 +143,11 @@ func jamfMutateBuiltin(credName string, logger *slog.Logger, method string) buil
 func doJamfRequest(_ *starlark.Thread, credName string, logger *slog.Logger, method, path string, bodyVal starlark.Value, contentType, accept string, parse bool) (starlark.Value, error) {
 	_ = logger
 	if mcpGuarded() && jamfAuthTokenPath(path) {
-		return resultErr(errMCPJamfTokenPath().Error()), nil
+		return resultErr(errMCPJamfTokenPath().Error())
 	}
 	bodyBytes, inferredCT, err := encodeJamfBody(bodyVal)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	if contentType == "" && inferredCT != "" {
 		contentType = inferredCT
@@ -162,12 +161,12 @@ func doJamfRequest(_ *starlark.Thread, credName string, logger *slog.Logger, met
 		Accept:      accept,
 	})
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 
 	value, err := jamfResponseToStarlark(resp, parse)
 	if err != nil {
-		return resultErr(err.Error()), nil
+		return resultErr(err.Error())
 	}
 	if resp.Status < 200 || resp.Status >= 300 {
 		preview := string(resp.Body)
@@ -179,7 +178,7 @@ func doJamfRequest(_ *starlark.Thread, credName string, logger *slog.Logger, met
 		if preview != "" {
 			msg += ": " + preview
 		}
-		return resultErrValue(msg, value), nil
+		return resultErrValue(msg, value)
 	}
 	return resultOK(value), nil
 }

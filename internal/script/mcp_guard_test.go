@@ -71,21 +71,13 @@ func TestBuddySecretPathAndMCPGuards(t *testing.T) {
 	dict := makeBuiltins("", nil, false)
 	th := &starlark.Thread{Name: "t"}
 	readFn := dict["file_read"].(*starlark.Builtin)
-	rval, err := starlark.Call(th, readFn, starlark.Tuple{starlark.String(cfg)}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ok, _, _ := rval.(*starlark.Dict).Get(starlark.String("ok"))
-	if ok != starlark.False {
-		t.Fatalf("expected file_read blocked on MCP, got %v", rval)
+	_, err := starlark.Call(th, readFn, starlark.Tuple{starlark.String(cfg)}, nil)
+	if err == nil {
+		t.Fatal("expected file_read blocked on MCP")
 	}
 
-	v, err := doJamfRequest(th, "", nil, "GET", "/api/v1/auth/token", starlark.None, "", "", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ok, _, _ = v.(*starlark.Dict).Get(starlark.String("ok"))
-	if ok != starlark.False {
-		t.Fatalf("expected jamf token path blocked, got %v", v)
+	_, err = doJamfRequest(th, "", nil, "GET", "/api/v1/auth/token", starlark.None, "", "", true)
+	if err == nil {
+		t.Fatal("expected jamf token path blocked")
 	}
 }

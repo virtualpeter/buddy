@@ -191,7 +191,7 @@ buddy <script.buddy> [-- args...]  # .buddy preferred; any existing path (includ
 
 Prefer the **`.buddy`** extension for scripts and stdlib modules (`load("stdlib/<name>.buddy", …)`) so the Cursor/VS Code extension language id applies. Existing `.star` paths still run. Editor support: [docs/editor.md](docs/editor.md) (`buddy lsp` + `make extension-package`).
 
-**Built-in functions:** plural nouns enumerate (`policies`, `packages`, …); singular nouns load one resource (`policy(id=…)` / `policy(trigger=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). Optional `tenant=` / `surface=` / `auth=` last (`cred=` removed). Every Jamf-related builtin returns `{"ok": true, "value": ...}` or `{"ok": false, "error": "..."}` unless documented otherwise. Canonical list: `buddy help builtins`; grammar overview: [docs/reference-manual.md](docs/reference-manual.md#built-in-functions).
+**Built-in functions:** plural nouns enumerate (`policies`, `packages`, …); singular nouns load one resource (`policy(id=…)` / `policy(trigger=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). Optional `tenant=` / `surface=` / `auth=` last (`cred=` removed). Jamf-related builtins return **bare values** and **raise** on failure (MCP tools still wrap `{ok, value}` at the tool boundary). Canonical list: `buddy help builtins`; grammar overview: [docs/reference-manual.md](docs/reference-manual.md#built-in-functions).
 
 ```sh
 buddy help starlark   # language subset
@@ -219,12 +219,7 @@ APP_NAME = "exampleapp"
 def main():
     version = args[0]
 
-    r = policy(trigger=TRIGGER_PREFIX + version, force_refresh=True)
-    if not r["ok"]:
-        error("Policy not found:", r["error"])
-        exit(1)
-
-    policy_id = r["value"]["id"]
+    policy_id = policy(trigger=TRIGGER_PREFIX + version, force_refresh=True)["id"]
     policy_set_package(app=APP_NAME, version=version, policy_id=policy_id)
     # If install params or self-service live on other policies, add policy_set_install / policy_set_ss
     # with those policy IDs. To bump a smart-group version criterion: smart_group_set_version(group_id="...", version=version).

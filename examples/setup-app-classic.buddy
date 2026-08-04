@@ -23,16 +23,12 @@ def main():
         domain = "com.example.app",
         settings = {"ExampleKey": True},
     )
-    if not prefs["ok"]:
-        fail(prefs["error"])
 
     fda = pppc_fda(
         bundle_id = "com.example.app",
         code_requirement = 'identifier "com.example.app" and anchor apple generic',
         comment = "Full Disk Access for Example",
     )
-    if not fda["ok"]:
-        fail(fda["error"])
 
     change = change_batch(
         title = "Example app Classic greenfield setup",
@@ -45,9 +41,9 @@ Optional Self Service omitted; install trigger is install-example-next.""",
     steps = setup_app_classic(
         app = app,
         version = version,
-        prefs_content = [prefs["value"]],
+        prefs_content = [prefs],
         pppc_services = {
-            "SystemPolicyAllFiles": [fda["value"]],
+            "SystemPolicyAllFiles": [fda],
         },
         package_pattern = "*example*1.0.0*",
         create_ss = False,
@@ -55,13 +51,9 @@ Optional Self Service omitted; install trigger is install-example-next.""",
     )
 
     planned = plan_change(change = change, steps = steps)
-    if not planned["ok"]:
-        fail(planned["error"])
 
     if mode != "apply":
         print("Plan only. Re-run with: buddy examples/setup-app-classic.buddy -- apply")
         return
 
-    r = run_change(change = change, steps = steps, planned = planned["value"])
-    if not r["ok"]:
-        fail(r["error"])
+    run_change(change = change, steps = steps, planned = planned)
