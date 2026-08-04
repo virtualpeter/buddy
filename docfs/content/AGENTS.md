@@ -54,7 +54,7 @@ See **[docs/mcp.md](docs/mcp.md)** for MCP host setup and **[docs/mcp-tools.md](
 - `buddy_info` reports binary version plus default tenant/auth, channel policy (`channel_access`, allowlists), and available tenants/auths for the mcp channel (no Jamf call).
 - `buddy mcp setup` lists well-known config paths and can `--write` a `mcpServers.buddy` entry (`--create` for missing files). Cursor: `~/.cursor/mcp.json` / `.cursor/mcp.json`; Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS).
 - Prefer an absolute `command` path and `args: ["mcp"]`.
-- Docs/AGENTS/examples/editor rules are embedded in the binary (`docfs/`; refresh with `make sync-docfs`). `BUDDY_DOCS_ROOT` is an optional live override. Agents should use the MCP `docs` tool (list/get); the same pages are also `buddy://docs/...` resources.
+- Docs/AGENTS/examples/editor rules are embedded in the binary (`docfs/`; refresh with `make sync-docfs`). `BUDDY_DOCS_ROOT` is an optional live override. Agents should use the MCP `docs` tool (list/get); the same pages are also `buddy://docs/...` resources. List `query` matches id/title/section/**keywords** (resource nouns like `policy`, `jcds`, `blueprint`) — then `get` the object cookbook (`docs/policies`, …).
 - Prefer named builtins (smart criteria vs static membership, profile payload edits) via `buddyscript`; do not invent Classic PUTs from `jamf_schema` alone.
 - Tool results are always `{ok, value, ...}` objects (lists under `value`) so hosts accept `structuredContent`. Starlark builtins return bare values and raise on failure; the envelope is MCP-only.
 - Reload or restart the AI host after changing MCP config or rebuilding buddy.

@@ -3,6 +3,8 @@ package mcp
 import (
 	"strings"
 	"testing"
+
+	"buddy/internal/docpages"
 )
 
 func TestDocsListAndGet(t *testing.T) {
@@ -24,8 +26,8 @@ func TestDocsListAndGet(t *testing.T) {
 		t.Fatal("expected query=builtin matches")
 	}
 	for _, e := range filtered {
-		hay := strings.ToLower(e.ID + " " + e.Title + " " + e.Section)
-		if !strings.Contains(hay, "builtin") {
+		p := docpages.ByID(pages, e.ID)
+		if p == nil || !strings.Contains(docpages.SearchHaystack(*p), "builtin") {
 			t.Fatalf("unexpected entry %#v", e)
 		}
 	}
@@ -60,4 +62,44 @@ func TestDocsListAndGet(t *testing.T) {
 	if _, err := docsGet(pages, "no-such-page"); err == nil {
 		t.Fatal("expected error for unknown id")
 	}
+}
+
+func TestDocsListKeywordNouns(t *testing.T) {
+	pages, err := loadAgentDocs()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		query string
+		want  string
+	}{
+		{"policy", "docs/policies"},
+		{"jcds", "docs/packages"},
+		{"blueprint", "docs/blueprints"},
+		{"static", "docs/static-groups"},
+		{"smart", "docs/smart-groups"},
+		{"ddm", "docs/ddm"},
+	}
+	for _, tc := range cases {
+		hits := docsList(pages, tc.query)
+		found := false
+		for _, e := range hits {
+			if e.ID == tc.want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("query %q: expected id %q in %v", tc.query, tc.want, hitIDs(hits))
+		}
+	}
+}
+
+func hitIDs(entries []docsCatalogEntry) []string {
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = e.ID
+	}
+	return out
 }

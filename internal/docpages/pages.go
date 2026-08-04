@@ -35,8 +35,9 @@ type Page struct {
 	Title    string
 	Section  string // nav grouping for the human UI (Start here, Guides, …)
 	Markdown string
-	Plain    bool   // true = render as <pre> (CLI help)
-	Source   string // "embedded:…" or filesystem path
+	Plain    bool     // true = render as <pre> (CLI help)
+	Source   string   // "embedded:…" or filesystem path
+	Keywords []string // search-only terms for MCP docs list filter (not shown in nav)
 }
 
 // LoadOptions controls where pages are loaded from.
@@ -136,33 +137,87 @@ func findDocsRootFromCwd() (string, error) {
 	return "", fmt.Errorf("docs/ not found near cwd")
 }
 
-// humanDocEntries is the curated serve UI order (id, title, section, filename under docs/).
-var humanDocEntries = []struct {
+// curatedDoc is one docs/*.md entry shared by human and agent catalogs.
+type curatedDoc struct {
 	id, title, section, file string
-}{
-	{"docs/index", "Getting started", "Start here", "index.md"},
-	{"docs/reference-manual", "Reference manual", "Guides", "reference-manual.md"},
-	{"docs/change-batches", "Change batches", "Guides", "change-batches.md"},
-	{"docs/api-endpoints", "API endpoints", "Guides", "api-endpoints.md"},
-	{"docs/mcp", "MCP for AI tools", "Guides", "mcp.md"},
-	{"docs/mcp-tools", "MCP tools scorecard", "Guides", "mcp-tools.md"},
-	{"docs/profile-payloads", "Profile payloads", "Guides", "profile-payloads.md"},
-	{"docs/editor", "Editor / LSP", "Guides", "editor.md"},
+	keywords                 []string
+}
+
+// curatedDocEntries is the curated docs/*.md order for serve + MCP.
+// Keywords are search-only (MCP docs list); they are not shown in the UI.
+var curatedDocEntries = []curatedDoc{
+	{"docs/index", "Getting started", "Start here", "index.md", nil},
+
+	// Resources — Classic / Pro object cookbooks
+	{"docs/policies", "Policies", "Resources", "policies.md",
+		[]string{"policy", "policies", "policy_set", "policy_copy", "policy_migrate", "trigger", "classic"}},
+	{"docs/smart-groups", "Smart computer groups", "Resources", "smart-groups.md",
+		[]string{"smart", "smart_group", "smart_groups", "criteria", "group", "groups"}},
+	{"docs/static-groups", "Static computer groups", "Resources", "static-groups.md",
+		[]string{"static", "static_group", "static_groups", "membership", "assignments", "group", "groups"}},
+	{"docs/profiles", "Configuration profiles", "Resources", "profiles.md",
+		[]string{"profile", "profiles", "clone", "copy", "redeploy", "acs"}},
+	{"docs/profile-payloads", "Profile payloads", "Resources", "profile-payloads.md",
+		[]string{"profile", "profiles", "payload", "payloads", "mcx", "acs", "plist"}},
+	{"docs/packages", "Packages / JCDS", "Resources", "packages.md",
+		[]string{"package", "packages", "jcds", "ready", "download", "upload", "cloudTransferStatus"}},
+	{"docs/scripts", "Scripts", "Resources", "scripts.md",
+		[]string{"script", "scripts", "script_copy", "script_migrate", "scriptContents"}},
+	{"docs/categories", "Categories", "Resources", "categories.md",
+		[]string{"category", "categories", "category_copy", "category_migrate"}},
+	{"docs/computers", "Computers", "Resources", "computers.md",
+		[]string{"computer", "computers", "inventory", "reboot", "lock", "erase", "mdm"}},
+	{"docs/mdm", "MDM command history", "Resources", "mdm.md",
+		[]string{"mdm", "mdm_commands", "command", "commands", "history"}},
+	{"docs/api-roles", "API roles", "Resources", "api-roles.md",
+		[]string{"role", "roles", "api role", "privileges", "privilege"}},
+	{"docs/api-clients", "API clients", "Resources", "api-clients.md",
+		[]string{"client", "clients", "integration", "integrations", "oauth", "api client"}},
+
+	// Platform — Platform API Gateway cookbooks
+	{"docs/blueprints", "Blueprints", "Platform", "blueprints.md",
+		[]string{"blueprint", "blueprints", "deploy", "undeploy", "platform"}},
+	{"docs/devices", "Platform devices", "Platform", "devices.md",
+		[]string{"device", "devices", "platform", "device_action", "check-in", "restart"}},
+	{"docs/device-groups", "Platform device groups", "Platform", "device-groups.md",
+		[]string{"device_group", "device_groups", "device-group", "platform", "membership"}},
+	{"docs/ddm", "DDM reporting", "Platform", "ddm.md",
+		[]string{"ddm", "declaration", "declarations", "declarative"}},
+	{"docs/benchmarks", "Compliance benchmarks", "Platform", "benchmarks.md",
+		[]string{"benchmark", "benchmarks", "compliance", "baseline", "baselines"}},
+
+	// Guides — cross-cutting
+	{"docs/reference-manual", "Reference manual", "Guides", "reference-manual.md",
+		[]string{"config", "credentials", "cli", "starlark", "install"}},
+	{"docs/change-batches", "Change batches", "Guides", "change-batches.md",
+		[]string{"change", "batch", "batches", "plan_change", "run_change", "step_", "release", "bump"}},
+	{"docs/api-endpoints", "API endpoints", "Guides", "api-endpoints.md",
+		[]string{"endpoint", "endpoints", "http", "api", "rsql", "jcds"}},
+	{"docs/mcp", "MCP for AI tools", "Guides", "mcp.md",
+		[]string{"mcp", "cursor", "claude", "buddyscript"}},
+	{"docs/mcp-tools", "MCP tools scorecard", "Guides", "mcp-tools.md",
+		[]string{"mcp", "scorecard", "pathfinding", "agent", "lean"}},
+	{"docs/editor", "Editor / LSP", "Guides", "editor.md",
+		[]string{"editor", "lsp", "vscode", "extension", "vsix"}},
+}
+
+func pageFromCurated(e curatedDoc, markdown, source string) Page {
+	return Page{
+		ID: e.id, Title: e.title, Section: e.section,
+		Markdown: markdown, Source: source, Keywords: e.keywords,
+	}
 }
 
 func loadHumanFromDisk(docsRoot string) ([]Page, error) {
 	repoRoot := filepath.Dir(docsRoot)
 	var pages []Page
-	for _, e := range humanDocEntries {
+	for _, e := range curatedDocEntries {
 		path := filepath.Join(docsRoot, e.file)
 		b, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
 		}
-		pages = append(pages, Page{
-			ID: e.id, Title: e.title, Section: e.section,
-			Markdown: string(b), Source: path,
-		})
+		pages = append(pages, pageFromCurated(e, string(b), path))
 	}
 	pages = append(pages, builtinsPage())
 	for _, p := range loadExamplesDir(filepath.Join(repoRoot, "examples")) {
@@ -183,16 +238,13 @@ func humanExampleID(id string) bool {
 
 func loadHumanFromEmbedded() ([]Page, error) {
 	var pages []Page
-	for _, e := range humanDocEntries {
+	for _, e := range curatedDocEntries {
 		path := "content/docs/" + e.file
 		body, err := fs.ReadFile(docfs.Content, path)
 		if err != nil {
 			return nil, fmt.Errorf("embedded %s: %w", path, err)
 		}
-		pages = append(pages, Page{
-			ID: e.id, Title: e.title, Section: e.section,
-			Markdown: string(body), Source: "embedded:" + path,
-		})
+		pages = append(pages, pageFromCurated(e, string(body), "embedded:"+path))
 	}
 	pages = append(pages, builtinsPage())
 	ents, err := fs.ReadDir(docfs.Content, "content/examples")
@@ -215,36 +267,50 @@ func loadHumanFromEmbedded() ([]Page, error) {
 	return pages, nil
 }
 
+func loadAgentCuratedDocs(docsRoot string) ([]Page, error) {
+	var pages []Page
+	for _, e := range curatedDocEntries {
+		path := filepath.Join(docsRoot, e.file)
+		b, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		pages = append(pages, pageFromCurated(e, string(b), path))
+	}
+	return pages, nil
+}
+
 func loadAgentFromDisk(docsRoot string) ([]Page, error) {
 	repoRoot := filepath.Dir(docsRoot)
-	var pages []Page
+	pages, err := loadAgentCuratedDocs(docsRoot)
+	if err != nil {
+		return nil, err
+	}
 
-	addMD := func(id, title, path string) error {
+	addMD := func(id, title, path string, keywords []string) error {
 		b, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		pages = append(pages, Page{ID: id, Title: title, Markdown: string(b), Source: path})
+		pages = append(pages, Page{ID: id, Title: title, Markdown: string(b), Source: path, Keywords: keywords})
 		return nil
 	}
 
-	entries := []struct{ id, title, path string }{
-		{"docs/index", "Documentation index", filepath.Join(docsRoot, "index.md")},
-		{"docs/reference-manual", "Reference manual", filepath.Join(docsRoot, "reference-manual.md")},
-		{"docs/change-batches", "Change batches", filepath.Join(docsRoot, "change-batches.md")},
-		{"docs/api-endpoints", "API endpoints", filepath.Join(docsRoot, "api-endpoints.md")},
-		{"docs/mcp", "MCP server", filepath.Join(docsRoot, "mcp.md")},
-		{"docs/mcp-tools", "MCP tools scorecard", filepath.Join(docsRoot, "mcp-tools.md")},
-		{"docs/profile-payloads", "Profile payloads", filepath.Join(docsRoot, "profile-payloads.md")},
-		{"docs/editor", "Editor / LSP", filepath.Join(docsRoot, "editor.md")},
-		{"readme", "README", filepath.Join(repoRoot, "README.md")},
-		{"agents", "AGENTS", filepath.Join(repoRoot, "AGENTS.md")},
+	extras := []struct {
+		id, title, path string
+		keywords        []string
+	}{
+		{"readme", "README", filepath.Join(repoRoot, "README.md"), []string{"readme", "install", "overview"}},
+		{"agents", "AGENTS", filepath.Join(repoRoot, "AGENTS.md"), []string{"agents", "auth", "token", "secrets", "tenant"}},
 	}
-	for _, e := range entries {
+	for _, e := range extras {
 		if _, err := os.Stat(e.path); err != nil {
 			continue
 		}
-		if err := addMD(e.id, e.title, e.path); err != nil {
+		if err := addMD(e.id, e.title, e.path, e.keywords); err != nil {
 			return nil, err
 		}
 	}
@@ -266,24 +332,28 @@ func loadAgentFromEmbedded() ([]Page, error) {
 		return string(b), nil
 	}
 
-	entries := []struct{ id, title, path string }{
-		{"docs/index", "Documentation index", "content/docs/index.md"},
-		{"docs/reference-manual", "Reference manual", "content/docs/reference-manual.md"},
-		{"docs/change-batches", "Change batches", "content/docs/change-batches.md"},
-		{"docs/api-endpoints", "API endpoints", "content/docs/api-endpoints.md"},
-		{"docs/mcp", "MCP server", "content/docs/mcp.md"},
-		{"docs/mcp-tools", "MCP tools scorecard", "content/docs/mcp-tools.md"},
-		{"docs/profile-payloads", "Profile payloads", "content/docs/profile-payloads.md"},
-		{"docs/editor", "Editor / LSP", "content/docs/editor.md"},
-		{"readme", "README", "content/README.md"},
-		{"agents", "AGENTS", "content/AGENTS.md"},
+	for _, e := range curatedDocEntries {
+		path := "content/docs/" + e.file
+		body, err := read(path)
+		if err != nil {
+			return nil, fmt.Errorf("embedded %s: %w", path, err)
+		}
+		pages = append(pages, pageFromCurated(e, body, "embedded:"+path))
 	}
-	for _, e := range entries {
+
+	extras := []struct {
+		id, title, path string
+		keywords        []string
+	}{
+		{"readme", "README", "content/README.md", []string{"readme", "install", "overview"}},
+		{"agents", "AGENTS", "content/AGENTS.md", []string{"agents", "auth", "token", "secrets", "tenant"}},
+	}
+	for _, e := range extras {
 		body, err := read(e.path)
 		if err != nil {
 			return nil, fmt.Errorf("embedded %s: %w", e.path, err)
 		}
-		pages = append(pages, Page{ID: e.id, Title: e.title, Markdown: body, Source: "embedded:" + e.path})
+		pages = append(pages, Page{ID: e.id, Title: e.title, Markdown: body, Source: "embedded:" + e.path, Keywords: e.keywords})
 	}
 
 	pages = append(pages, builtinsPage())
@@ -326,11 +396,17 @@ func loadAgentFromEmbedded() ([]Page, error) {
 
 func builtinsPage() Page {
 	return Page{
-		ID:       "builtins",
-		Title:    "Starlark builtins",
-		Section:  "Starlark",
+		ID:      "builtins",
+		Title:   "Starlark builtins",
+		Section: "Starlark",
 		Markdown: help.BuiltinsMarkdown(),
-		Source:   "builtin:help.BuiltinsMarkdown",
+		Source:  "builtin:help.BuiltinsMarkdown",
+		Keywords: []string{
+			"policy", "policies", "smart_group", "static_group", "profile", "package",
+			"script", "category", "computer", "mdm", "role", "client",
+			"blueprint", "device", "device_group", "ddm", "benchmark",
+			"builtin", "builtins", "starlark",
+		},
 	}
 }
 
@@ -452,6 +528,13 @@ func ByID(pages []Page, id string) *Page {
 // URI returns the MCP resource URI for a page.
 func URI(p Page) string {
 	return "buddy://docs/" + p.ID
+}
+
+// SearchHaystack returns the lowercased string used for docs list query matching.
+func SearchHaystack(p Page) string {
+	parts := []string{p.ID, p.Title, p.Section}
+	parts = append(parts, p.Keywords...)
+	return strings.ToLower(strings.Join(parts, " "))
 }
 
 // NavSections returns unique section names in page order (for the human UI).

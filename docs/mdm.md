@@ -1,0 +1,26 @@
+# MDM command history
+
+Query Jamf Pro MDM **command history** with RSQL filters. Device **actions** (reboot, lock, erase) live on [computers](computers.md) (Pro) or [devices](devices.md) (Platform).
+
+## Happy path (preferred)
+
+1. **List / find:** `mdm_commands(filter=…)` — RSQL against command fields (status, clientManagementId, dates, …).
+2. CLI: `buddy mdm find --filter=…`.
+
+Build filters with offline `rsql_*` helpers when useful (see builtins / [api-endpoints](api-endpoints.md) RSQL section).
+
+## Do not
+
+- Treat this as the way to **issue** MDM actions — use `computer_*` / Platform device action builtins.
+- Invent date filters without RSQL range operators (see api-endpoints MDM + RSQL notes).
+
+```python
+def main():
+    return mdm_commands(filter='status=="Pending"')
+```
+
+## Related
+
+- [Computers](computers.md) — issue actions
+- [API endpoints](api-endpoints.md) — MDM Commands + RSQL
+- Full signatures: [Starlark builtins](/docs/builtins)

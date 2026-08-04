@@ -4,7 +4,7 @@ How AI agents should use buddy MCP tools after the lean-surface cut.
 
 ## Tool priority (do this order)
 
-1. **`docs`** — conventions and cookbooks before inventing (`query: "mcp-tools"`, `"profile-payloads"`, `"api-endpoints"`, `"builtins"`).
+1. **`docs`** — object-type cookbooks before inventing. Query a **resource noun** (`policy`, `packages`, `smart-groups`, `blueprints`, …) or a page id (`profile-payloads`, `mcp-tools`, `builtins`), then `get` that page.
 2. **`buddyscript`** with **named builtins** (`smart_group_*`, `policy_migrate`, `profile_xml_*`, `package_wait_ready`, `blueprint_*`, …) for Jamf work.
 3. **`jamf_get` / `jamf_put` / …** via `buddyscript` only when no named builtin exists.
 
@@ -18,12 +18,23 @@ Typed per-resource MCP tools (smart/static groups, profiles, policies, packages 
 
 | Task | Docs query first | Named builtins (via `buddyscript`) | Do not |
 |------|------------------|--------------------------------------|--------|
-| Edit profile / ACS prefs | `profile-payloads` | `profile_xml` → `profile_xml_patch_payload` → `profile_put_xml`; `profile_acs_bind_uuid` if needed | Classic PUT from schema / Jamf `execute-request` |
-| Create/clone profile | `profile-payloads` | `profile_create` / `profile_clone` / `profile_copy` / `profile_create_xml` | Hand-edit UUIDs |
-| Package after upload | `api-endpoints`, `mcp-tools` | `package_wait_ready` / `package_ready` / `package_download` | Attach/download before READY |
-| Smart group criteria | `mcp-tools` | `smart_group*` / `smart_group_get_criteria` / `smart_group_update_criterion_value` | `static_group*` / invent criteria PUT |
-| Static membership | `mcp-tools` | `static_group_list_computers` / add/remove/set | `smart_group*` |
+| Policies | `policies` / `policy` | `policies` / `policy` / `policy_set*` / `policy_copy` | Invent Classic policy PUT from schema |
+| Smart group criteria | `smart-groups` / `smart` | `smart_group*` / `smart_group_update_criterion_value` | `static_group*` / invent criteria PUT |
+| Static membership | `static-groups` / `static` | `static_group_list_computers` / add/remove/set | `smart_group*` |
+| Edit profile / ACS prefs | `profile-payloads` | `profile_xml` → `profile_xml_patch_payload` → `profile_put_xml` | Classic PUT from schema |
+| Create/clone profile | `profiles` / `profile-payloads` | `profile_create` / `profile_clone` / `profile_copy` | Hand-edit UUIDs |
+| Package after upload | `packages` / `jcds` | `package_wait_ready` / `package_ready` / `package_download` | Attach/download before READY |
+| Scripts | `scripts` | `scripts` (summaries) / `script(id=…)` for body / `script_copy` | Expect bodies from list |
+| Categories | `categories` | `category_copy(..., upsert=True)` first in migrate order | Skip before policy migrate |
+| Computers / MDM actions | `computers` | `computers` / `computer_*` actions | Mix with Platform `device*` |
+| MDM history | `mdm` | `mdm_commands` | Use history APIs to *issue* actions |
+| API roles / clients | `api-roles` / `api-clients` | `role*` / `client*` | Store secrets only in config.yaml |
+| Blueprints | `blueprints` | `blueprint*` | Instance-only session |
+| Platform devices / groups | `devices` / `device-groups` | `device*` / `device_group*` | Pro smart/static groups |
+| DDM / benchmarks | `ddm` / `benchmarks` | `ddm_*` / `benchmark*` | Invent from schema alone |
 | Unknown endpoint | `jamf_schema` then `builtins` | Prefer named builtin; else `jamf_get`/`jamf_put` | Schema as license to PUT profiles/groups |
+
+Object cookbooks live under `docs/<name>` (see [index](index.md) Resources / Platform tables).
 
 ---
 
@@ -46,7 +57,7 @@ Hosts may also connect Jamf’s remote MCP at `https://developer.jamf.com/mcp` (
 | Tool | Role |
 |------|------|
 | `buddy_info` | Session/channel without Jamf call |
-| `docs` | Embedded conventions / cookbooks |
+| `docs` | Embedded conventions / object cookbooks |
 | `jamf_schema` | Endpoint discovery only |
 | `buddyscript` | **Primary** automation (all Pro + Platform builtins) |
 
@@ -72,87 +83,17 @@ def main():
 
 ---
 
-## Packages / JCDS (via buddyscript) — do not invent from schema
+## Object cookbooks (pointers)
 
-Jamf Cloud package availability is **not** “GET package returned 200.” After upload the record often exists while JCDS is still syncing (UI **Availability Pending**). Agents that attach the package to a policy or download too early produce client failures.
+Inline folklore moved into per-object pages — `docs` list matches **keywords** as well as id/title/section:
 
-**Folklore encoded in builtins** (also CLI `buddy package …`; details in [api-endpoints.md](api-endpoints.md)):
-
-| Builtin | Behavior |
-|---------|----------|
-| `package_ready(id=…)` | `true` only when the package exists **and** `cloudTransferStatus == "READY"` (case-sensitive). HTTP 404 → `false`, not an error. |
-| `package_wait_ready(id=…, timeout?=…)` | Polls with backoff (default ~10 minutes). Between polls, best-effort `POST /api/v1/jcds/refresh-inventory?file-name=…` to nudge availability. Use **after upload / before policy attach**. |
-| `package_download(id=…, path?=…)` | Waits until READY **and** non-empty `sha256` → fetches a JCDS pre-signed URI (short TTL) → streams to a temp file while hashing SHA-256 → renames only on match; deletes temp on failure; retries once on URI HTTP 403. **Jamf Cloud / JCDS only** — not on-prem non-JCDS DPs. Verify is always on. |
-
-Do **not** hand-roll: single GET “exists?”, raw JCDS URI save without hash, or policy attach before READY.
-
-```python
-def main():
-    package_wait_ready(id="42")
-    return package_ready(id="42")
-```
-
----
-
-## Groups: pick the right family (via buddyscript)
-
-| Need | Use | Not |
-|------|-----|-----|
-| Dynamic membership via **criteria** | `smart_groups` / `smart_group` / `smart_group_get_criteria` / `smart_group_update_criterion_value` | static_* / device_group* |
-| Explicit **computer ID** membership | `static_groups` / `static_group_list_computers` / add/remove/set | smart_* |
-| Platform gateway device groups | `device_groups` / `device_group*` | Pro smart/static computer groups |
-
-**Smart group criterion bump:**
-
-```python
-def main():
-    smart_group_update_criterion_value(
-        group_id="123",
-        name_substring="version",
-        new_value="2.0.0",
-    )
-    return "ok"
-```
-
-**Static membership:** `static_group_list_computers` then `static_group_add_computers` / `_remove_computers` / `_set_computers`.
-
----
-
-## Profiles / payloads (via buddyscript)
-
-See **[profile-payloads.md](profile-payloads.md)**. ACS / entity-encoding / UUID remap still live in Go helpers + these builtins (lean MCP only removed typed tool wrappers):
-
-- Create/clone/copy: `profile_create`, `profile_clone`, `profile_copy` (UUID remap; do not hand-edit UUIDs).
-- Edit: `profile_xml` → `profile_xml_patch_payload` → `profile_put_xml`.
-- Advanced extract/replace/MCX: `payloads_*` / `plist_*`.
-- ACS seed: `profile_acs_bind_uuid` when legacy HTML scrape fails.
-
-Do **not** invent a Classic PUT body from `jamf_schema` alone.
-
-```python
-def main():
-    xml = profile_xml(id=42)
-    xml = profile_xml_patch_payload(xml, "com.example", {"Key": "New"})
-    profile_put_xml(profile_id=42, xml_str=xml)
-    return "ok"
-```
-
----
-
-## Scripts list vs body
-
-- `scripts(...)` → summaries `{id, name, categoryId, categoryName}` only (bodies stripped even if Jamf list JSON includes `scriptContents`).
-- Full record / body: `script(id=…)` or `script_get_contents(script_id=…)`.
-
----
-
-## Cross-tenant migrate order (via buddyscript)
-
-1. `category_migrate`
-2. `script_migrate` (and ensure packages exist by name — wait for READY with `package_wait_ready` when uploading)
-3. `policy_copy` / `policy_migrate` / `profile_copy`
-
-Missing script/package names on policy copy **fail**; missing categories become uncategorized. Scope stays unassigned unless `scope_group_ids` set.
+| Topic | Docs page |
+|-------|-----------|
+| Packages / JCDS READY | [packages.md](packages.md) |
+| Smart vs static vs device groups | [smart-groups.md](smart-groups.md), [static-groups.md](static-groups.md), [device-groups.md](device-groups.md) |
+| Profiles / payloads / ACS | [profiles.md](profiles.md), [profile-payloads.md](profile-payloads.md) |
+| Scripts list vs body | [scripts.md](scripts.md) |
+| Cross-tenant copy / upsert | [categories.md](categories.md) → [scripts.md](scripts.md) → [policies.md](policies.md) / [profiles.md](profiles.md); prefer `*_copy(..., upsert=True)` |
 
 ---
 

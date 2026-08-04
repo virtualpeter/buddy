@@ -44,6 +44,33 @@ buddy help builtins                   # Starlark API reference
 
 In the notebook, open **Libraries** → **Getting started** for a short list of builtins to try in cells.
 
+## Resources (by object type)
+
+| Guide | What it’s for |
+|-------|----------------|
+| [Policies](/docs/docs/policies) | Classic policies: list/set/copy/migrate |
+| [Smart computer groups](/docs/docs/smart-groups) | Criteria-based membership |
+| [Static computer groups](/docs/docs/static-groups) | Explicit computer ID membership |
+| [Configuration profiles](/docs/docs/profiles) | Profile lifecycle (clone/copy/redeploy) |
+| [Profile payloads](/docs/docs/profile-payloads) | Dissect/assemble PayloadContent vs MCX |
+| [Packages / JCDS](/docs/docs/packages) | READY gate, wait, download |
+| [Scripts](/docs/docs/scripts) | List vs body; copy/migrate |
+| [Categories](/docs/docs/categories) | Category copy (migrate step 1) |
+| [Computers](/docs/docs/computers) | Inventory + MDM actions |
+| [MDM command history](/docs/docs/mdm) | Query command history (RSQL) |
+| [API roles](/docs/docs/api-roles) | Pro API roles |
+| [API clients](/docs/docs/api-clients) | Pro API integrations / oauth clients |
+
+## Platform
+
+| Guide | What it’s for |
+|-------|----------------|
+| [Blueprints](/docs/docs/blueprints) | Platform blueprints CRUD / deploy |
+| [Platform devices](/docs/docs/devices) | Platform inventory + actions |
+| [Device groups](/docs/docs/device-groups) | Platform device groups |
+| [DDM reporting](/docs/docs/ddm) | Declaration reporting |
+| [Compliance benchmarks](/docs/docs/benchmarks) | Benchmarks (beta) |
+
 ## Guides
 
 | Guide | What it’s for |
@@ -53,8 +80,7 @@ In the notebook, open **Libraries** → **Getting started** for a short list of 
 | [Starlark builtins](/docs/builtins) | Every built-in (signatures, params, returns) |
 | [API endpoints](/docs/docs/api-endpoints) | Jamf HTTP APIs buddy calls |
 | [MCP for AI tools](/docs/docs/mcp) | buddy as an MCP server (Cursor, Claude Desktop, …) |
-| [MCP tools scorecard](/docs/docs/mcp-tools) | Agent tool priority, groups vs profiles, keep/expand map |
-| [Profile payloads](/docs/docs/profile-payloads) | Dissect/assemble PayloadContent vs MCX |
+| [MCP tools scorecard](/docs/docs/mcp-tools) | Agent tool priority and pathfinding |
 | [Editor / LSP](/docs/docs/editor) | `buddy lsp` + VS Code/Cursor extension (build & install VSIX) |
 | [Examples index](/docs/examples/README.md) | Runnable `.buddy` samples |
 | [Notebook](/notebook) | Interactive Starlark against your tenant/auth |

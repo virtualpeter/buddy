@@ -30,10 +30,10 @@ const ServerInstructions = `buddy is a local Jamf automation MCP using your budd
 Tools: buddy_info (session), docs, jamf_schema (discovery only), buddyscript (primary — named builtins).
 Priority: docs → buddyscript named builtins → jamf_get/jamf_put via buddyscript only when no builtin exists.
 
-Before profile/group/package mutates: docs query "profile-payloads", "mcp-tools", or "api-endpoints".
+Before resource work: docs query the object noun (e.g. "policies", "smart-groups", "packages", "profile-payloads", "blueprints") then get that page.
 Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic PUT from schema (ACS + entity-encoding live in these builtins).
 Packages/JCDS: package_ready / package_wait_ready / package_download.
-Groups: smart_group* (criteria) vs static_group* (membership) — do not mix.
+Groups: smart_group* (criteria) vs static_group* (membership) — do not mix; Platform device_group* is separate.
 buddyscript: prefer def main(): … return …; builtins return bare values and raise on failure; MCP wraps {ok,value} only at the tool boundary.
 Jamf remote MCP (developer.jamf.com/mcp) is useful for product schemas; prefer buddy builtins for tenant changes.`
 
@@ -131,7 +131,7 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 			"PRIMARY OUTPUT is value.result (last expression or main() return). stdout is print/unwrap; " +
 			"when result is set and stdout empty, result is mirrored into stdout. " +
 			"Prefer def main(): … return … (no trailing top-level expr), or a single bare expression. " +
-			"Before profile/group/package work: docs (profile-payloads, mcp-tools). " +
+			"Before resource work: docs query object noun (policies, packages, smart-groups, profile-payloads, blueprints). " +
 			"Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload — never jamf_put Classic profile XML. " +
 			"Packages: package_wait_ready / package_download. Groups: smart_group* vs static_group*. " +
 			"jamf_get/jamf_put only when no builtin exists. Top-level if/for must be inside functions.",
@@ -165,14 +165,15 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 
 	type docsIn struct {
 		Action string `json:"action,omitempty" jsonschema:"list (default) or get"`
-		Query  string `json:"query,omitempty" jsonschema:"for list: case-insensitive substring on id/title/section"`
-		ID     string `json:"id,omitempty" jsonschema:"for get: page id (e.g. agents, builtins, rules/buddy-builtins) or buddy://docs/… URI"`
+		Query  string `json:"query,omitempty" jsonschema:"for list: case-insensitive substring on id/title/section/keywords (resource nouns like policy, jcds, blueprint)"`
+		ID     string `json:"id,omitempty" jsonschema:"for get: page id (e.g. docs/policies, builtins, agents) or buddy://docs/… URI"`
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "docs",
 		Description: "Read buddy embedded documentation and design rules (same catalog as buddy://docs/… resources). " +
 			"Prefer this before inventing buddy conventions. " +
-			"action=list (default) returns [{id,title,section,uri},…]; optional query filters. " +
+			"action=list (default) returns [{id,title,section,uri},…]; optional query filters id/title/section/keywords " +
+			"(try resource nouns: policy, packages, smart-groups, blueprints). " +
 			"action=get requires id and returns {id,title,uri,markdown}. List then get.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in docsIn) (*mcpsdk.CallToolResult, any, error) {
 		pages, err := loadAgentDocs()

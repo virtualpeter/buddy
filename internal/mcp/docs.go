@@ -36,11 +36,8 @@ func docsList(pages []docpages.Page, query string) []docsCatalogEntry {
 	q := strings.ToLower(strings.TrimSpace(query))
 	out := make([]docsCatalogEntry, 0, len(pages))
 	for _, p := range pages {
-		if q != "" {
-			hay := strings.ToLower(p.ID + " " + p.Title + " " + p.Section)
-			if !strings.Contains(hay, q) {
-				continue
-			}
+		if q != "" && !strings.Contains(docpages.SearchHaystack(p), q) {
+			continue
 		}
 		out = append(out, docsCatalogEntry{
 			ID:      p.ID,

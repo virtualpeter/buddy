@@ -222,9 +222,9 @@ Learn endpoints from the Jamf host schemas plus the embedded Platform specs:
 - Default return is a compact `operations` list (`path`, `method`, `summary`, `api`, …). Set `full: true` only when you need parameter/response schemas.
 - After discovering a path, prefer a **named builtin** via `buddyscript`. Use `jamf_get` / `jamf_put` via `buddyscript` only when no helper exists. Do not invent Classic profile or Pro group PUT bodies from schema alone.
 
-### Groups and profiles
+### Groups, profiles, and object cookbooks
 
-See **[mcp-tools.md](mcp-tools.md)** and **[profile-payloads.md](profile-payloads.md)** for groups vs profiles and the payload cookbook (`profile_create` / `profile_clone`, or `profile_xml` → extract/list → `profile_xml_patch_payload` → `profile_put_xml`) — all via `buddyscript`.
+See **[mcp-tools.md](mcp-tools.md)** pathfinding map and the **Resources / Platform** pages in [index.md](index.md). Payload deep-dive: [profile-payloads.md](profile-payloads.md). Query `docs` with a resource noun (`policy`, `packages`, `smart-groups`, `blueprints`, …) — list matches id/title/section/**keywords**.
 
 ### `docs` tips
 
@@ -236,8 +236,9 @@ Read embedded buddy documentation and editor rules (same data as `buddy://docs/.
 | `get` | `id` required | `{id, title, uri, markdown}` |
 
 - Prefer `docs` before inventing buddy CLI/Starlark conventions.
-- Typical flow: `docs` with `query: "builtin"` or `query: "agents"`, then `action: "get"` with the page `id`.
-- `id` may be a short id (`agents`, `builtins`, `rules/buddy-builtins`) or a full `buddy://docs/…` URI (including legacy `….md` aliases).
+- Typical flow: `docs` with a **resource noun** (`query: "policy"`) or page id (`"builtins"`, `"agents"`), then `action: "get"` with the page `id` (e.g. `docs/policies`).
+- `query` is a case-insensitive substring on **id / title / section / keywords** (not full-text markdown body).
+- `id` may be a short id (`agents`, `builtins`, `docs/policies`) or a full `buddy://docs/…` URI (including legacy `….md` aliases).
 
 ### Platform builtins (via `buddyscript`)
 
@@ -254,8 +255,8 @@ Read embedded buddy documentation and editor rules (same data as `buddy://docs/.
 - Top-level `if` / `for` outside a function is invalid Starlark—put control flow inside `main()`.
 - Mutating Jamf calls still respect confirmations unless the MCP process was started with global `-y` (Platform mutates always skip confirm — host approval is the guard).
 - You can `load("stdlib/….buddy", …)` the same as in CLI scripts / the notebook (e.g. `load("stdlib/release.buddy", "bump_release")`).
-- Prefer named builtins over `jamf_get`/`jamf_put` when a builtin exists. Before profile/group/package mutates, see [mcp-tools.md](mcp-tools.md) (pathfinding map) and [profile-payloads.md](profile-payloads.md).
-- **Packages / JCDS:** after upload use `package_wait_ready` before policy attach; use `package_ready` / `package_download` builtins — do not invent from schema (see [mcp-tools.md](mcp-tools.md#packages--jcds-via-buddyscript--do-not-invent-from-schema)).
+- Prefer named builtins over `jamf_get`/`jamf_put` when a builtin exists. Before resource mutates, `docs` query the object noun (see [mcp-tools.md](mcp-tools.md) pathfinding) — e.g. [profile-payloads.md](profile-payloads.md), [packages.md](packages.md).
+- **Packages / JCDS:** after upload use `package_wait_ready` before policy attach; use `package_ready` / `package_download` — do not invent from schema (see [packages.md](packages.md)).
 
 Example:
 
