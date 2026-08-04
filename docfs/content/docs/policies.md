@@ -10,7 +10,7 @@ How to list, load, mutate, copy, and migrate Jamf Classic policies with buddy �
 4. **Raw XML write:** `policy_put_xml(policy_id, xml_str)` when you must edit Classic XML directly.
 5. **Versioned release bumps:** use [change batches](change-batches.md) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.
 
-CLI: `buddy policy list|get|set|create|clone|find|delete`.
+CLI: `buddy policy list|get|set|create|find|delete` (`create` is `package` / `ss` only; versioned `clone` was removed — use change batches or `policy_copy`).
 
 ## Copy / migrate
 
@@ -33,7 +33,8 @@ Recommended migrate order: [categories](categories.md) → [scripts](scripts.md)
 |--------|-------|
 | `policies` / `policy` / `policy_xml` | List / load |
 | `policy_set`, `policy_set_ss`, `policy_set_package`, … | Fat mutators |
-| `policy_put_xml` / `policy_create` / `policy_delete` | XML / lifecycle |
+| `policy_put_xml` / `policy_delete` | Raw XML write / delete |
+| `policy_create_package` / `policy_create_ss` | Greenfield package / Self Service policies |
 | `policy_copy` / `policy_migrate` | Cross-session copy / upsert |
 
 Full signatures: [Function index](/docs/builtins) (`buddy help builtins`). Endpoints: [api-endpoints.md](api-endpoints.md).

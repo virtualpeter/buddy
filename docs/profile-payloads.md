@@ -55,7 +55,7 @@ def main():
 | `profile_xml`, `profile_put_xml`, `profile_xml_patch_payload` (via `buddyscript`) | keep + harden (merge, docs) |
 | `profile_xml_extract/replace_payloads`, `payloads_*`, `plist_*` | keep; advanced path |
 | `profile_get_payload(s)` / list / CLI get | describe-fix: PayloadContent only |
-| `profile` vs `profile_xml`, `set_xml` vs `put_xml` | keep; prefer table above |
+| `profile` vs `profile_xml`, `profile_set_xml` vs `profile_put_xml` | keep; prefer table above |
 | `prefs_payload` / `pppc_*` | keep (builders) |
 | Missing `<payloads>` on replace | **error** (no silent no-op) |
 | `payloads_get_mcx_dict` | **expand** (MCX inspect) |
