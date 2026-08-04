@@ -19,6 +19,7 @@ type Options struct {
 	Addr       string // e.g. "127.0.0.1:8742"
 	DocsRoot   string // optional override
 	Open       bool
+	Version    string // buddy binary version (shown in chrome)
 	TenantName string // default tenant (empty → config / ActiveSelection)
 	CredName   string // optional auth pin (empty → auto-pick); Starlark auth=
 	Opts       buddy.Opts
@@ -33,6 +34,10 @@ func Run(ctx context.Context, o Options) error {
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}
+	setChromeVersion(o.Version)
+	// Rebuild surfaces that bake chrome into a static HTML string at init.
+	ideHTML = buildIDEHTML()
+	notebookHTML = buildNotebookHTML()
 	host, _, err := net.SplitHostPort(o.Addr)
 	if err != nil {
 		return fmt.Errorf("addr: %w", err)

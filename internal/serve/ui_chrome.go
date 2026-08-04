@@ -1,8 +1,21 @@
 package serve
 
 import (
+	"html"
 	"strings"
 )
+
+// chromeVersion is shown next to the brand in the shared header.
+// Set via setChromeVersion from serve.Run (build-time / CLI Version).
+var chromeVersion = "dev"
+
+func setChromeVersion(v string) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		v = "dev"
+	}
+	chromeVersion = v
+}
 
 // Shared top chrome + light/dark theme for docs, notebook, and IDE.
 
@@ -72,8 +85,13 @@ html[data-theme="light"] {
 .app-header .brand {
   font-weight: 700; font-size: 1.15rem; letter-spacing: -0.03em;
   margin: 0;
+  display: inline-flex; align-items: baseline; gap: .4rem;
 }
 .app-header .brand a { color: var(--ink); text-decoration: none; }
+.app-header .brand .ver {
+  font-size: .7rem; font-weight: 500; color: var(--muted);
+  letter-spacing: 0;
+}
 .app-nav {
   display: flex; gap: .65rem; align-items: center;
   font-size: .85rem;
@@ -280,7 +298,8 @@ func chromeHeader(active, sessionHTML, actionsHTML, runHTML string) string {
 		b.WriteString(`<script>window.name="buddy-` + active + `";</script>`)
 	}
 	b.WriteString(`<header class="app-header">`)
-	b.WriteString(`<div class="brand"><a href="/docs/" target="buddy-docs">buddy</a></div>`)
+	b.WriteString(`<div class="brand"><a href="/docs/" target="buddy-docs">buddy</a>`)
+	b.WriteString(`<span class="ver" title="buddy version">` + html.EscapeString(chromeVersion) + `</span></div>`)
 	b.WriteString(`<nav class="app-nav">`)
 	b.WriteString(nav("docs", "/docs/", "docs"))
 	b.WriteString(nav("notebook", "/notebook", "notebook"))

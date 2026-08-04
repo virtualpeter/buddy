@@ -2458,6 +2458,7 @@ func runServe(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 		Addr:       addr,
 		DocsRoot:   docsRoot,
 		Open:       open,
+		Version:    Version,
 		TenantName: tenant,
 		CredName:   credName,
 		Opts:       opts,

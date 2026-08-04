@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"html"
 	"strings"
 	"testing"
 )
@@ -19,6 +20,7 @@ func TestChromeHeaderSlots(t *testing.T) {
 		`target="buddy-notebook"`,
 		`target="buddy-ide"`,
 		`window.name="buddy-notebook"`,
+		`class="ver"`,
 		`class="active">notebook</a>`,
 		`id="tenant"`,
 		`id="auth"`,
@@ -69,6 +71,33 @@ func TestChromeNamedTabs(t *testing.T) {
 	}
 	if !strings.Contains(ideHTML, `window.name="buddy-ide"`) {
 		t.Error("ide HTML should claim window.name")
+	}
+}
+
+func TestChromeVersion(t *testing.T) {
+	prev := chromeVersion
+	t.Cleanup(func() {
+		setChromeVersion(prev)
+		ideHTML = buildIDEHTML()
+		notebookHTML = buildNotebookHTML()
+	})
+	setChromeVersion("1.2.3-test")
+	h := chromeHeader("docs", "", "", "")
+	if !strings.Contains(h, `class="ver"`) || !strings.Contains(h, "1.2.3-test") {
+		t.Fatalf("header missing version: %s", h)
+	}
+	setChromeVersion("")
+	h2 := chromeHeader("docs", "", "", "")
+	if !strings.Contains(h2, ">dev</span>") {
+		t.Fatalf("empty version should fall back to dev: %s", h2)
+	}
+	setChromeVersion(`<script>x</script>`)
+	h3 := chromeHeader("docs", "", "", "")
+	if strings.Contains(h3, "<script>x</script>") || !strings.Contains(h3, html.EscapeString(`<script>x</script>`)) {
+		// EscapeString of that is &lt;script&gt;...
+		if !strings.Contains(h3, "&lt;script&gt;") {
+			t.Fatalf("version should be HTML-escaped: %s", h3)
+		}
 	}
 }
 
