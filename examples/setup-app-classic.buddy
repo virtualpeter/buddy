@@ -6,7 +6,7 @@
 #   buddy examples/setup-app-classic.buddy -- apply     # plan + apply (after approval)
 #   buddy -y examples/setup-app-classic.buddy -- apply  # apply without prompts
 #
-# Adjust app/version/package_pattern and FDA code requirement for your tenant.
+# Adjust name/version/package_pattern and FDA code requirement for your tenant.
 # Created profile/policy IDs appear only in Outcomes after apply.
 
 load("stdlib/app_setup.buddy", "setup_app_classic")
@@ -16,7 +16,7 @@ def main():
     if len(args) > 0 and args[0] in ("apply", "run"):
         mode = "apply"
 
-    app = "example"
+    name = "example"
     version = "1.0.0"
 
     prefs = prefs_payload(
@@ -39,7 +39,7 @@ Optional Self Service omitted; install trigger is install-example-next.""",
     )
 
     steps = setup_app_classic(
-        app = app,
+        name = name,
         version = version,
         prefs_content = [prefs],
         pppc_services = {

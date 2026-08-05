@@ -220,20 +220,20 @@ func packageDeleteMultiple(credName string, ids []string) error {
 	return nil
 }
 
-// PackageFindID finds a package by app name and version using the v1 API.
-// It filters server-side by app name and then picks the best version match in Go,
+// PackageFindID finds a package by name keyword and version using the v1 API.
+// It filters server-side by the keyword and then picks the best version match in Go,
 // using the same heuristic as the legacy Classic API path in policy.go.
 // Returns the string ID and package name, or empty strings if not found.
 //
-// When patternOverride is non-empty, it overrides the default app+version search:
+// When patternOverride is non-empty, it overrides the default name+version search:
 //   - Exact: "FalconSensorMacOS-7.32.20408.pkg" → RSQL exact match
 //   - Template: "FalconSensorMacOS-{version}.pkg" → substitute {version}, then exact RSQL
 //   - Regex: "re:FalconSensor.*\.pkg" → broad RSQL + client-side regex filter
-func PackageFindID(credName, appName, version, patternOverride string, logger *slog.Logger) (id, name string, err error) {
+func PackageFindID(credName, name, version, patternOverride string, logger *slog.Logger) (id, pkgName string, err error) {
 	if patternOverride != "" {
-		return packageFindByPattern(credName, appName, version, patternOverride, logger)
+		return packageFindByPattern(credName, name, version, patternOverride, logger)
 	}
-	return packageFindByAppVersion(credName, appName, version, logger)
+	return packageFindByNameVersion(credName, name, version, logger)
 }
 
 // PackageFindIDByExactName returns the package id whose packageName equals name (case-insensitive).
@@ -267,20 +267,20 @@ func PackageFindIDByExactName(credName, name string, logger *slog.Logger) (strin
 	return "", fmt.Errorf("no package found with name %q", name)
 }
 
-func packageFindByAppVersion(credName, appName, version string, logger *slog.Logger) (id, name string, err error) {
-	// Build RSQL: packageName=="*appName*"
-	rsql := `packageName=="*` + appName + `*"`
+func packageFindByNameVersion(credName, name, version string, logger *slog.Logger) (id, pkgName string, err error) {
+	// Build RSQL: packageName=="*name*"
+	rsql := `packageName=="*` + name + `*"`
 	results, err := PackageSearch(credName, rsql, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return "", "", err
 	}
 
-	appLower := strings.ToLower(appName)
+	nameLower := strings.ToLower(name)
 	versionLower := strings.ToLower(version)
 	var candidates []PackageRecord
 	for _, p := range results {
 		n := strings.ToLower(p.PackageName)
-		if strings.Contains(n, appLower) && strings.Contains(n, versionLower) {
+		if strings.Contains(n, nameLower) && strings.Contains(n, versionLower) {
 			candidates = append(candidates, p)
 		}
 	}
@@ -296,7 +296,7 @@ func packageFindByAppVersion(credName, appName, version string, logger *slog.Log
 	return candidates[0].ID, candidates[0].PackageName, nil
 }
 
-func packageFindByPattern(credName, appName, version, patternOverride string, logger *slog.Logger) (id, name string, err error) {
+func packageFindByPattern(credName, _, version, patternOverride string, logger *slog.Logger) (id, pkgName string, err error) {
 	const rePrefix = "re:"
 	if strings.HasPrefix(patternOverride, rePrefix) {
 		return packageFindByRegex(credName, version, strings.TrimPrefix(patternOverride, rePrefix), logger)

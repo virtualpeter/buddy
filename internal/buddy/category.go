@@ -168,6 +168,28 @@ func CategoryPut(credName string, opts Opts, id string, c CategoryDetail, logger
 	return nil
 }
 
+// CategoryDelete deletes a category by id.
+func CategoryDelete(credName string, opts Opts, id string, logger *slog.Logger) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("category id is required")
+	}
+	name := id
+	if c, err := CategoryFetch(credName, id); err == nil {
+		name = fmt.Sprintf("%s (%q)", id, c.Name)
+	}
+	if !opts.SkipConfirm {
+		if !ConfirmPrompt(fmt.Sprintf("\nDelete category %s?", name), logger) {
+			return nil
+		}
+	}
+	if err := jamfDELETE(credName, uriCategories+"/"+id); err != nil {
+		return fmt.Errorf("delete category %s: %w", id, err)
+	}
+	fmt.Printf("Deleted category %s\n", id)
+	return nil
+}
+
 // ResolveCategoryOnDest maps a source category name (or override id) onto the destination tenant.
 // Missing names become Uncategorized (soft). When keepSourceID is set (same-session clone), that id is kept.
 func ResolveCategoryOnDest(dstCred, sourceCategoryName, overrideCategoryID, keepSourceID string) (CategoryResolved, error) {

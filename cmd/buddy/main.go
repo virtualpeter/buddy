@@ -169,6 +169,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
+	case "category":
+		if err := runCategory(credName, opts, args[1:], buddy.GetLogger()); err != nil {
+			logger.Error("Category command failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
 	case "group":
 		if err := runGroup(credName, opts, args[1:], buddy.GetLogger()); err != nil {
 			logger.Error("Group command failed", "error", err)
@@ -294,6 +300,18 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 	mode := args[0]
 	rest := args[1:]
 
+	// list is valid with no further arguments; handle it before the sub-help fallthrough.
+	if mode == "list" {
+		if len(rest) > 0 && rest[0] == "help" {
+			fmt.Print(helpPolicyList)
+			return nil
+		}
+		return runPolicyList(credName, opts, rest, log)
+	}
+	if mode == "find" {
+		return fmt.Errorf("buddy policy find was removed; use 'buddy policy list [--filter=<keyword>] [--ids]'")
+	}
+
 	// "buddy policy <mode> help" — print subcommand help
 	if len(rest) == 0 || rest[0] == "help" {
 		fmt.Print(policySubHelp(mode))
@@ -323,10 +341,8 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 			policyIDs = append(policyIDs, id)
 		}
 		return buddy.PolicyDelete(credName, opts, policyIDs, log)
-	case "find":
-		return runPolicyFind(credName, opts, append([]string{subcommand}, args...), log)
 	default:
-		cands := []string{"get", "set", "create", "delete", "find"}
+		cands := []string{"list", "get", "set", "create", "delete"}
 		msg := fmt.Sprintf("unknown policy subcommand: %q", mode)
 		msg += formatDidYouMean(suggestClosest(mode, cands))
 		msg += fmt.Sprintf(" (use: %s)", strings.Join(cands, ", "))
@@ -334,16 +350,15 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 	}
 }
 
-func runPolicyFind(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) > 0 && args[0] == "help" {
-		fmt.Print(helpPolicyFind)
-		return nil
-	}
+func runPolicyList(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
 	var excludeIDs []int
 	var keywords []string
-	forceRefresh := false
+	idsOnly := false
 	for _, a := range args {
-		if strings.HasPrefix(a, "--exclude-ids=") {
+		switch {
+		case strings.HasPrefix(a, "--filter="):
+			keywords = append(keywords, strings.Fields(strings.TrimPrefix(a, "--filter="))...)
+		case strings.HasPrefix(a, "--exclude-ids="):
 			val := strings.TrimPrefix(a, "--exclude-ids=")
 			for _, s := range strings.Split(val, ",") {
 				s = strings.TrimSpace(s)
@@ -356,21 +371,26 @@ func runPolicyFind(credName string, opts buddy.Opts, args []string, log *slog.Lo
 				}
 				excludeIDs = append(excludeIDs, id)
 			}
-		} else if a == "-f" || a == "--force-refresh" {
-			forceRefresh = true
-		} else {
-			keywords = append(keywords, a)
+		case a == "--ids":
+			idsOnly = true
+		default:
+			return fmt.Errorf("unexpected argument %q; use --filter=<keyword> (run 'buddy policy list help' for usage)", a)
 		}
 	}
-	if len(keywords) < 1 {
-		return fmt.Errorf("at least one keyword required; run 'buddy policy find help' for usage")
-	}
-	ids, err := buddy.PolicyFindByKeywords(credName, opts, keywords, excludeIDs, forceRefresh, log)
+	summaries, err := buddy.PolicyFindSummariesByKeywords(credName, opts, keywords, excludeIDs, log)
 	if err != nil {
 		return err
 	}
-	for _, id := range ids {
-		fmt.Println(id)
+	if idsOnly {
+		for _, s := range summaries {
+			fmt.Println(s.ID)
+		}
+		return nil
+	}
+	fmt.Printf("%-8s  %s\n", "ID", "Name")
+	fmt.Printf("%-8s  %s\n", "--------", "----------------------------------------")
+	for _, s := range summaries {
+		fmt.Printf("%-8d  %s\n", s.ID, s.Name)
 	}
 	return nil
 }
@@ -380,64 +400,68 @@ func runPolicyGet(credName string, opts buddy.Opts, args []string, log *slog.Log
 		fmt.Print(helpPolicyGet)
 		return nil
 	}
-	var trigger string
-	forceRefresh := false
-	var pos []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "-f" || a == "--force-refresh":
-			forceRefresh = true
-		case a == "--trigger":
-			if i+1 >= len(args) {
-				return fmt.Errorf("missing value for --trigger")
-			}
-			trigger = args[i+1]
-			i++
-		case strings.HasPrefix(a, "--trigger="):
-			trigger = strings.TrimPrefix(a, "--trigger=")
-		default:
-			pos = append(pos, a)
+	for _, a := range args {
+		if a == "--trigger" || strings.HasPrefix(a, "--trigger=") {
+			return fmt.Errorf("buddy policy get --trigger was removed; use 'buddy policy get id <trigger>'")
 		}
 	}
-	trigger = strings.TrimSpace(trigger)
-
-	if trigger != "" {
-		if len(pos) > 0 {
-			return fmt.Errorf("unexpected arguments with --trigger: %v", pos)
+	if len(args) < 1 {
+		return fmt.Errorf("missing arguments: use <policy-id>, or 'id <trigger>', 'enable <policy-id>', or 'xml <policy-id>'; run 'buddy policy get help'")
+	}
+	switch args[0] {
+	case "id":
+		if len(args) < 2 {
+			return fmt.Errorf("missing trigger; run 'buddy policy get help' for usage")
 		}
-		id, err := buddy.PolicyFind(credName, opts, trigger, forceRefresh, log)
+		trigger := strings.TrimSpace(args[1])
+		if trigger == "" {
+			return fmt.Errorf("missing trigger; run 'buddy policy get help' for usage")
+		}
+		if len(args) > 2 {
+			return fmt.Errorf("unexpected arguments after trigger: %v", args[2:])
+		}
+		id, err := buddy.PolicyFind(credName, opts, trigger, log)
 		if err != nil {
 			return err
 		}
 		fmt.Println(id)
 		return nil
-	}
-
-	if len(pos) < 1 {
-		return fmt.Errorf("missing arguments: use --trigger <name>, or 'enable <policy-id>', or 'xml <policy-id>'; run 'buddy policy get help'")
-	}
-	switch pos[0] {
 	case "xml":
-		if len(pos) < 2 {
+		if len(args) < 2 {
 			return fmt.Errorf("missing policy-id; run 'buddy policy get help' for usage")
 		}
-		policyID, err := parseInt(pos[1], "policy-id")
+		policyID, err := parseInt(args[1], "policy-id")
 		if err != nil {
 			return err
 		}
 		return buddy.PolicyGetXML(credName, policyID, os.Stdout, log)
 	case "enable":
-		if len(pos) < 2 {
+		if len(args) < 2 {
 			return fmt.Errorf("missing policy-id; run 'buddy policy get help' for usage")
 		}
-		policyID, err := parseInt(pos[1], "policy-id")
+		policyID, err := parseInt(args[1], "policy-id")
 		if err != nil {
 			return err
 		}
 		return buddy.PolicyGetEnable(credName, opts, policyID, log)
 	default:
-		return fmt.Errorf("unknown policy get arguments: %v (use --trigger, or enable, or xml)", args)
+		policyID, err := parseInt(args[0], "policy-id")
+		if err != nil {
+			return fmt.Errorf("unknown policy get arguments: %v (use <policy-id>, id, enable, or xml)", args)
+		}
+		if len(args) > 1 {
+			return fmt.Errorf("unexpected arguments after policy-id: %v", args[1:])
+		}
+		d, err := buddy.PolicyGetDetails(credName, policyID, log)
+		if err != nil {
+			return err
+		}
+		b, err := json.MarshalIndent(buddy.PolicyDetailsMap(d), "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
 	}
 }
 
@@ -593,7 +617,7 @@ func runPolicySet(credName string, opts buddy.Opts, subcommand string, args []st
 		return buddy.PolicySetIcon(credName, opts, policyID, filePath, log)
 
 	case "package":
-		var triggerFlag, packageFlag string
+		var triggerFlag, packageFlag, nameFlag string
 		var disableSource, keepSource bool
 		var filtered []string
 		for _, a := range args {
@@ -602,6 +626,8 @@ func runPolicySet(credName string, opts buddy.Opts, subcommand string, args []st
 				triggerFlag = strings.TrimPrefix(a, "--trigger=")
 			case strings.HasPrefix(a, "--package="):
 				packageFlag = strings.TrimPrefix(a, "--package=")
+			case strings.HasPrefix(a, "--name="):
+				nameFlag = strings.TrimPrefix(a, "--name=")
 			case a == "--disable-source":
 				disableSource = true
 			case a == "--keep-source":
@@ -615,22 +641,28 @@ func runPolicySet(credName string, opts buddy.Opts, subcommand string, args []st
 		if err != nil {
 			return err
 		}
-		if len(args) < 2 {
-			return fmt.Errorf("missing app or version; run 'buddy policy set help' for usage")
-		}
-		appName := strings.ToLower(strings.TrimSpace(args[0]))
-		newVersion := strings.TrimSpace(args[1])
-		policyIDOverride := 0
-		if len(args) >= 3 {
-			policyIDOverride, err = parseInt(args[2], "policy-id")
+		policyID := 0
+		var version string
+		if triggerFlag != "" {
+			if len(args) < 1 {
+				return fmt.Errorf("missing version; run 'buddy policy set help' for usage")
+			}
+			version = strings.TrimSpace(args[0])
+			if opts.Verbose {
+				fmt.Fprintf(os.Stderr, "Using --trigger=%s to resolve policy\n", triggerFlag)
+			}
+		} else {
+			if len(args) < 2 {
+				return fmt.Errorf("missing policy-id or version (or pass --trigger=<trigger> and <version>); run 'buddy policy set help' for usage")
+			}
+			policyID, err = parseInt(args[0], "policy-id")
 			if err != nil {
 				return err
 			}
+			version = strings.TrimSpace(args[1])
 		}
-		if opts.Verbose && triggerFlag != "" {
-			fmt.Fprintf(os.Stderr, "Using --trigger=%s to resolve policy\n", triggerFlag)
-		}
-		return buddy.PolicyPackage(credName, opts, appName, newVersion, policyIDOverride, triggerFlag, packageFlag, disableMode, log)
+		name := strings.ToLower(strings.TrimSpace(nameFlag))
+		return buddy.PolicyPackage(credName, opts, name, version, policyID, triggerFlag, packageFlag, disableMode, log)
 
 	default:
 		return errUnknownSubcommand("policy set", subcommand, []string{
@@ -650,10 +682,6 @@ func parseDisableSourceFlags(disableSource, keepSource bool) (buddy.DisableSourc
 		return buddy.DisableSourceKeep, nil
 	}
 	return buddy.DisableSourceAuto, nil
-}
-
-func runPolicyClone(_ string, _ buddy.Opts, _ []string, _ *slog.Logger) error {
-		return fmt.Errorf("buddy policy clone was removed; use change batches (step_clone_policy / step_set_package) or policy_copy + policy_set_package in buddyscript")
 }
 
 func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {
@@ -680,9 +708,9 @@ func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args [
 		}
 		args = filtered
 		if len(args) < 2 {
-			return fmt.Errorf("missing app or version; run 'buddy policy create help' for usage")
+			return fmt.Errorf("missing name or version; run 'buddy policy create help' for usage")
 		}
-		appName := strings.ToLower(strings.TrimSpace(args[0]))
+		name := strings.ToLower(strings.TrimSpace(args[0]))
 		version := strings.TrimSpace(args[1])
 		pkgAction := "install"
 		if pkgActionFlag != "" {
@@ -710,7 +738,7 @@ func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args [
 				}
 			}
 		}
-		_, err := buddy.PolicyCreatePackage(credName, opts, appName, version, pkgAction, scopeAll, scopeGroupIDs, categoryFlag, packageFlag, log)
+		_, err := buddy.PolicyCreatePackage(credName, opts, name, version, pkgAction, scopeAll, scopeGroupIDs, categoryFlag, packageFlag, log)
 		return err
 	case "ss":
 		var categoryFlag string
@@ -746,6 +774,70 @@ func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args [
 	}
 }
 
+func runCategory(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == "help" {
+		fmt.Print(helpCategory)
+		return nil
+	}
+	subcommand := args[0]
+	args = args[1:]
+
+	switch subcommand {
+	case "list":
+		var filter string
+		fs := flag.NewFlagSet("category list", flag.ContinueOnError)
+		fs.StringVar(&filter, "filter", "", "name substring or RSQL filter")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		cats, err := buddy.CategorySearch(credName, filter, buddy.PageOpts{Page: buddy.PageAll}, log)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%-8s  %-8s  %s\n", "ID", "Priority", "Name")
+		fmt.Printf("%-8s  %-8s  %s\n", "--------", "--------", "----------------------------------------")
+		for _, c := range cats {
+			fmt.Printf("%-8s  %-8d  %s\n", c.ID, c.Priority, c.Name)
+		}
+		return nil
+	case "get":
+		if len(args) < 1 {
+			return fmt.Errorf("missing category-id; run 'buddy category help' for usage")
+		}
+		c, err := buddy.CategoryFetch(credName, args[0])
+		if err != nil {
+			return err
+		}
+		b, err := json.MarshalIndent(c, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	case "create":
+		var priority int
+		fs := flag.NewFlagSet("category create", flag.ContinueOnError)
+		fs.IntVar(&priority, "priority", 9, "category priority (Jamf default 9)")
+		flagArgs, positionals := staticGroupSplitFlags(args)
+		if err := fs.Parse(flagArgs); err != nil {
+			return err
+		}
+		if len(positionals) < 1 {
+			return fmt.Errorf("missing <name>; run 'buddy category help' for usage")
+		}
+		name := strings.TrimSpace(strings.Join(positionals, " "))
+		_, err := buddy.CategoryPost(credName, opts, buddy.CategoryDetail{Name: name, Priority: priority}, log)
+		return err
+	case "delete":
+		if len(args) < 1 {
+			return fmt.Errorf("missing category-id; run 'buddy category help' for usage")
+		}
+		return buddy.CategoryDelete(credName, opts, args[0], log)
+	default:
+		return errUnknownSubcommand("category", subcommand, []string{"list", "get", "create", "delete"})
+	}
+}
+
 func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
 	if len(args) == 0 || args[0] == "help" {
 		fmt.Print(helpGroup)
@@ -775,11 +867,14 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 			return errUnknownSubcommand("group list", groupType, []string{"smart", "static"})
 		}
 	case "get":
-		if len(args) < 2 || args[0] != "version" {
-			return fmt.Errorf("missing 'version' or group-id; run 'buddy group help' for usage")
+		if len(args) >= 2 && args[0] == "version" {
+			groupID := strings.TrimSpace(args[1])
+			return buddy.GroupGetVersion(credName, opts, groupID, log)
 		}
-		groupID := strings.TrimSpace(args[1])
-		return buddy.GroupGetVersion(credName, opts, groupID, log)
+		if len(args) < 1 || args[0] == "version" {
+			return fmt.Errorf("missing group-id; run 'buddy group help' for usage")
+		}
+		return buddy.GroupGet(credName, strings.TrimSpace(args[0]), log)
 	case "set":
 		if len(args) < 3 || args[0] != "version" {
 			return fmt.Errorf("missing 'version', group-id, or version value; run 'buddy group help' for usage")
@@ -1534,7 +1629,9 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 
 	switch subcommand {
 	case "find":
-		fs := flag.NewFlagSet("computer find", flag.ContinueOnError)
+		return fmt.Errorf("buddy computer find was removed; use 'buddy computer list [--filter=<rsql>]'")
+	case "list":
+		fs := flag.NewFlagSet("computer list", flag.ContinueOnError)
 		filter := fs.String("filter", "", "RSQL filter expression")
 		mgmtID := fs.String("management-id", "", "Look up computer by MDM management UUID (clientManagementId)")
 		if err := fs.Parse(args); err != nil {
@@ -1716,7 +1813,7 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 		return buddy.ComputerCertificates(credName, opts, computerIDs, log)
 	default:
 		return errUnknownSubcommand("computer", subcommand, []string{
-			"find", "get", "reboot", "redeploy", "shutdown", "lock", "logout", "erase",
+			"list", "get", "reboot", "redeploy", "shutdown", "lock", "logout", "erase",
 			"device-info", "device-location", "security-info", "installed-apps", "managed-apps", "certificates",
 		})
 	}
@@ -2476,10 +2573,12 @@ func runMdm(credName string, _ buddy.Opts, args []string, log *slog.Logger) erro
 
 	switch subcommand {
 	case "find":
+		return fmt.Errorf("buddy mdm find was removed; use 'buddy mdm list --filter=<rsql>'")
+	case "list":
 		var filter, sort string
 		var pageSize, limit int
 		var count bool
-		fs := flag.NewFlagSet("mdm find", flag.ContinueOnError)
+		fs := flag.NewFlagSet("mdm list", flag.ContinueOnError)
 		fs.StringVar(&filter, "filter", "", "RSQL filter (required; at least one field)")
 		fs.StringVar(&sort, "sort", "dateSent:asc", "Sort expression (e.g. dateSent:desc)")
 		fs.IntVar(&pageSize, "page-size", 200, "Records per API request; pagination iterates until all results are fetched")
@@ -2502,6 +2601,6 @@ func runMdm(credName string, _ buddy.Opts, args []string, log *slog.Logger) erro
 		}
 		return buddy.MdmCommandFindPrint(credName, filter, sort, pageOpts, limit, log)
 	default:
-		return errUnknownSubcommand("mdm", subcommand, []string{"find"})
+		return errUnknownSubcommand("mdm", subcommand, []string{"list"})
 	}
 }

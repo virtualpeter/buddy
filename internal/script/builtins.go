@@ -527,12 +527,12 @@ func policyCreateSS(credName string, logger *slog.Logger) func(*starlark.Thread,
 
 func policyCreatePackage(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var app, version, action, category, packagePattern starlark.String
+		var name, version, action, category, packagePattern starlark.String
 		var scopeAll starlark.Value = starlark.None
 		var scopeGroupIDs *starlark.List
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("policy_create_package", args, kwargs,
-			"app", &app, "version", &version,
+			"name", &name, "version", &version,
 			"action?", &action,
 			"scope_all?", &scopeAll,
 			"scope_group_ids?", &scopeGroupIDs,
@@ -573,7 +573,7 @@ func policyCreatePackage(credName string, logger *slog.Logger) func(*starlark.Th
 			}
 			all = bool(b)
 		}
-		out, err := buddy.PolicyCreatePackage(c, scriptOpts, string(app), string(version), act, all, groupIDs, string(category), string(packagePattern), logger)
+		out, err := buddy.PolicyCreatePackage(c, scriptOpts, string(name), string(version), act, all, groupIDs, string(category), string(packagePattern), logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -590,13 +590,13 @@ func policyCreatePackage(credName string, logger *slog.Logger) func(*starlark.Th
 
 func policySetPackage(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var app, version, trigger, packagePattern starlark.String
+		var name, version, trigger, packagePattern starlark.String
 		var policyID starlark.Int = starlark.MakeInt(0)
 		disableSource := starlark.Value(starlark.None)
 		keepSource := starlark.Value(starlark.None)
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("policy_set_package", args, kwargs,
-			"app", &app, "version", &version,
+			"name", &name, "version", &version,
 			"policy_id?", &policyID, "trigger?", &trigger, "package_pattern?", &packagePattern,
 			"disable_source?", &disableSource, "keep_source?", &keepSource,
 			"tenant?", &sess.Tenant,
@@ -624,7 +624,7 @@ func policySetPackage(credName string, logger *slog.Logger) func(*starlark.Threa
 		if err != nil {
 			return nil, err
 		}
-		err = buddy.PolicyPackage(c, scriptOpts, strings.ToLower(string(app)), string(version), int(pid), triggerOverride, packageOverride, disableMode, logger)
+		err = buddy.PolicyPackage(c, scriptOpts, strings.ToLower(string(name)), string(version), int(pid), triggerOverride, packageOverride, disableMode, logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -2676,11 +2676,11 @@ func changeBatchBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 }
 
 func stepSetPackageBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var app, version, fromTrigger, packagePattern, note starlark.String
+	var name, version, fromTrigger, packagePattern, note starlark.String
 	disableSource := starlark.Value(starlark.None)
 	keepSource := starlark.Value(starlark.None)
 	if err := starlark.UnpackArgs("step_set_package", args, kwargs,
-		"app", &app, "version", &version, "from_trigger", &fromTrigger,
+		"name", &name, "version", &version, "from_trigger", &fromTrigger,
 		"package_pattern?", &packagePattern,
 		"disable_source?", &disableSource, "keep_source?", &keepSource,
 		"note?", &note,
@@ -2691,7 +2691,7 @@ func stepSetPackageBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 		return nil, err
 	}
 	d := stepDict(stepTypeSetPackage,
-		"app", string(app),
+		"name", string(name),
 		"version", string(version),
 		"from_trigger", string(fromTrigger),
 	)
@@ -2708,12 +2708,12 @@ func stepSetPackageBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 }
 
 func stepClonePolicyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var fromTrigger, version, app, oldVersion, packagePattern, note starlark.String
+	var fromTrigger, version, name, oldVersion, packagePattern, note starlark.String
 	var params *starlark.List
 	keepSource := starlark.Value(starlark.None)
 	if err := starlark.UnpackArgs("step_clone_policy", args, kwargs,
 		"from_trigger", &fromTrigger, "version", &version,
-		"app?", &app, "old_version?", &oldVersion, "package_pattern?", &packagePattern, "params?", &params,
+		"name?", &name, "old_version?", &oldVersion, "package_pattern?", &packagePattern, "params?", &params,
 		"keep_source?", &keepSource,
 		"note?", &note,
 	); err != nil {
@@ -2726,8 +2726,8 @@ func stepClonePolicyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starla
 		"from_trigger", string(fromTrigger),
 		"version", string(version),
 	)
-	if string(app) != "" {
-		_ = d.SetKey(starlark.String("app"), app)
+	if string(name) != "" {
+		_ = d.SetKey(starlark.String("name"), name)
 	}
 	if string(oldVersion) != "" {
 		_ = d.SetKey(starlark.String("old_version"), oldVersion)
@@ -3767,11 +3767,11 @@ func stepSetProfileXMLBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args star
 }
 
 func stepCreatePackagePolicyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var app, version, action, category, packagePattern, note starlark.String
+	var name, version, action, category, packagePattern, note starlark.String
 	var scopeAll starlark.Value = starlark.None
 	var scopeGroupIDs *starlark.List
 	if err := starlark.UnpackArgs("step_create_package_policy", args, kwargs,
-		"app", &app, "version", &version,
+		"name", &name, "version", &version,
 		"action?", &action,
 		"scope_all?", &scopeAll,
 		"scope_group_ids?", &scopeGroupIDs,
@@ -3786,7 +3786,7 @@ func stepCreatePackagePolicyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, arg
 		act = "install"
 	}
 	d := stepDict(stepTypeCreatePackagePolicy,
-		"app", string(app),
+		"name", string(name),
 		"version", string(version),
 		"action", act,
 	)

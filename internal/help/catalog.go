@@ -172,7 +172,7 @@ func defaultInsert(name string) string {
 	case "change_batch":
 		return `change = change_batch(title = "My change")
 steps = [
-    # step_set_package(app = "…", version = "…", from_trigger = "…"),
+    # step_set_package(name = "…", version = "…", from_trigger = "…"),
 ]
 planned = plan_change(change, steps)
 # run_change(change, steps, planned = planned)`

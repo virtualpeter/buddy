@@ -19,7 +19,7 @@ func TestFormatChangePlanMarkdown_OmitsCreatePolicyID(t *testing.T) {
 	rs := resolvedStep{
 		step: &Step{
 			Type: stepTypeSetPackage,
-			App:  "santa",
+			Name: "santa",
 			Note: "Leave prior cache enabled.",
 		},
 		pkgPlan: &buddy.PolicyPackagePlan{
@@ -110,7 +110,7 @@ func TestStepNoteFromStarlark(t *testing.T) {
 }
 
 func TestStepSetPackageNote(t *testing.T) {
-	d := stepDict(stepTypeSetPackage, "app", "santa", "version", "1", "from_trigger", "t", "note", "hello")
+	d := stepDict(stepTypeSetPackage, "name", "santa", "version", "1", "from_trigger", "t", "note", "hello")
 	s, err := stepFromStarlark(d)
 	if err != nil {
 		t.Fatal(err)

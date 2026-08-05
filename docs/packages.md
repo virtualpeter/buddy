@@ -4,7 +4,7 @@ Jamf Pro packages and Jamf Cloud Distribution Service (JCDS) readiness. Package 
 
 ## Happy path (preferred)
 
-1. **List / load:** `packages(filter=…)` / `package(id=…)` (or `name=` + optional `version=`).
+1. **List / load:** `packages(filter=…)` / `package(id=…)` (or `name=` + `version=`).
 2. **After upload / before policy attach:** `package_wait_ready(id=…, timeout?=…)` — polls with backoff; best-effort JCDS refresh between polls.
 3. **Check:** `package_ready(id=…)` → `true` only when the package exists **and** `cloudTransferStatus == "READY"` (case-sensitive). HTTP 404 → `false`, not an error.
 4. **Download (Jamf Cloud / JCDS only):** `package_download(id=…, path?=…)` — waits until READY + non-empty `sha256`, streams via pre-signed URI, verifies hash, retries once on URI 403.

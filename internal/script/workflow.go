@@ -36,8 +36,8 @@ const (
 // Step is a validated, typed workflow step descriptor.
 type Step struct {
 	Type string
-	// set_package / create_package_policy
-	App         string
+	// set_package / clone_policy / create_package_policy: package name keyword
+	Name        string
 	FromTrigger string
 	// set_package, clone_policy, set_ss, set_group_version, set_install, create_package_policy
 	Version string
@@ -105,14 +105,14 @@ type resolvedStep struct {
 func (s *Step) planLine() string {
 	switch s.Type {
 	case stepTypeSetPackage:
-		return fmt.Sprintf("set_package        %s %s  (from %s)", s.App, s.Version, s.FromTrigger)
+		return fmt.Sprintf("set_package        %s %s  (from %s)", s.Name, s.Version, s.FromTrigger)
 	case stepTypeClonePolicy:
-		if s.App != "" {
+		if s.Name != "" {
 			oldVer := s.OldVersion
 			if oldVer == "" {
 				oldVer = "?"
 			}
-			return fmt.Sprintf("clone_policy       %s  %s %s -> %s", s.FromTrigger, s.App, oldVer, s.Version)
+			return fmt.Sprintf("clone_policy       %s  %s %s -> %s", s.FromTrigger, s.Name, oldVer, s.Version)
 		}
 		return fmt.Sprintf("clone_policy       %s -> %s", s.FromTrigger, s.Version)
 	case stepTypeSetSS:
@@ -139,7 +139,7 @@ func (s *Step) planLine() string {
 	case stepTypeCreatePolicy:
 		return fmt.Sprintf("create_policy      %q  trigger=%s", s.PolicyName, s.PolicyTrigger)
 	case stepTypeCreatePackagePolicy:
-		return fmt.Sprintf("create_package_policy  %s %s  action=%s", s.App, s.Version, s.Action)
+		return fmt.Sprintf("create_package_policy  %s %s  action=%s", s.Name, s.Version, s.Action)
 	case stepTypeCreateProfile:
 		domains := strings.Join(s.PayloadDomains, ",")
 		if domains == "" {
@@ -277,7 +277,7 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		}
 
 	case stepTypeSetPackage:
-		if s.App, _, err = getStr("app"); err != nil {
+		if s.Name, _, err = getStr("name"); err != nil {
 			return nil, err
 		}
 		if s.Version, _, err = getStr("version"); err != nil {
@@ -286,8 +286,8 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		if s.FromTrigger, _, err = getStr("from_trigger"); err != nil {
 			return nil, err
 		}
-		if s.App == "" || s.Version == "" || s.FromTrigger == "" {
-			return nil, fmt.Errorf("step_set_package requires app, version, from_trigger")
+		if s.Name == "" || s.Version == "" || s.FromTrigger == "" {
+			return nil, fmt.Errorf("step_set_package requires name, version, from_trigger")
 		}
 		s.PackagePattern, _, _ = getStr("package_pattern")
 		s.DisableMode, err = disableModeFromStepDict(d, true)
@@ -305,7 +305,7 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		if s.FromTrigger == "" || s.Version == "" {
 			return nil, fmt.Errorf("step_clone_policy requires from_trigger, version")
 		}
-		if s.App, _, err = getStr("app"); err != nil {
+		if s.Name, _, err = getStr("name"); err != nil {
 			return nil, err
 		}
 		if s.OldVersion, _, err = getStr("old_version"); err != nil {
@@ -518,7 +518,7 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		}
 
 	case stepTypeCreatePackagePolicy:
-		if s.App, _, err = getStr("app"); err != nil {
+		if s.Name, _, err = getStr("name"); err != nil {
 			return nil, err
 		}
 		if s.Version, _, err = getStr("version"); err != nil {
@@ -530,8 +530,8 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		if s.Action == "" {
 			s.Action = "install"
 		}
-		if s.App == "" || s.Version == "" {
-			return nil, fmt.Errorf("step_create_package_policy requires app and version")
+		if s.Name == "" || s.Version == "" {
+			return nil, fmt.Errorf("step_create_package_policy requires name and version")
 		}
 		if s.PackagePattern, _, err = getStr("package_pattern"); err != nil {
 			return nil, err
@@ -694,23 +694,23 @@ func resolveWorkflowStep(credName string, s *Step, opts buddy.Opts, logger *slog
 	rs := resolvedStep{step: s}
 	switch s.Type {
 	case stepTypeSetPackage:
-		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, false, logger)
+		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, logger)
 		if err != nil {
 			return rs, fmt.Errorf("find source policy %q: %w", s.FromTrigger, err)
 		}
-		plan, err := buddy.PlanPolicyPackage(credName, opts, s.App, s.Version, srcID, "", s.PackagePattern, s.DisableMode, logger)
+		plan, err := buddy.PlanPolicyPackage(credName, opts, s.Name, s.Version, srcID, "", s.PackagePattern, s.DisableMode, logger)
 		if err != nil {
 			return rs, err
 		}
 		rs.pkgPlan = plan
-		rs.planLines = append([]string{fmt.Sprintf("set_package        %s %s", s.App, s.Version)}, plan.Actions...)
+		rs.planLines = append([]string{fmt.Sprintf("set_package        %s %s", s.Name, s.Version)}, plan.Actions...)
 		return rs, nil
 	case stepTypeClonePolicy:
-		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, false, logger)
+		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, logger)
 		if err != nil {
 			return rs, fmt.Errorf("find source policy %q: %w", s.FromTrigger, err)
 		}
-		plan, err := buddy.PlanPolicyClone(credName, opts, srcID, s.App, s.OldVersion, s.Version, s.PackagePattern, s.Params, s.DisableMode, logger)
+		plan, err := buddy.PlanPolicyClone(credName, opts, srcID, s.Name, s.OldVersion, s.Version, s.PackagePattern, s.Params, s.DisableMode, logger)
 		if err != nil {
 			return rs, err
 		}
@@ -718,7 +718,7 @@ func resolveWorkflowStep(credName string, s *Step, opts buddy.Opts, logger *slog
 		rs.planLines = append([]string{fmt.Sprintf("clone_policy       %s -> %s", s.FromTrigger, s.Version)}, plan.Actions...)
 		return rs, nil
 	case stepTypeCreatePackagePolicy:
-		plan, err := buddy.PlanPolicyCreatePackage(credName, opts, s.App, s.Version, s.Action, s.ScopeAll, s.ScopeGroupIDs, s.Category, s.PackagePattern, logger)
+		plan, err := buddy.PlanPolicyCreatePackage(credName, opts, s.Name, s.Version, s.Action, s.ScopeAll, s.ScopeGroupIDs, s.Category, s.PackagePattern, logger)
 		if err != nil {
 			return rs, err
 		}
@@ -793,18 +793,18 @@ func executeStep(credName string, s *Step, opts buddy.Opts, logger *slog.Logger)
 		return nil
 
 	case stepTypeSetPackage:
-		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, false, logger)
+		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, logger)
 		if err != nil {
 			return fmt.Errorf("find source policy %q: %w", s.FromTrigger, err)
 		}
-		return buddy.PolicyPackage(credName, opts, s.App, s.Version, srcID, "", s.PackagePattern, s.DisableMode, logger)
+		return buddy.PolicyPackage(credName, opts, s.Name, s.Version, srcID, "", s.PackagePattern, s.DisableMode, logger)
 
 	case stepTypeClonePolicy:
-		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, false, logger)
+		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, logger)
 		if err != nil {
 			return fmt.Errorf("find source policy %q: %w", s.FromTrigger, err)
 		}
-		return buddy.PolicyClone(credName, opts, srcID, s.App, s.OldVersion, s.Version, s.PackagePattern, s.Params, s.DisableMode, logger)
+		return buddy.PolicyClone(credName, opts, srcID, s.Name, s.OldVersion, s.Version, s.PackagePattern, s.Params, s.DisableMode, logger)
 
 	case stepTypeSetSS:
 		return buddy.PolicySS(credName, opts, s.PolicyID, s.Version, s.GroupIDs, logger)
@@ -863,7 +863,7 @@ func executeStep(credName string, s *Step, opts buddy.Opts, logger *slog.Logger)
 		return buddy.ProfileSetXML(credName, opts, s.ProfileID, f, s.Redeploy, logger)
 
 	case stepTypeCreatePackagePolicy:
-		_, err := buddy.PolicyCreatePackage(credName, opts, s.App, s.Version, s.Action, s.ScopeAll, s.ScopeGroupIDs, s.Category, s.PackagePattern, logger)
+		_, err := buddy.PolicyCreatePackage(credName, opts, s.Name, s.Version, s.Action, s.ScopeAll, s.ScopeGroupIDs, s.Category, s.PackagePattern, logger)
 		return err
 
 	case stepTypeCreateProfile:

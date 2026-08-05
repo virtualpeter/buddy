@@ -14,15 +14,15 @@ import (
 // v3 plural / singular builtins
 // ---------------------------------------------------------------------------
 
-// policies(keywords?, exclude_ids?, force_refresh?, ids?=False, tenant?, surface?, auth?) → list of {id,name} or list of int
+// policies(keywords?, exclude_ids?, ids?=False, tenant?, surface?, auth?) → list of {id,name} or list of int
 func policiesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var keywordsVal starlark.Value = starlark.None
 		var excludeIDs *starlark.List
-		var forceRefresh, idsOnly starlark.Bool
+		var idsOnly starlark.Bool
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("policies", args, kwargs,
-			"keywords?", &keywordsVal, "exclude_ids?", &excludeIDs, "force_refresh?", &forceRefresh, "ids?", &idsOnly,
+			"keywords?", &keywordsVal, "exclude_ids?", &excludeIDs, "ids?", &idsOnly,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth,
@@ -47,7 +47,7 @@ func policiesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 		if err != nil {
 			return nil, err
 		}
-		summaries, err := buddy.PolicyFindSummariesByKeywords(c, scriptOpts, kw, exclude, bool(forceRefresh), logger)
+		summaries, err := buddy.PolicyFindSummariesByKeywords(c, scriptOpts, kw, exclude, logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -68,15 +68,14 @@ func policiesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 	}
 }
 
-// policy(id=?) | policy(trigger=?, force_refresh?=) → details dict
+// policy(id=?) | policy(trigger=?) → details dict
 func policyBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value = starlark.None
 		var trigger starlark.String
-		var forceRefresh starlark.Bool
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("policy", args, kwargs,
-			"id?", &idVal, "trigger?", &trigger, "force_refresh?", &forceRefresh,
+			"id?", &idVal, "trigger?", &trigger,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth,
@@ -102,7 +101,7 @@ func policyBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 				return nil, err
 			}
 		} else {
-			id, err := buddy.PolicyFind(c, scriptOpts, string(trigger), bool(forceRefresh), logger)
+			id, err := buddy.PolicyFind(c, scriptOpts, string(trigger), logger)
 			if err != nil {
 				return resultErr(err.Error())
 			}
@@ -238,14 +237,14 @@ func packagesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 	}
 }
 
-// package(id=?) | package(app=, version=, pattern?=) → full dict or {id,name}
+// package(id=?) | package(name=, version=, pattern?=) → full dict or {id,name}
 func packageBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value = starlark.None
-		var app, version, pattern starlark.String
+		var name, version, pattern starlark.String
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("package", args, kwargs,
-			"id?", &idVal, "app?", &app, "version?", &version, "pattern?", &pattern,
+			"id?", &idVal, "name?", &name, "version?", &version, "pattern?", &pattern,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth,
@@ -259,12 +258,12 @@ func packageBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		defer restoreSession()
 		c := sessionPin
 		idSet := idVal != nil && idVal != starlark.None
-		keySet := app != "" || version != ""
+		keySet := name != "" || version != ""
 		if idSet && keySet {
-			return nil, fmt.Errorf("package: pass either id= or app=/version=, not both")
+			return nil, fmt.Errorf("package: pass either id= or name=/version=, not both")
 		}
 		if !idSet && !keySet {
-			return nil, fmt.Errorf("package: require id= or app= and version=")
+			return nil, fmt.Errorf("package: require id= or name= and version=")
 		}
 		if idSet {
 			id, err := starlarkIDString(idVal, "id")
@@ -285,23 +284,23 @@ func packageBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 			}
 			return resultOK(val), nil
 		}
-		if app == "" || version == "" {
-			return nil, fmt.Errorf("package: app= and version= are both required when not using id=")
+		if name == "" || version == "" {
+			return nil, fmt.Errorf("package: name= and version= are both required when not using id=")
 		}
 		patternOverride := ""
 		if pattern != "" {
 			patternOverride = string(pattern)
 		}
-		id, name, err := buddy.PackageFindID(c, string(app), string(version), patternOverride, logger)
+		id, pkgName, err := buddy.PackageFindID(c, string(name), string(version), patternOverride, logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
 		if id == "" {
-			return resultErr(fmt.Sprintf("no package found for app %q version %q", string(app), string(version)))
+			return resultErr(fmt.Sprintf("no package found for name %q version %q", string(name), string(version)))
 		}
 		d := new(starlark.Dict)
 		_ = d.SetKey(starlark.String("id"), starlark.String(id))
-		_ = d.SetKey(starlark.String("name"), starlark.String(name))
+		_ = d.SetKey(starlark.String("name"), starlark.String(pkgName))
 		return resultOK(d), nil
 	}
 }

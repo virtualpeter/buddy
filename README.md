@@ -149,7 +149,8 @@ buddy [flags] <command> <subcommand> [args...]
 #### Get
 
 ```sh
-buddy policy get --trigger=<trigger> [-f] # Find policy ID by trigger (-f to force cache refresh)
+buddy policy get <policy-id>              # Show policy details (JSON)
+buddy policy get id <trigger>             # Resolve custom trigger to policy ID
 buddy policy get enable <policy-id>       # Show enabled/disabled state
 buddy policy get xml <policy-id>          # Output policy XML to stdout
 ```
@@ -163,14 +164,15 @@ buddy policy set enable <policy-id>                               # Enable polic
 buddy policy set disable <policy-id>                              # Disable policy
 buddy policy set trigger <policy-id> <trigger>                    # Set custom trigger
 buddy policy set install <policy-id> <version> [--param=4,5,6]   # Update script param versions
-buddy policy set package <app> <version> [policy-id] [--trigger=<trigger>] [--package=<pattern>]  # Update package policy (--trigger for non-standard triggers; --package overrides search pattern)
+buddy policy set package <policy-id> <version> [--name=<name>] [--package=<pattern>]  # Update package policy (--name picks the package search keyword; --package overrides the search pattern)
+buddy policy set package <version> --trigger=<trigger>            # Same, resolving the policy by custom trigger
 buddy policy set xml <policy-id>                                  # PUT policy from XML on stdin
 ```
 
-#### Clone
+#### List
 
 ```sh
-buddy policy set package --trigger=install-app <version>   # Attach package by trigger
+buddy policy list [--filter=<keyword>] [--ids]    # List policies (keyword filter; --ids for scripting)
 ```
 
 ### Group Commands
@@ -210,17 +212,17 @@ Sample scripts: [examples/](examples/).
 #### Example (illustrative)
 
 ```python
-# Edit TRIGGER_PREFIX / APP_NAME for your policies; see examples/bump-release.buddy for a fuller sample.
+# Edit TRIGGER_PREFIX / PACKAGE_NAME for your policies; see examples/bump-release.buddy for a fuller sample.
 # Usage: buddy examples/bump-release.buddy -- 2.4.27
 
 TRIGGER_PREFIX = "install-exampleapp-"
-APP_NAME = "exampleapp"
+PACKAGE_NAME = "exampleapp"
 
 def main():
     version = args[0]
 
-    policy_id = policy(trigger=TRIGGER_PREFIX + version, force_refresh=True)["id"]
-    policy_set_package(app=APP_NAME, version=version, policy_id=policy_id)
+    policy_id = policy(trigger=TRIGGER_PREFIX + version)["id"]
+    policy_set_package(name=PACKAGE_NAME, version=version, policy_id=policy_id)
     # If install params or self-service live on other policies, add policy_set_install / policy_set_ss
     # with those policy IDs. To bump a smart-group version criterion: smart_group_set_version(group_id="...", version=version).
 ```

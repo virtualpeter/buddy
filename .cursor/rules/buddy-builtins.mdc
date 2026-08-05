@@ -17,7 +17,7 @@ When adding or changing builtins in `internal/script/builtins.go` / `builtins_v3
 | **offline helpers** | unchanged | `rsql_*`, `plist_*`, `payloads_*`, `file_*`, `version_*` |
 
 - Plural list builtins return a **list of summary dicts** `{id, name, ...}` unless `ids=True` (policies/computers).
-- Singular load accepts **either** `id=` **or** a natural key (`trigger=`, `name=`, `app=`+`version=`), not both.
+- Singular load accepts **either** `id=` **or** a natural key (`trigger=`, `name=`, `name=`+`version=` for packages), not both.
 - Do **not** reintroduce removed legacy aliases (`package_list`, `policy_find_ids`, …). See also [docs/reference-manual.md](../../docs/reference-manual.md#built-in-functions).
 
 ## Return contract
@@ -49,7 +49,7 @@ Go side: `buddy.PageOpts` + `fetchJamfPaged` in `internal/buddy/pagination.go` (
 
 Use `{resource}_id` for mutate/action builtins: `policy_id`, `group_id`, `profile_id`, `package_id`, `script_id`, `computer_id`, `role_id`, `client_id`. For lists of IDs use e.g. `policy_ids`, `computer_ids`.
 
-Singular **load** builtins use kwargs `id=` (or a natural key like `trigger=` / `name=` / `app=`+`version=`), not `policy_id` / `script_id` as the primary selector—see grammar above.
+Singular **load** builtins use kwargs `id=` (or a natural key like `trigger=` / `name=` / `name=`+`version=` for packages), not `policy_id` / `script_id` as the primary selector—see grammar above.
 
 ## File I/O
 

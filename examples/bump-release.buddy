@@ -11,7 +11,7 @@ load("stdlib/release.buddy", "bump_release")
 
 # --- edit for your environment ---
 TRIGGER_PREFIX = "install-exampleapp-"
-APP_NAME = "exampleapp"
+PACKAGE_NAME = "exampleapp"
 
 # Policies found by trigger above often cover package + install + self-service together.
 # If yours differ, set these to the other policies' numeric IDs.
@@ -28,7 +28,7 @@ def main():
     version = args[0]
     out = bump_release(
         trigger_prefix = TRIGGER_PREFIX,
-        app = APP_NAME,
+        name = PACKAGE_NAME,
         version = version,
         install_policy_id = INSTALL_POLICY_ID,
         self_service_policy_id = SELF_SERVICE_POLICY_ID,

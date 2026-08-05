@@ -24,14 +24,14 @@ Replace install-santa-next with the 2026.3 package; Self Service already calls t
 
     steps = [
         step_set_package(
-            app = "santa",
+            name = "santa",
             version = "2026.3",
             from_trigger = "cache-santa-2026.2",
             package_pattern = "*santa*2026.3*",
             note = "Create versioned cache policy; leave 2026.2 cache enabled for rollback.",
         ),
         step_set_package(
-            app = "santa",
+            name = "santa",
             version = "2026.3",
             from_trigger = "install-santa-next",
             package_pattern = "*santa*2026.3*",

@@ -7,6 +7,7 @@ var knownCommands = map[string]struct{}{
 	"auth":          {},
 	"cred":          {},
 	"policy":        {},
+	"category":      {},
 	"group":         {},
 	"profile":       {},
 	"package":       {},

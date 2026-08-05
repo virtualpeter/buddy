@@ -21,7 +21,7 @@ func TestStepFromStarlark_NotDict(t *testing.T) {
 
 func TestStepFromStarlark_MissingType(t *testing.T) {
 	d := new(starlark.Dict)
-	_ = d.SetKey(starlark.String("app"), starlark.String("A"))
+	_ = d.SetKey(starlark.String("name"), starlark.String("A"))
 	_, err := stepFromStarlark(d)
 	if err == nil {
 		t.Fatal("expected error when type is missing")
@@ -43,13 +43,13 @@ func TestStepFromStarlark_UnknownType(t *testing.T) {
 }
 
 func TestStepFromStarlark_SetPackage_Valid(t *testing.T) {
-	d := stepDict(stepTypeSetPackage, "app", "MyApp", "version", "1.0.0", "from_trigger", "Enroll")
+	d := stepDict(stepTypeSetPackage, "name", "MyApp", "version", "1.0.0", "from_trigger", "Enroll")
 	s, err := stepFromStarlark(d)
 	if err != nil {
 		t.Fatalf("stepFromStarlark: %v", err)
 	}
-	if s.Type != stepTypeSetPackage || s.App != "MyApp" || s.Version != "1.0.0" || s.FromTrigger != "Enroll" {
-		t.Errorf("got Type=%q App=%q Version=%q FromTrigger=%q", s.Type, s.App, s.Version, s.FromTrigger)
+	if s.Type != stepTypeSetPackage || s.Name != "MyApp" || s.Version != "1.0.0" || s.FromTrigger != "Enroll" {
+		t.Errorf("got Type=%q Name=%q Version=%q FromTrigger=%q", s.Type, s.Name, s.Version, s.FromTrigger)
 	}
 	if s.DisableMode != buddy.DisableSourceAuto {
 		t.Errorf("DisableMode = %v, want Auto", s.DisableMode)
@@ -57,7 +57,7 @@ func TestStepFromStarlark_SetPackage_Valid(t *testing.T) {
 }
 
 func TestStepFromStarlark_SetPackage_KeepSource(t *testing.T) {
-	d := stepDict(stepTypeSetPackage, "app", "MyApp", "version", "1.0.0", "from_trigger", "install-app")
+	d := stepDict(stepTypeSetPackage, "name", "MyApp", "version", "1.0.0", "from_trigger", "install-app")
 	_ = d.SetKey(starlark.String("keep_source"), starlark.True)
 	s, err := stepFromStarlark(d)
 	if err != nil {
@@ -69,7 +69,7 @@ func TestStepFromStarlark_SetPackage_KeepSource(t *testing.T) {
 }
 
 func TestStepFromStarlark_SetPackage_DisableSource(t *testing.T) {
-	d := stepDict(stepTypeSetPackage, "app", "MyApp", "version", "1.0.0", "from_trigger", "install-app")
+	d := stepDict(stepTypeSetPackage, "name", "MyApp", "version", "1.0.0", "from_trigger", "install-app")
 	_ = d.SetKey(starlark.String("disable_source"), starlark.True)
 	s, err := stepFromStarlark(d)
 	if err != nil {
@@ -81,7 +81,7 @@ func TestStepFromStarlark_SetPackage_DisableSource(t *testing.T) {
 }
 
 func TestStepFromStarlark_SetPackage_ConflictingDisableFlags(t *testing.T) {
-	d := stepDict(stepTypeSetPackage, "app", "MyApp", "version", "1.0.0", "from_trigger", "install-app")
+	d := stepDict(stepTypeSetPackage, "name", "MyApp", "version", "1.0.0", "from_trigger", "install-app")
 	_ = d.SetKey(starlark.String("disable_source"), starlark.True)
 	_ = d.SetKey(starlark.String("keep_source"), starlark.True)
 	_, err := stepFromStarlark(d)
@@ -134,12 +134,12 @@ func TestResolvedWorkflowPlanLines_IncludeDisable(t *testing.T) {
 
 func TestStepFromStarlark_SetPackage_MissingField(t *testing.T) {
 	// missing from_trigger
-	d := stepDict(stepTypeSetPackage, "app", "A", "version", "1.0")
+	d := stepDict(stepTypeSetPackage, "name", "A", "version", "1.0")
 	_, err := stepFromStarlark(d)
 	if err == nil {
 		t.Fatal("expected error when from_trigger missing")
 	}
-	if !strings.Contains(err.Error(), "app, version, from_trigger") {
+	if !strings.Contains(err.Error(), "name, version, from_trigger") {
 		t.Errorf("error = %v", err)
 	}
 }
@@ -245,12 +245,12 @@ func TestStepFromStarlark_SetProfilePayload_MissingField(t *testing.T) {
 }
 
 func TestStepFromStarlark_CreatePackagePolicy(t *testing.T) {
-	d := stepDict(stepTypeCreatePackagePolicy, "app", "example", "version", "1.0", "action", "cache", "note", "n")
+	d := stepDict(stepTypeCreatePackagePolicy, "name", "example", "version", "1.0", "action", "cache", "note", "n")
 	s, err := stepFromStarlark(d)
 	if err != nil {
 		t.Fatalf("stepFromStarlark: %v", err)
 	}
-	if s.Type != stepTypeCreatePackagePolicy || s.App != "example" || s.Action != "cache" || !s.ScopeAll {
+	if s.Type != stepTypeCreatePackagePolicy || s.Name != "example" || s.Action != "cache" || !s.ScopeAll {
 		t.Errorf("got %+v", s)
 	}
 }

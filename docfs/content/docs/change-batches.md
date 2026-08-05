@@ -63,14 +63,14 @@ Self Service already calls install-app-next.""",
 
     steps = [
         step_set_package(
-            app = "app",
+            name = "app",
             version = "2.0",
             from_trigger = "cache-app-1.0",
             package_pattern = "*app*2.0*",
             note = "Versioned cache; leave 1.0 cache enabled for rollback.",
         ),
         step_set_package(
-            app = "app",
+            name = "app",
             version = "2.0",
             from_trigger = "install-app-next",
             package_pattern = "*app*2.0*",
@@ -210,7 +210,7 @@ fda = pppc_fda(
 )
 
 steps = setup_app_classic(
-    app = "example",
+    name = "example",
     version = "1.0.0",
     prefs_content = [prefs],
     pppc_services = {"SystemPolicyAllFiles": [fda]},

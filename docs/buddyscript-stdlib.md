@@ -8,7 +8,7 @@ load("stdlib/release.buddy", "bump_release")
 def main():
     return bump_release(
         trigger_prefix = "install-app-",
-        app = "app",
+        name = "app",
         version = "1.2.3",
     )
 ```

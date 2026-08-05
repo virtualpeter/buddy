@@ -14,12 +14,13 @@ Usage:
 Commands:
   auth     Test authentication for the active tenant/auth
   cred     Manage tenants, auths, and secrets in the config file
-  policy   Manage Jamf policies (get/set/clone/create/delete/find)
+  policy   Manage Jamf policies (list/get/set/create/delete)
+  category Manage categories (list/get/create/delete)
   group    Manage computer groups (list/get/set/create/delete; static membership)
   profile  Manage configuration profiles (list/get/set/clone/redeploy)
-  package  Manage package records (list/get/upload/delete/set/history)
-  computer Manage computers and MDM commands (find/get/reboot/lock/erase/...)
-  mdm      Query MDM commands from Jamf Pro (find with RSQL filter)
+  package  Manage package records (list/get/download/upload/delete/set/history)
+  computer Manage computers and MDM commands (list/get/reboot/lock/erase/...)
+  mdm      Query MDM commands from Jamf Pro (list with RSQL filter)
   blueprint Manage Platform API blueprints (list/get/create/set/delete/deploy/…)
   device   Manage Platform API devices (inventory + check-in/restart/erase/…)
   device-group Manage Platform API device groups (not Pro computer groups)
@@ -206,7 +207,7 @@ Builtins return bare values on success and raise on failure.
 Conventions: plural nouns enumerate (policies, packages, computers);
 singular nouns load one resource (policy, package, computer); singular_verb
 mutates (policy_set, policy_put_xml, computer_reboot). Pass either id= or a
-natural key (trigger=/name=/app=+version=), not both. Resource IDs first;
+natural key (trigger=/name=/name=+version=), not both. Resource IDs first;
 payload/options next; tenant?/surface?/auth? always last (source session).
 Auth alone soft-switches tenant. Dual-session copy builtins add
 to_tenant?/to_surface?/to_auth? for destination (omit = same as source).
@@ -232,7 +233,7 @@ STDLIB
   Load them with load() (same mechanism as load("re", ...)):
 
     load("stdlib/release.buddy", "bump_release")
-    out = bump_release(trigger_prefix="install-app-", app="app", version="1.2.3")
+    out = bump_release(trigger_prefix="install-example-", name="example", version="1.2.3")
     # out is {"policy_id": int}; builtin failures raise
 
   Modules compose the builtins below (bare returns; failures raise)
@@ -242,12 +243,12 @@ STDLIB
   (setup_app_classic).
 
 POLICY
-  policies(keywords?, exclude_ids?, force_refresh?, ids?=False, tenant?, surface?, auth?)
+  policies(keywords?, exclude_ids?, ids?=False, tenant?, surface?, auth?)
       → value: list of {id, name} (or list of int if ids=True)
       Params: keywords?: str or list of str — omit or empty to list all Classic
         policies; otherwise filter by name/trigger keywords. exclude_ids?: list of
-        int; force_refresh?: bool; ids?: bool.
-  policy(id=?) | policy(trigger=?, force_refresh?=, tenant?, surface?, auth?)
+        int; ids?: bool.
+  policy(id=?) | policy(trigger=?, tenant?, surface?, auth?)
       → value: details dict (id, name, enabled, trigger, frequency, scope, packages, scripts)
       Params: pass either id= (int/str) or trigger= (str), not both.
   policy_xml(id, tenant?, surface?, auth?)
@@ -273,20 +274,22 @@ POLICY
                 force_view?, feature?, self_service?, tenant?, surface?, auth?)
       → None
   policy_set_install(policy_id, version, tenant?, surface?, auth?) → None
-  policy_set_package(app, version, policy_id?, trigger?, package_pattern?,
+  policy_set_package(name, version, policy_id?, trigger?, package_pattern?,
                      disable_source?, keep_source?, tenant?, surface?, auth?) → None
-      Params: prefer trigger= or policy_id= for the source Install/Cache policy;
-        omit both to use app-name heuristic (highest version). disable_source?/
-        keep_source?: optional bool overrides (mutually exclusive). Default:
-        disable source only when creating a same-trigger replacement.
+      Params: name: str package name keyword ("" to derive from the source
+        trigger); pass trigger= or policy_id= for the source Install/Cache
+        policy (one is required). disable_source?/keep_source?: optional bool
+        overrides (mutually exclusive). Default: disable source only when
+        creating a same-trigger replacement.
   policy_set_scope_all(policy_id, tenant?, surface?, auth?) → None
   policy_create_ss(trigger, display_name, category?, scope_group_id?, script_id?, tenant?, surface?, auth?)
       → value: int (new policy ID)
-  policy_create_package(app, version, action?, scope_all?, scope_group_ids?,
+  policy_create_package(name, version, action?, scope_all?, scope_group_ids?,
                         category?, package_pattern?, tenant?, surface?, auth?)
       → value: dict {id, name, trigger}
-      Params: action?: "install" (default) or "cache". Defaults match CLI triggers:
-        install-<app>-next / cache-<app>-<version>. scope_all defaults true when
+      Params: name: str package name keyword. action?: "install" (default) or
+        "cache". Defaults match CLI triggers: install-<name>-next /
+        cache-<name>-<version>. scope_all defaults true when
         no scope_group_ids. package_pattern?: optional package name glob.
   policy_delete(policy_ids, tenant?, surface?, auth?) → None
 
@@ -383,11 +386,11 @@ COMPLIANCE BENCHMARK (beta Platform API)
 PACKAGE
   packages(filter?, page?, page_size?, tenant?, surface?, auth?)
       → value: list of {id, packageName, fileName}
-  package(id=?) | package(app=, version=, pattern?=, tenant?, surface?, auth?)
-      → value: full package dict (id=) or {id, name} (app+version)
+  package(id=?) | package(name=, version=, pattern?=, tenant?, surface?, auth?)
+      → value: full package dict (id=) or {id, name} (name+version)
       Params: id=: str — GET full record (checksums, size, cloudTransferStatus,
-        flags, …). Or app=+version= to resolve by name. pattern?: optional package
-        name glob/regex override.
+        flags, …). Or name=+version= to resolve by name keyword. pattern?:
+        optional package name glob/regex override.
   package_ready(id=, tenant?, surface?, auth?) → value: bool
       Params: id=: package id; tenant?/surface?/auth?: str.
       Returns: True iff the package exists and cloudTransferStatus is "READY";
@@ -737,13 +740,14 @@ DECLARATIVE WORKFLOW (step constructors + executor)
   For enterprise change records, prefer change_batch + plan_change + run_change
   (human notes, markdown plan without predicted create IDs, outcomes after apply).
 
-  step_set_package(app, version, from_trigger, package_pattern?,
+  step_set_package(name, version, from_trigger, package_pattern?,
                    disable_source?, keep_source?, note?)
-      Params: app: str; version: str; from_trigger: str (required source selector);
-        package_pattern?, disable_source?, keep_source?, note?: optional. Returns: step dict.
-  step_clone_policy(from_trigger, version, app?, old_version?,
+      Params: name: str package name keyword; version: str; from_trigger: str
+        (required source selector); package_pattern?, disable_source?,
+        keep_source?, note?: optional. Returns: step dict.
+  step_clone_policy(from_trigger, version, name?, old_version?,
                     package_pattern?, params?, keep_source?, note?)
-      Params: from_trigger: str; version: str; app?, old_version?, package_pattern?,
+      Params: from_trigger: str; version: str; name?, old_version?, package_pattern?,
         params?, keep_source?, note?: optional. Returns: step dict.
   step_note(note) → step dict (prose-only; no Jamf write)
   step_with_note(step, note) → step dict (attach note to any step)
@@ -769,9 +773,9 @@ DECLARATIVE WORKFLOW (step constructors + executor)
       Params: profile_id: int; domain: str; dict_file: str; redeploy?: bool. Returns: step dict.
   step_set_profile_xml(profile_id, xml_file, redeploy?)
       Params: profile_id: int; xml_file: str; redeploy?: bool. Returns: step dict.
-  step_create_package_policy(app, version, action?, scope_all?, scope_group_ids?,
+  step_create_package_policy(name, version, action?, scope_all?, scope_group_ids?,
                              category?, package_pattern?, note?)
-      Params: app/version: str; action?: "install"|"cache". Plan resolves package;
+      Params: name/version: str; action?: "install"|"cache". Plan resolves package;
         created policy ID only in Outcomes. Returns: step dict.
   step_create_profile(name, payloads_plist_str?, content?, category?,
                       scope_all?, scope_group_ids?, redeploy_on_update?, note?)
@@ -846,7 +850,7 @@ EXAMPLE — imperative style
 
 EXAMPLE — declarative workflow
   steps = [
-      step_set_package(app="Google Chrome", version="130.0",
+      step_set_package(name="Google Chrome", version="130.0",
                        from_trigger="install-chrome"),
       step_set_group_version(group_id=42, version="130.0"),
       step_enable_policy(policy_id=101),

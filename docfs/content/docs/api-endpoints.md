@@ -177,7 +177,7 @@ Base path: `/JSSResource/policies`
 ### Notes
 
 - `GET /JSSResource/policies` returns a summary list `{id, name}` only; detail fields (trigger, scripts, scope) require a subsequent `GET /JSSResource/policies/id/{id}`.
-- Buddy's policy cache stores the summary list locally (`~/.buddy-policy-cache-<cred>.json`) to avoid re-fetching on every invocation. The cache is bypassed on `force_refresh=True` or when the cache file is absent/stale.
+- Buddy caches the summary list in process memory per resolved tenant+auth session (~60s TTL) so multi-step scripts and change batches don't re-fetch it for every trigger lookup. Policy creates/deletes in the same process invalidate the entry; there is no on-disk cache.
 - Phase 1 of trigger resolution fetches detail for a small set of name-matched candidate policies to verify `trigger_other` exactly, rather than relying on name heuristics alone.
 
 ---
@@ -207,7 +207,7 @@ Base path: `/api/v1/packages`
 - `PackageDownload` / `package_download` / `buddy package download`: wait until READY **and** non-empty `sha256` → GET JCDS pre-signed URI → stream to a temp file beside the destination while hashing SHA-256 → rename only on match; delete temp on failure; retry once on URI HTTP 403. **JCDS only** (Jamf Cloud); not for on-prem non-JCDS distribution points. Verify is always on (no skip flag). Do not invent this loop from OpenAPI alone — call the builtin.
 - `PackageUpload` looks up `fileName` first. If a record exists, it GETs the full object, compares local MD5/SHA-256 to server checksums, and **skips** the file transfer when they match; otherwise it streams a replacement upload. Metadata flags (`--name`, `--notes`, `--info`, `--category`, `--priority`, `--reboot`) apply on create and on update when they differ (including metadata-only updates when the file is unchanged). If no record exists, it POSTs metadata, polls GET until the ID is readable (Jamf Cloud create is async), then streams the multipart upload. After upload, scripts should use `package_wait_ready` before attaching the package to a policy.
 - `packagePut` / `PackageSetAttrs` (used by `buddy package set <id> --…`) omit server-managed `size` / `cloudTransferStatus` and client-only history fields from the PUT body so a metadata update does not blank Jamf’s size.
-- `PackageFindID` is shared between the CLI (`policy set package`) and buddyscript (`package(app=..., version=...)` builtin). List/search walks all pages unless a single `page` is requested from buddyscript.
+- `PackageFindID` is shared between the CLI (`policy set package`) and buddyscript (`package(name=..., version=...)` builtin). List/search walks all pages unless a single `page` is requested from buddyscript.
 - The `delete-multiple` body is `{"ids": ["1","2",...]}`.
 
 ---
@@ -402,8 +402,11 @@ buddy script set <property> <id> <value>
   └─ GET /api/v1/scripts/{id}                (fetch current)
   └─ PUT /api/v1/scripts/{id}                (update with modified field)
 
-buddy policy get --trigger=<trigger>
-  └─ GET /JSSResource/policies              (list, cached)
+buddy policy get <policy-id>
+  └─ GET /JSSResource/policies/id/{id}      (detail → JSON summary)
+
+buddy policy get id <trigger>
+  └─ GET /JSSResource/policies              (list, process-cached)
   └─ GET /JSSResource/policies/id/{id}      (detail, per candidate, for exact trigger match)
 
 buddy policy set ss <id> <version>
@@ -414,21 +417,23 @@ buddy policy set install <id> <version>
   └─ GET /JSSResource/policies/id/{id}      (fetch current)
   └─ PUT /JSSResource/policies/id/{id}      (update script parameters)
 
-buddy policy set package <app> <version> [policy-id] [--trigger=<trigger>] [--package=<pattern>]
-  └─ GET /JSSResource/policies              (list, for source policy lookup; or PolicyFind when --trigger set)
-  └─ GET /JSSResource/policies/id/{id}      (detail, for candidates)
+buddy policy set package <policy-id> <version> [--name=<name>] [--package=<pattern>]
+buddy policy set package <version> --trigger=<trigger> [--name=<name>] [--package=<pattern>]
+  └─ GET /JSSResource/policies              (list, cached; only when --trigger set, for PolicyFind)
+  └─ GET /JSSResource/policies/id/{id}      (fetch source policy)
   └─ GET /api/v1/packages                   (find matching package)
   └─ PUT /JSSResource/policies/id/{id}      (update package on source policy)
   └─ POST /JSSResource/policies/id/0        (create new versioned install policy, if needed)
   └─ PUT /JSSResource/policies/id/{id}      (disable old install policy)
 
-  Use --trigger when the policy uses a non-standard trigger (e.g. filebeat-install instead of cache-filebeat-1.2.3).
-  Use --package to override the default app+version search pattern. Supports:
+  Use --trigger to resolve the source policy by custom trigger instead of an ID.
+  --name sets the package search keyword (default: derived from the source trigger).
+  Use --package to override the default name+version search pattern. Supports:
     - Exact: "FalconSensorMacOS-7.32.20408.pkg"
     - Template: "FalconSensorMacOS-{version}.pkg" (substitutes version)
     - Regex: "re:FalconSensor.*\.pkg" (client-side regex filter)
 
-buddy policy create package <app> <version> [--action=install|cache] [--scope=all|1,2,3] [--category=name] [--package=<pattern>]
+buddy policy create package <name> <version> [--action=install|cache] [--scope=all|1,2,3] [--category=name] [--package=<pattern>]
   └─ GET /api/v1/packages                   (PackageFindID; --package overrides search pattern)
   └─ GET /JSSResource/policies              (uniquePolicyName)
   └─ GET /api/v1/categories                  (if --category set)
@@ -442,7 +447,7 @@ buddy policy delete <id> [id ...]
   └─ GET /JSSResource/policies/id/{id}      (fetch name for confirmation, per ID)
   └─ DELETE /JSSResource/policies/id/{id}   (delete, per ID)
 
-buddy policy find <keyword> [keyword...] [--exclude-ids=1,2,3]
+buddy policy list [--filter=<keyword>] [--ids] [--exclude-ids=1,2,3]
   └─ GET /JSSResource/policies             (or cached)
 
 buddy policy set scope <id> <group-id | all>
@@ -550,7 +555,7 @@ buddy package set <package-id> [--name=] [--notes=] [--info=] [--category=] [--p
   └─ GET /api/v1/packages/{id}               (fetch full record)
   └─ PUT /api/v1/packages/{id}               (update set fields)
 
-buddy computer find [--filter=<rsql>]
+buddy computer list [--filter=<rsql>]
   └─ GET /api/v3/computers-inventory          (optional filter, page-size=200)
 
 buddy computer get <id>
@@ -588,7 +593,7 @@ buddy computer certificates <id> [id...]
 buddy computer redeploy <id> [id...]
   └─ POST /api/v1/jamf-management-framework/redeploy/{id}  (per ID)
 
-buddy mdm find --filter=<rsql> [--sort=<expr>]
+buddy mdm list --filter=<rsql> [--sort=<expr>]
   └─ GET /api/v2/mdm/commands          (paginated; RSQL filter required by API)
 
 buddy role list
@@ -682,16 +687,16 @@ buddy client list --filter='displayName=="*CI*"'
 buddy role list  # (role list does not currently support --filter; use get <id>)
 
 # Computers by name, serial, or UDID
-buddy computer find --filter='general.name=="*Example*"'
-buddy computer find --filter='hardware.serialNumber=="C02EXAMPLE0001"'
-buddy computer find --filter='udid=="00000000-0000-4000-8000-000000000001"'
+buddy computer list --filter='general.name=="*Example*"'
+buddy computer list --filter='hardware.serialNumber=="C02EXAMPLE0001"'
+buddy computer list --filter='udid=="00000000-0000-4000-8000-000000000001"'
 
 # MDM commands by status
-buddy mdm find --filter='status==Pending'
-buddy mdm find --filter='clientManagementId==00000000-0000-4000-8000-000000000002;status==Pending'
+buddy mdm list --filter='status==Pending'
+buddy mdm list --filter='clientManagementId==00000000-0000-4000-8000-000000000002;status==Pending'
 
 # MDM commands completed after a date (date fields require range operators)
-buddy mdm find --filter='dateCompleted=ge=2024-01-01T00:00:00Z;status==Acknowledged'
+buddy mdm list --filter='dateCompleted=ge=2024-01-01T00:00:00Z;status==Acknowledged'
 ```
 
 In buddyscript scripts, prefer the `rsql_*` builders (see `buddy help builtins`) so dates and quoting stay correct:

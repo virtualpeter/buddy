@@ -10,6 +10,7 @@ import (
 var commandAliases = map[string]string{
 	"blueprints":    "blueprint",
 	"policies":      "policy",
+	"categories":    "category",
 	"profiles":      "profile",
 	"packages":      "package",
 	"computers":     "computer",

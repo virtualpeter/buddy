@@ -115,9 +115,10 @@ func PolicyPostXML(credName string, opts Opts, xml []byte, policyName string, lo
 	if err != nil {
 		return nil, err
 	}
+	invalidatePolicyListCache(credName)
 	id := parsePolicyIDFromPostBody(body)
 	if id <= 0 {
-		ids, findErr := PolicyFindByKeywords(credName, opts, []string{policyName}, nil, true, logger)
+		ids, findErr := PolicyFindByKeywords(credName, opts, []string{policyName}, nil, logger)
 		if findErr != nil {
 			return nil, fmt.Errorf("created policy but could not resolve ID: %w", findErr)
 		}
@@ -252,7 +253,7 @@ func PolicyUpsertPrepared(credName string, opts Opts, prepared []byte, name stri
 		if matchTrig == "" {
 			return nil, fmt.Errorf("policy_migrate: match_trigger requires a non-empty trigger_other (pass trigger= or copy a policy that has one)")
 		}
-		id, findErr := PolicyFind(credName, opts, matchTrig, true, logger)
+		id, findErr := PolicyFind(credName, opts, matchTrig, logger)
 		if findErr == nil {
 			destID = id
 			found = true
@@ -260,7 +261,7 @@ func PolicyUpsertPrepared(credName string, opts Opts, prepared []byte, name stri
 			return nil, findErr
 		}
 	} else {
-		destID, found, err = PolicyFindIDByExactName(credName, opts, name, true, logger)
+		destID, found, err = PolicyFindIDByExactName(credName, opts, name, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -333,12 +334,12 @@ func migrateMatchLabel(matchTrigger bool) string {
 }
 
 // PolicyFindIDByExactName returns the policy ID whose name equals name (case-insensitive).
-func PolicyFindIDByExactName(credName string, opts Opts, name string, forceRefresh bool, logger *slog.Logger) (int, bool, error) {
+func PolicyFindIDByExactName(credName string, opts Opts, name string, logger *slog.Logger) (int, bool, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return 0, false, fmt.Errorf("name is required")
 	}
-	summaries, err := PolicyFindSummariesByKeywords(credName, opts, nil, nil, forceRefresh, logger)
+	summaries, err := PolicyFindSummariesByKeywords(credName, opts, nil, nil, logger)
 	if err != nil {
 		return 0, false, err
 	}

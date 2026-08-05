@@ -76,7 +76,7 @@ def test_policy(cred, created):
     )
 
     name = TEST_PREFIX + "policy"
-    leftovers = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
+    leftovers = policies(keywords=[TEST_PREFIX], ids=True, auth=auth)
     if leftovers:
         policy_delete(policy_ids=leftovers, auth=auth)
 
@@ -108,7 +108,7 @@ def test_policy(cred, created):
         new_trigger = "install-" + TEST_PREFIX + "policy-%d" % policy_id
         policy_set(policy_id=policy_id, trigger=new_trigger, auth=auth)
         def _policy_by_trigger():
-            return policy(trigger=new_trigger, force_refresh=True)
+            return policy(trigger=new_trigger)
         tres = attempt(_policy_by_trigger)
         if not tres["ok"]:
             error("policy(trigger=) skipped:", tres["error"])
@@ -162,7 +162,7 @@ def test_policy(cred, created):
 
     # Best-effort: install/package need scripts or packages on the policy.
     before = leftovers
-    before = policies(keywords=[TEST_PREFIX], force_refresh=True, ids=True, auth=auth)
+    before = policies(keywords=[TEST_PREFIX], ids=True, auth=auth)
 
     def _install():
         return policy_set_install(policy_id=policy_id, version="1.2.3", auth=auth)
@@ -171,7 +171,7 @@ def test_policy(cred, created):
         error("policy_set_install skipped:", ires["error"])
 
     def _package():
-        return policy_set_package(app="chrome", version="1.2.3", policy_id=policy_id, auth=auth)
+        return policy_set_package(name="chrome", version="1.2.3", policy_id=policy_id, auth=auth)
     pres = attempt(_package)
     if not pres["ok"]:
         error("policy_set_package skipped:", pres["error"])

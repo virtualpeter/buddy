@@ -131,7 +131,7 @@ Examples:
   buddy cred clean tokens
   buddy cred use sandbox
   buddy cred use --mcp sandbox
-  buddy --tenant=sandbox policy find chrome
+  buddy --tenant=sandbox policy list --filter=chrome
   buddy --user=sandbox-admin policy set …
 `
 
@@ -141,43 +141,64 @@ Usage:
   buddy [global-flags] policy <subcommand> [args...]
 
 Subcommands:
-  get     Read policy properties (--trigger, enable state, xml)
+  list    List policies (optional keyword filter)
+  get     Read policy (details, id by trigger, enable state, xml)
   set     Modify policy properties (scope, enable/disable, trigger, name, ...)
   create  Create a new policy
   delete  Delete one or more policies
-  find    Search policies by keyword
 
 Use 'buddy policy <subcommand> help' for subcommand-specific help.
 
 Examples:
-  buddy policy get --trigger=install-chrome
-  buddy policy find chrome
+  buddy policy list --filter=chrome
+  buddy policy get id install-chrome
   buddy policy delete 42
+`
+
+const helpPolicyList = `buddy policy list - List policies
+
+Usage:
+  buddy policy list [--filter=<keyword>] [--ids] [--exclude-ids=1,2,3]
+
+Flags for 'list':
+  --filter=<keyword>    Match policy names (space-separated keywords all required).
+                        Hyphenated forms of names are also tried. A single
+                        trigger-like keyword (e.g. install-example-next) also
+                        resolves via custom trigger lookup.
+  --ids                 Print matching policy IDs only (one per line)
+  --exclude-ids=1,2,3   Exclude specific policy IDs from results
+
+Examples:
+  buddy policy list
+  buddy policy list --filter=chrome
+  buddy policy list --filter="chrome install" --ids
+  buddy policy list --filter=install-chrome-next
+  buddy policy list --filter=chrome --exclude-ids=100,101
 `
 
 const helpPolicyGet = `buddy policy get - Read policy properties
 
 Usage:
-  buddy policy get --trigger=<trigger> [-f|--force-refresh]
+  buddy policy get <policy-id>
+  buddy policy get id <trigger>
   buddy policy get enable <policy-id>
   buddy policy get xml <policy-id>
 
 Subcommands:
+  id <trigger>         Resolve custom trigger to policy ID (bare, pipeable)
   enable <policy-id>   Show enabled/disabled state
   xml <policy-id>      Output policy XML (PUT payload)
 
-Flags for '--trigger' lookup:
-  --trigger=<name>     Custom trigger name (also: --trigger <name>)
-  -f, --force-refresh   Bypass local policy cache
-
 Notes:
-  --trigger looks up the policy whose custom trigger (trigger_other) matches
-  (with name heuristics as fallback). Prints the policy ID. Prefer this over
-  guessing IDs when scripting set package.
+  Plain get <policy-id> prints policy details as JSON (id, name, enabled,
+  trigger, scope, packages, scripts).
+  get id looks up the policy whose custom trigger (trigger_other) matches
+  (with name heuristics as fallback). Prefer this over guessing IDs when
+  scripting set package.
 
 Examples:
-  buddy policy get --trigger=install-chrome
-  buddy policy get --trigger install-chrome -f
+  buddy policy get 42
+  buddy policy get id install-chrome
   buddy policy get enable 42
   buddy policy get xml 42
 `
@@ -198,24 +219,28 @@ Usage:
   buddy policy set frequency <policy-id> <frequency>
   buddy policy set icon <policy-id> <image-file>
   buddy policy set install <policy-id> <version> [--param=4,5,6]
-  buddy policy set package <app> <version> [policy-id] [flags]
-        Flags: [--trigger=<trigger>] [--package=<pattern>]
+  buddy policy set package <policy-id> <version> [flags]
+  buddy policy set package <version> --trigger=<trigger> [flags]
+        Flags: [--name=<name>] [--package=<pattern>]
                [--disable-source|--keep-source]
   buddy policy set xml <policy-id>
 
 Notes:
-  Source policy for 'set package' (prefer explicit):
-    --trigger=<custom-trigger>  Resolve by custom trigger (recommended)
+  Source policy for 'set package':
     <policy-id>                 Use this Install/Cache policy directly
-    (neither)                   Heuristic: name contains <app>, single Install/Cache
-                                package, pick highest version (can be wrong)
+    --trigger=<custom-trigger>  Resolve by custom trigger instead of an ID
+  Package lookup for 'set package':
+    --name=<name>               Package name keyword for the version search
+                                (default: derived from the source trigger,
+                                e.g. install-<name>-<version>)
+    --package=<pattern>         Explicit package name pattern (overrides --name)
   Disable source (shown in confirm plan):
     Default: disable only when creating a replacement that keeps the same
              custom trigger (unversioned). Versioned trigger change leaves
              the old policy enabled. Same version = in-place update (no disable).
     --disable-source            Always disable the source after create
     --keep-source               Never disable the source
-  New triggers when creating: install|cache-<app>-<version> if the source
+  New triggers when creating: install|cache-<name>-<version> if the source
   trigger was versioned; otherwise the source trigger is reused (replacement).
 
 Examples:
@@ -227,22 +252,28 @@ Examples:
   buddy policy set trigger 42 install-chrome
   buddy policy set frequency 42 "Once per computer"
   buddy policy set install 42 121.0 --param=4,5
-  buddy policy set package chrome 121.0 --trigger=install-chrome
-  buddy policy set package chrome 121.0 42 --keep-source
+  buddy policy set package 42 121.0 --keep-source
+  buddy policy set package 121.0 --trigger=install-chrome
+  buddy policy set package 42 121.0 --name=chrome
   buddy policy set xml 42 < policy.xml
 `
 
 const helpPolicyCreate = `buddy policy create - Create a new policy
 
 Usage:
-  buddy policy create package <app> <version> [flags]
+  buddy policy create package <name> <version> [flags]
         Flags: [--action=install|cache] [--scope=all|<group-id>[,<group-id>...]]
                [--category=<name>] [--package=<pattern>]
   buddy policy create ss <trigger> <display-name> [--category=<name>] [--script-id=<id>]
 
+Arguments:
+  <name>     Package name keyword (used for the package search and to build
+             the policy name and trigger)
+  <version>  Package version
+
 Notes:
-  create package invents triggers: install → install-<app>-next;
-  cache → cache-<app>-<version>.
+  create package invents triggers: install → install-<name>-next;
+  cache → cache-<name>-<version>.
   create ss defaults to no script (--script-id omitted / 0). Pass --script-id
   to attach a Jamf script (parameter4 = <trigger>). Scope is all computers.
 
@@ -261,24 +292,11 @@ Versioned policy clone was retired. Prefer:
   • buddyscript: policy_copy + policy_set_package / policy_set_ss / policy_set_install
 `
 
-const helpPolicyFind = `buddy policy find - Search policies by keyword
+const helpPolicyFind = `buddy policy find — removed
 
-Usage:
-  buddy policy find <keyword> [keyword...] [--exclude-ids=1,2,3] [-f|--force-refresh]
+Keyword search moved to 'buddy policy list':
 
-Arguments:
-  <keyword>             Match policy names (all keywords required). Hyphenated
-                        forms of names are also tried. A single trigger-like
-                        keyword (e.g. install-app-next) also resolves via
-                        custom trigger lookup.
-  --exclude-ids=1,2,3   Exclude specific policy IDs from results
-  -f, --force-refresh   Bypass local cache and re-fetch from Jamf
-
-Examples:
-  buddy policy find chrome
-  buddy policy find chrome install
-  buddy policy find install-chrome-next
-  buddy policy find chrome --exclude-ids=100,101 -f
+  buddy policy list [--filter=<keyword>] [--ids] [--exclude-ids=1,2,3]
 `
 
 const helpPolicyDelete = `buddy policy delete - Delete one or more policies
@@ -297,12 +315,14 @@ Usage:
   buddy [global-flags] mdm <subcommand> [args...]
 
 Subcommands:
-  find   Search MDM commands using an RSQL filter
+  list   List MDM commands matching an RSQL filter
 
-Flags for 'find':
-  --filter=<rsql>   RSQL filter expression (required; API requires at least one field)
-  --sort=<expr>     Sort expression (default: dateSent:asc)
-  --count           Fetch all matching records and print only the total count (table suppressed)
+Flags for 'list':
+  --filter=<rsql>       RSQL filter expression (required; API requires at least one field)
+  --sort=<expr>         Sort expression (default: dateSent:asc)
+  --count               Fetch all matching records and print only the total count (table suppressed)
+  --page-size=<n>       Records per API request (default 200; pagination fetches all)
+  --limit=<n>           Maximum total records to return (0 = no limit)
 
 RSQL filterable fields:
   uuid, clientManagementId, command, status, clientType, dateSent,
@@ -311,11 +331,12 @@ RSQL filterable fields:
   Date fields require gt/lt/ge/le operators (not ==).
 
 Examples:
-  buddy mdm find --filter="status==Pending"
-  buddy mdm find --filter="clientManagementId==00000000-0000-4000-8000-000000000002"
-  buddy mdm find --filter="status==Pending;clientType==COMPUTER" --sort="dateSent:desc"
-  buddy mdm find --filter="dateCompleted=ge=2024-01-01T00:00:00Z;status==Acknowledged"
-  buddy mdm find --filter="status==Pending" --count
+  buddy mdm list --filter="status==Pending"
+  buddy mdm list --filter="clientManagementId==00000000-0000-4000-8000-000000000002"
+  buddy mdm list --filter="status==Pending;clientType==COMPUTER" --sort="dateSent:desc"
+  buddy mdm list --filter="dateCompleted=ge=2024-01-01T00:00:00Z;status==Acknowledged"
+  buddy mdm list --filter="status==Pending" --count
+  buddy mdm list --filter="status==Pending" --limit=50
 `
 
 const helpSetup = `buddy setup - Bootstrap instance config; Jamf Pro role/client + instance oauth
@@ -403,6 +424,31 @@ Examples:
   buddy setup store-oauth --tenant=sandbox --name=sandbox-oauth -y
 `
 
+const helpCategory = `buddy category - Manage Jamf Pro categories
+
+Usage:
+  buddy [global-flags] category <subcommand> [args...]
+
+Subcommands:
+  list [--filter=<name>]              List categories (id, priority, name)
+  get <category-id>                   Show category details (JSON)
+  create <name> [--priority=<1-20>]   Create a category
+  delete <category-id>                Delete a category
+
+Flags for 'list':
+  --filter=<name>   Plain name substring or RSQL expression (e.g. 'name=="*Apps*"')
+
+Flags for 'create':
+  --priority=<1-20>   Category priority (default 9)
+
+Examples:
+  buddy category list
+  buddy category list --filter=apps
+  buddy category get 3
+  buddy category create "Mac Apps" --priority=9
+  buddy category delete 3
+`
+
 const helpGroup = `buddy group - Manage Jamf computer groups
 
 Usage:
@@ -411,6 +457,7 @@ Usage:
 Subcommands:
   list smart [--filter=<rsql>]           List smart computer groups
   list static [--filter=<rsql>]          List static computer groups
+  get <group-id>                         Show group JSON (smart group, falling back to static)
   get version <group-id>                 Show current version criterion (smart group)
   set version <group-id> <version>       Update version criterion (smart group)
   create smart <name> [--description=<text>] [--file=<json>]
@@ -453,6 +500,7 @@ Examples:
   buddy group list smart
   buddy group list static --filter=chrome
   buddy group list smart --filter='name=="*Chrome*"'
+  buddy group get 10
   buddy group get version 10
   buddy group set version 10 121.0
   buddy group create smart "Chrome installed" --file=criteria.json
@@ -689,7 +737,7 @@ Usage:
   buddy [global-flags] computer <subcommand> [args...]
 
 Subcommands:
-  find [--filter=<rsql>] [--management-id=<uuid>]    List computers (RSQL filter optional; --management-id looks up by MDM management UUID)
+  list [--filter=<rsql>] [--management-id=<uuid>]    List computers (RSQL filter optional; --management-id looks up by MDM management UUID)
   get <computer-id>                                   Show computer details
   reboot <computer-id> [computer-id...]               Send RESTART_DEVICE MDM command
   redeploy <computer-id> [computer-id...]            Trigger Jamf management framework redeploy
@@ -705,9 +753,9 @@ Subcommands:
   certificates <computer-id> [computer-id...]         Send CERTIFICATE_LIST (queued)
 
 Examples:
-  buddy computer find
-  buddy computer find --filter='general.name=="*Example*"'
-  buddy computer find --management-id=00000000-0000-4000-8000-000000000003
+  buddy computer list
+  buddy computer list --filter='general.name=="*Example*"'
+  buddy computer list --management-id=00000000-0000-4000-8000-000000000003
   buddy computer get 101
   buddy computer reboot 101 102
   buddy computer lock 101 --message="Lost device" --pin=123456
@@ -834,12 +882,14 @@ func printCommandHelp(path []string) {
 		"starlark":      help.Starlark,
 		"builtins":      help.Builtins,
 		"policy":        helpPolicy,
+		"policy.list":   helpPolicyList,
 		"policy.get":    helpPolicyGet,
 		"policy.set":    helpPolicySet,
 		"policy.create": helpPolicyCreate,
 		"policy.clone":  helpPolicyClone,
 		"policy.find":   helpPolicyFind,
 		"policy.delete": helpPolicyDelete,
+		"category":      helpCategory,
 		"group":         helpGroup,
 		"profile":       helpProfile,
 		"package":       helpPackage,
@@ -871,6 +921,8 @@ func printCommandHelp(path []string) {
 // policySubHelp returns the help text for a policy subcommand.
 func policySubHelp(mode string) string {
 	switch mode {
+	case "list":
+		return helpPolicyList
 	case "get":
 		return helpPolicyGet
 	case "set":

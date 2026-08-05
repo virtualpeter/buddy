@@ -1,6 +1,7 @@
 package buddy
 
 import (
+	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -390,6 +391,29 @@ func GroupVersion(credName string, opts Opts, groupID, newVersion string, logger
 		return fmt.Errorf("update smart group: %w", err)
 	}
 	fmt.Printf("Updated smart group %q (ID %s) %s: %s -> %s\n", group.Name, groupID, group.Criteria[idx].Name, oldVersion, newVersion)
+	return nil
+}
+
+// GroupGet prints a computer group JSON by ID: smart group first, static fallback.
+func GroupGet(credName, groupID string, logger *slog.Logger) error {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return fmt.Errorf("group id is required")
+	}
+	body, smartErr := jamfGET(credName, fmt.Sprintf("%s/%s", uriSmartGroups, url.PathEscape(groupID)))
+	if smartErr != nil {
+		var staticErr error
+		body, staticErr = jamfGET(credName, fmt.Sprintf("%s/%s", uriStaticGroups, url.PathEscape(groupID)))
+		if staticErr != nil {
+			return fmt.Errorf("group %s not found as smart group (%v) or static group (%v)", groupID, smartErr, staticErr)
+		}
+	}
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, body, "", "  "); err != nil {
+		fmt.Println(string(body))
+		return nil
+	}
+	fmt.Println(pretty.String())
 	return nil
 }
 
