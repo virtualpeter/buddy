@@ -56,6 +56,7 @@ In the notebook, open **Libraries** → **Getting started** for a short list of 
 | [Packages / JCDS](/docs/docs/packages) | READY gate, wait, download |
 | [Scripts](/docs/docs/scripts) | List vs body; copy/migrate |
 | [Categories](/docs/docs/categories) | Category copy (migrate step 1) |
+| [Mac App Store apps](/docs/docs/macapps) | Classic macapplications (list/get/create/delete) |
 | [Computers](/docs/docs/computers) | Inventory + MDM actions |
 | [MDM command history](/docs/docs/mdm) | Query command history (RSQL) |
 | [API roles](/docs/docs/api-roles) | Pro API roles |

@@ -11,6 +11,7 @@ var commandAliases = map[string]string{
 	"blueprints":    "blueprint",
 	"policies":      "policy",
 	"categories":    "category",
+	"macapps":       "macapp",
 	"profiles":      "profile",
 	"packages":      "package",
 	"computers":     "computer",

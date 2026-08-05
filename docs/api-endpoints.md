@@ -212,6 +212,29 @@ Base path: `/api/v1/packages`
 
 ---
 
+## Mac App Store apps (Classic API)
+
+Base path: `/JSSResource/macapplications`
+
+Jamf’s **Mac App Store Apps** object. There is no matching Pro JSON catalog for list/get/create. Prefer an instance-surface credential (Classic privileges). Bare `buddy app` is reserved for a later policy-delivered apps phase.
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/JSSResource/macapplications` | `MacAppSearch` | List all Mac App Store apps (id + name; XML) |
+| `GET` | `/JSSResource/macapplications/id/{id}` | `MacAppFetch`, `MacAppSearch` (enrich), `MacAppDelete` | Fetch full detail (JSON) |
+| `GET` | `/JSSResource/macapplications/name/{name}` | `MacAppFetchByName` | Fetch by exact name (JSON) |
+| `POST` | `/JSSResource/macapplications/id/0` | `MacAppCreate` | Create (name, version, bundle_id, url required) |
+| `DELETE` | `/JSSResource/macapplications/id/{id}` | `MacAppDelete` | Delete by id |
+
+### Notes
+
+- List summaries from Jamf are `{id, name}` only. `MacAppSearch` / `buddy macapp list` / `macapps()` follow up with per-row detail GETs so the table can show `version` and `bundle_id`. `--filter` / `filter=` is client-side (name, version, bundle_id); Classic has no RSQL on this collection.
+- Detail shape includes `general` (id, name, version, bundle_id, url, is_free, category, site), `scope`, and `self_service` (incl. VPP license flags). Full replace (`set`) is not exposed in this slice.
+- Optional create `--category` / `category=` resolves via exact category name (`CategoryFindIDByExactName`).
+- Related but separate: Pro VPP locations (`/api/v1/volume-purchasing-locations`) and `jamf-package` (Protect/Connect only) — not wired as `macapp`.
+
+---
+
 ## Configuration Profiles (Classic API)
 
 Base path: `/JSSResource/osxconfigurationprofiles`

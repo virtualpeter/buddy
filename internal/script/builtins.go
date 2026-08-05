@@ -102,6 +102,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "role_privileges", rolePrivilegesBuiltin(credName, logger))
 	putBuiltin(dict, "clients", clientsBuiltin(credName, logger))
 	putBuiltin(dict, "client", clientBuiltin(credName, logger))
+	registerMacAppBuiltins(dict, credName, logger)
 	putBuiltin(dict, "smart_group_get_version", smartGroupGetVersionNamed(credName, logger))
 	putBuiltin(dict, "smart_group_set_version", smartGroupSetVersionNamed(credName, logger))
 	putBuiltin(dict, "blueprints", blueprintsBuiltin(credName, logger))

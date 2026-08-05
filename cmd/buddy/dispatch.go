@@ -9,6 +9,7 @@ var knownCommands = map[string]struct{}{
 	"cred":          {},
 	"policy":        {},
 	"category":      {},
+	"macapp":        {},
 	"group":         {},
 	"profile":       {},
 	"package":       {},

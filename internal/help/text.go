@@ -16,6 +16,7 @@ Commands:
   cred     Manage tenants, auths, and secrets in the config file
   policy   Manage Jamf policies (list/get/set/create/delete)
   category Manage categories (list/get/create/delete)
+  macapp   Manage Classic Mac App Store apps (list/get/create/delete)
   group    Manage computer groups (list/get/set/create/delete; static membership)
   profile  Manage configuration profiles (list/get/set/clone/redeploy)
   package  Manage package records (list/get/download/upload/delete/set/history)
@@ -535,6 +536,18 @@ CATEGORY (Jamf Pro categories)
   category_copy(category_id, name?, priority?, upsert?=False,
                 tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict …
   category_migrate(...) → same as category_copy(..., upsert=True)
+
+MAC APP STORE (Classic macapplications)
+  macapps(filter?, tenant?, surface?, auth?)
+      → value: list of {id, name, version, bundle_id}
+      Params: filter?: str (client-side substring on name/version/bundle_id); Classic list has no RSQL.
+  macapp(id=?) | macapp(name=?, tenant?, surface?, auth?) → value: dict (full resource)
+      Params: Pass either id or name, not both. Returns general/scope/self_service plus flat fields.
+  macapp_create(name, version, bundle_id, url, free?=False, category?, tenant?, surface?, auth?)
+      → value: dict {id, name}
+      Params: name/version/bundle_id/url: str (required); free?: bool; category?: str (exact category name).
+  macapp_delete(macapp_id, tenant?, surface?, auth?) → None
+      Params: macapp_id: int or str.
 
 COMPUTER
   computers(filter?, ids?=False, page?, page_size?, tenant?, surface?, auth?)

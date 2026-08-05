@@ -165,6 +165,8 @@ var curatedDocEntries = []curatedDoc{
 		[]string{"script", "scripts", "script_copy", "script_migrate", "scriptContents"}},
 	{"docs/categories", "Categories", "Resources", "categories.md",
 		[]string{"category", "categories", "category_copy", "category_migrate"}},
+	{"docs/macapps", "Mac App Store apps", "Resources", "macapps.md",
+		[]string{"macapp", "macapps", "macapplications", "mac-app-store", "mac app store", "app store"}},
 	{"docs/computers", "Computers", "Resources", "computers.md",
 		[]string{"computer", "computers", "inventory", "reboot", "lock", "erase", "mdm"}},
 	{"docs/mdm", "MDM command history", "Resources", "mdm.md",

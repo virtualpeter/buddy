@@ -459,6 +459,41 @@ Examples:
   buddy category delete 3
 `
 
+const helpMacApp = `buddy macapp - Manage Classic Mac App Store apps
+
+Usage:
+  buddy [global-flags] macapp <subcommand> [args...]
+
+Subcommands:
+  list [--filter=<keyword>]           List Mac App Store apps (id, name, version, bundle id)
+  get <macapp-id>                     Show mac app details (JSON)
+  create --name= --version= --bundle-id= --url= [--free] [--category=<name>]
+                                      Create a Mac App Store app record
+  delete <macapp-id> [macapp-id...]   Delete one or more Mac App Store apps
+
+Flags for 'list':
+  --filter=<keyword>   Client-side substring on name, version, or bundle_id (Classic list has no RSQL)
+
+Flags for 'create':
+  --name=<name>             Display name (required)
+  --version=<version>       Version string (required)
+  --bundle-id=<bundle-id>   Bundle identifier (required)
+  --url=<url>               App Store URL (required)
+  --free                    Mark as free App Store app
+  --category=<name>         Category name (exact match)
+
+Notes:
+  Uses Classic /JSSResource/macapplications (instance surface). There is no Pro MAS catalog CRUD.
+  Bare 'buddy app' is reserved for a later policy-delivered apps phase.
+
+Examples:
+  buddy macapp list
+  buddy macapp list --filter=chrome
+  buddy macapp get 42
+  buddy macapp create --name="TextWrangler.app" --version=5.5.2 --bundle-id=com.barebones.textwrangler --url=https://itunes.apple.com/app/id404010395 --free
+  buddy macapp delete 42
+`
+
 const helpGroup = `buddy group - Manage Jamf computer groups
 
 Usage:
@@ -901,6 +936,7 @@ func printCommandHelp(path []string) {
 		"policy.find":   helpPolicyFind,
 		"policy.delete": helpPolicyDelete,
 		"category":      helpCategory,
+		"macapp":        helpMacApp,
 		"group":         helpGroup,
 		"profile":       helpProfile,
 		"package":       helpPackage,

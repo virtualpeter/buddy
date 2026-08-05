@@ -179,6 +179,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
+	case "macapp":
+		if err := runMacApp(credName, opts, args[1:], buddy.GetLogger()); err != nil {
+			logger.Error("Macapp command failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
 	case "group":
 		if err := runGroup(credName, opts, args[1:], buddy.GetLogger()); err != nil {
 			logger.Error("Group command failed", "error", err)
@@ -840,6 +846,96 @@ func runCategory(credName string, opts buddy.Opts, args []string, log *slog.Logg
 	default:
 		return errUnknownSubcommand("category", subcommand, []string{"list", "get", "create", "delete"})
 	}
+}
+
+func runMacApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == "help" {
+		fmt.Print(helpMacApp)
+		return nil
+	}
+	subcommand := args[0]
+	args = args[1:]
+
+	switch subcommand {
+	case "list":
+		var filter string
+		fs := flag.NewFlagSet("macapp list", flag.ContinueOnError)
+		fs.StringVar(&filter, "filter", "", "substring matched against name, version, or bundle_id")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		apps, err := buddy.MacAppSearch(credName, filter, log)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%-8s  %-40s  %-16s  %s\n", "ID", "Name", "Version", "Bundle ID")
+		fmt.Printf("%-8s  %-40s  %-16s  %s\n", "--------", "----------------------------------------", "----------------", "--------------------------------")
+		for _, a := range apps {
+			fmt.Printf("%-8d  %-40s  %-16s  %s\n", a.ID, truncatePad(a.Name, 40), truncatePad(a.Version, 16), a.BundleID)
+		}
+		return nil
+	case "get":
+		if len(args) < 1 {
+			return fmt.Errorf("missing macapp-id; run 'buddy macapp help' for usage")
+		}
+		d, err := buddy.MacAppFetch(credName, args[0])
+		if err != nil {
+			return err
+		}
+		b, err := json.MarshalIndent(d, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	case "create":
+		var name, version, bundleID, url, category string
+		var free bool
+		fs := flag.NewFlagSet("macapp create", flag.ContinueOnError)
+		fs.StringVar(&name, "name", "", "display name (required)")
+		fs.StringVar(&version, "version", "", "version string (required)")
+		fs.StringVar(&bundleID, "bundle-id", "", "bundle identifier (required)")
+		fs.StringVar(&url, "url", "", "App Store URL (required)")
+		fs.BoolVar(&free, "free", false, "mark as free App Store app")
+		fs.StringVar(&category, "category", "", "category name (exact)")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		_, err := buddy.MacAppCreate(credName, opts, buddy.MacAppCreateSpec{
+			Name:     name,
+			Version:  version,
+			BundleID: bundleID,
+			URL:      url,
+			IsFree:   free,
+			Category: category,
+		}, log)
+		return err
+	case "delete":
+		if len(args) < 1 {
+			return fmt.Errorf("missing macapp-id; run 'buddy macapp help' for usage")
+		}
+		var ids []int
+		for _, s := range args {
+			id, err := parseInt(s, "macapp-id")
+			if err != nil {
+				return err
+			}
+			ids = append(ids, id)
+		}
+		return buddy.MacAppDelete(credName, opts, ids, log)
+	default:
+		return errUnknownSubcommand("macapp", subcommand, []string{"list", "get", "create", "delete"})
+	}
+}
+
+func truncatePad(s string, width int) string {
+	if len(s) <= width {
+		return s
+	}
+	if width <= 3 {
+		return s[:width]
+	}
+	return s[:width-3] + "..."
 }
 
 func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
