@@ -33,6 +33,7 @@ Commands:
   serve    Local docs + notebook + script IDE web UI
   mcp      MCP stdio server for AI tools (setup discovers host configs)
   lsp      Language server for buddyscript (editor integration)
+  version  Print version and exit (same as --version)
 
 Global flags:
   --version           Print version and exit

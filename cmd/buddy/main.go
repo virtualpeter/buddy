@@ -47,7 +47,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	if globals.showVersion {
+	if globals.showVersion || (len(os.Args) > 1 && os.Args[1] == "version") {
 		fmt.Println(Version)
 		os.Exit(0)
 	}
@@ -150,6 +150,10 @@ func main() {
 		} else {
 			printUsage()
 		}
+		os.Exit(0)
+	case "version":
+		// Also handled before config load; keep for completeness if dispatch is reached.
+		fmt.Println(Version)
 		os.Exit(0)
 	case "auth":
 		if err := runAuth(credName, opts, args[1:], logger); err != nil {

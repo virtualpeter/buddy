@@ -4,6 +4,7 @@ import "os"
 
 var knownCommands = map[string]struct{}{
 	"help":          {},
+	"version":       {},
 	"auth":          {},
 	"cred":          {},
 	"policy":        {},

@@ -8,6 +8,16 @@ import (
 	"buddy/internal/help"
 )
 
+const helpVersion = `buddy version - Print version and exit
+
+Usage:
+  buddy version
+  buddy --version
+
+Notes:
+  Same output as --version. Does not load config or contact Jamf.
+`
+
 const helpAuth = `buddy auth - Obtain and test API authentication
 
 Usage:
@@ -878,6 +888,7 @@ func printCommandHelp(path []string) {
 	helpMap := map[string]string{
 		"auth":          helpAuth,
 		"cred":          helpCred,
+		"version":       helpVersion,
 		"shell":         help.Shell,
 		"starlark":      help.Starlark,
 		"builtins":      help.Builtins,
