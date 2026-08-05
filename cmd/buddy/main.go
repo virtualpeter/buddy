@@ -185,6 +185,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
+	case "app":
+		if err := runApp(credName, opts, args[1:], buddy.GetLogger()); err != nil {
+			logger.Error("App command failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
 	case "group":
 		if err := runGroup(credName, opts, args[1:], buddy.GetLogger()); err != nil {
 			logger.Error("Group command failed", "error", err)
@@ -936,6 +942,69 @@ func truncatePad(s string, width int) string {
 		return s[:width]
 	}
 	return s[:width-3] + "..."
+}
+
+func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == "help" {
+		fmt.Print(helpApp)
+		return nil
+	}
+	subcommand := args[0]
+	args = args[1:]
+
+	switch subcommand {
+	case "list":
+		var filter string
+		fs := flag.NewFlagSet("app list", flag.ContinueOnError)
+		fs.StringVar(&filter, "filter", "", "substring matched against name, kind, version, trigger, or package")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		apps, err := buddy.AppSearch(credName, filter, log)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%-16s  %-8s  %-12s  %-8s  %-24s  %s\n", "Name", "Kind", "Version", "SS ID", "Install trigger", "Package")
+		fmt.Printf("%-16s  %-8s  %-12s  %-8s  %-24s  %s\n", "----------------", "--------", "------------", "--------", "------------------------", "--------------------------------")
+		for _, a := range apps {
+			fmt.Printf("%-16s  %-8s  %-12s  %-8d  %-24s  %s\n",
+				truncatePad(a.Name, 16), truncatePad(string(a.Kind), 8), truncatePad(a.Version, 12),
+				a.SSPolicyID, truncatePad(a.InstallTrigger, 24), a.PackageName)
+		}
+		return nil
+	case "get":
+		if len(args) < 1 {
+			return fmt.Errorf("missing app name; run 'buddy app help' for usage")
+		}
+		d, err := buddy.AppGet(credName, args[0], log)
+		if err != nil {
+			return err
+		}
+		b, err := json.MarshalIndent(d, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	case "upgrade":
+		if len(args) < 1 {
+			return fmt.Errorf("missing app name; run 'buddy app help' for usage")
+		}
+		name := args[0]
+		var version, packagePattern string
+		fs := flag.NewFlagSet("app upgrade", flag.ContinueOnError)
+		fs.StringVar(&version, "version", "", "target version (required)")
+		fs.StringVar(&packagePattern, "package-pattern", "", "optional package name glob")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if strings.TrimSpace(version) == "" {
+			return fmt.Errorf("--version is required; run 'buddy app help' for usage")
+		}
+		return buddy.AppUpgrade(credName, opts, name, version, packagePattern, log)
+	default:
+		return errUnknownSubcommand("app", subcommand, []string{"list", "get", "upgrade"})
+	}
 }
 
 func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {

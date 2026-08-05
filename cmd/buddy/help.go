@@ -484,7 +484,7 @@ Flags for 'create':
 
 Notes:
   Uses Classic /JSSResource/macapplications (instance surface). There is no Pro MAS catalog CRUD.
-  Bare 'buddy app' is reserved for a later policy-delivered apps phase.
+  For policy apps (package + Self Service), use 'buddy app'.
 
 Examples:
   buddy macapp list
@@ -492,6 +492,40 @@ Examples:
   buddy macapp get 42
   buddy macapp create --name="TextWrangler.app" --version=5.5.2 --bundle-id=com.barebones.textwrangler --url=https://itunes.apple.com/app/id404010395 --free
   buddy macapp delete 42
+`
+
+const helpApp = `buddy app - Manage policy apps (Self Service + packages)
+
+Usage:
+  buddy [global-flags] app <subcommand> [args...]
+
+Subcommands:
+  list [--filter=<keyword>]                              Discover policy apps from Self Service policies
+  get <name>                                             Show one policy app (kind, linked policies, package)
+  upgrade <name> --version=<version> [--package-pattern=…]
+                                                         Bump app to a new package version by kind
+
+Flags for 'list':
+  --filter=<keyword>   Client-side substring on name, kind, version, trigger, or package
+
+Flags for 'upgrade':
+  --version=<version>           Target version (required)
+  --package-pattern=<glob>      Optional package name glob (e.g. *santa*2026.3*)
+
+Notes:
+  Discovery starts from policies whose name contains [SS], then classifies:
+    single  — Self Service policy has the Install package attached
+    install — SS script calls install-{app} / install-{app}-next / {app}-install
+    cache   — install pattern plus versioned cache-{app}-{version} policies
+  Non-app Self Service (e.g. inventory-only) is excluded.
+  Upgrade composes existing policy package / Self Service helpers (same as change batches).
+  Classic Mac App Store records use 'buddy macapp', not this command.
+
+Examples:
+  buddy app list
+  buddy app list --filter=santa
+  buddy app get santa
+  buddy app upgrade santa --version=2026.3 --package-pattern='*santa*2026.3*'
 `
 
 const helpGroup = `buddy group - Manage Jamf computer groups
@@ -937,6 +971,7 @@ func printCommandHelp(path []string) {
 		"policy.delete": helpPolicyDelete,
 		"category":      helpCategory,
 		"macapp":        helpMacApp,
+		"app":           helpApp,
 		"group":         helpGroup,
 		"profile":       helpProfile,
 		"package":       helpPackage,

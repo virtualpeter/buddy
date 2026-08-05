@@ -216,7 +216,7 @@ Base path: `/api/v1/packages`
 
 Base path: `/JSSResource/macapplications`
 
-Jamf’s **Mac App Store Apps** object. There is no matching Pro JSON catalog for list/get/create. Prefer an instance-surface credential (Classic privileges). Bare `buddy app` is reserved for a later policy-delivered apps phase.
+Jamf’s **Mac App Store Apps** object. There is no matching Pro JSON catalog for list/get/create. Prefer an instance-surface credential (Classic privileges). Policy apps use `buddy app` / `apps(...)` (discovered from policies), not this endpoint.
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|

@@ -17,6 +17,7 @@ Commands:
   policy   Manage Jamf policies (list/get/set/create/delete)
   category Manage categories (list/get/create/delete)
   macapp   Manage Classic Mac App Store apps (list/get/create/delete)
+  app      Manage policy apps (list/get/upgrade)
   group    Manage computer groups (list/get/set/create/delete; static membership)
   profile  Manage configuration profiles (list/get/set/clone/redeploy)
   package  Manage package records (list/get/download/upload/delete/set/history)
@@ -548,6 +549,18 @@ MAC APP STORE (Classic macapplications)
       Params: name/version/bundle_id/url: str (required); free?: bool; category?: str (exact category name).
   macapp_delete(macapp_id, tenant?, surface?, auth?) → None
       Params: macapp_id: int or str.
+
+POLICY APPS (Self Service + packages)
+  apps(filter?, tenant?, surface?, auth?)
+      → value: list of summary dicts {name, kind, version, ss_policy_id, install_trigger, …}
+      Params: filter?: str (client-side substring on name/kind/version/trigger/package).
+      Notes: Discovers policies whose name contains [SS]; kinds are single|install|cache.
+  app(name, tenant?, surface?, auth?) → value: dict (summary + linked install/cache policies)
+      Params: name: str (app identifier, e.g. santa, vscode).
+  app_upgrade(name, version, package_pattern?, tenant?, surface?, auth?) → None
+      Params: name: str; version: str; package_pattern?: str (package name glob).
+      Notes: Dispatches by kind — single in-place package+SS description; install PolicyPackage
+             with disable-source; cache keep prior cache + replace install-next.
 
 COMPUTER
   computers(filter?, ids?=False, page?, page_size?, tenant?, surface?, auth?)

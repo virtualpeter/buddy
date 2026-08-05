@@ -2,7 +2,7 @@
 
 Jamf **Mac App Store Apps** objects live on Classic `/JSSResource/macapplications`. There is no Pro JSON catalog CRUD for the same resource. Prefer an instance-surface auth (Classic privileges required).
 
-Bare `buddy app` / `apps(...)` are reserved for a later **policy-delivered apps** phase — do not invent those names for this object.
+Bare `buddy app` / `apps(...)` manage **policy apps** (Self Service + packages) — see [apps.md](apps.md). Do not use those names for Mac App Store records.
 
 ## Happy path (preferred)
 
@@ -31,7 +31,7 @@ def main():
 
 - Invent Pro “Mac App Store” or “Jamf Apps” list/create paths — they are not exposed for this object.
 - Confuse this with VPP locations/content (`/api/v1/volume-purchasing-locations`) or `jamf-package` (Protect/Connect only).
-- Use `app` / `apps` / `appstore` builtins or CLI verbs for MAS records.
+- Use `app` / `apps` for policy apps (policy + package), not for MAS records — see [apps.md](apps.md).
 
 ## Related
 

@@ -12,6 +12,7 @@ var commandAliases = map[string]string{
 	"policies":      "policy",
 	"categories":    "category",
 	"macapps":       "macapp",
+	"apps":          "app",
 	"profiles":      "profile",
 	"packages":      "package",
 	"computers":     "computer",
