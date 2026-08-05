@@ -792,8 +792,11 @@ Notes:
   JCDS pre-signed URI, streams to a temp file while hashing SHA-256, and renames
   only on match. JCDS only (Jamf Cloud). Default outfile is the package fileName.
   upload looks up fileName first: existing record → compare checksums and skip or
-  replace the file (and apply attr flags when they differ); new fileName → create
-  metadata with attr flags, wait until readable, then upload.
+  replace the file (and apply attr flags when they differ); if checksums are empty
+  and cloudTransferStatus is not READY, report not ready (do not re-upload — wait
+  with wait-ready); new fileName → create metadata with attr flags, wait until
+  readable, then upload.
+  wait-ready / package_ready require cloudTransferStatus READY and a non-empty sha256.
   Only .pkg and .dmg are supported.
 
 Examples:

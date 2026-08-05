@@ -396,12 +396,12 @@ PACKAGE
         optional package name glob/regex override.
   package_ready(id=, tenant?, surface?, auth?) → value: bool
       Params: id=: package id; tenant?/surface?/auth?: str.
-      Returns: True iff the package exists and cloudTransferStatus is "READY";
-        False if missing or not ready. API errors raise.
+      Returns: True iff the package exists, cloudTransferStatus is "READY", and
+        sha256 is non-empty; False if missing or not ready. API errors raise.
   package_wait_ready(id=, timeout?, tenant?, surface?, auth?) → value: None
       Params: id=: package id; timeout?: int seconds (default 600); tenant?/surface?/auth?: str.
-      Polls until cloudTransferStatus is READY (nudges JCDS refresh-inventory).
-      Prefer after package_upload before attaching to a policy.
+      Polls until cloudTransferStatus is READY and sha256 is set (nudges JCDS
+      refresh-inventory). Prefer after package_upload before attaching to a policy.
   package_download(id=, path?, tenant?, surface?, auth?) → value: None
       Params: id=: package id; path?: local outfile (default fileName); tenant?/surface?/auth?: str.
       Waits READY+sha256, streams JCDS pre-signed URI to temp while hashing
@@ -412,6 +412,7 @@ PACKAGE
         category_id?: str (default "-1"); priority?: int 1–20 (default 10);
         notes?/info?: str; reboot?: bool (default false); tenant?/surface?/auth?: str.
         Same fileName → update path (GET + checksum compare; skip upload if match;
+        if hashes blank and status not READY, raise not-ready — do not re-upload;
         apply metadata flags when they differ). New fileName → create with flags,
         wait until readable, then stream upload.
   package_delete(ids) → None

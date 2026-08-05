@@ -32,6 +32,62 @@ func TestPackageIsCloudReady(t *testing.T) {
 	}
 }
 
+func TestPackageIsUsable(t *testing.T) {
+	t.Parallel()
+	if packageIsUsable(&PackageRecord{CloudTransferStatus: packageCloudTransferReady}) {
+		t.Fatal("READY without sha256 should not be usable")
+	}
+	if packageIsUsable(&PackageRecord{CloudTransferStatus: "PENDING", Sha256: "abc"}) {
+		t.Fatal("PENDING with sha256 should not be usable")
+	}
+	if !packageIsUsable(&PackageRecord{CloudTransferStatus: packageCloudTransferReady, Sha256: "abc"}) {
+		t.Fatal("READY with sha256 should be usable")
+	}
+}
+
+func TestPackageHasComparableChecksum(t *testing.T) {
+	t.Parallel()
+	if packageHasComparableChecksum(&PackageRecord{}) {
+		t.Fatal("empty")
+	}
+	if !packageHasComparableChecksum(&PackageRecord{Sha256: "aa"}) {
+		t.Fatal("sha256")
+	}
+	if !packageHasComparableChecksum(&PackageRecord{Md5: "bb"}) {
+		t.Fatal("md5")
+	}
+	if !packageHasComparableChecksum(&PackageRecord{HashType: "SHA-256", HashValue: "cc"}) {
+		t.Fatal("hashValue SHA-256")
+	}
+	if packageHasComparableChecksum(&PackageRecord{HashType: "SHA3_512", HashValue: "cc"}) {
+		t.Fatal("SHA3 should not count")
+	}
+}
+
+func TestPackageUploadSkipsWhenPendingNoChecksum(t *testing.T) {
+	t.Parallel()
+	// Mirrors PackageUpload decision: empty checksums + not READY → pending, not replace.
+	pkg := &PackageRecord{
+		PackageName:         "Chrome",
+		CloudTransferStatus: "PENDING",
+	}
+	local := packageFileHashes{MD5: "dead", SHA256: "beef"}
+	match, _ := packageFileMatches(pkg, local)
+	if match {
+		t.Fatal("should not match without server checksums")
+	}
+	if packageIsCloudReady(pkg) || packageHasComparableChecksum(pkg) {
+		t.Fatal("expected pending path (not ready, no checksums)")
+	}
+	// READY with no checksums still means we cannot prove identity — upload path allowed.
+	readyEmpty := &PackageRecord{CloudTransferStatus: packageCloudTransferReady}
+	if packageIsCloudReady(readyEmpty) && !packageHasComparableChecksum(readyEmpty) {
+		// upload may proceed; not the pending error path
+	} else {
+		t.Fatal("READY empty checksums should not take pending path")
+	}
+}
+
 func TestJcdsStreamVerifyToFile_OK(t *testing.T) {
 	t.Parallel()
 	payload := []byte("buddy-pkg-download-bytes")

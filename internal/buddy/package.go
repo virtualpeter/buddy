@@ -413,8 +413,33 @@ func packageIsCloudReady(pkg *PackageRecord) bool {
 	return pkg != nil && pkg.CloudTransferStatus == packageCloudTransferReady
 }
 
-// PackageReady reports whether the package exists and cloudTransferStatus is READY.
-// A missing package (HTTP 404) returns false, nil — not an error.
+// packageHasComparableChecksum reports whether the record has a checksum we can
+// compare to a local file (sha256, md5, or MD5/SHA-256 hashValue).
+func packageHasComparableChecksum(pkg *PackageRecord) bool {
+	if pkg == nil {
+		return false
+	}
+	if strings.TrimSpace(pkg.Sha256) != "" || strings.TrimSpace(pkg.Md5) != "" {
+		return true
+	}
+	if strings.TrimSpace(pkg.HashValue) == "" {
+		return false
+	}
+	switch strings.ToUpper(strings.ReplaceAll(pkg.HashType, "-", "_")) {
+	case "SHA256", "SHA_256", "MD5":
+		return true
+	default:
+		return false
+	}
+}
+
+// packageIsUsable is READY with a non-empty sha256 (JCDS inventory settled).
+func packageIsUsable(pkg *PackageRecord) bool {
+	return packageIsCloudReady(pkg) && strings.TrimSpace(pkg.Sha256) != ""
+}
+
+// PackageReady reports whether the package exists, cloudTransferStatus is READY,
+// and sha256 is populated. A missing package (HTTP 404) returns false, nil — not an error.
 func PackageReady(credName, id string) (bool, error) {
 	pkg, status, err := packageGetStatus(credName, id)
 	if err != nil {
@@ -426,14 +451,14 @@ func PackageReady(credName, id string) (bool, error) {
 	if status != http.StatusOK {
 		return false, fmt.Errorf("get package %s status %d", id, status)
 	}
-	return packageIsCloudReady(pkg), nil
+	return packageIsUsable(pkg), nil
 }
 
-// PackageWaitReady polls until the package exists and cloudTransferStatus is READY.
-// timeout ≤ 0 uses the default (10 minutes). Optionally nudges JCDS inventory
-// using the package fileName between polls.
+// PackageWaitReady polls until the package exists, cloudTransferStatus is READY,
+// and sha256 is non-empty. timeout ≤ 0 uses the default (10 minutes). Optionally
+// nudges JCDS inventory using the package fileName between polls.
 func PackageWaitReady(credName, id string, timeout time.Duration, logger *slog.Logger) error {
-	_, err := packageWaitUntil(credName, id, timeout, false, logger)
+	_, err := packageWaitUntil(credName, id, timeout, true, logger)
 	return err
 }
 
@@ -482,7 +507,12 @@ func packageWaitUntil(credName, id string, timeout time.Duration, requireSHA256 
 			if last != nil {
 				statusNote = fmt.Sprintf("cloudTransferStatus=%q", last.CloudTransferStatus)
 				if requireSHA256 {
-					statusNote += fmt.Sprintf(" sha256=%q", last.Sha256)
+					sha := strings.TrimSpace(last.Sha256)
+					if sha == "" {
+						statusNote += " sha256=(none)"
+					} else {
+						statusNote += fmt.Sprintf(" sha256=%q", sha)
+					}
 				}
 			}
 			return nil, fmt.Errorf("package %s not %s within %s (%d polls, %s; last: %s)",
@@ -494,8 +524,21 @@ func packageWaitUntil(credName, id string, timeout time.Duration, requireSHA256 
 			if requireSHA256 {
 				msg += " and sha256"
 			}
-			if last != nil && last.CloudTransferStatus != "" {
-				msg += fmt.Sprintf(" (now %q)", last.CloudTransferStatus)
+			if last != nil {
+				parts := []string{}
+				if last.CloudTransferStatus != "" {
+					parts = append(parts, fmt.Sprintf("status=%q", last.CloudTransferStatus))
+				} else {
+					parts = append(parts, `status=""`)
+				}
+				if requireSHA256 {
+					if strings.TrimSpace(last.Sha256) == "" {
+						parts = append(parts, "sha256=(none)")
+					} else {
+						parts = append(parts, "sha256=set")
+					}
+				}
+				msg += " (" + strings.Join(parts, " ") + ")"
 			}
 			fmt.Fprintf(os.Stderr, "%s…\n", msg)
 			lastAnnounce = now
@@ -1405,6 +1448,16 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 			}
 			return packageApplyAttrs(credName, id, opts, attrs, pkg, logger)
 		}
+		// After a recent upload Jamf clears checksums until cloudTransferStatus is
+		// READY — empty sha256 then means "still transferring", not "needs re-upload".
+		if !packageIsCloudReady(pkg) && !packageHasComparableChecksum(pkg) {
+			status := pkg.CloudTransferStatus
+			if status == "" {
+				status = "(empty)"
+			}
+			return fmt.Errorf("package %s (%q) is not ready yet (cloudTransferStatus=%s, sha256 empty); wait with package_wait_ready / 'buddy package wait-ready' before re-uploading or attaching",
+				id, pkg.PackageName, status)
+		}
 		fmt.Println("Local file differs from server checksums — file upload needed")
 		if metaNeeded {
 			fmt.Printf("Metadata will also be updated: %s\n", strings.Join(attrs.summaryLines(pkg), ", "))
@@ -1499,7 +1552,9 @@ func hexEqualFold(a, b string) bool {
 
 // packageFileMatches reports whether the Jamf package record's checksums match local.
 // Prefers sha256, then md5, then hashType/hashValue when those are MD5 or SHA-256.
-// Returns false (upload needed) when the server has no comparable checksum yet.
+// Returns false when the server has no comparable checksum yet — callers must also
+// check cloudTransferStatus (blank hashes while not READY means transfer pending,
+// not "upload needed").
 func packageFileMatches(pkg *PackageRecord, local packageFileHashes) (matched bool, field string) {
 	if pkg == nil {
 		return false, ""
@@ -1535,6 +1590,11 @@ func printPackageRecordSummary(pkg *PackageRecord) {
 	fmt.Printf("  fileName:    %s\n", pkg.FileName)
 	fmt.Printf("  categoryId:  %s\n", pkg.CategoryID)
 	fmt.Printf("  priority:    %d\n", pkg.Priority)
+	status := pkg.CloudTransferStatus
+	if status == "" {
+		status = "(none)"
+	}
+	fmt.Printf("  status:      %s\n", status)
 	if pkg.Md5 != "" {
 		fmt.Printf("  md5:         %s\n", pkg.Md5)
 	} else {
