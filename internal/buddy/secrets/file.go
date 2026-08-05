@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -80,7 +81,7 @@ func (f *FileStore) writeFile(credName string, sf *secretFile) error {
 		tmp.Close()
 		return fmt.Errorf("write temp secrets file: %w", err)
 	}
-	if err := tmp.Chmod(0o600); err != nil {
+	if err := tmp.Chmod(0o600); err != nil && runtime.GOOS != "windows" {
 		tmp.Close()
 		return fmt.Errorf("chmod temp secrets file: %w", err)
 	}
@@ -90,7 +91,10 @@ func (f *FileStore) writeFile(credName string, sf *secretFile) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("replace secrets file: %w", err)
 	}
-	return os.Chmod(path, 0o600)
+	if err := os.Chmod(path, 0o600); err != nil && runtime.GOOS != "windows" {
+		return err
+	}
+	return nil
 }
 
 func (f *FileStore) Get(credName string, kind Kind) (string, error) {

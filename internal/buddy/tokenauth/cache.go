@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"buddy/internal/buddy/secrets"
 )
 
 // diskTokenFile is the on-disk shape for a cached bearer token.
@@ -128,15 +130,7 @@ func tokenCacheDir() (string, error) {
 	if override != "" {
 		return override, nil
 	}
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		base = filepath.Join(home, ".config")
-	}
-	return filepath.Join(base, "buddy", "tokens"), nil
+	return secrets.TokensDir()
 }
 
 func sanitizeCacheKey(key string) string {

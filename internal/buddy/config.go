@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"buddy/internal/buddy/secrets"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -740,18 +742,14 @@ func (cfg *Config) ResolveCredential(authName string) (CredentialConfig, error) 
 
 // configPath returns the path to the buddy config file.
 func configPath() (string, error) {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		base = filepath.Join(home, ".config")
+	dir, err := secrets.ConfigDir()
+	if err != nil {
+		return "", err
 	}
-	return filepath.Join(base, "buddy", "config.yaml"), nil
+	return filepath.Join(dir, "config.yaml"), nil
 }
 
-// LoadConfig loads config from ~/.config/buddy/config.yaml (or XDG_CONFIG_HOME).
+// LoadConfig loads config from the platform config dir (see secrets.ConfigDir).
 // Older shapes (credentials:, string tenant:, defaults:, allow_auths:) migrate in-memory and rewrite on disk.
 func LoadConfig() (*Config, error) {
 	path, err := configPath()

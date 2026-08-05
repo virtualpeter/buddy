@@ -43,7 +43,9 @@ token_command:
 | `docs/` | User-facing reference manual |
 | `.cursor/rules/` | Persistent Cursor rules (CLI + buddyscript conventions) |
 
-Build: `make buddy` → `./buddy`. Tests: `go test ./...`. Docs UI: `make docs-serve`. Extension VSIX: `make extension-package` (`PUBLISHER` defaults to `virtualpete`).
+Build: `make buddy` → `./buddy` (`CGO_ENABLED=0` by default). Cross-compile: `make buddy-linux` / `make buddy-windows`. Optional exclusion tags: `make buddy TAGS=noserve,nomcp,nolsp` or `make buddy-lite` / `make size-report`. Tests: `go test ./...`. Docs UI: `make docs-serve`. Extension VSIX: `make extension-package` (`PUBLISHER` defaults to `virtualpete`).
+
+Config/secrets/tokens live under `~/.config/buddy` on macOS/Linux (`$XDG_CONFIG_HOME/buddy` when set), and `%APPDATA%\buddy` on Windows. Default secret store: Keychain (macOS), file store (Linux/Windows). `pass` is Unix-oriented.
 
 ## MCP (AI tools)
 

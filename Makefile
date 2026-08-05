@@ -2,6 +2,9 @@
 # Go compiler
 GO := go
 GOFLAGS := -v -buildvcs=false
+# Buddy does not need CGO (Keychain uses security(1)). Override with CGO_ENABLED=1 if needed.
+CGO_ENABLED ?= 0
+export CGO_ENABLED
 
 BUILDTARGET := buddy
 
@@ -27,11 +30,49 @@ sync-platform-schema:
 docfs/content/README.embedded: $(DOC_SOURCES) scripts/sync-docfs.sh
 	@./scripts/sync-docfs.sh
 
+# Optional build tags (comma-separated). Exclusion tags shrink the binary:
+#   noserve — omit buddy serve (drops goldmark/chroma)
+#   nomcp   — omit buddy mcp (drops MCP SDK)
+#   nolsp   — omit buddy lsp (small savings; starlark stays via script)
+# Example: make buddy TAGS=noserve,nomcp
+TAGS ?=
+ifneq ($(TAGS),)
+GO_TAGS := -tags '$(TAGS)'
+else
+GO_TAGS :=
+endif
+
 $(BUILDTARGET): sync-docfs $(BUDDY_GO_FILES) docfs/content/README.embedded
-	@echo "Building buddy (version $(BUDDY_VERSION))..."
-	$(GO) build $(GOFLAGS) -ldflags "-X main.Version=$(BUDDY_VERSION)" -o $(BUILDTARGET) ./cmd/buddy
+	@echo "Building buddy (version $(BUDDY_VERSION)$(if $(TAGS), tags=$(TAGS)), CGO_ENABLED=$(CGO_ENABLED))..."
+	$(GO) build $(GOFLAGS) $(GO_TAGS) -ldflags "-X main.Version=$(BUDDY_VERSION)" -o $(BUILDTARGET) ./cmd/buddy
 	@! santactl status>/dev/null|| santactl fileinfo buddy|grep Rule|egrep '(Allowed|None)' >/dev/null|| rm buddy
-	@ls -l $(BUILDTARGET)
+	@ls -lh $(BUILDTARGET)
+
+# Automation-oriented binary without serve/mcp/lsp (same CLI + buddyscript).
+.PHONY: buddy-lite
+buddy-lite: sync-docfs
+	@echo "Building buddy-lite (version $(BUDDY_VERSION), tags=noserve,nomcp,nolsp, CGO_ENABLED=$(CGO_ENABLED))..."
+	$(GO) build $(GOFLAGS) -tags 'noserve,nomcp,nolsp' -ldflags "-X main.Version=$(BUDDY_VERSION)" -o buddy-lite ./cmd/buddy
+	@ls -lh buddy-lite
+
+# Cross-compile Linux amd64 (pure Go; no CGO).
+.PHONY: buddy-linux
+buddy-linux: sync-docfs
+	@echo "Building buddy-linux-amd64 (version $(BUDDY_VERSION), CGO_ENABLED=0)..."
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) $(GO_TAGS) -ldflags "-X main.Version=$(BUDDY_VERSION)" -o buddy-linux-amd64 ./cmd/buddy
+	@ls -lh buddy-linux-amd64
+
+# Cross-compile Windows amd64 (pure Go; config under %APPDATA%\buddy).
+.PHONY: buddy-windows
+buddy-windows: sync-docfs
+	@echo "Building buddy-windows-amd64.exe (version $(BUDDY_VERSION), CGO_ENABLED=0)..."
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build $(GOFLAGS) $(GO_TAGS) -ldflags "-X main.Version=$(BUDDY_VERSION)" -o buddy-windows-amd64.exe ./cmd/buddy
+	@ls -lh buddy-windows-amd64.exe
+
+# Compare binary sizes for feature-tag combinations (writes /tmp/buddy-size-*).
+.PHONY: size-report
+size-report: sync-docfs
+	@./scripts/buddy-size-report.sh
 
 install: $(BUILDTARGET)
 	rm -f ~/go/bin/$(BUILDTARGET)
@@ -69,7 +110,7 @@ docs-serve: $(BUILDTARGET)
 # Clean all built executables
 clean:
 	@echo "Cleaning executables..."
-	@rm -f $(BUILDTARGET)
+	@rm -f $(BUILDTARGET) buddy-lite buddy-linux-amd64 buddy-windows-amd64.exe
 .PHONY: clean
 
 # Package Cursor/VS Code extension VSIX (PUBLISHER=virtualpete by default)
@@ -83,6 +124,10 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  $(BUILDTARGET)   - Sync embedded docs + build $(BUILDTARGET) CLI"
+	@echo "  buddy-lite - Build with TAGS=noserve,nomcp,nolsp → ./buddy-lite"
+	@echo "  buddy-linux - Cross-compile linux/amd64 → ./buddy-linux-amd64"
+	@echo "  buddy-windows - Cross-compile windows/amd64 → ./buddy-windows-amd64.exe"
+	@echo "  size-report - Build tag variants and print size contribution table"
 	@echo "  sync-docfs - Copy docs/AGENTS/examples/rules into docfs/content for go:embed"
 	@echo "  sync-platform-schema - Refresh vendored Jamf Platform API OpenAPI specs"
 	@echo "  install   - Install $(BUILDTARGET) CLI to ~/go/bin/"
@@ -94,4 +139,7 @@ help:
 	@echo "  extension-package - Build editors/vscode VSIX (PUBLISHER=virtualpete)"
 	@echo "  clean   - Remove all built executables"
 	@echo "  help    - Show this help message"
+	@echo ""
+	@echo "Build tags (TAGS=…): noserve, nomcp, nolsp — omit optional features"
+	@echo "CGO_ENABLED=$(CGO_ENABLED) by default (set CGO_ENABLED=1 to override)"
 .PHONY: help

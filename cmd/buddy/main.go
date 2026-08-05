@@ -2,22 +2,17 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/signal"
 	"strconv"
 	"strings"
 
 	"buddy/internal/buddy"
 	"buddy/internal/help"
-	buddylsp "buddy/internal/lsp"
-	buddymcp "buddy/internal/mcp"
 	"buddy/internal/script"
-	"buddy/internal/serve"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=..."
@@ -288,11 +283,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "lsp":
-		if len(args) > 1 && args[1] == "help" {
-			fmt.Print(helpLSP)
-			return
-		}
-		if err := buddylsp.Run(Version); err != nil {
+		if err := runLSP(args[1:], logger); err != nil {
 			logger.Error("LSP failed", "error", err)
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
@@ -2672,64 +2663,6 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 	default:
 		return errUnknownSubcommand("setup", subcommand, []string{"basic-setup", "write-script", "store-oauth"})
 	}
-}
-
-func runMCP(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) > 0 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help") {
-		fmt.Print(helpMCP)
-		return nil
-	}
-	if len(args) > 0 && args[0] == "setup" {
-		var write, create bool
-		var path, host string
-		fs := flag.NewFlagSet("mcp setup", flag.ContinueOnError)
-		fs.BoolVar(&write, "write", false, "Merge buddy into selected MCP host configs")
-		fs.BoolVar(&create, "create", false, "Create missing well-known config files when writing")
-		fs.StringVar(&path, "path", "", "Write/inspect a specific MCP config file")
-		fs.StringVar(&host, "host", "", "Filter hosts: cursor, claude-desktop (default: all)")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
-		}
-		return buddymcp.SetupMCP(buddymcp.SetupOpts{
-			Write:  write,
-			Create: create,
-			Path:   path,
-			Host:   host,
-		}, opts, log)
-	}
-	if len(args) > 0 {
-		return errUnknownSubcommand("mcp", args[0], []string{"setup", "help"})
-	}
-	return buddymcp.Run(credName, opts, log, Version)
-}
-
-func runServe(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) > 0 && args[0] == "help" {
-		fmt.Print(helpServe)
-		return nil
-	}
-	var addr, docsRoot string
-	var open bool
-	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	fs.StringVar(&addr, "addr", "127.0.0.1:8742", "Listen address (localhost only)")
-	fs.StringVar(&docsRoot, "docs-root", "", "Override embedded docs with a live docs/ directory")
-	fs.BoolVar(&open, "open", false, "Open docs in the default browser")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	tenant, _ := buddy.ActiveSelection()
-	return serve.Run(ctx, serve.Options{
-		Addr:       addr,
-		DocsRoot:   docsRoot,
-		Open:       open,
-		Version:    Version,
-		TenantName: tenant,
-		CredName:   credName,
-		Opts:       opts,
-		Logger:     log,
-	})
 }
 
 func runMdm(credName string, _ buddy.Opts, args []string, log *slog.Logger) error {

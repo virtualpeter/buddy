@@ -1,5 +1,9 @@
 # Build output
 /buddy
+/buddy-lite
+/buddy-linux-amd64
+/buddy-windows-amd64.exe
+/buddy-Darwin-arm64
 
 # Go
 *.exe
@@ -19,4 +23,3 @@ editors/vscode/*.vsix
 /*.json
 /.cursor/*.log
 /.vscode/
-buddy-Darwin-arm64

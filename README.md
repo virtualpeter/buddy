@@ -41,7 +41,7 @@ make help     # show all targets
 
 ## Configuration
 
-Config file: `~/.config/buddy/config.yaml`
+Config file: `~/.config/buddy/config.yaml` (macOS/Linux; `$XDG_CONFIG_HOME/buddy` when set). On Windows: `%APPDATA%\buddy\config.yaml`.
 
 ```yaml
 tenant:
@@ -86,6 +86,7 @@ auths:
 |----------|---------------|----------|
 | macOS | Keychain (service `buddy`) | `BUDDY_SECRET_STORE=keychain` |
 | Linux | `~/.config/buddy/secrets/<auth>.json` (mode 0600) | `BUDDY_SECRET_STORE=file` or `pass` |
+| Windows | `%APPDATA%\buddy\secrets\<auth>.json` | `BUDDY_SECRET_STORE=file` |
 
 ```sh
 buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=us --tenant-id=…
