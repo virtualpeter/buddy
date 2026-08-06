@@ -253,7 +253,7 @@ Read embedded buddy documentation and editor rules (same data as `buddy://docs/.
 - MCP returns `{ok, value: {stdout, stderr, result, error}}`. **Primary output is `value.result`** (last expression or `main()` return). `stdout` is from `print` / `unwrap`; when `result` is set and `stdout` is empty, `result` is mirrored into `stdout`.
 - Prefer a **single expression**, or define `main()` **without** calling it and **without** a trailing top-level expression (MCP sets `CallMain`; a trailing expression skips `main`).
 - Top-level `if` / `for` outside a function is invalid Starlark—put control flow inside `main()`.
-- Mutating Jamf calls still respect confirmations unless the MCP process was started with global `-y` (Platform mutates always skip confirm — host approval is the guard).
+- Mutating Jamf calls **always skip** interactive confirmation in MCP (same as `-y`); the host’s tool-call approval is the guard. You do **not** need `args: ["-y", "mcp"]`.
 - You can `load("stdlib/….buddy", …)` the same as in CLI scripts / the notebook (e.g. `load("stdlib/release.buddy", "bump_release")`).
 - Prefer named builtins over `jamf_get`/`jamf_put` when a builtin exists. Before resource mutates, `docs` query the object noun (see [mcp-tools.md](mcp-tools.md) pathfinding) — e.g. [profile-payloads.md](profile-payloads.md), [packages.md](packages.md).
 - **Packages / JCDS:** after upload use `package_wait_ready` before policy attach; use `package_ready` / `package_download` — do not invent from schema (see [packages.md](packages.md)).

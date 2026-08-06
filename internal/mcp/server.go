@@ -37,6 +37,14 @@ Groups: smart_group* (criteria) vs static_group* (membership) — do not mix; Pl
 buddyscript: prefer def main(): … return …; builtins return bare values and raise on failure; MCP wraps {ok,value} only at the tool boundary.
 Jamf remote MCP (developer.jamf.com/mcp) is useful for product schemas; prefer buddy builtins for tenant changes.`
 
+// withMCPOpts forces SkipConfirm. MCP has no interactive stdin / AnswerConfirm
+// path (unlike notebook/IDE); without this, Classic mutates such as
+// profile_put_xml block forever on the session confirm bridge and hosts time out.
+func withMCPOpts(opts buddy.Opts) buddy.Opts {
+	opts.SkipConfirm = true
+	return opts
+}
+
 // Run starts the MCP stdio server until the client disconnects.
 func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) error {
 	if logger == nil {
@@ -45,6 +53,7 @@ func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) 
 	if version == "" {
 		version = "dev"
 	}
+	opts = withMCPOpts(opts)
 	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "buddy", Version: version}, &mcpsdk.ServerOptions{
 		Instructions: ServerInstructions,
 	})

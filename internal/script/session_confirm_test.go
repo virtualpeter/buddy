@@ -2,6 +2,7 @@ package script
 
 import (
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,6 +47,77 @@ func TestSessionConfirmBridge_BrowserAsk(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for Confirm to return")
+	}
+}
+
+// Without SkipConfirm, Session.Eval installs the notebook confirm bridge. MCP has
+// no AnswerConfirm path, so Classic mutates (e.g. profile_put_xml) hang until the
+// host times out — mcp.Run forces SkipConfirm to avoid this.
+func TestSessionConfirmBridge_ProfilePutXMLPendingWithoutSkip(t *testing.T) {
+	s, err := NewSession("", buddy.Opts{SkipConfirm: false}, slog.Default(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan EvalResult, 1)
+	go func() {
+		done <- s.EvalOpts("mcp", `def main():
+    profile_put_xml(profile_id=1, xml_str="<os_x_configuration_profile></os_x_configuration_profile>")
+    return "done"
+`, EvalOptions{CallMain: true})
+	}()
+
+	deadline := time.After(2 * time.Second)
+	for s.PendingConfirm() == nil {
+		select {
+		case <-deadline:
+			t.Fatal("expected pending confirm from profile_put_xml when SkipConfirm is false")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	p := s.PendingConfirm()
+	if p == nil || !strings.Contains(p.Question, "PUT configuration profile") {
+		t.Fatalf("pending confirm=%+v", p)
+	}
+	if err := s.AnswerConfirm("n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case r := <-done:
+		if r.Error != "" {
+			t.Fatalf("eval error after cancel: %s", r.Error)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for eval after answering confirm")
+	}
+}
+
+func TestSessionConfirmBridge_ProfilePutXMLSkipsWithSkipConfirm(t *testing.T) {
+	s, err := NewSession("", buddy.Opts{SkipConfirm: true}, slog.Default(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan EvalResult, 1)
+	go func() {
+		// Will fail at Jamf (no cred / bad id) — but must not leave a pending confirm.
+		done <- s.EvalOpts("mcp", `def main():
+    profile_put_xml(profile_id=1, xml_str="<os_x_configuration_profile></os_x_configuration_profile>")
+    return "done"
+`, EvalOptions{CallMain: true})
+	}()
+
+	select {
+	case r := <-done:
+		if s.PendingConfirm() != nil {
+			t.Fatal("SkipConfirm=true must not install a pending confirm")
+		}
+		if r.Error == "" && r.Result == "done" {
+			t.Fatal("unexpected success talking to Jamf in unit test")
+		}
+	case <-time.After(3 * time.Second):
+		if s.PendingConfirm() != nil {
+			t.Fatal("hung on confirm bridge despite SkipConfirm=true")
+		}
+		t.Fatal("timed out; possible hang on HTTP without timeout")
 	}
 }
 

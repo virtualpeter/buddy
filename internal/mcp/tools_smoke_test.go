@@ -64,6 +64,16 @@ func TestRegisterLeanTools_Present(t *testing.T) {
 	}
 }
 
+func TestWithMCPOpts_ForcesSkipConfirm(t *testing.T) {
+	got := withMCPOpts(buddy.Opts{SkipConfirm: false, Verbose: true})
+	if !got.SkipConfirm {
+		t.Fatal("MCP must force SkipConfirm so profile_put_xml and other mutates do not hang on the confirm bridge")
+	}
+	if !got.Verbose {
+		t.Fatal("withMCPOpts should preserve other opts")
+	}
+}
+
 func TestBuddyscript_MirrorsResultToStdout(t *testing.T) {
 	sess, err := script.NewSession("", buddy.Opts{}, slog.Default(), false)
 	if err != nil {
