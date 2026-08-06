@@ -516,8 +516,9 @@ Flags for 'upgrade':
 
 Notes:
   List is a fast name-index from one hybrid policy list (Pro /api/v1/policies when
-  available, else Classic); kind/version/trigger may be approximate. Get classifies
-  via Classic XML (authoritative). Discovery starts from names containing [SS]:
+  available, else Classic); kind/version/trigger may be approximate. List keeps
+  Install…[SS] and/or rows with install/cache siblings; inventory [SS] stubs omitted.
+  Get classifies via Classic XML (authoritative). Discovery starts from names containing [SS]:
     single  — Self Service policy has the Install package attached
     install — SS script calls install-{app} / install-{app}-next / {app}-install
     cache   — install pattern plus versioned cache-{app}-{version} policies

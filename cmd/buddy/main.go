@@ -967,11 +967,11 @@ func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%-16s  %-8s  %-12s  %-8s  %-24s  %s\n", "Name", "Kind", "Version", "SS ID", "Install trigger", "Package")
-		fmt.Printf("%-16s  %-8s  %-12s  %-8s  %-24s  %s\n", "----------------", "--------", "------------", "--------", "------------------------", "--------------------------------")
+		fmt.Printf("%-30s  %-8s  %-12s  %-8s  %-24s  %s\n", "Name", "Kind", "Version", "SS ID", "Install trigger", "Package")
+		fmt.Printf("%-30s  %-8s  %-12s  %-8s  %-24s  %s\n", "------------------------------", "--------", "------------", "--------", "------------------------", "--------------------------------")
 		for _, a := range apps {
-			fmt.Printf("%-16s  %-8s  %-12s  %-8d  %-24s  %s\n",
-				truncatePad(a.Name, 16), truncatePad(string(a.Kind), 8), truncatePad(a.Version, 12),
+			fmt.Printf("%-30s  %-8s  %-12s  %-8d  %-24s  %s\n",
+				truncatePad(a.Name, 30), truncatePad(string(a.Kind), 8), truncatePad(a.Version, 12),
 				a.SSPolicyID, truncatePad(a.InstallTrigger, 24), a.PackageName)
 		}
 		return nil

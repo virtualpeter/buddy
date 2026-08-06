@@ -142,8 +142,36 @@ func TestSummarizePolicyAppFromList(t *testing.T) {
 	}
 
 	inv, ok := summarizePolicyAppFromList(list[6], list)
-	if !ok || inv.Kind != PolicyAppSingle {
-		t.Fatalf("inventory: ok=%v kind=%q", ok, inv.Kind)
+	if ok {
+		t.Fatalf("inventory stub should be excluded, got kind=%q name=%q", inv.Kind, inv.Name)
+	}
+
+	// Single Install-named SS without siblings still listed.
+	chromeList := []policyListItem{{ID: 10, Name: "Install Chrome [SS]"}}
+	chrome, ok := summarizePolicyAppFromList(chromeList[0], chromeList)
+	if !ok || chrome.Kind != PolicyAppSingle || chrome.Name != "chrome" {
+		t.Fatalf("chrome single: ok=%v kind=%q name=%q", ok, chrome.Kind, chrome.Name)
+	}
+
+	// Bare [SS] without Install prefix and without siblings → excluded.
+	bare := []policyListItem{{ID: 11, Name: "VPN Config [SS]"}}
+	if _, ok := summarizePolicyAppFromList(bare[0], bare); ok {
+		t.Fatal("non-Install [SS] without siblings should be excluded")
+	}
+}
+
+func TestPolicyNameContainsAppSlug(t *testing.T) {
+	if !policyNameContainsAppSlug("Cache Santa 2026.2", "santa") {
+		t.Fatal("expected santa in Cache Santa")
+	}
+	if !policyNameContainsAppSlug("install-santa-next", "santa") {
+		t.Fatal("expected santa in install-santa-next")
+	}
+	if policyNameContainsAppSlug("Install Maintain Tools", "ai") {
+		t.Fatal("short slug ai must not match Maintain")
+	}
+	if policyNameContainsAppSlug("Install Foo", "santa") {
+		t.Fatal("santa must not match Install Foo")
 	}
 }
 

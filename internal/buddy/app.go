@@ -262,6 +262,8 @@ func (c *policyFetchCache) get(id int) (*resourcePolicy, error) {
 }
 
 // summarizePolicyAppFromList builds a list-row summary from policy names only (no GETs).
+// Returns false for non-app [SS] stubs (e.g. inventory) that lack Install naming and
+// install/cache sibling policies.
 func summarizePolicyAppFromList(ss policyListItem, list []policyListItem) (PolicyAppSummary, bool) {
 	name := policyAppNameFromListName(ss.Name)
 	if name == "" {
@@ -277,10 +279,10 @@ func summarizePolicyAppFromList(ss policyListItem, list []policyListItem) (Polic
 		if p.ID == ss.ID {
 			continue
 		}
-		n := strings.ToLower(p.Name)
-		if !strings.Contains(n, slug) {
+		if !policyNameContainsAppSlug(p.Name, slug) {
 			continue
 		}
+		n := strings.ToLower(p.Name)
 		if strings.Contains(n, "cache") {
 			kind = PolicyAppCache
 			ver := versionFromName(p.Name)
@@ -304,6 +306,11 @@ func summarizePolicyAppFromList(ss policyListItem, list []policyListItem) (Polic
 		}
 	}
 
+	// Drop inventory/config [SS] stubs: require Install-named SS or install/cache siblings.
+	if kind == PolicyAppSingle && !ssPolicyNameLooksLikeInstallApp(ss.Name) {
+		return PolicyAppSummary{}, false
+	}
+
 	sum := PolicyAppSummary{
 		Name:            name,
 		Kind:            kind,
@@ -321,6 +328,39 @@ func summarizePolicyAppFromList(ss policyListItem, list []policyListItem) (Polic
 		sum.Version = versionFromName(ss.Name)
 	}
 	return sum, true
+}
+
+// ssPolicyNameLooksLikeInstallApp reports whether an [SS] list name looks like a
+// single-policy app (e.g. "Install Chrome [SS]") rather than inventory/config.
+func ssPolicyNameLooksLikeInstallApp(policyName string) bool {
+	s := ssNameMarkerRe.ReplaceAllString(policyName, " ")
+	s = strings.ToLower(strings.TrimSpace(s))
+	return strings.HasPrefix(s, "install ") || strings.HasPrefix(s, "install-")
+}
+
+// policyNameContainsAppSlug reports whether policyName contains appSlug as a
+// token (alphanumeric boundaries), avoiding short-slug false positives.
+func policyNameContainsAppSlug(policyName, appSlug string) bool {
+	appSlug = strings.ToLower(strings.TrimSpace(appSlug))
+	if appSlug == "" {
+		return false
+	}
+	n := strings.ToLower(policyName)
+	for i := 0; i+len(appSlug) <= len(n); i++ {
+		if n[i:i+len(appSlug)] != appSlug {
+			continue
+		}
+		leftOK := i == 0 || !isAppSlugAlnum(n[i-1])
+		rightOK := i+len(appSlug) == len(n) || !isAppSlugAlnum(n[i+len(appSlug)])
+		if leftOK && rightOK {
+			return true
+		}
+	}
+	return false
+}
+
+func isAppSlugAlnum(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9')
 }
 
 // policyAppNameFromListName derives an app slug from an SS policy list name.
