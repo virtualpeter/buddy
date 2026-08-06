@@ -58,28 +58,21 @@ var (
 )
 
 // AppSearch discovers policy apps from Self Service policies whose name contains "[SS]".
+// Uses one hybrid policy list call and name-only heuristics (no per-policy Classic GETs).
+// Kind/version/trigger may be approximate; AppGet does full XML classify.
 // filter is an optional client-side substring on name / kind / version / trigger / package.
 func AppSearch(credName, filter string, logger *slog.Logger) ([]PolicyAppSummary, error) {
 	list, err := getPolicyList(credName, logger)
 	if err != nil {
 		return nil, err
 	}
-	var candidates []policyListItem
-	for _, p := range list {
-		if ssNameMarkerRe.MatchString(p.Name) {
-			candidates = append(candidates, p)
-		}
-	}
-	out := make([]PolicyAppSummary, 0, len(candidates))
+	out := make([]PolicyAppSummary, 0)
 	seen := map[string]bool{}
-	for _, c := range candidates {
-		sum, ok, err := classifyPolicyAppFromSS(credName, c.ID, list, logger)
-		if err != nil {
-			if logger != nil {
-				logger.Debug("app classify skip", "policy_id", c.ID, "error", err.Error())
-			}
+	for _, c := range list {
+		if !ssNameMarkerRe.MatchString(c.Name) {
 			continue
 		}
+		sum, ok := summarizePolicyAppFromList(c, list)
 		if !ok {
 			continue
 		}
@@ -100,26 +93,38 @@ func AppSearch(credName, filter string, logger *slog.Logger) ([]PolicyAppSummary
 }
 
 // AppGet returns one policy app by app name (case-insensitive).
+// Performs full Classic XML classify (not the cheap list heuristics).
 func AppGet(credName, name string, logger *slog.Logger) (*PolicyAppDetail, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, fmt.Errorf("app name is required")
 	}
-	apps, err := AppSearch(credName, "", logger)
+	list, err := getPolicyList(credName, logger)
 	if err != nil {
 		return nil, err
 	}
-	var match *PolicyAppSummary
-	for i := range apps {
-		if strings.EqualFold(apps[i].Name, name) {
-			match = &apps[i]
+	var ssID int
+	for _, p := range list {
+		if !ssNameMarkerRe.MatchString(p.Name) {
+			continue
+		}
+		if strings.EqualFold(policyAppNameFromListName(p.Name), name) {
+			ssID = p.ID
 			break
 		}
 	}
-	if match == nil {
+	if ssID == 0 {
 		return nil, fmt.Errorf("app %q not found", name)
 	}
-	return enrichPolicyAppDetail(credName, *match, logger)
+	cache := newPolicyFetchCache(credName)
+	sum, ok, err := classifyPolicyAppFromSS(credName, ssID, list, cache, logger)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("app %q not found", name)
+	}
+	return enrichPolicyAppDetail(credName, sum, list, cache, logger)
 }
 
 // AppUpgrade bumps a policy app to version using package_pattern (optional glob).
@@ -234,8 +239,118 @@ func policyAppMatchesFilter(sum PolicyAppSummary, filter string) bool {
 	return strings.Contains(hay, filter)
 }
 
-func classifyPolicyAppFromSS(credName string, ssID int, list []policyListItem, logger *slog.Logger) (PolicyAppSummary, bool, error) {
-	ss, err := policyGetByID(credName, ssID)
+// policyFetchCache memoizes Classic policyGetByID within one classify/enrich pass.
+type policyFetchCache struct {
+	cred string
+	m    map[int]*resourcePolicy
+}
+
+func newPolicyFetchCache(credName string) *policyFetchCache {
+	return &policyFetchCache{cred: credName, m: map[int]*resourcePolicy{}}
+}
+
+func (c *policyFetchCache) get(id int) (*resourcePolicy, error) {
+	if p, ok := c.m[id]; ok {
+		return p, nil
+	}
+	p, err := policyGetByID(c.cred, id)
+	if err != nil {
+		return nil, err
+	}
+	c.m[id] = p
+	return p, nil
+}
+
+// summarizePolicyAppFromList builds a list-row summary from policy names only (no GETs).
+func summarizePolicyAppFromList(ss policyListItem, list []policyListItem) (PolicyAppSummary, bool) {
+	name := policyAppNameFromListName(ss.Name)
+	if name == "" {
+		return PolicyAppSummary{}, false
+	}
+	slug := strings.ToLower(name)
+	kind := PolicyAppSingle
+	var version string
+	var installID, cacheID int
+	var bestCacheVer string
+
+	for _, p := range list {
+		if p.ID == ss.ID {
+			continue
+		}
+		n := strings.ToLower(p.Name)
+		if !strings.Contains(n, slug) {
+			continue
+		}
+		if strings.Contains(n, "cache") {
+			kind = PolicyAppCache
+			ver := versionFromName(p.Name)
+			if cacheID == 0 || (ver != "" && (bestCacheVer == "" || CompareVersions(ver, bestCacheVer) > 0)) {
+				cacheID = p.ID
+				if ver != "" {
+					bestCacheVer = ver
+					version = ver
+				}
+			}
+			continue
+		}
+		if strings.Contains(n, "install") && !ssNameMarkerRe.MatchString(p.Name) {
+			if kind != PolicyAppCache {
+				kind = PolicyAppInstall
+			}
+			installID = p.ID
+			if version == "" {
+				version = versionFromName(p.Name)
+			}
+		}
+	}
+
+	sum := PolicyAppSummary{
+		Name:            name,
+		Kind:            kind,
+		Version:         version,
+		SSPolicyID:      ss.ID,
+		SSPolicyName:    ss.Name,
+		InstallPolicyID: installID,
+		CachePolicyID:   cacheID,
+	}
+	if kind == PolicyAppInstall || kind == PolicyAppCache {
+		// Best-effort trigger guess from naming convention (list has no trigger field).
+		sum.InstallTrigger = "install-" + name + "-next"
+	}
+	if sum.Version == "" {
+		sum.Version = versionFromName(ss.Name)
+	}
+	return sum, true
+}
+
+// policyAppNameFromListName derives an app slug from an SS policy list name.
+func policyAppNameFromListName(policyName string) string {
+	display := ssNameMarkerRe.ReplaceAllString(policyName, "")
+	display = strings.TrimSpace(display)
+	if strings.HasPrefix(strings.ToLower(display), "install ") {
+		display = strings.TrimSpace(display[len("Install "):])
+	}
+	display = strings.TrimSpace(display)
+	if i := strings.Index(display, " - "); i > 0 {
+		display = strings.TrimSpace(display[:i])
+	}
+	// Drop trailing version tokens so "Santa 2026.2 [SS]" → santa (rare).
+	if v := versionFromName(display); v != "" {
+		display = strings.TrimSpace(strings.Replace(display, v, "", 1))
+	}
+	slug := strings.ToLower(display)
+	slug = strings.ReplaceAll(slug, " ", "-")
+	for strings.Contains(slug, "--") {
+		slug = strings.ReplaceAll(slug, "--", "-")
+	}
+	return strings.Trim(slug, "-")
+}
+
+func classifyPolicyAppFromSS(credName string, ssID int, list []policyListItem, cache *policyFetchCache, logger *slog.Logger) (PolicyAppSummary, bool, error) {
+	if cache == nil {
+		cache = newPolicyFetchCache(credName)
+	}
+	ss, err := cache.get(ssID)
 	if err != nil {
 		return PolicyAppSummary{}, false, err
 	}
@@ -271,7 +386,7 @@ func classifyPolicyAppFromSS(credName string, ssID int, list []policyListItem, l
 	if installTrig == "" {
 		// Stub SS: infer install trigger from display/name slug.
 		slug := policyAppNameFromSS(ss, "")
-		installTrig = inferInstallTrigger(credName, slug, list, logger)
+		installTrig = inferInstallTrigger(credName, slug, list, cache, logger)
 		if installTrig == "" {
 			return PolicyAppSummary{}, false, nil
 		}
@@ -282,7 +397,7 @@ func classifyPolicyAppFromSS(credName string, ssID int, list []policyListItem, l
 		appName = policyAppNameFromSS(ss, installTrig)
 	}
 
-	installs := findPoliciesByTrigger(credName, list, installTrig, logger)
+	installs := findPoliciesByTrigger(credName, list, installTrig, cache, logger)
 	var current *resourcePolicy
 	for _, p := range installs {
 		if p.General.Enabled {
@@ -294,7 +409,7 @@ func classifyPolicyAppFromSS(credName string, ssID int, list []policyListItem, l
 		current = installs[0]
 	}
 
-	caches := findCachePoliciesForApp(credName, list, appName, logger)
+	caches := findCachePoliciesForApp(credName, list, appName, cache, logger)
 	kind := PolicyAppInstall
 	if len(caches) > 0 {
 		kind = PolicyAppCache
@@ -334,20 +449,26 @@ func classifyPolicyAppFromSS(credName string, ssID int, list []policyListItem, l
 	return sum, true, nil
 }
 
-func enrichPolicyAppDetail(credName string, sum PolicyAppSummary, logger *slog.Logger) (*PolicyAppDetail, error) {
-	list, err := getPolicyList(credName, logger)
-	if err != nil {
-		return nil, err
+func enrichPolicyAppDetail(credName string, sum PolicyAppSummary, list []policyListItem, cache *policyFetchCache, logger *slog.Logger) (*PolicyAppDetail, error) {
+	if cache == nil {
+		cache = newPolicyFetchCache(credName)
+	}
+	if list == nil {
+		var err error
+		list, err = getPolicyList(credName, logger)
+		if err != nil {
+			return nil, err
+		}
 	}
 	d := &PolicyAppDetail{PolicyAppSummary: sum}
 	if sum.SSPolicyID > 0 {
-		if ss, err := policyGetByID(credName, sum.SSPolicyID); err == nil {
+		if ss, err := cache.get(sum.SSPolicyID); err == nil {
 			d.SSDisplayName = ss.SelfService.SelfServiceDisplayName
 			d.SSDescription = ss.SelfService.SelfServiceDescription
 		}
 	}
 	if sum.InstallTrigger != "" {
-		for _, p := range findPoliciesByTrigger(credName, list, sum.InstallTrigger, logger) {
+		for _, p := range findPoliciesByTrigger(credName, list, sum.InstallTrigger, cache, logger) {
 			ref := PolicyAppRef{
 				ID:      p.General.ID,
 				Name:    p.General.Name,
@@ -361,7 +482,7 @@ func enrichPolicyAppDetail(credName string, sum PolicyAppSummary, logger *slog.L
 			}
 		}
 	}
-	caches := findCachePoliciesForApp(credName, list, sum.Name, logger)
+	caches := findCachePoliciesForApp(credName, list, sum.Name, cache, logger)
 	for _, p := range caches {
 		ref := PolicyAppRef{
 			ID:      p.General.ID,
@@ -440,7 +561,7 @@ func policyAppNameFromSS(ss *resourcePolicy, installTrig string) string {
 	return strings.Trim(slug, "-")
 }
 
-func inferInstallTrigger(credName, appName string, list []policyListItem, logger *slog.Logger) string {
+func inferInstallTrigger(credName, appName string, list []policyListItem, cache *policyFetchCache, logger *slog.Logger) string {
 	if appName == "" {
 		return ""
 	}
@@ -451,27 +572,29 @@ func inferInstallTrigger(credName, appName string, list []policyListItem, logger
 		appName + "-install",
 	}
 	for _, trig := range candidates {
-		if len(findPoliciesByTrigger(credName, list, trig, logger)) > 0 {
+		if len(findPoliciesByTrigger(credName, list, trig, cache, logger)) > 0 {
 			return trig
 		}
 	}
 	return ""
 }
 
-func findPoliciesByTrigger(credName string, list []policyListItem, trigger string, logger *slog.Logger) []*resourcePolicy {
+func findPoliciesByTrigger(credName string, list []policyListItem, trigger string, cache *policyFetchCache, logger *slog.Logger) []*resourcePolicy {
 	want := normalizeTriggerForMatch(trigger)
 	if want == "" {
 		return nil
 	}
+	if cache == nil {
+		cache = newPolicyFetchCache(credName)
+	}
 	nameHint, _, _ := parseTrigger(want)
+	nameHint = strings.ToLower(nameHint)
 	var out []*resourcePolicy
 	for _, item := range list {
-		n := strings.ToLower(item.Name)
-		if nameHint != "" && !strings.Contains(n, strings.ToLower(nameHint)) &&
-			!strings.Contains(n, "install") && !strings.Contains(n, "cache") {
+		if !policyListNameHasAppHint(item.Name, nameHint) {
 			continue
 		}
-		p, err := policyGetByID(credName, item.ID)
+		p, err := cache.get(item.ID)
 		if err != nil {
 			continue
 		}
@@ -483,18 +606,21 @@ func findPoliciesByTrigger(credName string, list []policyListItem, trigger strin
 	return out
 }
 
-func findCachePoliciesForApp(credName string, list []policyListItem, appName string, logger *slog.Logger) []*resourcePolicy {
+func findCachePoliciesForApp(credName string, list []policyListItem, appName string, cache *policyFetchCache, logger *slog.Logger) []*resourcePolicy {
 	appName = strings.ToLower(strings.TrimSpace(appName))
 	if appName == "" {
 		return nil
 	}
+	if cache == nil {
+		cache = newPolicyFetchCache(credName)
+	}
 	var out []*resourcePolicy
 	for _, item := range list {
-		n := strings.ToLower(item.Name)
-		if !strings.Contains(n, "cache") && !strings.Contains(n, appName) {
+		// Require app name in the policy name (do not GET every "cache" policy on the tenant).
+		if !policyListNameHasAppHint(item.Name, appName) {
 			continue
 		}
-		p, err := policyGetByID(credName, item.ID)
+		p, err := cache.get(item.ID)
 		if err != nil {
 			continue
 		}
@@ -518,6 +644,16 @@ func findCachePoliciesForApp(credName string, list []policyListItem, appName str
 		return out[i].General.ID > out[j].General.ID
 	})
 	return out
+}
+
+// policyListNameHasAppHint is the Classic GET prefilter for trigger/cache scans:
+// require the app name substring in the list name (empty hint matches all).
+func policyListNameHasAppHint(policyName, appHint string) bool {
+	appHint = strings.ToLower(strings.TrimSpace(appHint))
+	if appHint == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(policyName), appHint)
 }
 
 func pickCurrentCache(caches []*resourcePolicy, preferVersion string) *resourcePolicy {

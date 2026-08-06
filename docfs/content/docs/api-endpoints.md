@@ -168,7 +168,7 @@ Base path: `/JSSResource/policies`
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/JSSResource/policies` | `PolicyFind`, `PolicyFindByKeywords`, `PolicyPackage`, `PolicyInstall` | Fetch full policy list (id + name) for trigger/name matching and cache |
+| `GET` | `/JSSResource/policies` | `PolicyFind`, `PolicyFindByKeywords`, `PolicyPackage`, `PolicyInstall`, `AppSearch` (fallback) | Fetch full policy list (id + name) for trigger/name matching and cache |
 | `GET` | `/JSSResource/policies/id/{id}` | most operations | Fetch full policy detail (triggers, scripts, scope, self-service, etc.) |
 | `PUT` | `/JSSResource/policies/id/{id}` | `PolicySS`, `PolicyScope`, `PolicyScopeAll`, `PolicyEnable`, `PolicyTrigger`, `PolicyInstall`, `PolicyPackage`, `PolicySetXML`, `PolicyClone` (disable source) | Update an existing policy in place |
 | `POST` | `/JSSResource/policies/id/0` | `PolicyClone`, `PolicyPackage` (new install policy), `PolicyCreateFromTemplate`, `PolicyCreatePackage`, `PolicyCreateSS` | Create a new policy (Jamf convention: POST to id/0) |
@@ -176,6 +176,7 @@ Base path: `/JSSResource/policies`
 
 ### Notes
 
+- **Hybrid list (undocumented Pro):** `getPolicyList` prefers `GET /api/v1/policies` (paginated `results`/`totalCount`; summary: `id`, `name`, `enabled`, `categoryId`, `executionFrequency`, `triggerCheckin`, `triggerManual`, `updateInventory`). On failure or empty, falls back to Classic. Not in published OpenAPI; not used for writes or detail. RSQL filter fields are those keys only — **no** Self Service boolean.
 - `GET /JSSResource/policies` returns a summary list `{id, name}` only; detail fields (trigger, scripts, scope) require a subsequent `GET /JSSResource/policies/id/{id}`.
 - Buddy caches the summary list in process memory per resolved tenant+auth session (~60s TTL) so multi-step scripts and change batches don't re-fetch it for every trigger lookup. Policy creates/deletes in the same process invalidate the entry; there is no on-disk cache.
 - Phase 1 of trigger resolution fetches detail for a small set of name-matched candidate policies to verify `trigger_other` exactly, rather than relying on name heuristics alone.

@@ -2429,6 +2429,13 @@ const policyListCacheTTL = 60 * time.Second
 type policyListItem struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
+	// Optional fields from undocumented Pro GET /api/v1/policies (zero/empty on Classic list).
+	Enabled            *bool  `json:"enabled,omitempty"`
+	CategoryID         string `json:"categoryId,omitempty"`
+	ExecutionFrequency string `json:"executionFrequency,omitempty"`
+	TriggerCheckin     *bool  `json:"triggerCheckin,omitempty"`
+	TriggerManual      string `json:"triggerManual,omitempty"`
+	UpdateInventory    *bool  `json:"updateInventory,omitempty"`
 }
 
 type policyListCacheEntry struct {
@@ -2463,7 +2470,7 @@ func getPolicyList(credName string, logger *slog.Logger) ([]policyListItem, erro
 			return ent.policies, nil
 		}
 	}
-	policies, err := policyFetchList(credName)
+	policies, err := policyFetchListHybrid(credName, logger)
 	if err != nil {
 		return nil, err
 	}

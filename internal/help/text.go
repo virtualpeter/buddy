@@ -565,9 +565,11 @@ POLICY APPS (Self Service + packages)
   apps(filter?, tenant?, surface?, auth?)
       → value: list of summary dicts {name, kind, version, ss_policy_id, install_trigger, …}
       Params: filter?: str (client-side substring on name/kind/version/trigger/package).
-      Notes: Discovers policies whose name contains [SS]; kinds are single|install|cache.
+      Notes: Name-index from one hybrid policy list ([SS] in name); kind/version may be approximate.
+             Prefer app(name=…) for authoritative classify.
   app(name, tenant?, surface?, auth?) → value: dict (summary + linked install/cache policies)
       Params: name: str (app identifier, e.g. santa, vscode).
+      Notes: Classic XML classify (excludes inventory-only SS stubs).
   app_upgrade(name, version, package_pattern?, tenant?, surface?, auth?) → None
       Params: name: str; version: str; package_pattern?: str (package name glob).
       Notes: Dispatches by kind — single in-place package+SS description; install PolicyPackage

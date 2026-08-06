@@ -515,11 +515,13 @@ Flags for 'upgrade':
   --package-pattern=<glob>      Optional package name glob (e.g. *santa*2026.3*)
 
 Notes:
-  Discovery starts from policies whose name contains [SS], then classifies:
+  List is a fast name-index from one hybrid policy list (Pro /api/v1/policies when
+  available, else Classic); kind/version/trigger may be approximate. Get classifies
+  via Classic XML (authoritative). Discovery starts from names containing [SS]:
     single  — Self Service policy has the Install package attached
     install — SS script calls install-{app} / install-{app}-next / {app}-install
     cache   — install pattern plus versioned cache-{app}-{version} policies
-  Non-app Self Service (e.g. inventory-only) is excluded.
+  Non-app Self Service (e.g. inventory-only) is excluded on get.
   Upgrade composes existing policy package / Self Service helpers (same as change batches).
   Classic Mac App Store records use 'buddy macapp', not this command.
 

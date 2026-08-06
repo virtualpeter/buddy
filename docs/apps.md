@@ -12,7 +12,12 @@ Classic **Mac App Store** records are separate — use [`macapp` / `macapps`](ma
 | **install** | SS script (param4) calls `install-{app}`, `install-{app}-next`, or `{app}-install`; one enabled install policy holds the package | Create replacement install policy, disable prior |
 | **cache** | Same as install, plus versioned `cache-{app}-{version}` policies | Keep old cache; new cache + replace install; optional SS description bump |
 
-Discovery starts from policies whose **name contains `[SS]`**, detail-fetches Self Service, and excludes non-apps (no package and no install-like script / inferred install trigger).
+Discovery starts from policies whose **name contains `[SS]`**.
+
+- **`buddy app list` / `apps()`** — one hybrid policy list call (undocumented Pro `GET /api/v1/policies` when available, else Classic `{id,name}`), then **name-only** heuristics for kind/version/trigger. Approximate; inventory-only `[SS]` stubs may appear as `single`.
+- **`buddy app get` / `app()`** — authoritative Classic XML classify (Self Service flag, scripts, packages, triggers). Excludes non-apps (no package and no install-like script / inferred install trigger).
+
+Jamf does **not** publish a Pro policy CRUD API; RSQL on `/api/v1/policies` cannot filter by Self Service (only `id`, `name`, `enabled`, `categoryId`, `executionFrequency`, `triggerCheckin`, `triggerManual`).
 
 ## Happy path
 
@@ -45,3 +50,4 @@ Greenfield setup (prefs + PPPC + cache + install + optional SS) remains `setup_a
 - [Packages / JCDS](packages.md) — wait READY before upgrade
 - [Mac App Store apps](macapps.md) — Classic MAS, not policy apps
 - [Change batches](change-batches.md) — Santa-style multi-step upgrades
+- [API endpoints](api-endpoints.md) — Classic policy paths; hybrid list notes

@@ -92,3 +92,98 @@ func TestClassifyPolicyAppHelpers(t *testing.T) {
 		t.Fatalf("empty scripts should yield no trigger, got %q", got)
 	}
 }
+
+func TestPolicyAppNameFromListName(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"Install Santa [SS]", "santa"},
+		{"[SS] Install VSCode - TROUBLESHOOTING", "vscode"},
+		{"Update Inventory [SS]", "update-inventory"},
+		{"Chrome [SS]", "chrome"},
+	}
+	for _, tt := range cases {
+		if got := policyAppNameFromListName(tt.in); got != tt.want {
+			t.Errorf("policyAppNameFromListName(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestSummarizePolicyAppFromList(t *testing.T) {
+	list := []policyListItem{
+		{ID: 1, Name: "Install Santa [SS]"},
+		{ID: 2, Name: "Cache Santa 2026.2"},
+		{ID: 3, Name: "Install Santa Next"},
+		{ID: 4, Name: "Install Foo [SS]"},
+		{ID: 5, Name: "Install Foo"},
+		{ID: 6, Name: "Install Chrome Unrelated"},
+		{ID: 7, Name: "Update Inventory [SS]"},
+	}
+	santa, ok := summarizePolicyAppFromList(list[0], list)
+	if !ok || santa.Name != "santa" {
+		t.Fatalf("santa: ok=%v name=%q", ok, santa.Name)
+	}
+	if santa.Kind != PolicyAppCache {
+		t.Errorf("santa kind = %q, want cache", santa.Kind)
+	}
+	if santa.Version != "2026.2" {
+		t.Errorf("santa version = %q, want 2026.2", santa.Version)
+	}
+	if santa.CachePolicyID != 2 || santa.InstallPolicyID != 3 {
+		t.Errorf("santa ids cache=%d install=%d", santa.CachePolicyID, santa.InstallPolicyID)
+	}
+	if santa.InstallTrigger != "install-santa-next" {
+		t.Errorf("santa trigger = %q", santa.InstallTrigger)
+	}
+
+	foo, ok := summarizePolicyAppFromList(list[3], list)
+	if !ok || foo.Kind != PolicyAppInstall {
+		t.Fatalf("foo: ok=%v kind=%q", ok, foo.Kind)
+	}
+
+	inv, ok := summarizePolicyAppFromList(list[6], list)
+	if !ok || inv.Kind != PolicyAppSingle {
+		t.Fatalf("inventory: ok=%v kind=%q", ok, inv.Kind)
+	}
+}
+
+func TestPolicyListNameHasAppHint(t *testing.T) {
+	if !policyListNameHasAppHint("Install Santa Next", "santa") {
+		t.Fatal("expected santa match")
+	}
+	if policyListNameHasAppHint("Install Foo", "santa") {
+		t.Fatal("should not match Install Foo for santa")
+	}
+	if policyListNameHasAppHint("Cache Chrome 1.0", "santa") {
+		t.Fatal("should not match unrelated cache for santa")
+	}
+	if !policyListNameHasAppHint("anything", "") {
+		t.Fatal("empty hint matches all")
+	}
+}
+
+func TestParseV1PolicyListResults(t *testing.T) {
+	raw := []byte(`[
+		{"id":"1","name":"Update Inventory","enabled":true,"categoryId":"-1","executionFrequency":"EXECUTION_FREQUENCY_ONCE_PER_DAY","triggerCheckin":true,"triggerManual":"","updateInventory":true},
+		{"id":2,"name":"Install Santa [SS]","enabled":false,"categoryId":5}
+	]`)
+	items, err := parseV1PolicyListResults(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("len=%d", len(items))
+	}
+	if items[0].ID != 1 || items[0].Name != "Update Inventory" {
+		t.Errorf("item0 = %+v", items[0])
+	}
+	if items[0].Enabled == nil || !*items[0].Enabled {
+		t.Error("expected enabled=true")
+	}
+	if items[1].ID != 2 || items[1].CategoryID != "5" {
+		t.Errorf("item1 = %+v", items[1])
+	}
+	if items[1].Enabled == nil || *items[1].Enabled {
+		t.Error("expected enabled=false")
+	}
+}

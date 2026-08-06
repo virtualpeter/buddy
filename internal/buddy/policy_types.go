@@ -6,10 +6,14 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
+	"strconv"
+	"strings"
 )
 
 // Local policy types (replacing jamfpro SDK types for Classic API XML).
@@ -209,8 +213,40 @@ func policyGetByID(credName string, policyID int) (*resourcePolicy, error) {
 	return &p, nil
 }
 
-// policyFetchList fetches the policy list and returns id/name pairs.
+const uriPoliciesV1 = "/api/v1/policies"
+
+// policyFetchList fetches the policy id/name list. Prefers undocumented Pro
+// GET /api/v1/policies (paginated); falls back to Classic GET /JSSResource/policies.
 func policyFetchList(credName string) ([]policyListItem, error) {
+	return policyFetchListHybrid(credName, nil)
+}
+
+// policyFetchListHybrid tries Pro v1 then Classic. logger may be nil.
+func policyFetchListHybrid(credName string, logger *slog.Logger) ([]policyListItem, error) {
+	v1, err := policyFetchListV1(credName)
+	if err == nil && len(v1) > 0 {
+		if logger != nil {
+			logger.Debug("policy list source", "source", "v1", "count", len(v1))
+		}
+		return v1, nil
+	}
+	if err != nil && logger != nil {
+		logger.Debug("policy list v1 failed; falling back to classic", "error", err.Error())
+	}
+	classic, cerr := policyFetchListClassic(credName)
+	if cerr != nil {
+		if err != nil {
+			return nil, fmt.Errorf("policy list v1: %w; classic: %v", err, cerr)
+		}
+		return nil, cerr
+	}
+	if logger != nil {
+		logger.Debug("policy list source", "source", "classic", "count", len(classic))
+	}
+	return classic, nil
+}
+
+func policyFetchListClassic(credName string) ([]policyListItem, error) {
 	body, err := jamfGETWithAccept(credName, uriPolicies, "application/xml")
 	if err != nil {
 		return nil, err
@@ -224,6 +260,81 @@ func policyFetchList(credName string) ([]policyListItem, error) {
 		result = append(result, policyListItem{ID: p.ID, Name: p.Name})
 	}
 	return result, nil
+}
+
+func policyFetchListV1(credName string) ([]policyListItem, error) {
+	var all []policyListItem
+	err := fetchJamfPaged(credName, uriPoliciesV1, url.Values{}, PageOpts{Page: PageAll}, func(resultsJSON []byte, _ int) (int, error) {
+		page, err := parseV1PolicyListResults(resultsJSON)
+		if err != nil {
+			return 0, err
+		}
+		all = append(all, page...)
+		return len(page), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return all, nil
+}
+
+// parseV1PolicyListResults parses a JSON array of Pro v1 policy list rows.
+// IDs may be JSON numbers or strings.
+func parseV1PolicyListResults(resultsJSON []byte) ([]policyListItem, error) {
+	var raw []map[string]interface{}
+	if err := json.Unmarshal(resultsJSON, &raw); err != nil {
+		return nil, fmt.Errorf("parse v1 policy list: %w", err)
+	}
+	out := make([]policyListItem, 0, len(raw))
+	for _, m := range raw {
+		id, ok := policyListIDFromAny(m["id"])
+		if !ok || id <= 0 {
+			continue
+		}
+		name, _ := m["name"].(string)
+		item := policyListItem{ID: id, Name: name}
+		if cat, ok := m["categoryId"].(string); ok {
+			item.CategoryID = cat
+		} else if catNum, ok := m["categoryId"].(float64); ok {
+			item.CategoryID = strconv.FormatInt(int64(catNum), 10)
+		}
+		if ef, ok := m["executionFrequency"].(string); ok {
+			item.ExecutionFrequency = ef
+		}
+		if tm, ok := m["triggerManual"].(string); ok {
+			item.TriggerManual = tm
+		}
+		if b, ok := m["enabled"].(bool); ok {
+			item.Enabled = &b
+		}
+		if b, ok := m["triggerCheckin"].(bool); ok {
+			item.TriggerCheckin = &b
+		}
+		if b, ok := m["updateInventory"].(bool); ok {
+			item.UpdateInventory = &b
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func policyListIDFromAny(v interface{}) (int, bool) {
+	switch t := v.(type) {
+	case float64:
+		return int(t), true
+	case json.Number:
+		n, err := t.Int64()
+		return int(n), err == nil
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return 0, false
+		}
+		n, err := strconv.Atoi(s)
+		return n, err == nil
+	default:
+		return 0, false
+	}
 }
 
 // categoryGetByName fetches categories and returns the ID for the given name.
