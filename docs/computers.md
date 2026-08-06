@@ -18,7 +18,7 @@ CLI: `buddy computer …`.
 
 ```python
 def main():
-    rows = computers(filter='general.name=="*MacBook*"', page_size=50)
+    rows = computers(filter="MacBook", page_size=50)
     return rows
 ```
 

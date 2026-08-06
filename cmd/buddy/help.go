@@ -328,7 +328,7 @@ Subcommands:
   list   List MDM commands matching an RSQL filter
 
 Flags for 'list':
-  --filter=<rsql>       RSQL filter expression (required; API requires at least one field)
+  --filter=<term|rsql>  Bare term → status=="term" (exact); or full RSQL (required)
   --sort=<expr>         Sort expression (default: dateSent:asc)
   --count               Fetch all matching records and print only the total count (table suppressed)
   --page-size=<n>       Records per API request (default 200; pagination fetches all)
@@ -339,14 +339,16 @@ RSQL filterable fields:
   validAfter, dateCompleted, profileId, profileIdentifier, active
 
   Date fields require gt/lt/ge/le operators (not ==).
+  Bare --filter=Pending is sugar for status=="Pending"; use RSQL for other fields.
 
 Examples:
+  buddy mdm list --filter=Pending
   buddy mdm list --filter="status==Pending"
   buddy mdm list --filter="clientManagementId==00000000-0000-4000-8000-000000000002"
   buddy mdm list --filter="status==Pending;clientType==COMPUTER" --sort="dateSent:desc"
   buddy mdm list --filter="dateCompleted=ge=2024-01-01T00:00:00Z;status==Acknowledged"
-  buddy mdm list --filter="status==Pending" --count
-  buddy mdm list --filter="status==Pending" --limit=50
+  buddy mdm list --filter=Pending --count
+  buddy mdm list --filter=Pending --limit=50
 `
 
 const helpSetup = `buddy setup - Bootstrap instance config; Jamf Pro role/client + instance oauth
@@ -440,13 +442,13 @@ Usage:
   buddy [global-flags] category <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<name>]              List categories (id, priority, name)
+  list [--filter=<term|rsql>]              List categories (id, priority, name)
   get <category-id>                   Show category details (JSON)
   create <name> [--priority=<1-20>]   Create a category
   delete <category-id>                Delete a category
 
 Flags for 'list':
-  --filter=<name>   Plain name substring or RSQL expression (e.g. 'name=="*Apps*"')
+  --filter=<term|rsql>   Bare term → name=="*term*"; or full RSQL (e.g. 'name=="*Apps*"')
 
 Flags for 'create':
   --priority=<1-20>   Category priority (default 9)
@@ -534,8 +536,8 @@ Usage:
   buddy [global-flags] group <list|get|set|create|delete|static> [args...]
 
 Subcommands:
-  list smart [--filter=<rsql>]           List smart computer groups
-  list static [--filter=<rsql>]          List static computer groups
+  list smart [--filter=<term|rsql>]      List smart computer groups
+  list static [--filter=<term|rsql>]     List static computer groups
   get <group-id>                         Show group JSON (smart group, falling back to static)
   get version <group-id>                 Show current version criterion (smart group)
   set version <group-id> <version>       Update version criterion (smart group)
@@ -550,7 +552,7 @@ Subcommands:
   static remove <group-id> --computer-ids=<id>[,<id>...]   Remove computers from a static group
 
 Flags for 'list':
-  --filter=<rsql>   Plain name substring or RSQL expression (e.g. 'name=="*Chrome*"')
+  --filter=<term|rsql>   Bare term → name=="*term*"; or full RSQL (e.g. 'name=="*Chrome*"')
 
 Flags for 'create smart':
   --description=<text>   Optional description
@@ -665,7 +667,7 @@ Usage:
   buddy [global-flags] device <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<rsql>] [--sort=]     List Platform devices (table)
+  list [--filter=<term|rsql>] [--sort=]    List Platform devices (table)
   get <device-id>                      Fetch one device (JSON)
   set <device-id> [--file=|-]          PATCH device JSON
   delete <device-id>                   Delete a device
@@ -680,8 +682,10 @@ Subcommands:
 Notes:
   Platform Devices API (not Jamf Pro computer inventory). Use 'buddy computer' for Pro/MDM.
   Requires Platform API Gateway tenant+auth. Actions need execute:pro:device-actions.
+  --filter bare term → name=="*term*"; or full RSQL.
 
 Examples:
+  buddy device list --filter=Mac
   buddy device list --filter='name=="*Mac*"'
   buddy device get <device-id>
   buddy device applications <device-id>
@@ -694,7 +698,7 @@ Usage:
   buddy [global-flags] device-group <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<rsql>]               List device groups (table)
+  list [--filter=<term|rsql>]              List device groups (table)
   get <group-id>                       Fetch one group (JSON)
   create [--file=<path>|-]             Create from JSON body
   set <group-id> [--file=|-]           PATCH group JSON
@@ -728,9 +732,11 @@ Subcommands:
 Notes:
   Requires Platform API Gateway tenant+auth and read:pro:declaration-reporting.
   Useful alongside 'buddy blueprint status' for deployment verification.
+  --filter bare term → name=="*term*"; or full RSQL.
 
 Examples:
   buddy ddm declaration com.jamf.ddm.sw-updates
+  buddy ddm declaration com.jamf.ddm.sw-updates --filter=lab
   buddy ddm device <device-id> declarations
   buddy ddm device <device-id> channels
 `
@@ -767,13 +773,16 @@ Usage:
   buddy [global-flags] package <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<rsql>] [--sort=version[:asc|desc]]  List packages
+  list [--filter=<term|rsql>] [--sort=version[:asc|desc]]  List packages
   get <package-id>                                    Show package record details
   download <package-id> [outfile]                     Download package file via JCDS (SHA-256 verified)
   history <package-id>                                Show recent change history (last 20 entries)
   delete <package-id> [package-id...]                Delete one or more package records
   upload <file> [attr-flags…]                        Upload .pkg or .dmg (create or update)
   set <package-id> [attr-flags…]                     Update package metadata
+
+Flags for 'list':
+  --filter=<term|rsql>   Bare term → packageName=="*term*"; or full RSQL
 
 Flags for 'upload' / 'set':
   --name=<display-name>       Package display name (upload default: filename)
@@ -801,6 +810,7 @@ Notes:
 
 Examples:
   buddy package list
+  buddy package list --filter=Chrome
   buddy package list --filter='packageName=="*Chrome*"'
   buddy package list --filter='packageName=="*Chrome*"' --sort=version
   buddy package get 55
@@ -819,7 +829,7 @@ Usage:
   buddy [global-flags] computer <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<rsql>] [--management-id=<uuid>]    List computers (RSQL filter optional; --management-id looks up by MDM management UUID)
+  list [--filter=<term|rsql>] [--management-id=<uuid>]    List computers (bare term → general.name contains; --management-id looks up by MDM management UUID)
   get <computer-id>                                   Show computer details
   reboot <computer-id> [computer-id...]               Send RESTART_DEVICE MDM command
   redeploy <computer-id> [computer-id...]            Trigger Jamf management framework redeploy
@@ -836,6 +846,7 @@ Subcommands:
 
 Examples:
   buddy computer list
+  buddy computer list --filter=Example
   buddy computer list --filter='general.name=="*Example*"'
   buddy computer list --management-id=00000000-0000-4000-8000-000000000003
   buddy computer get 101
@@ -850,7 +861,7 @@ Usage:
   buddy [global-flags] role <subcommand> [args...]
 
 Subcommands:
-  list                                    List all API roles
+  list [--filter=<term|rsql>]             List API roles (bare → displayName contains)
   get <role-id>                           Show API role details
   create <displayName> [priv1 priv2...]   Create API role with optional privileges
   update <role-id> <displayName> [priv1...]    Update API role name and privileges
@@ -859,6 +870,8 @@ Subcommands:
 
 Examples:
   buddy role list
+  buddy role list --filter=Buddy
+  buddy role list --filter='displayName=="*Buddy*"'
   buddy role get 5
   buddy role create "Read Policies" "Read Policies"
   buddy role update 5 "Read Policies" "Read Policies" "Read Scripts"
@@ -872,7 +885,7 @@ Usage:
   buddy [global-flags] client <subcommand> [args...]
 
 Subcommands:
-  list                                              List all API integrations
+  list [--filter=<term|rsql>]                           List API integrations (bare → displayName contains)
   get <client-id>                                   Show API integration details
   create <displayName> [scope1 scope2...]           Create integration with role scopes
   update <client-id> <displayName> [scope1 scope2...]  Update integration name and scopes
@@ -882,6 +895,8 @@ Subcommands:
 
 Examples:
   buddy client list
+  buddy client list --filter=buddy
+  buddy client list --filter='displayName=="*buddy*"'
   buddy client get 3
   buddy client create "My App" "Read Policies"
   buddy client update 3 "My App" "Read Policies" "Read Scripts"
@@ -896,7 +911,7 @@ Usage:
   buddy [global-flags] script <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<name>]                              List scripts (optional name substring filter)
+  list [--filter=<term|rsql>]                         List scripts (bare term → name contains; or RSQL)
   get <script-id>                                     Show full script record (includes body)
   get contents <script-id>                            Output raw script body only (pipeable)
   get id <name>                                       Resolve script name to numeric ID
@@ -917,6 +932,7 @@ Use 'buddy script get help' or 'buddy script set help' for more detail.
 
 Examples:
   buddy script list --filter=Chrome
+  buddy script list --filter='name=="*Chrome*"'
   buddy script get 7
   buddy script create "Install Chrome" chrome.sh --priority=AFTER
   buddy script upload 7 chrome.sh

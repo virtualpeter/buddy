@@ -112,16 +112,20 @@ func PackageList(credName, filter, sortOrder string, logger *slog.Logger) error 
 	return nil
 }
 
-// PackageSearch returns package records matching the optional RSQL filter without printing.
-// Used by DSL builtins that need structured data rather than human-readable output.
+// PackageSearch returns package records matching the optional filter without printing.
+// Bare term → packageName=="*term*"; RSQL expression → pass-through.
 // When opts.Page is PageAll, all pages are fetched.
 func PackageSearch(credName, filter string, opts PageOpts, logger *slog.Logger) ([]PackageRecord, error) {
+	normalized, err := NormalizeListFilter(filter, FilterSpecPackages)
+	if err != nil {
+		return nil, err
+	}
 	extra := url.Values{}
-	if filter != "" {
-		extra.Set("filter", filter)
+	if normalized != "" {
+		extra.Set("filter", normalized)
 	}
 	var all []PackageRecord
-	err := fetchJamfPaged(credName, "/api/v1/packages", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, "/api/v1/packages", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		var page []PackageRecord
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)

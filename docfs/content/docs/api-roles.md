@@ -17,7 +17,7 @@ CLI: `buddy role …`.
 
 ```python
 def main():
-    return roles(filter='displayName=="Buddy"')
+    return roles(filter="Buddy")
 ```
 
 ## Related

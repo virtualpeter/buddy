@@ -145,7 +145,7 @@ Base path: `/api/v1/scripts`
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v1/scripts` | `ScriptSearch`, `ScriptList`, `ScriptGetID` | List scripts (paginated; all pages by default); plain filter = client-side name substring, RSQL = server `filter` |
+| `GET` | `/api/v1/scripts` | `ScriptSearch`, `ScriptList`, `ScriptGetID` | List scripts (paginated; all pages by default); bare filter → `name=="*term*"` server-side, RSQL = pass-through |
 | `GET` | `/api/v1/scripts/{id}` | `scriptGetFull`, `ScriptGet`, `ScriptGetContents`, `ScriptGetContentsStr`, `ScriptUpdate`, `ScriptSet*` | Fetch full script record including `scriptContents` |
 | `POST` | `/api/v1/scripts` | `ScriptCreate` | Create a new script |
 | `PUT` | `/api/v1/scripts/{id}` | `scriptPut`, `ScriptUpdate`, `ScriptSet*` | Replace a script record (fetch-then-PUT pattern) |
@@ -277,7 +277,7 @@ Base path: `/api/v1/api-roles`
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v1/api-roles` | `RoleList`, `RoleListValues` | List API roles (paginated; all pages by default) |
+| `GET` | `/api/v1/api-roles` | `RoleList`, `RoleListValues` | List API roles (paginated; bare filter → `displayName=="*term*"`) |
 | `GET` | `/api/v1/api-roles/{id}` | `RoleGet` | Fetch a single API role |
 | `POST` | `/api/v1/api-roles` | `RoleCreate` | Create a new API role |
 | `PUT` | `/api/v1/api-roles/{id}` | `RoleUpdate` | Replace an API role's name and privilege list |
@@ -292,7 +292,7 @@ Base path: `/api/v1/api-integrations`
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v1/api-integrations` | `ClientList`, `ClientListValues` | List API integrations (paginated; all pages by default) |
+| `GET` | `/api/v1/api-integrations` | `ClientList`, `ClientListValues` | List API integrations (paginated; bare filter → `displayName=="*term*"`) |
 | `GET` | `/api/v1/api-integrations/{id}` | `ClientGet`, `clientGetRaw` | Fetch a single API integration |
 | `POST` | `/api/v1/api-integrations` | `ClientCreate` | Create a new API integration |
 | `PUT` | `/api/v1/api-integrations/{id}` | `ClientUpdate`, `ClientSetTokenLifetime` | Update an API integration (name, scopes, token lifetime) |
@@ -371,7 +371,7 @@ Base path: `/api/v3/computer-groups`
 
 ### Notes
 
-- Both list endpoints are paginated (`page`, `page-size=200`) and support RSQL `filter` server-side. Plain text `--filter` values are matched client-side by name substring.
+- Both list endpoints are paginated (`page`, `page-size=200`) and support RSQL `filter` server-side. Bare `--filter` values become `name=="*term*"`.
 - Group `id` values are JSON strings (e.g. `"920"`), consistent with scripts and packages.
 - `GroupFindID` searches smart groups only (used for version/scope operations on smart groups).
 
@@ -395,8 +395,8 @@ Base path: `/api/v1/categories`
 ## Request Flow per Operation
 
 ```
-buddy script list [--filter=<name>]
-  └─ GET /api/v1/scripts                     (page-size=200; client-side name filter)
+buddy script list [--filter=<term|rsql>]
+  └─ GET /api/v1/scripts                     (page-size=200; bare → name=="*term*")
 
 buddy script get <id>
   └─ GET /api/v1/scripts/{id}
@@ -492,11 +492,11 @@ buddy policy set enable/disable <id>
 buddy policy set xml <id>                   (XML piped from stdin)
   └─ PUT /JSSResource/policies/id/{id}      (raw XML PUT, no prior GET)
 
-buddy group list smart [--filter=<rsql>]
-  └─ GET /api/v3/computer-groups/smart-groups       (paginated; RSQL or client-side substring filter)
+buddy group list smart [--filter=<term|rsql>]
+  └─ GET /api/v3/computer-groups/smart-groups       (paginated; bare → name=="*term*")
 
-buddy group list static [--filter=<rsql>]
-  └─ GET /api/v3/computer-groups/static-groups      (paginated; RSQL or client-side substring filter)
+buddy group list static [--filter=<term|rsql>]
+  └─ GET /api/v3/computer-groups/static-groups      (paginated; bare → name=="*term*")
 
 buddy group get version <group-id>
   └─ GET /api/v3/computer-groups/smart-groups/{id}
@@ -549,8 +549,8 @@ buddy profile set payload <id> <domain> <file> [--redeploy]
   └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (fetch current XML)
   └─ PUT /JSSResource/osxconfigurationprofiles/id/{id}   (replace with updated payload)
 
-buddy package list [--filter=<rsql>]
-  └─ GET /api/v1/packages
+buddy package list [--filter=<term|rsql>]
+  └─ GET /api/v1/packages                         (bare → packageName=="*term*")
 
 buddy package upload <file> [--name=] [--notes=] [--info=] [--category=] [--priority=] [--reboot=]
   └─ GET  /api/v1/packages?filter=fileName=="…"  (reuse existing record if present)
@@ -578,8 +578,8 @@ buddy package set <package-id> [--name=] [--notes=] [--info=] [--category=] [--p
   └─ GET /api/v1/packages/{id}               (fetch full record)
   └─ PUT /api/v1/packages/{id}               (update set fields)
 
-buddy computer list [--filter=<rsql>]
-  └─ GET /api/v3/computers-inventory          (optional filter, page-size=200)
+buddy computer list [--filter=<term|rsql>]
+  └─ GET /api/v3/computers-inventory          (bare → general.name=="*term*"; page-size=200)
 
 buddy computer get <id>
   └─ GET /api/v3/computers-inventory/{id}
@@ -616,11 +616,11 @@ buddy computer certificates <id> [id...]
 buddy computer redeploy <id> [id...]
   └─ POST /api/v1/jamf-management-framework/redeploy/{id}  (per ID)
 
-buddy mdm list --filter=<rsql> [--sort=<expr>]
-  └─ GET /api/v2/mdm/commands          (paginated; RSQL filter required by API)
+buddy mdm list --filter=<term|rsql> [--sort=<expr>]
+  └─ GET /api/v2/mdm/commands          (paginated; bare → status=="term"; filter required)
 
-buddy role list
-  └─ GET /api/v1/api-roles
+buddy role list [--filter=<term|rsql>]
+  └─ GET /api/v1/api-roles                    (bare → displayName=="*term*")
 
 buddy role get <id>
   └─ GET /api/v1/api-roles/{id}
@@ -637,8 +637,8 @@ buddy role delete <id>
 buddy role privileges
   └─ GET /api/v1/api-role-privileges
 
-buddy client list
-  └─ GET /api/v1/api-integrations
+buddy client list [--filter=<term|rsql>]
+  └─ GET /api/v1/api-integrations             (bare → displayName=="*term*")
 
 buddy client get <id>
   └─ GET /api/v1/api-integrations/{id}
@@ -665,7 +665,40 @@ buddy client set token-lifetime <id> <seconds>
 
 ## RSQL Filter Syntax
 
-Several Jamf Pro API v1/v2 endpoints accept a `filter` query parameter using RSQL (RESTful Service Query Language). Buddy passes these through directly on commands like `buddy package list --filter=...`.
+Several Jamf Pro / Platform list endpoints accept a `filter` query parameter using RSQL (RESTful Service Query Language).
+
+### One-rule `--filter` / `filter=` UX
+
+Buddy treats list filters the same way across RSQL-backed resources:
+
+| Input | Behavior |
+|---|---|
+| empty | No `filter=` param (MDM still requires a non-empty filter) |
+| contains an RSQL operator (`==`, `!=`, `=lt=`, `=gt=`, `=le=`, `=ge=`, `=in=`, `=out=`) | Pass through to the API unchanged |
+| otherwise (simple term) | Wrap with the resource default field (see table below) |
+
+Examples of simple terms:
+
+```bash
+buddy package list --filter=Chrome          # → packageName=="*Chrome*"
+buddy computer list --filter=Example        # → general.name=="*Example*"
+buddy script list --filter=Chrome           # → name=="*Chrome*"
+buddy mdm list --filter=Pending             # → status=="Pending" (exact)
+buddy device list --filter=Mac              # → name=="*Mac*"
+```
+
+Classic lists (policies, profiles, macapps, apps) and blueprint `--search` are unchanged (client-side / API-native search — not RSQL wrap).
+
+### Simple-term defaults
+
+| Resource | Simple term becomes |
+|---|---|
+| packages | `packageName=="*term*"` |
+| computers | `general.name=="*term*"` |
+| scripts / categories / smart+static groups | `name=="*term*"` |
+| roles / clients (API integrations) | `displayName=="*term*"` |
+| Platform devices / device-groups / device apps / DDM reports | `name=="*term*"` |
+| mdm | `status=="term"` (exact enum match, not contains) |
 
 ### Operators
 
@@ -685,7 +718,10 @@ Several Jamf Pro API v1/v2 endpoints accept a `filter` query parameter using RSQ
 ### Examples
 
 ```bash
-# All packages whose name contains a placeholder product name
+# Simple term (auto-wrapped)
+buddy package list --filter=ExampleApp
+
+# Explicit RSQL
 buddy package list --filter='packageName=="*ExampleApp*"'
 
 # ExampleApp packages built for Apple Silicon
@@ -703,18 +739,14 @@ buddy package list --filter='cloudTransferStatus=="READY"'
 # Packages by specific IDs
 buddy package list --filter='id=in=(10,11,12)'
 
-# API integrations by name
-buddy client list --filter='displayName=="*CI*"'
-
-# API roles by name
-buddy role list  # (role list does not currently support --filter; use get <id>)
-
 # Computers by name, serial, or UDID
+buddy computer list --filter=Example
 buddy computer list --filter='general.name=="*Example*"'
 buddy computer list --filter='hardware.serialNumber=="C02EXAMPLE0001"'
 buddy computer list --filter='udid=="00000000-0000-4000-8000-000000000001"'
 
-# MDM commands by status
+# MDM commands by status (bare or RSQL)
+buddy mdm list --filter=Pending
 buddy mdm list --filter='status==Pending'
 buddy mdm list --filter='clientManagementId==00000000-0000-4000-8000-000000000002;status==Pending'
 
@@ -740,6 +772,7 @@ mdm_commands(filter=filt)
 | `/v1/packages` | `id`, `fileName`, `packageName`, `categoryId`, `info`, `notes`, `manifestFileName`, `cloudTransferStatus` |
 | `/v3/computers-inventory` | `id`, `udid`, `general.name`, `hardware.serialNumber`, `general.managementId`, etc. |
 | `/v2/mdm/commands` | `uuid`, `clientManagementId`, `command`, `status`, `clientType`, `dateSent`, `validAfter`, `dateCompleted`, `profileId`, `profileIdentifier`, `active` |
+| `/v1/scripts`, `/v1/categories`, computer-groups | `id`, `name`, … (see OpenAPI) |
 | `/v1/api-integrations` | `id`, `displayName` |
 | `/v1/api-roles` | `id`, `displayName` |
 
@@ -747,7 +780,7 @@ mdm_commands(filter=filt)
 
 - Wildcard `*` is only meaningful inside string equality (`==` / `!=`).
 - String values are case-insensitive in Jamf's RSQL implementation.
-- Always quote the filter value in the shell to prevent glob expansion: `--filter='...'`.
+- Quote RSQL values in the shell to prevent glob expansion: `--filter='packageName=="*Chrome*"'`. Bare simple terms like `--filter=Chrome` need no quotes.
 - The RSQL grammar is specified at [github.com/jirutka/rsql-parser](https://github.com/jirutka/rsql-parser).
 
 ---

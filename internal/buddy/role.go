@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 )
 
 type ApiRole struct {
@@ -29,9 +30,10 @@ type ApiRolePrivileges struct {
 	Privileges []string `json:"privileges"`
 }
 
-// RoleList fetches and prints all API roles.
-func RoleList(credName string, logger *slog.Logger) error {
-	roles, err := RoleListValues(credName, PageOpts{Page: PageAll}, logger)
+// RoleList fetches and prints API roles matching the optional filter.
+// Bare term → displayName=="*term*"; RSQL expression → pass-through.
+func RoleList(credName, filter string, logger *slog.Logger) error {
+	roles, err := RoleListValues(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
 	}
@@ -43,9 +45,18 @@ func RoleList(credName string, logger *slog.Logger) error {
 
 // RoleListValues fetches API roles and returns them (for script use).
 // When opts.Page is PageAll, all pages are fetched.
-func RoleListValues(credName string, opts PageOpts, logger *slog.Logger) ([]ApiRole, error) {
+// Filter: bare term → displayName=="*term*"; RSQL → pass-through.
+func RoleListValues(credName, filter string, opts PageOpts, logger *slog.Logger) ([]ApiRole, error) {
+	normalized, err := NormalizeListFilter(filter, FilterSpecRoles)
+	if err != nil {
+		return nil, err
+	}
+	extra := url.Values{}
+	if normalized != "" {
+		extra.Set("filter", normalized)
+	}
 	var all []ApiRole
-	err := fetchJamfPaged(credName, "/api/v1/api-roles", nil, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, "/api/v1/api-roles", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		var page []ApiRole
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)

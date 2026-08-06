@@ -4,8 +4,8 @@ Query Jamf Pro MDM **command history** with RSQL filters. Device **actions** (re
 
 ## Happy path (preferred)
 
-1. **List / find:** `mdm_commands(filter=…)` — RSQL against command fields (status, clientManagementId, dates, …).
-2. CLI: `buddy mdm list --filter=…`.
+1. **List / find:** `mdm_commands(filter=…)` — bare term → `status=="term"`, or full RSQL (status, clientManagementId, dates, …).
+2. CLI: `buddy mdm list --filter=…` (e.g. `--filter=Pending`).
 
 Build filters with offline `rsql_*` helpers when useful (see builtins / [api-endpoints](api-endpoints.md) RSQL section).
 
@@ -16,7 +16,7 @@ Build filters with offline `rsql_*` helpers when useful (see builtins / [api-end
 
 ```python
 def main():
-    return mdm_commands(filter='status=="Pending"')
+    return mdm_commands(filter="Pending")
 ```
 
 ## Related

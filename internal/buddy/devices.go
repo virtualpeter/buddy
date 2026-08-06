@@ -26,19 +26,24 @@ type DeviceListOpts struct {
 }
 
 // DeviceListValues lists Platform devices (all pages by default).
+// Filter: bare term → name=="*term*"; RSQL → pass-through.
 func DeviceListValues(credName string, listOpts DeviceListOpts, logger *slog.Logger) ([]DeviceOverview, error) {
 	if err := requirePlatformCred(credName); err != nil {
 		return nil, err
 	}
+	normalized, err := NormalizeListFilter(listOpts.Filter, FilterSpecDevices)
+	if err != nil {
+		return nil, err
+	}
 	extra := url.Values{}
-	if listOpts.Filter != "" {
-		extra.Set("filter", listOpts.Filter)
+	if normalized != "" {
+		extra.Set("filter", normalized)
 	}
 	if listOpts.Sort != "" {
 		extra.Set("sort", listOpts.Sort)
 	}
 	var all []DeviceOverview
-	err := fetchJamfPaged(credName, uriDevices, extra, listOpts.Page, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, uriDevices, extra, listOpts.Page, func(resultsJSON []byte, _ int) (int, error) {
 		var page []DeviceOverview
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse devices: %w", err)
@@ -149,6 +154,7 @@ func DeviceDelete(credName, deviceID string, opts Opts, logger *slog.Logger) err
 }
 
 // DeviceApplicationsValue lists installed applications for a Platform device.
+// Filter: bare term → name=="*term*"; RSQL → pass-through.
 func DeviceApplicationsValue(credName, deviceID string, pageOpts PageOpts, filter string, logger *slog.Logger) ([]map[string]interface{}, error) {
 	if err := requirePlatformCred(credName); err != nil {
 		return nil, err
@@ -156,13 +162,17 @@ func DeviceApplicationsValue(credName, deviceID string, pageOpts PageOpts, filte
 	if strings.TrimSpace(deviceID) == "" {
 		return nil, fmt.Errorf("device-id is required")
 	}
+	normalized, err := NormalizeListFilter(filter, FilterSpecDevices)
+	if err != nil {
+		return nil, err
+	}
 	extra := url.Values{}
-	if filter != "" {
-		extra.Set("filter", filter)
+	if normalized != "" {
+		extra.Set("filter", normalized)
 	}
 	path := uriDevices + "/" + url.PathEscape(deviceID) + "/applications"
 	var all []map[string]interface{}
-	err := fetchJamfPaged(credName, path, extra, pageOpts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, path, extra, pageOpts, func(resultsJSON []byte, _ int) (int, error) {
 		page, err := decodeJSONObjectList(resultsJSON)
 		if err != nil {
 			return 0, fmt.Errorf("parse applications: %w", err)
@@ -186,6 +196,7 @@ func DeviceApplications(credName, deviceID string, filter string, logger *slog.L
 }
 
 // DevicesForUserValue lists Platform devices for a user id.
+// Filter: bare term → name=="*term*"; RSQL → pass-through.
 func DevicesForUserValue(credName, userID string, listOpts DeviceListOpts, logger *slog.Logger) ([]DeviceOverview, error) {
 	if err := requirePlatformCred(credName); err != nil {
 		return nil, err
@@ -193,16 +204,20 @@ func DevicesForUserValue(credName, userID string, listOpts DeviceListOpts, logge
 	if strings.TrimSpace(userID) == "" {
 		return nil, fmt.Errorf("user-id is required")
 	}
+	normalized, err := NormalizeListFilter(listOpts.Filter, FilterSpecDevices)
+	if err != nil {
+		return nil, err
+	}
 	extra := url.Values{}
-	if listOpts.Filter != "" {
-		extra.Set("filter", listOpts.Filter)
+	if normalized != "" {
+		extra.Set("filter", normalized)
 	}
 	if listOpts.Sort != "" {
 		extra.Set("sort", listOpts.Sort)
 	}
 	path := "/api/devices/v1/users/" + url.PathEscape(userID) + "/devices"
 	var all []DeviceOverview
-	err := fetchJamfPaged(credName, path, extra, listOpts.Page, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, path, extra, listOpts.Page, func(resultsJSON []byte, _ int) (int, error) {
 		var page []DeviceOverview
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse user devices: %w", err)

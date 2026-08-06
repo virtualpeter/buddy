@@ -11,6 +11,7 @@ import (
 const uriDDMReport = "/api/ddm/report/v1"
 
 // DDMDeclarationDevicesValue lists devices reporting a declaration identifier.
+// Filter: bare term → name=="*term*"; RSQL → pass-through.
 func DDMDeclarationDevicesValue(credName, declarationID string, pageOpts PageOpts, filter, sort string, logger *slog.Logger) (interface{}, error) {
 	if err := requirePlatformCred(credName); err != nil {
 		return nil, err
@@ -18,9 +19,13 @@ func DDMDeclarationDevicesValue(credName, declarationID string, pageOpts PageOpt
 	if strings.TrimSpace(declarationID) == "" {
 		return nil, fmt.Errorf("declaration-id is required")
 	}
+	normalized, err := NormalizeListFilter(filter, FilterSpecDDM)
+	if err != nil {
+		return nil, err
+	}
 	extra := url.Values{}
-	if filter != "" {
-		extra.Set("filter", filter)
+	if normalized != "" {
+		extra.Set("filter", normalized)
 	}
 	if sort != "" {
 		extra.Set("sort", sort)
@@ -28,7 +33,7 @@ func DDMDeclarationDevicesValue(credName, declarationID string, pageOpts PageOpt
 	path := uriDDMReport + "/declarations/" + url.PathEscape(declarationID) + "/devices"
 	// Prefer the filtered devices endpoint; fall back to collecting pages into a list.
 	var all []map[string]interface{}
-	err := fetchJamfPaged(credName, path, extra, pageOpts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, path, extra, pageOpts, func(resultsJSON []byte, _ int) (int, error) {
 		page, err := decodeJSONObjectList(resultsJSON)
 		if err != nil {
 			return 0, fmt.Errorf("parse declaration devices: %w", err)
@@ -66,6 +71,7 @@ func DDMDeclarationDevices(credName, declarationID string, filter, sort string, 
 }
 
 // DDMDeviceDeclarationsValue lists declarations reported for a device.
+// Filter: bare term → name=="*term*"; RSQL → pass-through.
 func DDMDeviceDeclarationsValue(credName, deviceID string, pageOpts PageOpts, filter, sort string, logger *slog.Logger) (interface{}, error) {
 	if err := requirePlatformCred(credName); err != nil {
 		return nil, err
@@ -73,16 +79,20 @@ func DDMDeviceDeclarationsValue(credName, deviceID string, pageOpts PageOpts, fi
 	if strings.TrimSpace(deviceID) == "" {
 		return nil, fmt.Errorf("device-id is required")
 	}
+	normalized, err := NormalizeListFilter(filter, FilterSpecDDM)
+	if err != nil {
+		return nil, err
+	}
 	extra := url.Values{}
-	if filter != "" {
-		extra.Set("filter", filter)
+	if normalized != "" {
+		extra.Set("filter", normalized)
 	}
 	if sort != "" {
 		extra.Set("sort", sort)
 	}
 	path := uriDDMReport + "/devices/" + url.PathEscape(deviceID) + "/declarations"
 	var all []map[string]interface{}
-	err := fetchJamfPaged(credName, path, extra, pageOpts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, path, extra, pageOpts, func(resultsJSON []byte, _ int) (int, error) {
 		page, err := decodeJSONObjectList(resultsJSON)
 		if err != nil {
 			return 0, fmt.Errorf("parse device declarations: %w", err)

@@ -299,8 +299,10 @@ POLICY
 GROUP
   smart_groups(filter?, page?, page_size?, tenant?, surface?, auth?)
       → value: list of {id, name, description}
+      Params: filter?: bare term → name=="*term*", or full RSQL.
   static_groups(filter?, page?, page_size?, tenant?, surface?, auth?)
       → value: list of {id, name, description}
+      Params: filter?: bare term → name=="*term*", or full RSQL.
   smart_group(id=?) | smart_group(name=?, tenant?, surface?, auth?)
       → value: dict (full smart-group JSON)
   static_group(id, tenant?, surface?, auth?)
@@ -351,10 +353,12 @@ BLUEPRINT (Platform API Gateway credential required)
 
 PLATFORM DEVICE (Platform gateway; distinct from computer/Pro inventory)
   devices(filter?, sort?, page?, page_size?, tenant?, surface?, auth?) → value: list of {id, name, serialNumber?, …}
+      Params: filter?: bare term → name=="*term*", or full RSQL.
   device(id=, tenant?, surface?, auth?) → value: dict
   device_set(device_id, body, tenant?, surface?, auth?) → None
   device_delete(device_id, tenant?, surface?, auth?) → None
   device_applications(device_id, filter?, page?, page_size?, tenant?, surface?, auth?) → value: list[dict]
+      Params: filter?: bare term → name=="*term*", or full RSQL.
   device_check_in(device_id, tenant?, surface?, auth?) → None
   device_restart(device_id, tenant?, surface?, auth?) → None
   device_shutdown(device_id, tenant?, surface?, auth?) → None
@@ -363,6 +367,7 @@ PLATFORM DEVICE (Platform gateway; distinct from computer/Pro inventory)
 
 PLATFORM DEVICE GROUP (not Pro smart/static computer groups)
   device_groups(filter?, page?, page_size?, tenant?, surface?, auth?) → value: list of {id, name, …}
+      Params: filter?: bare term → name=="*term*", or full RSQL.
   device_group(id=, tenant?, surface?, auth?) → value: dict
   device_group_create(body, tenant?, surface?, auth?) → value: dict
   device_group_set(group_id, body, tenant?, surface?, auth?) → None
@@ -372,7 +377,9 @@ PLATFORM DEVICE GROUP (not Pro smart/static computer groups)
 
 DDM REPORT (read-only Platform declaration reporting)
   ddm_declaration_devices(declaration_id, filter?, sort?, page?, page_size?, tenant?, surface?, auth?) → value: JSON
+      Params: filter?: bare term → name=="*term*", or full RSQL.
   ddm_device_declarations(device_id, filter?, sort?, page?, page_size?, tenant?, surface?, auth?) → value: JSON
+      Params: filter?: bare term → name=="*term*", or full RSQL.
   ddm_device_channels(device_id, tenant?, surface?, auth?) → value: JSON
 
 COMPLIANCE BENCHMARK (beta Platform API)
@@ -389,6 +396,7 @@ COMPLIANCE BENCHMARK (beta Platform API)
 PACKAGE
   packages(filter?, page?, page_size?, tenant?, surface?, auth?)
       → value: list of {id, packageName, fileName}
+      Params: filter?: bare term → packageName=="*term*", or full RSQL.
   package(id=?) | package(name=, version=, pattern?=, tenant?, surface?, auth?)
       → value: full package dict (id=) or {id, name} (name+version)
       Params: id=: str — GET full record (checksums, size, cloudTransferStatus,
@@ -517,6 +525,7 @@ PROFILE — component
 SCRIPT (Jamf Pro scripts)
   scripts(filter?, page?, page_size?, tenant?, surface?, auth?)
       → value: list of {id, name, categoryId, categoryName}
+      Params: filter?: bare term → name=="*term*", or full RSQL.
   script(id=?) | script(name=?, tenant?, surface?, auth?)
       → value: full script dict (id=) or id string (name=)
   script_get_contents(script_id, tenant?, surface?, auth?) → value: str
@@ -532,6 +541,7 @@ SCRIPT (Jamf Pro scripts)
 CATEGORY (Jamf Pro categories)
   categories(filter?, page?, page_size?, tenant?, surface?, auth?)
       → value: list of {id, name, priority}
+      Params: filter?: bare term → name=="*term*", or full RSQL.
   category(id=?) | category(name=?, tenant?, surface?, auth?) → value: dict {id, name, priority}
   category_clone(category_id, name, priority?, tenant?, surface?, auth?) → value: dict {id, name, priority?}
       Params: Alias of category_copy without to_*.
@@ -566,6 +576,7 @@ POLICY APPS (Self Service + packages)
 COMPUTER
   computers(filter?, ids?=False, page?, page_size?, tenant?, surface?, auth?)
       → value: list of summary dicts (or list of int if ids=True)
+      Params: filter?: bare term → general.name=="*term*", or full RSQL.
   computer(id, tenant?, surface?, auth?)
       → value: dict (id, name, serialNumber, udid, managementId, ...)
   computer_send_mdm_command(computer_ids, command_type, command_data?, tenant?, surface?, auth?) → None
@@ -585,18 +596,21 @@ COMPUTER
 MDM
   mdm_commands(filter, sort?, page?, page_size?, limit?, tenant?, surface?, auth?)
       → value: list of MDM command dicts
-      Params: filter: str (RSQL, required); sort?: str; page?: int (omit = all); page_size?; limit?: int.
+      Params: filter: str required — bare term → status=="term" (exact), or full RSQL;
+        sort?: str; page?: int (omit = all); page_size?; limit?: int.
 
 ROLE
   role_privileges(tenant?, surface?, auth?) → value: list of str
-  roles(full?=False, page?, page_size?, tenant?, surface?, auth?)
+  roles(filter?, full?=False, page?, page_size?, tenant?, surface?, auth?)
       → value: list of {id, display_name} (or full JSON list if full=True)
+      Params: filter?: bare term → displayName=="*term*", or full RSQL.
   role(id, tenant?, surface?, auth?) → value: dict
   role_put(role_id, dict, tenant?, surface?, auth?) → value: dict
   role_create(display_name, privileges, tenant?, surface?, auth?) → value: str (role ID)
 
 CLIENT
-  clients(page?, page_size?, tenant?, surface?, auth?) → value: list of dicts
+  clients(filter?, page?, page_size?, tenant?, surface?, auth?) → value: list of dicts
+      Params: filter?: bare term → displayName=="*term*", or full RSQL.
   client(id, tenant?, surface?, auth?) → value: dict
   client_put(client_id, dict, tenant?, surface?, auth?) → value: dict
   client_create(display_name, scopes, tenant?, surface?, auth?) → value: dict {id, client_id}

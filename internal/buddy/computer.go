@@ -90,14 +90,19 @@ type mdmClientData struct {
 }
 
 // ComputerSearch fetches computers matching the filter and returns records.
+// Bare term → general.name=="*term*"; RSQL expression → pass-through.
 // When opts.Page is PageAll, all pages are fetched.
 func ComputerSearch(credName, filter string, opts PageOpts, logger *slog.Logger) ([]ComputerRecord, error) {
+	normalized, err := NormalizeListFilter(filter, FilterSpecComputers)
+	if err != nil {
+		return nil, err
+	}
 	extra := url.Values{}
-	if filter != "" {
-		extra.Set("filter", filter)
+	if normalized != "" {
+		extra.Set("filter", normalized)
 	}
 	var all []ComputerRecord
-	err := fetchJamfPaged(credName, "/api/v3/computers-inventory", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, "/api/v3/computers-inventory", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		var page []computerListItemV3
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)

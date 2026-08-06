@@ -760,14 +760,15 @@ func staticGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 	}
 }
 
-// roles(full?=False, page?, page_size?, tenant?, surface?, auth?)
+// roles(filter?, full?=False, page?, page_size?, tenant?, surface?, auth?)
 func rolesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var filter starlark.String
 		page := starlark.Value(starlark.None)
 		var pageSize starlark.Int
 		var full starlark.Bool
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("roles", args, kwargs, "full?", &full, "page?", &page, "page_size?", &pageSize,
+		if err := starlark.UnpackArgs("roles", args, kwargs, "filter?", &filter, "full?", &full, "page?", &page, "page_size?", &pageSize,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -783,7 +784,7 @@ func rolesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		if err != nil {
 			return nil, err
 		}
-		roles, err := buddy.RoleListValues(c, opts, logger)
+		roles, err := buddy.RoleListValues(c, string(filter), opts, logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -854,13 +855,14 @@ func rolePrivilegesBuiltin(credName string, logger *slog.Logger) func(*starlark.
 	}
 }
 
-// clients(page?, page_size?, tenant?, surface?, auth?)
+// clients(filter?, page?, page_size?, tenant?, surface?, auth?)
 func clientsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var filter starlark.String
 		page := starlark.Value(starlark.None)
 		var pageSize starlark.Int
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("clients", args, kwargs, "page?", &page, "page_size?", &pageSize,
+		if err := starlark.UnpackArgs("clients", args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -876,7 +878,7 @@ func clientsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		if err != nil {
 			return nil, err
 		}
-		clients, err := buddy.ClientListValues(c, opts, logger)
+		clients, err := buddy.ClientListValues(c, string(filter), opts, logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}

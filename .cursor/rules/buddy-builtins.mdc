@@ -418,6 +418,8 @@ old = ordered[1:]
 
 Build Jamf `filter=` strings for package/computer/mdm/group list APIs. All return bare `str` (raise on bad args).
 
+List builtins and CLI `--filter` also accept a **simple term** (no RSQL operators): buddy wraps it with the resource default (`packageName`, `general.name`, `name`, `displayName`, or MDM `status` exact). Full RSQL (any `==` / `=ge=` / `=in=` / …) is passed through unchanged. See `docs/api-endpoints.md` § RSQL.
+
 - `rsql_escape(s)` / `rsql_quote(s)`
 - `rsql_eq` / `rsql_ne` — strings quoted; numbers/bools unquoted
 - `rsql_lt` / `rsql_gt` / `rsql_le` / `rsql_ge` — strings left unquoted (ISO datetimes)

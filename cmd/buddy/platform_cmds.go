@@ -36,13 +36,13 @@ func runDeviceGroup(credName string, opts buddy.Opts, args []string, log *slog.L
 	switch subcommand {
 	case "list":
 		listOpts := buddy.DeviceGroupListOpts{Page: buddy.PageOpts{Page: buddy.PageAll}}
-		for _, a := range args {
-			switch {
-			case strings.HasPrefix(a, "--filter="):
-				listOpts.Filter = strings.TrimPrefix(a, "--filter=")
-			default:
-				return fmt.Errorf("unknown list flag %q; run 'buddy device-group help'", a)
-			}
+		filter, rest, err := extractStringFlag(args, "filter")
+		if err != nil {
+			return err
+		}
+		listOpts.Filter = filter
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown list flag %q; run 'buddy device-group help'", rest[0])
 		}
 		return buddy.DeviceGroupList(credName, listOpts, log)
 	case "get":
@@ -103,15 +103,18 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 	switch subcommand {
 	case "list":
 		listOpts := buddy.DeviceListOpts{Page: buddy.PageOpts{Page: buddy.PageAll}}
-		for _, a := range args {
-			switch {
-			case strings.HasPrefix(a, "--filter="):
-				listOpts.Filter = strings.TrimPrefix(a, "--filter=")
-			case strings.HasPrefix(a, "--sort="):
-				listOpts.Sort = strings.TrimPrefix(a, "--sort=")
-			default:
-				return fmt.Errorf("unknown list flag %q; run 'buddy device help'", a)
-			}
+		filter, rest, err := extractStringFlag(args, "filter")
+		if err != nil {
+			return err
+		}
+		sort, rest, err := extractStringFlag(rest, "sort")
+		if err != nil {
+			return err
+		}
+		listOpts.Filter = filter
+		listOpts.Sort = sort
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown list flag %q; run 'buddy device help'", rest[0])
 		}
 		return buddy.DeviceList(credName, listOpts, log)
 	case "get":
@@ -139,13 +142,12 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 			return fmt.Errorf("missing device-id; run 'buddy device help'")
 		}
 		deviceID := args[0]
-		filter := ""
-		for _, a := range args[1:] {
-			if strings.HasPrefix(a, "--filter=") {
-				filter = strings.TrimPrefix(a, "--filter=")
-			} else {
-				return fmt.Errorf("unknown applications flag %q", a)
-			}
+		filter, rest, err := extractStringFlag(args[1:], "filter")
+		if err != nil {
+			return err
+		}
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown applications flag %q", rest[0])
 		}
 		return buddy.DeviceApplications(credName, deviceID, filter, log)
 	case "user":
@@ -204,16 +206,16 @@ func runDDM(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 			return fmt.Errorf("usage: buddy ddm declaration <declaration-id> [--filter=] [--sort=]")
 		}
 		id := args[1]
-		filter, sort := "", ""
-		for _, a := range args[2:] {
-			switch {
-			case strings.HasPrefix(a, "--filter="):
-				filter = strings.TrimPrefix(a, "--filter=")
-			case strings.HasPrefix(a, "--sort="):
-				sort = strings.TrimPrefix(a, "--sort=")
-			default:
-				return fmt.Errorf("unknown flag %q", a)
-			}
+		filter, rest, err := extractStringFlag(args[2:], "filter")
+		if err != nil {
+			return err
+		}
+		sort, rest, err := extractStringFlag(rest, "sort")
+		if err != nil {
+			return err
+		}
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown flag %q", rest[0])
 		}
 		return buddy.DDMDeclarationDevices(credName, id, filter, sort, log)
 	case "device":
@@ -228,16 +230,16 @@ func runDDM(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		case "channels":
 			return buddy.DDMDeviceChannels(credName, deviceID, log)
 		case "declarations":
-			filter, sort := "", ""
-			for _, a := range args[3:] {
-				switch {
-				case strings.HasPrefix(a, "--filter="):
-					filter = strings.TrimPrefix(a, "--filter=")
-				case strings.HasPrefix(a, "--sort="):
-					sort = strings.TrimPrefix(a, "--sort=")
-				default:
-					return fmt.Errorf("unknown flag %q", a)
-				}
+			filter, rest, err := extractStringFlag(args[3:], "filter")
+			if err != nil {
+				return err
+			}
+			sort, rest, err := extractStringFlag(rest, "sort")
+			if err != nil {
+				return err
+			}
+			if len(rest) > 0 {
+				return fmt.Errorf("unknown flag %q", rest[0])
 			}
 			return buddy.DDMDeviceDeclarations(credName, deviceID, filter, sort, log)
 		default:

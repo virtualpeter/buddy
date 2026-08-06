@@ -67,16 +67,19 @@ type GroupSummary struct {
 }
 
 // groupSearchPaged fetches groups from a paginated v2 endpoint, applying an
-// optional RSQL filter server-side or a plain substring filter client-side.
+// optional filter (bare term → name=="*term*" server-side; RSQL → pass-through).
 // When opts.Page is PageAll, all pages are fetched; otherwise a single page.
 func groupSearchPaged(credName, apiPath, filter string, opts PageOpts) ([]GroupSummary, error) {
-	rsql := filter != "" && isRSQLFilter(filter)
+	normalized, err := NormalizeListFilter(filter, FilterSpecGroups)
+	if err != nil {
+		return nil, err
+	}
 	extra := url.Values{}
-	if rsql {
-		extra.Set("filter", filter)
+	if normalized != "" {
+		extra.Set("filter", normalized)
 	}
 	var all []GroupSummary
-	err := fetchJamfPaged(credName, apiPath, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, apiPath, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		var page []GroupSummary
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)
@@ -86,16 +89,6 @@ func groupSearchPaged(credName, apiPath, filter string, opts PageOpts) ([]GroupS
 	})
 	if err != nil {
 		return nil, err
-	}
-	if filter != "" && !rsql {
-		filterLower := strings.ToLower(strings.TrimSpace(filter))
-		var out []GroupSummary
-		for _, g := range all {
-			if strings.Contains(strings.ToLower(g.Name), filterLower) {
-				out = append(out, g)
-			}
-		}
-		return out, nil
 	}
 	return all, nil
 }

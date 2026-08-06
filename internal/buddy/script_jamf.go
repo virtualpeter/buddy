@@ -55,34 +55,22 @@ type scriptHistoryResponse struct {
 	Results    []ScriptHistoryEntry `json:"results"`
 }
 
-// isRSQLFilter reports whether s contains any RSQL comparison operator.
-// Plain name fragments (e.g. "install") contain none of these.
-func isRSQLFilter(s string) bool {
-	for _, op := range []string{"==", "!=", "=lt=", "=gt=", "=le=", "=ge=", "=in=", "=out="} {
-		if strings.Contains(s, op) {
-			return true
-		}
-	}
-	return false
-}
-
 // ScriptSearch fetches scripts via paginated requests and returns summary records
 // matching the optional filter (id, name, category only — never scriptContents).
 // Jamf's list OpenAPI model may include full Script bodies; buddy strips them.
 // When opts.Page is PageAll, all pages are fetched.
-// Two filter modes are supported:
-//   - Plain string (e.g. "install"): fetches pages per opts, then filters client-side
-//     by case-insensitive name substring.
-//   - RSQL expression (e.g. `name=="*Jamf*"`): passes &filter= to the API on
-//     each page request so the server filters.
+// Filter: bare term → name=="*term*" (server); RSQL expression → pass-through.
 func ScriptSearch(credName, filter string, opts PageOpts, logger *slog.Logger) ([]ScriptRecord, error) {
-	rsql := filter != "" && isRSQLFilter(filter)
+	normalized, err := NormalizeListFilter(filter, FilterSpecScripts)
+	if err != nil {
+		return nil, err
+	}
 	extra := url.Values{}
-	if rsql {
-		extra.Set("filter", filter)
+	if normalized != "" {
+		extra.Set("filter", normalized)
 	}
 	var all []ScriptRecord
-	err := fetchJamfPaged(credName, "/api/v1/scripts", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, "/api/v1/scripts", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		// Unmarshal as full ScriptDetail (Jamf may send scriptContents), then project.
 		var page []ScriptDetail
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
@@ -100,16 +88,6 @@ func ScriptSearch(credName, filter string, opts PageOpts, logger *slog.Logger) (
 	})
 	if err != nil {
 		return nil, err
-	}
-	if filter != "" && !rsql {
-		filterLower := strings.ToLower(strings.TrimSpace(filter))
-		var out []ScriptRecord
-		for _, s := range all {
-			if strings.Contains(strings.ToLower(s.Name), filterLower) {
-				out = append(out, s)
-			}
-		}
-		return out, nil
 	}
 	return all, nil
 }

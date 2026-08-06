@@ -4,7 +4,7 @@ How to list, load, mutate, copy, and migrate Jamf Classic policies with buddy �
 
 ## Happy path (preferred)
 
-1. **List / find:** `policies(filter=…)` or `policies(ids=True)` — summary dicts `{id, name, …}`.
+1. **List / find:** `policies(keywords=…)` or `policies(ids=True)` — summary dicts `{id, name, …}`.
 2. **Load one:** `policy(id=…)` **or** `policy(trigger=…)` (not both) — full Classic XML as a dict tree (or use `policy_xml(id=…)` for the raw string).
 3. **Mutate:** prefer fat helpers (`policy_set`, `policy_set_ss`, `policy_set_package`, `policy_set_scope_*`, …) over hand-edited XML when they cover the change.
 4. **Raw XML write:** `policy_put_xml(policy_id, xml_str)` when you must edit Classic XML directly.

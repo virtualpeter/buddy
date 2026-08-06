@@ -27,16 +27,19 @@ type CategoryResolved struct {
 // Uncategorized is the Classic / Pro sentinel for no category.
 var Uncategorized = CategoryResolved{ID: "-1", Name: "No category assigned"}
 
-// CategorySearch lists categories (paginated). Plain filter = client-side name substring;
-// RSQL filter is passed to the API.
+// CategorySearch lists categories (paginated).
+// Filter: bare term → name=="*term*" (server); RSQL expression → pass-through.
 func CategorySearch(credName, filter string, opts PageOpts, _ *slog.Logger) ([]CategoryDetail, error) {
-	rsql := filter != "" && isRSQLFilter(filter)
+	normalized, err := NormalizeListFilter(filter, FilterSpecCategories)
+	if err != nil {
+		return nil, err
+	}
 	extra := url.Values{}
-	if rsql {
-		extra.Set("filter", filter)
+	if normalized != "" {
+		extra.Set("filter", normalized)
 	}
 	var all []CategoryDetail
-	err := fetchJamfPaged(credName, uriCategories, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, uriCategories, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		var page []CategoryDetail
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse categories: %w", err)
@@ -46,16 +49,6 @@ func CategorySearch(credName, filter string, opts PageOpts, _ *slog.Logger) ([]C
 	})
 	if err != nil {
 		return nil, err
-	}
-	if filter != "" && !rsql {
-		filterLower := strings.ToLower(strings.TrimSpace(filter))
-		var out []CategoryDetail
-		for _, c := range all {
-			if strings.Contains(strings.ToLower(c.Name), filterLower) {
-				out = append(out, c)
-			}
-		}
-		return out, nil
 	}
 	return all, nil
 }

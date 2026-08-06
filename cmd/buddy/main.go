@@ -361,12 +361,20 @@ func runPolicyList(credName string, opts buddy.Opts, args []string, log *slog.Lo
 	var excludeIDs []int
 	var keywords []string
 	idsOnly := false
-	for _, a := range args {
-		switch {
-		case strings.HasPrefix(a, "--filter="):
-			keywords = append(keywords, strings.Fields(strings.TrimPrefix(a, "--filter="))...)
-		case strings.HasPrefix(a, "--exclude-ids="):
-			val := strings.TrimPrefix(a, "--exclude-ids=")
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if val, next, matched, err := takeFlagValue(args, i, "filter"); matched {
+			if err != nil {
+				return err
+			}
+			keywords = append(keywords, strings.Fields(val)...)
+			i = next - 1
+			continue
+		}
+		if val, next, matched, err := takeFlagValue(args, i, "exclude-ids"); matched {
+			if err != nil {
+				return err
+			}
 			for _, s := range strings.Split(val, ",") {
 				s = strings.TrimSpace(s)
 				if s == "" {
@@ -378,6 +386,10 @@ func runPolicyList(credName string, opts buddy.Opts, args []string, log *slog.Lo
 				}
 				excludeIDs = append(excludeIDs, id)
 			}
+			i = next - 1
+			continue
+		}
+		switch {
 		case a == "--ids":
 			idsOnly = true
 		default:
@@ -1470,16 +1482,10 @@ func runProfile(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		_, err = buddy.ProfileClone(credName, opts, profileID, name, log)
 		return err
 	case "list":
-		var filter string
-		var filtered []string
-		for _, a := range args {
-			if strings.HasPrefix(a, "--filter=") {
-				filter = strings.TrimPrefix(a, "--filter=")
-			} else {
-				filtered = append(filtered, a)
-			}
+		filter, _, err := extractStringFlag(args, "filter")
+		if err != nil {
+			return err
 		}
-		_ = filtered
 		return buddy.ProfileList(credName, filter, log)
 	case "redeploy":
 		if len(args) < 1 {
@@ -1622,19 +1628,14 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		}
 		return buddy.PackageUpload(credName, opts, filePath, attrs, log)
 	case "list":
-		var filter string
-		var sortSpec string
-		var filtered []string
-		for _, a := range args {
-			if strings.HasPrefix(a, "--filter=") {
-				filter = strings.TrimPrefix(a, "--filter=")
-			} else if strings.HasPrefix(a, "--sort=") {
-				sortSpec = strings.TrimPrefix(a, "--sort=")
-			} else {
-				filtered = append(filtered, a)
-			}
+		filter, rest, err := extractStringFlag(args, "filter")
+		if err != nil {
+			return err
 		}
-		_ = filtered
+		sortSpec, _, err := extractStringFlag(rest, "sort")
+		if err != nil {
+			return err
+		}
 		sortOrder, err := parsePackageListSort(sortSpec)
 		if err != nil {
 			return err
@@ -2000,7 +2001,14 @@ func runRole(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 
 	switch subcommand {
 	case "list":
-		return buddy.RoleList(credName, log)
+		filter, rest, err := extractStringFlag(args, "filter")
+		if err != nil {
+			return err
+		}
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown list flag %q; run 'buddy role help'", rest[0])
+		}
+		return buddy.RoleList(credName, filter, log)
 	case "get":
 		if len(args) < 1 {
 			return fmt.Errorf("missing role-id; run 'buddy role help' for usage")
@@ -2049,7 +2057,14 @@ func runClient(credName string, opts buddy.Opts, args []string, log *slog.Logger
 
 	switch subcommand {
 	case "list":
-		return buddy.ClientList(credName, log)
+		filter, rest, err := extractStringFlag(args, "filter")
+		if err != nil {
+			return err
+		}
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown list flag %q; run 'buddy client help'", rest[0])
+		}
+		return buddy.ClientList(credName, filter, log)
 	case "get":
 		if len(args) < 1 {
 			return fmt.Errorf("missing client-id; run 'buddy client help' for usage")
@@ -2129,11 +2144,9 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 
 	switch subcommand {
 	case "list":
-		var filter string
-		for _, a := range args {
-			if strings.HasPrefix(a, "--filter=") {
-				filter = strings.TrimPrefix(a, "--filter=")
-			}
+		filter, _, err := extractStringFlag(args, "filter")
+		if err != nil {
+			return err
 		}
 		return buddy.ScriptList(credName, filter, log)
 

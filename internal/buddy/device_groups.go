@@ -26,16 +26,21 @@ type DeviceGroupListOpts struct {
 }
 
 // DeviceGroupListValues lists Platform device groups (all pages by default).
+// Filter: bare term → name=="*term*"; RSQL → pass-through.
 func DeviceGroupListValues(credName string, listOpts DeviceGroupListOpts, logger *slog.Logger) ([]DeviceGroupOverview, error) {
 	if err := requirePlatformCred(credName); err != nil {
 		return nil, err
 	}
+	normalized, err := NormalizeListFilter(listOpts.Filter, FilterSpecDeviceGroups)
+	if err != nil {
+		return nil, err
+	}
 	extra := url.Values{}
-	if listOpts.Filter != "" {
-		extra.Set("filter", listOpts.Filter)
+	if normalized != "" {
+		extra.Set("filter", normalized)
 	}
 	var all []DeviceGroupOverview
-	err := fetchJamfPaged(credName, uriDeviceGroups, extra, listOpts.Page, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, uriDeviceGroups, extra, listOpts.Page, func(resultsJSON []byte, _ int) (int, error) {
 		var page []DeviceGroupOverview
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse device-groups: %w", err)

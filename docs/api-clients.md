@@ -17,7 +17,7 @@ CLI: `buddy client …`.
 
 ```python
 def main():
-    return clients(filter='displayName=="buddy-cli"')
+    return clients(filter="buddy-cli")
 ```
 
 ## Related

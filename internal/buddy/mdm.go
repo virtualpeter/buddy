@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 const uriMdmCommands = "/api/v2/mdm/commands"
@@ -43,8 +44,12 @@ type mdmCommandListResponse struct {
 // Note: this endpoint's totalCount is unreliable as a global total, so all-page
 // termination uses a short final page rather than fetchJamfPaged.
 func MdmCommandFind(credName, filter, sort string, opts PageOpts, limit int, _ *slog.Logger) ([]MdmCommandRecord, error) {
-	if filter == "" {
+	if strings.TrimSpace(filter) == "" {
 		return nil, fmt.Errorf("filter is required (API requires at least one RSQL filter field)")
+	}
+	normalized, err := NormalizeListFilter(filter, FilterSpecMDM)
+	if err != nil {
+		return nil, err
 	}
 	if sort == "" {
 		sort = "dateSent:asc"
@@ -59,7 +64,7 @@ func MdmCommandFind(credName, filter, sort string, opts PageOpts, limit int, _ *
 		endpoint := fmt.Sprintf("%s?page=%d&page-size=%d&sort=%s&filter=%s",
 			baseEndpoint, page, pageSize,
 			url.QueryEscape(sort),
-			url.QueryEscape(filter),
+			url.QueryEscape(normalized),
 		)
 		req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 		if err != nil {
