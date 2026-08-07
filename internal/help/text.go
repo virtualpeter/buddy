@@ -202,7 +202,7 @@ WHAT IS NOT IN STARLARK (vs Python)
 Use 'buddy help builtins' for buddy-specific functions.
 `
 
-const Builtins = `buddy built-in functions for buddyscript scripts
+const builtinsHead = `buddy built-in functions for buddyscript scripts
 ===============================================
 Builtins return bare values on success and raise on failure.
 (MCP tools still wrap {ok, value} at the tool boundary only.)
@@ -245,379 +245,9 @@ STDLIB
   Current modules: stdlib/release.buddy (bump_release), stdlib/app_setup.buddy
   (setup_app_classic).
 
-POLICY
-  policies(keywords?, exclude_ids?, ids?=False, tenant?, surface?, auth?)
-      → value: list of {id, name} (or list of int if ids=True)
-      Params: keywords?: str or list of str — omit or empty to list all Classic
-        policies; otherwise filter by name/trigger keywords. exclude_ids?: list of
-        int; ids?: bool.
-  policy(id=?) | policy(trigger=?, tenant?, surface?, auth?)
-      → value: details dict (id, name, enabled, trigger, frequency, scope, packages, scripts)
-      Params: pass either id= (int/str) or trigger= (str), not both.
-  policy_xml(id, tenant?, surface?, auth?)
-      → value: str (raw policy XML)
-  policy_set(policy_id, enable?=, name?=, trigger?=, frequency?=, tenant?, surface?, auth?)
-      → None
-      Params: at least one of enable/name/trigger/frequency.
-  policy_put_xml(policy_id, xml_str, tenant?, surface?, auth?)
-      → None
-  policy_copy(policy_id, name?, trigger?, category_id?, match_trigger?, upsert?=False,
-              scope_all?, scope_group_ids?,
-              tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
-      → value: dict {id, name, trigger} or {id, name, trigger, created} when upsert
-      Params: Source session = tenant?/auth?/surface? (or process default).
-        Destination = to_tenant?/to_auth?/to_surface? (omit = same as source).
-        Default unassigned scope. Remaps category/scripts/packages by name on dest
-        (missing scripts/packages fail; missing category → uncategorized).
-        upsert=True: upsert by exact name (or trigger_other when match_trigger=True);
-        name optional (defaults to source name). Alias: policy_migrate(...).
-  policy_migrate(...) → same as policy_copy(..., upsert=True)
-  policy_set_ss(policy_id, version?, group_ids?, display_name?,
-                description?, install_text?, reinstall_text?,
-                force_view?, feature?, self_service?, tenant?, surface?, auth?)
-      → None
-  policy_set_install(policy_id, version, tenant?, surface?, auth?) → None
-  policy_set_package(name, version, policy_id?, trigger?, package_pattern?,
-                     disable_source?, keep_source?, tenant?, surface?, auth?) → None
-      Params: name: str package name keyword ("" to derive from the source
-        trigger); pass trigger= or policy_id= for the source Install/Cache
-        policy (one is required). disable_source?/keep_source?: optional bool
-        overrides (mutually exclusive). Default: disable source only when
-        creating a same-trigger replacement.
-  policy_set_scope_all(policy_id, tenant?, surface?, auth?) → None
-  policy_create_ss(trigger, display_name, category?, scope_group_id?, script_id?, tenant?, surface?, auth?)
-      → value: int (new policy ID)
-  policy_create_package(name, version, action?, scope_all?, scope_group_ids?,
-                        category?, package_pattern?, tenant?, surface?, auth?)
-      → value: dict {id, name, trigger}
-      Params: name: str package name keyword. action?: "install" (default) or
-        "cache". Defaults match CLI triggers: install-<name>-next /
-        cache-<name>-<version>. scope_all defaults true when
-        no scope_group_ids. package_pattern?: optional package name glob.
-  policy_delete(policy_ids, tenant?, surface?, auth?) → None
+`
 
-GROUP
-  smart_groups(filter?, page?, page_size?, tenant?, surface?, auth?)
-      → value: list of {id, name, description}
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  static_groups(filter?, page?, page_size?, tenant?, surface?, auth?)
-      → value: list of {id, name, description}
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  smart_group(id=?) | smart_group(name=?, tenant?, surface?, auth?)
-      → value: dict (full smart-group JSON)
-  static_group(id, tenant?, surface?, auth?)
-      → value: dict {id, name, description}
-  smart_group_get_version(group_id, tenant?, surface?, auth?) → value: str
-  smart_group_set_version(group_id, version, tenant?, surface?, auth?) → None
-  group_delete(group_id, tenant?, surface?, auth?) → None
-  smart_group_create(body, tenant?, surface?, auth?) → value: dict {"id", "href"?}
-  smart_group_clone(group_id, name, site_id?, tenant?, surface?, auth?) → value: dict {"id", "href"?}
-      Params: Alias of smart_group_copy without to_* (same-session).
-  smart_group_copy(group_id, name?, site_id?, upsert?=False,
-                   tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
-      → value: dict {"id", "href"?} or +name/created when upsert
-      Params: Copy criteria/description; clears siteId unless site_id set.
-        Source = tenant?/auth?; dest = to_* (omit = same session).
-        upsert=True: upsert by exact name (name optional → source name).
-  smart_group_migrate(...) → same as smart_group_copy(..., upsert=True)
-  smart_group_put(group_id, body, tenant?, surface?, auth?) → None
-  smart_group_get_criteria(group_id, tenant?, surface?, auth?) → value: list[dict]
-  smart_group_set_criteria(group_id, criteria, tenant?, surface?, auth?) → None
-  smart_group_find_criteria(group_id, name_substring, tenant?, surface?, auth?) → value: list[dict]
-  smart_group_update_criterion_value(group_id, name_substring, new_value, tenant?, surface?, auth?) → None
-  static_group_list_computers(group_id, filter?, tenant?, surface?, auth?)
-      → value: list of {id, name, serial}
-  static_group_create(body, tenant?, surface?, auth?) → value: dict {"id", "href"?}
-  static_group_add_computers(group_id, computer_ids, tenant?, surface?, auth?) → None
-  static_group_remove_computers(group_id, computer_ids, tenant?, surface?, auth?) → None
-  static_group_set_computers(group_id, computer_ids, tenant?, surface?, auth?) → None
-
-BLUEPRINT (Platform API Gateway credential required)
-  blueprints(search?, page?, page_size?, tenant?, surface?, auth?)
-      → value: list of {id, name, description?, created?, updated?}
-      Params: search?: str; page?: int (omit = all); page_size?; tenant?/surface?/auth?.
-  blueprint(id=, tenant?, surface?, auth?)
-      → value: dict (full blueprint JSON)
-      Params: id: str (blueprint UUID); tenant?/surface?/auth?.
-  blueprint_create(body, tenant?, surface?, auth?) → value: dict
-      Params: body: dict (create JSON); tenant?/surface?/auth?.
-  blueprint_set(blueprint_id, body, tenant?, surface?, auth?) → None
-      Params: blueprint_id: str; body: dict (merge-patch JSON); tenant?/surface?/auth?.
-  blueprint_delete(blueprint_id, tenant?, surface?, auth?) → None
-  blueprint_deploy(blueprint_id, tenant?, surface?, auth?) → None
-  blueprint_undeploy(blueprint_id, tenant?, surface?, auth?) → None
-  blueprint_status(blueprint_id, tenant?, surface?, auth?) → value: dict (status report)
-  blueprint_components(page?, page_size?, tenant?, surface?, auth?) → value: list[dict]
-  blueprint_component(id=, tenant?, surface?, auth?) → value: dict
-      Params: id: str (component identifier); tenant?/surface?/auth?.
-
-PLATFORM DEVICE (Platform gateway; distinct from computer/Pro inventory)
-  devices(filter?, sort?, page?, page_size?, tenant?, surface?, auth?) → value: list of {id, name, serialNumber?, …}
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  device(id=, tenant?, surface?, auth?) → value: dict
-  device_set(device_id, body, tenant?, surface?, auth?) → None
-  device_delete(device_id, tenant?, surface?, auth?) → None
-  device_applications(device_id, filter?, page?, page_size?, tenant?, surface?, auth?) → value: list[dict]
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  device_check_in(device_id, tenant?, surface?, auth?) → None
-  device_restart(device_id, tenant?, surface?, auth?) → None
-  device_shutdown(device_id, tenant?, surface?, auth?) → None
-  device_erase(device_id, tenant?, surface?, auth?) → None
-  device_unmanage(device_id, tenant?, surface?, auth?) → None
-
-PLATFORM DEVICE GROUP (not Pro smart/static computer groups)
-  device_groups(filter?, page?, page_size?, tenant?, surface?, auth?) → value: list of {id, name, …}
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  device_group(id=, tenant?, surface?, auth?) → value: dict
-  device_group_create(body, tenant?, surface?, auth?) → value: dict
-  device_group_set(group_id, body, tenant?, surface?, auth?) → None
-  device_group_delete(group_id, tenant?, surface?, auth?) → None
-  device_group_members(group_id, tenant?, surface?, auth?) → value: JSON
-  device_group_set_members(group_id, body, tenant?, surface?, auth?) → None
-
-DDM REPORT (read-only Platform declaration reporting)
-  ddm_declaration_devices(declaration_id, filter?, sort?, page?, page_size?, tenant?, surface?, auth?) → value: JSON
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  ddm_device_declarations(device_id, filter?, sort?, page?, page_size?, tenant?, surface?, auth?) → value: JSON
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  ddm_device_channels(device_id, tenant?, surface?, auth?) → value: JSON
-
-COMPLIANCE BENCHMARK (beta Platform API)
-  benchmarks(tenant?, surface?, auth?) → value: JSON
-  benchmark(id=, tenant?, surface?, auth?) → value: dict
-  benchmark_create(body, tenant?, surface?, auth?) → value: dict
-  benchmark_delete(benchmark_id, tenant?, surface?, auth?) → None
-  benchmark_baselines(tenant?, surface?, auth?) → value: JSON
-  benchmark_catalog_rules(baseline?, tenant?, surface?, auth?) → value: JSON
-  benchmark_compliance_percentage(benchmark_id, tenant?, surface?, auth?) → value: JSON
-  benchmark_report_devices(benchmark_id, tenant?, surface?, auth?) → value: JSON
-  benchmark_report_rules(benchmark_id, tenant?, surface?, auth?) → value: JSON
-
-PACKAGE
-  packages(filter?, page?, page_size?, tenant?, surface?, auth?)
-      → value: list of {id, packageName, fileName}
-      Params: filter?: bare term → packageName=="*term*", or full RSQL.
-  package(id=?) | package(name=, version=, pattern?=, tenant?, surface?, auth?)
-      → value: full package dict (id=) or {id, name} (name+version)
-      Params: id=: str — GET full record (checksums, size, cloudTransferStatus,
-        flags, …). Or name=+version= to resolve by name keyword. pattern?:
-        optional package name glob/regex override.
-  package_ready(id=, tenant?, surface?, auth?) → value: bool
-      Params: id=: package id; tenant?/surface?/auth?: str.
-      Returns: True iff the package exists, cloudTransferStatus is "READY", and
-        sha256 is non-empty; False if missing or not ready. API errors raise.
-  package_wait_ready(id=, timeout?, tenant?, surface?, auth?) → value: None
-      Params: id=: package id; timeout?: int seconds (default 600); tenant?/surface?/auth?: str.
-      Polls until cloudTransferStatus is READY and sha256 is set (nudges JCDS
-      refresh-inventory). Prefer after package_upload before attaching to a policy.
-  package_download(id=, path?, tenant?, surface?, auth?) → value: None
-      Params: id=: package id; path?: local outfile (default fileName); tenant?/surface?/auth?: str.
-      Waits READY+sha256, streams JCDS pre-signed URI to temp while hashing
-      SHA-256, renames only on match. JCDS only.
-  package_upload(file, name?, category_id?, priority?, notes?, info?, reboot?, tenant?, surface?, auth?)
-      → value: None
-      Params: file: str path (.pkg/.dmg); name?: display name (default basename);
-        category_id?: str (default "-1"); priority?: int 1–20 (default 10);
-        notes?/info?: str; reboot?: bool (default false); tenant?/surface?/auth?: str.
-        Same fileName → update path (GET + checksum compare; skip upload if match;
-        if hashes blank and status not READY, raise not-ready — do not re-upload;
-        apply metadata flags when they differ). New fileName → create with flags,
-        wait until readable, then stream upload.
-  package_delete(ids) → None
-  package_put(package_id, dict, tenant?, surface?, auth?) → value: dict
-      Params: package_id: str; dict: full package body; tenant?/surface?/auth?: str.
-      Returns: value: updated package dict. PUT omits server-managed size.
-
-PROFILE
-  profiles(filter?)
-      → value: list of {id, name}
-  profile(id=?) | profile(name=?, tenant?, surface?, auth?)
-      → value: XML str (id=) or {id, name} (name=)
-  profile_xml(id, tenant?, surface?, auth?) → value: str (raw profile XML)
-  profile_create(name, payloads_plist_str?, content?, category?,
-                 scope_all?, scope_group_ids?, redeploy_on_update?, tenant?, surface?, auth?)
-      → value: int (new profile ID)
-      Params: name: str; pass payloads_plist_str and/or content (list of payload
-        dicts). scope_all defaults true when scope_group_ids omitted. Classic POST.
-  profile_clone(profile_id, name, tenant?, surface?, auth?) → value: dict {id, name}
-      Params: Alias of profile_copy without to_* (same-session UUID remap).
-  profile_copy(profile_id, name?, category_id?, scope_all?, scope_group_ids?, upsert?=False,
-               tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name} or +created
-      Params: Source = tenant?/auth?; dest = to_* (omit = same session). UUID remap + unassigned scope.
-        upsert=True: upsert by exact name (name optional → source name).
-  profile_migrate(...) → same as profile_copy(..., upsert=True)
-  profile_create_xml(xml_str, name?, tenant?, surface?, auth?) → value: dict {id, name}
-      Params: POST prepared XML (after profile_xml_prepare_for_create).
-  profile_delete(profile_id, tenant?, surface?, auth?) → None
-  profile_redeploy(profile_id, tenant?, surface?, auth?) → None
-  profile_acs_bind_uuid(profile_id, payload_uuid) → None
-      Params: Seeds process cache classic id → ACS payload UUID (FIELD_EXTERNAL_CONFIGPROFILE_ID).
-        Needed when API-token clients cannot scrape legacy HTML; enables read hydrate + ACS writes.
-  profile_get_payloads(profile_id) → value: str
-  profile_get_payload(profile_id, domain) → value: str
-      Params: domain is PayloadIdentifier (PayloadContent only; not MCX — use payloads_get_mcx_dict offline).
-  profile_list_payloads(profile_id) → value: list of str
-      Params: PayloadIdentifier list (PayloadContent only).
-  profile_set_payload(profile_id, domain, dict_file, redeploy?, tenant?, surface?, auth?) → None
-      Params: PayloadContent merge or MCX settings dict (same as profile_xml_patch_payload).
-
-PROFILE — component
-  profile_put_xml(profile_id, xml_str, redeploy?, tenant?, surface?, auth?) → None
-  profile_xml_extract_payloads(profile_xml_str)
-      → value: str (payloads plist XML from <payloads>; entities unescaped)
-      Params: profile_xml_str: str (offline transform; no API call).
-  profile_xml_randomize_uuids(profile_xml_str) → value: str
-      Params: Offline; new general UUID + remap PayloadUUID keys; PayloadIdentifier unchanged.
-  profile_xml_prepare_for_create(profile_xml_str, name, scope_all?, scope_group_ids?) → value: str
-      Params: Offline; name, strip id, scope (default unassigned), randomize UUIDs for Classic POST.
-  profile_xml_replace_payloads(profile_xml_str, payloads_plist_str)
-      → value: str (updated profile XML)
-      Params: profile_xml_str: str; payloads_plist_str: str (offline transform).
-  profile_xml_set_redeploy_all(profile_xml_str)
-      → value: str (updated profile XML)
-      Params: profile_xml_str: str. Sets <redeploy_on_update>All</redeploy_on_update>.
-  profile_xml_patch_payload(profile_xml_str, domain, new_payload)
-      → value: str (updated profile XML)
-      Params: profile_xml_str: str; domain: str (PayloadIdentifier or MCX preference domain);
-              new_payload: dict or plist/dict XML. PayloadContent: keys merge onto existing payload
-              (PayloadUUID preserved). MCX: settings dict only under mcx_preference_settings.
-  payloads_list_identifiers(payloads_plist_str)
-      → value: list of str
-      Params: payloads_plist_str: str (payloads plist XML). PayloadContent PayloadIdentifiers only.
-  payloads_collect_uuids(payloads_plist_str) → value: list of str
-      Params: Every PayloadUUID in the plist (verify clone/copy remapping).
-  payloads_get_payload(payloads_plist_str, domain)
-      → value: str (plist XML dict)
-      Params: payloads_plist_str: str; domain: str (PayloadIdentifier). PayloadContent only — not MCX.
-  payloads_replace_payload(payloads_plist_str, domain, new_payload)
-      → value: str (payloads plist XML)
-      Params: payloads_plist_str: str; domain: str; new_payload: dict or plist XML. Full replace (not merge).
-  payloads_get_mcx_dict(payloads_plist_str, domain)
-      → value: str (bare <dict>…</dict>)
-      Params: payloads_plist_str: str; domain: str (MCX preference-domain key). Reads mcx_preference_settings.
-  payloads_replace_mcx_dict(payloads_plist_str, domain, dict_xml_str)
-      → value: str (payloads plist XML)
-      Params: payloads_plist_str: str; domain: str; dict_xml_str: str (MCX settings dict).
-  payloads_set_content(content, payloads_plist_str?)
-      → value: str (payloads plist XML)
-      Params: content: list of payload dicts; payloads_plist_str?: str (omit/empty to start fresh).
-  payloads_add_payload(payloads_plist_str, domain, new_payload)
-      → value: str (payloads plist XML)
-      Params: payloads_plist_str: str (empty ok); domain: str; new_payload: dict or plist XML. Appends or replaces by PayloadIdentifier.
-  payloads_remove_payload(payloads_plist_str, domain)
-      → value: str (payloads plist XML)
-      Params: payloads_plist_str: str; domain: str.
-  plist_normalise_dict(data_str)
-      → value: str (bare <dict>…</dict>)
-      Params: data_str: str (bare dict fragment or full plist).
-  pppc_fda(bundle_id, code_requirement, comment?)
-      → value: dict (SystemPolicyAllFiles service entry)
-      Params: bundle_id: str; code_requirement: str; comment?: str. Offline; no API.
-  pppc_payload(services, payload_identifier?, payload_uuid?, payload_display_name?)
-      → value: dict (com.apple.TCC.configuration-profile-policy payload)
-      Params: services: dict of service name → list of app entries (e.g. from
-        pppc_fda). Compose Accessibility etc. as additional service keys. Offline.
-  prefs_payload(domain, settings, payload_identifier?, payload_uuid?,
-                payload_display_name?)
-      → value: dict (preference-domain payload; PayloadType == domain)
-      Params: domain: str; settings: dict of preference keys. Offline.
-
-SCRIPT (Jamf Pro scripts)
-  scripts(filter?, page?, page_size?, tenant?, surface?, auth?)
-      → value: list of {id, name, categoryId, categoryName}
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  script(id=?) | script(name=?, tenant?, surface?, auth?)
-      → value: full script dict (id=) or id string (name=)
-  script_get_contents(script_id, tenant?, surface?, auth?) → value: str
-  script_update(script_id, file, tenant?, surface?, auth?) → None
-  script_put(script_id, dict, tenant?, surface?, auth?) → value: dict
-  script_clone(script_id, name, category_id?, tenant?, surface?, auth?) → value: dict {id, name}
-      Params: Alias of script_copy without to_*.
-  script_copy(script_id, name?, category_id?, upsert?=False,
-              tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name} or +created
-      Params: Source = tenant?/auth?; dest = to_* (omit = same). upsert=True upserts by name.
-  script_migrate(...) → same as script_copy(..., upsert=True)
-
-CATEGORY (Jamf Pro categories)
-  categories(filter?, page?, page_size?, tenant?, surface?, auth?)
-      → value: list of {id, name, priority}
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  category(id=?) | category(name=?, tenant?, surface?, auth?) → value: dict {id, name, priority}
-  category_clone(category_id, name, priority?, tenant?, surface?, auth?) → value: dict {id, name, priority?}
-      Params: Alias of category_copy without to_*.
-  category_copy(category_id, name?, priority?, upsert?=False,
-                tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict …
-  category_migrate(...) → same as category_copy(..., upsert=True)
-
-MAC APP STORE (Classic macapplications)
-  macapps(filter?, tenant?, surface?, auth?)
-      → value: list of {id, name, version, bundle_id}
-      Params: filter?: str (client-side substring on name/version/bundle_id); Classic list has no RSQL.
-  macapp(id=?) | macapp(name=?, tenant?, surface?, auth?) → value: dict (full resource)
-      Params: Pass either id or name, not both. Returns general/scope/self_service plus flat fields.
-  macapp_create(name, version, bundle_id, url, free?=False, category?, tenant?, surface?, auth?)
-      → value: dict {id, name}
-      Params: name/version/bundle_id/url: str (required); free?: bool; category?: str (exact category name).
-  macapp_delete(macapp_id, tenant?, surface?, auth?) → None
-      Params: macapp_id: int or str.
-
-POLICY APPS (Self Service + packages)
-  apps(filter?, tenant?, surface?, auth?)
-      → value: list of summary dicts {name, kind, version, ss_policy_id, install_trigger, …}
-      Params: filter?: str (client-side substring on name/kind/version/trigger/package).
-      Notes: Name-index from one hybrid policy list ([SS] in name); kind/version may be approximate.
-             Prefer app(name=…) for authoritative classify.
-  app(name, tenant?, surface?, auth?) → value: dict (summary + linked install/cache policies)
-      Params: name: str (app identifier, e.g. santa, vscode).
-      Notes: Classic XML classify (excludes inventory-only SS stubs).
-  app_upgrade(name, version, package_pattern?, tenant?, surface?, auth?) → None
-      Params: name: str; version: str; package_pattern?: str (package name glob).
-      Notes: Dispatches by kind — single in-place package+SS description; install PolicyPackage
-             with disable-source; cache keep prior cache + replace install-next.
-
-COMPUTER
-  computers(filter?, ids?=False, page?, page_size?, tenant?, surface?, auth?)
-      → value: list of summary dicts (or list of int if ids=True)
-      Params: filter?: bare term → general.name=="*term*", or full RSQL.
-  computer(id, tenant?, surface?, auth?)
-      → value: dict (id, name, serialNumber, udid, managementId, ...)
-  computer_send_mdm_command(computer_ids, command_type, command_data?, tenant?, surface?, auth?) → None
-  computer_reboot(computer_ids, tenant?, surface?, auth?) → None
-  computer_redeploy(computer_ids, tenant?, surface?, auth?) → None
-  computer_shutdown(computer_ids, tenant?, surface?, auth?) → None
-  computer_lock(computer_ids, message?, phone?, pin?, tenant?, surface?, auth?) → None
-  computer_logout(computer_ids, tenant?, surface?, auth?) → None
-  computer_erase(computer_ids, pin?, obliteration?, tenant?, surface?, auth?) → None
-  computer_device_info(computer_ids, queries?, tenant?, surface?, auth?) → value: dict or list
-  computer_device_location(computer_ids, tenant?, surface?, auth?) → value: dict or list
-  computer_security_info(computer_ids, tenant?, surface?, auth?) → value: dict or list
-  computer_installed_apps(computer_ids, identifiers?, tenant?, surface?, auth?) → value: dict or list
-  computer_managed_apps(computer_ids, identifiers?, tenant?, surface?, auth?) → value: dict or list
-  computer_certificates(computer_ids, tenant?, surface?, auth?) → value: dict or list
-
-MDM
-  mdm_commands(filter, sort?, page?, page_size?, limit?, tenant?, surface?, auth?)
-      → value: list of MDM command dicts
-      Params: filter: str required — bare term → status=="term" (exact), or full RSQL;
-        sort?: str; page?: int (omit = all); page_size?; limit?: int.
-
-ROLE
-  role_privileges(tenant?, surface?, auth?) → value: list of str
-  roles(filter?, full?=False, page?, page_size?, tenant?, surface?, auth?)
-      → value: list of {id, display_name} (or full JSON list if full=True)
-      Params: filter?: bare term → displayName=="*term*", or full RSQL.
-  role(id, tenant?, surface?, auth?) → value: dict
-  role_put(role_id, dict, tenant?, surface?, auth?) → value: dict
-  role_create(display_name, privileges, tenant?, surface?, auth?) → value: str (role ID)
-
-CLIENT
-  clients(filter?, page?, page_size?, tenant?, surface?, auth?) → value: list of dicts
-      Params: filter?: bare term → displayName=="*term*", or full RSQL.
-  client(id, tenant?, surface?, auth?) → value: dict
-  client_put(client_id, dict, tenant?, surface?, auth?) → value: dict
-  client_create(display_name, scopes, tenant?, surface?, auth?) → value: dict {id, client_id}
-
-JAMF API
+const builtinsTail = `JAMF API
   Low-level authenticated HTTP against the credential’s Jamf host. Prefer typed
   builtins when they exist; use these for endpoints buddy does not wrap yet.
   Path is host-relative (must start with /). Defaults: /JSSResource… → XML
@@ -901,3 +531,26 @@ EXAMPLE — declarative workflow
   ]
   run_workflow(steps)
 `
+
+// Builtins is the buddyscript help text (resource sections from *_gen.go).
+var Builtins = builtinsHead +
+	PoliciesBuiltinsSection +
+	GroupsBuiltinsSection +
+	BlueprintsBuiltinsSection +
+	DevicesBuiltinsSection +
+	DeviceGroupsBuiltinsSection +
+	DdmBuiltinsSection +
+	BenchmarksBuiltinsSection +
+	PackagesBuiltinsSection +
+	ProfilesBuiltinsSection +
+	ProfilePayloadsBuiltinsSection +
+	ScriptsBuiltinsSection +
+	CategoriesBuiltinsSection +
+	MacappsBuiltinsSection +
+	AppsBuiltinsSection +
+	ComputersBuiltinsSection +
+	MdmBuiltinsSection +
+	RolesBuiltinsSection +
+	ClientsBuiltinsSection +
+	builtinsTail
+

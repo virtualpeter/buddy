@@ -38,7 +38,7 @@ def main():
 | [Stdlib](buddyscript-stdlib.md) | `load("stdlib/….buddy", …)` modules |
 | [Function index](/docs/builtins) | Every builtin (signatures, params, returns) |
 
-Also: [Editor / LSP](editor.md), [Change batches](change-batches.md), [Reference manual](reference-manual.md).
+Also: [Editor / LSP](editor.md), [Change batches](/docs/docs/change-batches), [Reference manual](reference-manual.md).
 
 ## Quick CLI
 

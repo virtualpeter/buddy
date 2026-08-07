@@ -16,10 +16,18 @@ BUDDY_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || ech
 
 # Buddy CLI (builds to ./buddy)
 BUDDY_GO_FILES := $(shell find cmd/buddy internal docfs stdlib \( -name "*.go" -o -name "*.buddy" -o -name "*.star" \) 2>/dev/null)
-DOC_SOURCES := $(shell find docs examples .cursor/rules -type f \( -name '*.md' -o -name '*.buddy' -o -name '*.star' -o -name '*.json' -o -name '*.mdc' \) 2>/dev/null) README.md AGENTS.md
+DOC_SOURCES := $(shell find docs examples -type f \( -name '*.md' -o -name '*.buddy' -o -name '*.star' -o -name '*.json' \) 2>/dev/null) README.md
+
+.PHONY: gendocs
+gendocs:
+	$(GO) run ./cmd/gendocs
+
+.PHONY: check-gendocs
+check-gendocs: gendocs
+	@git diff --exit-code -- docs/generated internal/help/apps_gen.go || (echo "gendocs output stale; commit make gendocs" && exit 1)
 
 .PHONY: sync-docfs
-sync-docfs:
+sync-docfs: gendocs
 	@./scripts/sync-docfs.sh
 
 # Refresh vendored Jamf Platform API OpenAPI specs (needs network). Commit the result.
@@ -27,7 +35,7 @@ sync-docfs:
 sync-platform-schema:
 	@./scripts/sync-platform-schema.sh
 
-docfs/content/README.embedded: $(DOC_SOURCES) scripts/sync-docfs.sh
+docfs/content/README.embedded: gendocs $(DOC_SOURCES) scripts/sync-docfs.sh
 	@./scripts/sync-docfs.sh
 
 # Optional build tags (comma-separated). Exclusion tags shrink the binary:

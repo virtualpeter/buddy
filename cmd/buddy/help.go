@@ -145,25 +145,9 @@ Examples:
   buddy --user=sandbox-admin policy set …
 `
 
-const helpPolicy = `buddy policy - Manage Jamf policies
+// helpPolicy is generated (make gendocs).
+var helpPolicy = help.PoliciesCLIHelp
 
-Usage:
-  buddy [global-flags] policy <subcommand> [args...]
-
-Subcommands:
-  list    List policies (optional keyword filter)
-  get     Read policy (details, id by trigger, enable state, xml)
-  set     Modify policy properties (scope, enable/disable, trigger, name, ...)
-  create  Create a new policy
-  delete  Delete one or more policies
-
-Use 'buddy policy <subcommand> help' for subcommand-specific help.
-
-Examples:
-  buddy policy list --filter=chrome
-  buddy policy get id install-chrome
-  buddy policy delete 42
-`
 
 const helpPolicyList = `buddy policy list - List policies
 
@@ -319,37 +303,9 @@ Examples:
   buddy policy delete 42 43 44
 `
 
-const helpMdm = `buddy mdm - Query MDM commands from Jamf Pro
+// helpMdm is generated (make gendocs).
+var helpMdm = help.MdmCLIHelp
 
-Usage:
-  buddy [global-flags] mdm <subcommand> [args...]
-
-Subcommands:
-  list   List MDM commands matching an RSQL filter
-
-Flags for 'list':
-  --filter=<term|rsql>  Bare term → status=="term" (exact); or full RSQL (required)
-  --sort=<expr>         Sort expression (default: dateSent:asc)
-  --count               Fetch all matching records and print only the total count (table suppressed)
-  --page-size=<n>       Records per API request (default 200; pagination fetches all)
-  --limit=<n>           Maximum total records to return (0 = no limit)
-
-RSQL filterable fields:
-  uuid, clientManagementId, command, status, clientType, dateSent,
-  validAfter, dateCompleted, profileId, profileIdentifier, active
-
-  Date fields require gt/lt/ge/le operators (not ==).
-  Bare --filter=Pending is sugar for status=="Pending"; use RSQL for other fields.
-
-Examples:
-  buddy mdm list --filter=Pending
-  buddy mdm list --filter="status==Pending"
-  buddy mdm list --filter="clientManagementId==00000000-0000-4000-8000-000000000002"
-  buddy mdm list --filter="status==Pending;clientType==COMPUTER" --sort="dateSent:desc"
-  buddy mdm list --filter="dateCompleted=ge=2024-01-01T00:00:00Z;status==Acknowledged"
-  buddy mdm list --filter=Pending --count
-  buddy mdm list --filter=Pending --limit=50
-`
 
 const helpSetup = `buddy setup - Bootstrap instance config; Jamf Pro role/client + instance oauth
 
@@ -436,512 +392,64 @@ Examples:
   buddy setup store-oauth --tenant=sandbox --name=sandbox-oauth -y
 `
 
-const helpCategory = `buddy category - Manage Jamf Pro categories
-
-Usage:
-  buddy [global-flags] category <subcommand> [args...]
-
-Subcommands:
-  list [--filter=<term|rsql>]              List categories (id, priority, name)
-  get <category-id>                   Show category details (JSON)
-  create <name> [--priority=<1-20>]   Create a category
-  delete <category-id>                Delete a category
-
-Flags for 'list':
-  --filter=<term|rsql>   Bare term → name=="*term*"; or full RSQL (e.g. 'name=="*Apps*"')
-
-Flags for 'create':
-  --priority=<1-20>   Category priority (default 9)
-
-Examples:
-  buddy category list
-  buddy category list --filter=apps
-  buddy category get 3
-  buddy category create "Mac Apps" --priority=9
-  buddy category delete 3
-`
-
-const helpMacApp = `buddy macapp - Manage Classic Mac App Store apps
-
-Usage:
-  buddy [global-flags] macapp <subcommand> [args...]
-
-Subcommands:
-  list [--filter=<keyword>]           List Mac App Store apps (id, name, version, bundle id)
-  get <macapp-id>                     Show mac app details (JSON)
-  create --name= --version= --bundle-id= --url= [--free] [--category=<name>]
-                                      Create a Mac App Store app record
-  delete <macapp-id> [macapp-id...]   Delete one or more Mac App Store apps
-
-Flags for 'list':
-  --filter=<keyword>   Client-side substring on name, version, or bundle_id (Classic list has no RSQL)
-
-Flags for 'create':
-  --name=<name>             Display name (required)
-  --version=<version>       Version string (required)
-  --bundle-id=<bundle-id>   Bundle identifier (required)
-  --url=<url>               App Store URL (required)
-  --free                    Mark as free App Store app
-  --category=<name>         Category name (exact match)
-
-Notes:
-  Uses Classic /JSSResource/macapplications (instance surface). There is no Pro MAS catalog CRUD.
-  For policy apps (package + Self Service), use 'buddy app'.
-
-Examples:
-  buddy macapp list
-  buddy macapp list --filter=chrome
-  buddy macapp get 42
-  buddy macapp create --name="TextWrangler.app" --version=5.5.2 --bundle-id=com.barebones.textwrangler --url=https://itunes.apple.com/app/id404010395 --free
-  buddy macapp delete 42
-`
-
-const helpApp = `buddy app - Manage policy apps (Self Service + packages)
-
-Usage:
-  buddy [global-flags] app <subcommand> [args...]
-
-Subcommands:
-  list [--filter=<keyword>]                              Discover policy apps from Self Service policies
-  get <name>                                             Show one policy app (kind, linked policies, package)
-  upgrade <name> --version=<version> [--package-pattern=…]
-                                                         Bump app to a new package version by kind
-
-Flags for 'list':
-  --filter=<keyword>   Client-side substring on name, kind, version, trigger, or package
-
-Flags for 'upgrade':
-  --version=<version>           Target version (required)
-  --package-pattern=<glob>      Optional package name glob (e.g. *santa*2026.3*)
-
-Notes:
-  List is a fast name-index from one hybrid policy list (Pro /api/v1/policies when
-  available, else Classic); kind/version/trigger may be approximate. List keeps
-  Install…[SS] and/or rows with install/cache siblings; inventory [SS] stubs omitted.
-  Get classifies via Classic XML (authoritative). Discovery starts from names containing [SS]:
-    single  — Self Service policy has the Install package attached
-    install — SS script calls install-{app} / install-{app}-next / {app}-install
-    cache   — install pattern plus versioned cache-{app}-{version} policies
-  Non-app Self Service (e.g. inventory-only) is excluded on get.
-  Upgrade composes existing policy package / Self Service helpers (same as change batches).
-  Classic Mac App Store records use 'buddy macapp', not this command.
-
-Examples:
-  buddy app list
-  buddy app list --filter=santa
-  buddy app get santa
-  buddy app upgrade santa --version=2026.3 --package-pattern='*santa*2026.3*'
-`
-
-const helpGroup = `buddy group - Manage Jamf computer groups
-
-Usage:
-  buddy [global-flags] group <list|get|set|create|delete|static> [args...]
-
-Subcommands:
-  list smart [--filter=<term|rsql>]      List smart computer groups
-  list static [--filter=<term|rsql>]     List static computer groups
-  get <group-id>                         Show group JSON (smart group, falling back to static)
-  get version <group-id>                 Show current version criterion (smart group)
-  set version <group-id> <version>       Update version criterion (smart group)
-  create smart <name> [--description=<text>] [--file=<json>]
-                                         Create a smart computer group
-  create smart --file=<json>             Create from full smart-group JSON body
-  create static <name> [--description=<text>] [--computer-ids=<id>[,<id>...]]
-                                         Create a static computer group
-  delete <group-id>                      Delete smart group
-  static members <group-id> [--filter=<substring>]   List computers in a static group (client-side filter)
-  static add <group-id> --computer-ids=<id>[,<id>...]   Add computers to a static group
-  static remove <group-id> --computer-ids=<id>[,<id>...]   Remove computers from a static group
-
-Flags for 'list':
-  --filter=<term|rsql>   Bare term → name=="*term*"; or full RSQL (e.g. 'name=="*Chrome*"')
-
-Flags for 'create smart':
-  --description=<text>   Optional description
-  --file=<json>          Criteria JSON array, or full smart-group body (object). With <name>,
-                         a body object may omit name (positional is used). Without <name>,
-                         --file must be a full body including name.
-
-Flags for 'create static':
-  --description=<text>              Optional description
-  --computer-ids=<id>[,<id>...]     Optional initial membership
-
-Flags for 'static members':
-  --filter=<substring>   Client-side substring match on computer id, name, or serial
-
-Flags for 'static add' and 'static remove':
-  --computer-ids=<id>[,<id>...]   Required. Comma-separated Jamf computer IDs
-
-Notes:
-  For static members/add/remove, flags such as --computer-ids and --filter may appear before or after
-  <group-id> (Go's flag parser otherwise stops at the first positional).
-  Listing static group members prefers GET /api/v3/computer-groups/static-groups/{id} when the response
-  includes assignments; otherwise Classic GET /JSSResource/computergroups/id/{id} is used (requires
-  Read Computer Groups for that fallback). Updates use PUT on the v3 static group endpoint.
-
-Examples:
-  buddy group list smart
-  buddy group list static --filter=chrome
-  buddy group list smart --filter='name=="*Chrome*"'
-  buddy group get 10
-  buddy group get version 10
-  buddy group set version 10 121.0
-  buddy group create smart "Chrome installed" --file=criteria.json
-  buddy group create static "Lab Macs" --computer-ids=101,102
-  buddy group delete 10
-  buddy group static members 42 --filter=lab
-  buddy group static add 42 --computer-ids=101,102
-  buddy group static remove 42 --computer-ids=101
-`
-
-const helpProfile = `buddy profile - Manage macOS configuration profiles
-
-Usage:
-  buddy [global-flags] profile <subcommand> [args...]
-
-Subcommands:
-  list [--filter=<name>]                                    List configuration profiles
-  get xml <profile-id>                                      Output full profile XML
-  get payloads <profile-id>                                 Output payloads plist only (pretty-printed)
-  get payload <profile-id> <domain>                          Output single PayloadContent payload by PayloadIdentifier
-  get list-payloads <profile-id>                            List PayloadIdentifier values (PayloadContent only)
-  set xml <profile-id> [--redeploy]                         PUT profile from XML on stdin
-  set payload <profile-id> <domain> <dict-file.xml> [--redeploy]   Patch payload (PayloadContent merge or MCX settings)
-  clone <profile-id> <new-name>                             Clone profile with new name, unassigned scope
-  redeploy <profile-id>                                     Redeploy to all assigned devices
-
-Notes:
-  --redeploy sets redeploy_on_update=All (pushes to all assigned devices, not just new ones)
-  get payload / list-payloads are PayloadContent only. For MCX inspect use profile XML extract + payloads_get_mcx_dict.
-  set payload: PayloadContent merges keys onto the existing payload; MCX dict file is settings-only.
-
-Examples:
-  buddy profile list
-  buddy profile list --filter=Chrome
-  buddy profile get xml 99
-  buddy profile get payloads 99
-  buddy profile get list-payloads 99
-  buddy profile get payload 99 com.google.chrome
-  buddy profile clone 99 "New Profile"
-  buddy profile set xml 99 < profile.xml
-  buddy profile set payload 99 com.google.chrome payload.xml --redeploy
-  buddy profile redeploy 99
-`
-
-const helpBlueprint = `buddy blueprint - Manage Jamf Platform API Blueprints
-
-Usage:
-  buddy [global-flags] blueprint <subcommand> [args...]
-
-Subcommands:
-  list                          List blueprints (table)
-  get <blueprint-id>            Fetch one blueprint (JSON)
-  create [--file=<path>|-]      Create from JSON body (file or stdin)
-  set <blueprint-id> [--file=|-]  PATCH blueprint (merge-patch+json)
-  delete <blueprint-id>         Delete a blueprint
-  deploy <blueprint-id>         Deploy a blueprint
-  undeploy <blueprint-id>       Undeploy a blueprint
-  status <blueprint-id>         Deployment status report (JSON)
-  components [identifier]       List components, or get one by identifier
-
-Flags for 'list':
-  --search=<text>               Search name/description
-  --sort=<field:dir>            Sort (default created:desc)
-
-Notes:
-  Requires a Platform API Gateway credential (region like us, or url like https://us.apigw.jamf.com
-  and tenantId). See 'buddy cred help'.
-
-Examples:
-  buddy blueprint list
-  buddy blueprint list --search=chrome
-  buddy blueprint get e77c1408-10c8-4007-b177-abc9157fbcaa
-  buddy blueprint create --file=bp.json
-  buddy blueprint set <blueprint-id> --file=patch.json
-  buddy blueprint deploy <blueprint-id>
-  buddy blueprint status <blueprint-id>
-  buddy blueprint components
-`
-
-const helpDevice = `buddy device - Manage Jamf Platform API devices (inventory + actions)
-
-Usage:
-  buddy [global-flags] device <subcommand> [args...]
-
-Subcommands:
-  list [--filter=<term|rsql>] [--sort=]    List Platform devices (table)
-  get <device-id>                      Fetch one device (JSON)
-  set <device-id> [--file=|-]          PATCH device JSON
-  delete <device-id>                   Delete a device
-  applications <device-id> [--filter=] List installed applications
-  user <user-id>                       List devices for a user
-  check-in <device-id>                 Request device check-in
-  restart <device-id>                  Restart device
-  shutdown <device-id>                 Shut down device
-  erase <device-id>                    Erase device
-  unmanage <device-id>                 Remove remote management
-
-Notes:
-  Platform Devices API (not Jamf Pro computer inventory). Use 'buddy computer' for Pro/MDM.
-  Requires Platform API Gateway tenant+auth. Actions need execute:pro:device-actions.
-  --filter bare term → name=="*term*"; or full RSQL.
-
-Examples:
-  buddy device list --filter=Mac
-  buddy device list --filter='name=="*Mac*"'
-  buddy device get <device-id>
-  buddy device applications <device-id>
-  buddy device restart <device-id>
-`
-
-const helpDeviceGroup = `buddy device-group - Manage Jamf Platform API device groups
-
-Usage:
-  buddy [global-flags] device-group <subcommand> [args...]
-
-Subcommands:
-  list [--filter=<term|rsql>]              List device groups (table)
-  get <group-id>                       Fetch one group (JSON)
-  create [--file=<path>|-]             Create from JSON body
-  set <group-id> [--file=|-]           PATCH group JSON
-  delete <group-id>                    Delete a group
-  members <group-id>                   List group members (JSON)
-  set-members <group-id> [--file=|-]   PATCH membership (static groups)
-
-Notes:
-  Distinct from Jamf Pro computer groups ('buddy group' / smart_group / static_group).
-  Requires Platform API Gateway tenant+auth.
-
-Examples:
-  buddy device-group list
-  buddy device-group get <group-id>
-  buddy device-group members <group-id>
-`
-
-const helpDDM = `buddy ddm - Jamf Platform DDM declaration reporting (read-only)
-
-Usage:
-  buddy [global-flags] ddm <subcommand> [args...]
-
-Subcommands:
-  declaration <declaration-id> [--filter=] [--sort=]
-      List devices reporting a declaration
-  device <device-id> declarations [--filter=] [--sort=]
-      List declarations reported for a device
-  device <device-id> channels
-      List channels available for a device
-
-Notes:
-  Requires Platform API Gateway tenant+auth and read:pro:declaration-reporting.
-  Useful alongside 'buddy blueprint status' for deployment verification.
-  --filter bare term → name=="*term*"; or full RSQL.
-
-Examples:
-  buddy ddm declaration com.jamf.ddm.sw-updates
-  buddy ddm declaration com.jamf.ddm.sw-updates --filter=lab
-  buddy ddm device <device-id> declarations
-  buddy ddm device <device-id> channels
-`
-
-const helpBenchmark = `buddy benchmark - Jamf Platform compliance benchmarks (beta)
-
-Usage:
-  buddy [global-flags] benchmark <subcommand> [args...]
-
-Subcommands:
-  list                                   List tenant benchmarks (JSON)
-  get <benchmark-id>                     Fetch one benchmark
-  create [--file=<path>|-]               Create from JSON body
-  delete <benchmark-id>                  Delete a benchmark
-  baselines                              List mSCP baselines
-  rules [--baseline=<id>]                Catalog rules for a baseline
-  compliance-percentage <benchmark-id>   Overall compliance percentage
-  report-devices <benchmark-id>          Devices for a benchmark report
-  report-rules <benchmark-id>            Rules stats for a benchmark
-
-Notes:
-  Beta Platform API. Requires Platform gateway tenant+auth and
-  read|create|delete:pro:compliance-benchmarks as applicable.
-
-Examples:
-  buddy benchmark list
-  buddy benchmark baselines
-  buddy benchmark get <benchmark-id>
-`
-
-const helpPackage = `buddy package - Manage Jamf Pro package records
-
-Usage:
-  buddy [global-flags] package <subcommand> [args...]
-
-Subcommands:
-  list [--filter=<term|rsql>] [--sort=version[:asc|desc]]  List packages
-  get <package-id>                                    Show package record details
-  download <package-id> [outfile]                     Download package file via JCDS (SHA-256 verified)
-  history <package-id>                                Show recent change history (last 20 entries)
-  delete <package-id> [package-id...]                Delete one or more package records
-  upload <file> [attr-flags…]                        Upload .pkg or .dmg (create or update)
-  set <package-id> [attr-flags…]                     Update package metadata
-
-Flags for 'list':
-  --filter=<term|rsql>   Bare term → packageName=="*term*"; or full RSQL
-
-Flags for 'upload' / 'set':
-  --name=<display-name>       Package display name (upload default: filename)
-  --notes=<text>              Notes field
-  --info=<text>               Info field
-  --category=<category-id>    Category ID (-1 to clear; upload default: -1)
-  --priority=<1-20>           Install priority (upload default: 10)
-  --reboot=true|false         rebootRequired flag (upload default: false)
-
-Notes:
-  --sort=version sorts client-side by a dotted version extracted from the package
-  name (latest first). Use --sort=version:asc for oldest first.
-  get prints the full package record (checksums, size, cloudTransferStatus, flags, …)
-  plus lastChanged fields from history.
-  download waits until cloudTransferStatus is READY and sha256 is set, fetches a
-  JCDS pre-signed URI, streams to a temp file while hashing SHA-256, and renames
-  only on match. JCDS only (Jamf Cloud). Default outfile is the package fileName.
-  upload looks up fileName first: existing record → compare checksums and skip or
-  replace the file (and apply attr flags when they differ); if checksums are empty
-  and cloudTransferStatus is not READY, report not ready (do not re-upload — wait
-  with wait-ready); new fileName → create metadata with attr flags, wait until
-  readable, then upload.
-  wait-ready / package_ready require cloudTransferStatus READY and a non-empty sha256.
-  Only .pkg and .dmg are supported.
-
-Examples:
-  buddy package list
-  buddy package list --filter=Chrome
-  buddy package list --filter='packageName=="*Chrome*"'
-  buddy package list --filter='packageName=="*Chrome*"' --sort=version
-  buddy package get 55
-  buddy package download 55
-  buddy package download 55 ./Chrome-121.pkg
-  buddy package history 55
-  buddy package upload Chrome-121.pkg --name="Google Chrome 121" --category=3 --priority=10
-  buddy package upload Chrome-121.pkg --notes="rollout" --reboot=false
-  buddy package set 55 --name="Google Chrome 121" --priority=5 --reboot=true
-  buddy package delete 55 56
-`
-
-const helpComputer = `buddy computer - Manage computers and send MDM commands
-
-Usage:
-  buddy [global-flags] computer <subcommand> [args...]
-
-Subcommands:
-  list [--filter=<term|rsql>] [--management-id=<uuid>]    List computers (bare term → general.name contains; --management-id looks up by MDM management UUID)
-  get <computer-id>                                   Show computer details
-  reboot <computer-id> [computer-id...]               Send RESTART_DEVICE MDM command
-  redeploy <computer-id> [computer-id...]            Trigger Jamf management framework redeploy
-  shutdown <computer-id> [computer-id...]            Send SHUT_DOWN_DEVICE MDM command
-  lock <computer-id> [computer-id...] [--message=...] [--phone=...] [--pin=...]  Send DEVICE_LOCK (extra confirm)
-  logout <computer-id> [computer-id...]               Send LOG_OUT_USER MDM command
-  erase <computer-id> [computer-id...] [--pin=...] [--obliteration=...] Send ERASE_DEVICE (type 'erase' to confirm)
-  device-info <computer-id> [computer-id...] [--queries=DeviceName,...]  Send DEVICE_INFORMATION (queued)
-  device-location <computer-id> [computer-id...]      Send DEVICE_LOCATION (queued)
-  security-info <computer-id> [computer-id...]        Send SECURITY_INFO (queued)
-  installed-apps <computer-id> [computer-id...] [--identifiers=...]     Send INSTALLED_APPLICATION_LIST (queued)
-  managed-apps <computer-id> [computer-id...] [--identifiers=...]       Send MANAGED_APPLICATION_LIST (queued)
-  certificates <computer-id> [computer-id...]         Send CERTIFICATE_LIST (queued)
-
-Examples:
-  buddy computer list
-  buddy computer list --filter=Example
-  buddy computer list --filter='general.name=="*Example*"'
-  buddy computer list --management-id=00000000-0000-4000-8000-000000000003
-  buddy computer get 101
-  buddy computer reboot 101 102
-  buddy computer lock 101 --message="Lost device" --pin=123456
-  buddy computer erase 101 --pin=123456
-`
-
-const helpRole = `buddy role - Manage Jamf Pro API roles
-
-Usage:
-  buddy [global-flags] role <subcommand> [args...]
-
-Subcommands:
-  list [--filter=<term|rsql>]             List API roles (bare → displayName contains)
-  get <role-id>                           Show API role details
-  create <displayName> [priv1 priv2...]   Create API role with optional privileges
-  update <role-id> <displayName> [priv1...]    Update API role name and privileges
-  delete <role-id>                        Delete API role
-  privileges                              List all available privilege names
-
-Examples:
-  buddy role list
-  buddy role list --filter=Buddy
-  buddy role list --filter='displayName=="*Buddy*"'
-  buddy role get 5
-  buddy role create "Read Policies" "Read Policies"
-  buddy role update 5 "Read Policies" "Read Policies" "Read Scripts"
-  buddy role delete 5
-  buddy role privileges
-`
-
-const helpClient = `buddy client - Manage Jamf Pro API integrations
-
-Usage:
-  buddy [global-flags] client <subcommand> [args...]
-
-Subcommands:
-  list [--filter=<term|rsql>]                           List API integrations (bare → displayName contains)
-  get <client-id>                                   Show API integration details
-  create <displayName> [scope1 scope2...]           Create integration with role scopes
-  update <client-id> <displayName> [scope1 scope2...]  Update integration name and scopes
-  delete <client-id>                                Delete API integration
-  credentials <client-id>                           Generate new OAuth client credentials
-  set token-lifetime <client-id> <seconds>          Set access token lifetime in seconds
-
-Examples:
-  buddy client list
-  buddy client list --filter=buddy
-  buddy client list --filter='displayName=="*buddy*"'
-  buddy client get 3
-  buddy client create "My App" "Read Policies"
-  buddy client update 3 "My App" "Read Policies" "Read Scripts"
-  buddy client delete 3
-  buddy client credentials 3
-  buddy client set token-lifetime 3 3600
-`
-
-const helpScript = `buddy script - Manage Jamf Pro scripts
-
-Usage:
-  buddy [global-flags] script <subcommand> [args...]
-
-Subcommands:
-  list [--filter=<term|rsql>]                         List scripts (bare term → name contains; or RSQL)
-  get <script-id>                                     Show full script record (includes body)
-  get contents <script-id>                            Output raw script body only (pipeable)
-  get id <name>                                       Resolve script name to numeric ID
-  history <script-id>                                 Show recent change history (last 20 entries)
-  create <name> <file> [flags]                        Create a new script from a local file
-        [--category=<category-id>] [--priority=BEFORE|AFTER|AT_REBOOT] [--info=<text>] [--notes=<text>]
-  upload <script-id> <file> [--name=<new-name>]       Upload (replace) contents of an existing script
-  update <script-id> <file> [--name=<new-name>]       Alias for upload
-  download <script-id> [outfile]                      Save script body to a local file (default: <name>.sh)
-  delete <script-id> [script-id...]                   Delete one or more scripts
-  set name     <script-id> <value>                    Rename script
-  set category <script-id> <category-id>              Set category
-  set priority <script-id> BEFORE|AFTER|AT_REBOOT    Set execution priority
-  set info     <script-id> <value>                    Set info field
-  set notes    <script-id> <value>                    Set notes field
-
-Use 'buddy script get help' or 'buddy script set help' for more detail.
-
-Examples:
-  buddy script list --filter=Chrome
-  buddy script list --filter='name=="*Chrome*"'
-  buddy script get 7
-  buddy script create "Install Chrome" chrome.sh --priority=AFTER
-  buddy script upload 7 chrome.sh
-  buddy script download 7
-  buddy script delete 7 8
-`
+// helpCategory is generated (make gendocs).
+var helpCategory = help.CategoriesCLIHelp
+
+
+// helpMacApp is generated (make gendocs).
+var helpMacApp = help.MacappsCLIHelp
+
+
+// helpApp is generated from internal/buddy/app_doc.go (make gendocs).
+var helpApp = help.AppsCLIHelp
+
+// helpGroup is generated (make gendocs).
+var helpGroup = help.GroupsCLIHelp
+
+
+// helpProfile is generated (make gendocs).
+var helpProfile = help.ProfilesCLIHelp
+
+
+// helpBlueprint is generated (make gendocs).
+var helpBlueprint = help.BlueprintsCLIHelp
+
+
+// helpDevice is generated (make gendocs).
+var helpDevice = help.DevicesCLIHelp
+
+
+// helpDeviceGroup is generated (make gendocs).
+var helpDeviceGroup = help.DeviceGroupsCLIHelp
+
+
+// helpDDM is generated (make gendocs).
+var helpDDM = help.DdmCLIHelp
+
+
+// helpBenchmark is generated (make gendocs).
+var helpBenchmark = help.BenchmarksCLIHelp
+
+
+// helpPackage is generated (make gendocs).
+var helpPackage = help.PackagesCLIHelp
+
+
+// helpComputer is generated (make gendocs).
+var helpComputer = help.ComputersCLIHelp
+
+
+// helpRole is generated (make gendocs).
+var helpRole = help.RolesCLIHelp
+
+
+// helpClient is generated (make gendocs).
+var helpClient = help.ClientsCLIHelp
+
+
+// helpScript is generated (make gendocs).
+var helpScript = help.ScriptsCLIHelp
+
 
 const helpScriptGet = `buddy script get - Retrieve script information
 

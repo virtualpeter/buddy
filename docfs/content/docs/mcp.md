@@ -94,7 +94,7 @@ buddy mcp setup --path=/custom/mcp.json --write
 
 A minimal example also lives at [`examples/mcp.json`](../examples/mcp.json).
 
-Docs, `AGENTS.md`, examples, and editor rules are **embedded in the buddy binary** and exposed as `buddy://docs/...` resources. `BUDDY_DOCS_ROOT` is optional (live override while editing sources). After changing docs/rules, run `make sync-docfs` (or `make buddy`) and reload MCP in the host.
+Docs and examples are **embedded in the buddy binary** and exposed as `buddy://docs/...` resources (agent-tone generated pages where dual docs exist). `AGENTS.md` and `.cursor/rules` stay in the repo for humans/Cursor — they are **not** embedded. `BUDDY_DOCS_ROOT` is optional (live override while editing sources). After changing docs, run `make sync-docfs` (or `make buddy`) and reload MCP in the host. For **policy apps**, edit `internal/buddy/app_doc.go` then `make gendocs`.
 
 ### 3. Reload the AI host
 
@@ -129,7 +129,7 @@ Lean surface (4 tools). Resource automation uses **named buddyscript builtins** 
 | Tool | Returns `value` | Notes |
 |------|-----------------|-------|
 | `buddy_info` | `{version, channel, tenant, auth, tenants, auths, channel_access, …}` | Binary version + mcp session selection (no Jamf call). Live auth: first `buddyscript` Jamf call or CLI `buddy auth test` |
-| `docs` | Catalog entries or page markdown | Embedded buddy docs/rules; prefer `mcp-tools` for agent guidance |
+| `docs` | Catalog entries or page markdown | Embedded buddy docs (+ agent-tone generated pages); prefer `mcp-tools` for agent guidance |
 | `jamf_schema` | Operations catalog (+ optional docs) | Discovery; then prefer named builtins via `buddyscript` |
 | `buddyscript` | `{stdout, stderr, result, error}` | **Primary** automation surface; see below |
 
@@ -137,20 +137,18 @@ Former typed MCP tools (Pro groups/profiles/policies, package READY/download, Pl
 
 ### Resources
 
-MCP also exposes the **full agent knowledge** catalog as `buddy://docs/...` resources (broader than the curated `buddy serve` HTML UI). Hosts that support resource pickers can attach them; **agents that call tools should use the `docs` tool** (same catalog) so conventions and rules are loaded during chat.
+MCP also exposes the **agent docs** catalog as `buddy://docs/...` resources (broader than the curated `buddy serve` HTML UI; agent pages use imperative tone + parameter schemas where generated). Hosts that support resource pickers can attach them; **agents that call tools should use the `docs` tool** (same catalog).
 
 | URI | Content |
 |-----|---------|
 | `buddy://docs/builtins` | Function index (Markdown) |
-| `buddy://docs/docs/*` | User docs (getting started, reference, API, MCP, …) |
-| `buddy://docs/agents` | `AGENTS.md` (auth, secrets, contributor context) |
+| `buddy://docs/docs/*` | Cookbooks (agent tone when dual-generated, e.g. `docs/apps`) |
 | `buddy://docs/readme` | `README.md` |
-| `buddy://docs/rules/*` | Editor rules (CLI, builtins, auth-secrets) |
 | `buddy://docs/examples/*` | Example scripts and mcp.json |
 | `buddy://docs/help/*` | CLI help (root, shell, starlark) |
 | `buddy://docs/*.md` | Legacy aliases for former disk filenames |
 
-The HTML docs UI shows only user-facing guides (no AGENTS/rules/history dumps).
+The HTML docs UI shows neutral user-facing guides (no AGENTS/rules dumps; human-tone generated pages).
 
 ---
 
@@ -224,11 +222,11 @@ Learn endpoints from the Jamf host schemas plus the embedded Platform specs:
 
 ### Groups, profiles, and object cookbooks
 
-See **[mcp-tools.md](mcp-tools.md)** pathfinding map and the **Resources / Platform** pages in [index.md](index.md). Payload deep-dive: [profile-payloads.md](profile-payloads.md). Query `docs` with a resource noun (`policy`, `packages`, `smart-groups`, `blueprints`, …) — list matches id/title/section/**keywords**.
+See **[mcp-tools.md](mcp-tools.md)** pathfinding map and the **Resources / Platform** pages in [index.md](index.md). Payload deep-dive: [profile-payloads.md](/docs/docs/profile-payloads). Query `docs` with a resource noun (`policy`, `packages`, `smart-groups`, `blueprints`, …) — list matches id/title/section/**keywords**.
 
 ### `docs` tips
 
-Read embedded buddy documentation and editor rules (same data as `buddy://docs/...` resources):
+Read embedded buddy documentation (same data as `buddy://docs/...` resources):
 
 | `action` | Args | Returns |
 |----------|------|---------|
@@ -236,9 +234,10 @@ Read embedded buddy documentation and editor rules (same data as `buddy://docs/.
 | `get` | `id` required | `{id, title, uri, markdown}` |
 
 - Prefer `docs` before inventing buddy CLI/buddyscript conventions.
-- Typical flow: `docs` with a **resource noun** (`query: "policy"`) or page id (`"builtins"`, `"agents"`), then `action: "get"` with the page `id` (e.g. `docs/policies`).
+- Typical flow: `docs` with a **resource noun** (`query: "policy"`) or page id (`"builtins"`, `"docs/apps"`), then `action: "get"` with the page `id` (e.g. `docs/policies`).
 - `query` is a case-insensitive substring on **id / title / section / keywords** (not full-text markdown body).
-- `id` may be a short id (`agents`, `builtins`, `docs/policies`) or a full `buddy://docs/…` URI (including legacy `….md` aliases).
+- `id` may be a short id (`builtins`, `docs/policies`) or a full `buddy://docs/…` URI (including legacy `….md` aliases).
+- `AGENTS.md` and Cursor rules are **not** in the MCP catalog (repo/editor only).
 
 ### Platform builtins (via `buddyscript`)
 
@@ -255,8 +254,8 @@ Read embedded buddy documentation and editor rules (same data as `buddy://docs/.
 - Top-level `if` / `for` outside a function is invalid Starlark—put control flow inside `main()`.
 - Mutating Jamf calls **always skip** interactive confirmation in MCP (same as `-y`); the host’s tool-call approval is the guard. You do **not** need `args: ["-y", "mcp"]`.
 - You can `load("stdlib/….buddy", …)` the same as in CLI scripts / the notebook (e.g. `load("stdlib/release.buddy", "bump_release")`).
-- Prefer named builtins over `jamf_get`/`jamf_put` when a builtin exists. Before resource mutates, `docs` query the object noun (see [mcp-tools.md](mcp-tools.md) pathfinding) — e.g. [profile-payloads.md](profile-payloads.md), [packages.md](packages.md).
-- **Packages / JCDS:** after upload use `package_wait_ready` before policy attach; use `package_ready` / `package_download` — do not invent from schema (see [packages.md](packages.md)).
+- Prefer named builtins over `jamf_get`/`jamf_put` when a builtin exists. Before resource mutates, `docs` query the object noun (see [mcp-tools.md](mcp-tools.md) pathfinding) — e.g. [profile-payloads.md](/docs/docs/profile-payloads), [packages.md](/docs/docs/packages).
+- **Packages / JCDS:** after upload use `package_wait_ready` before policy attach; use `package_ready` / `package_download` — do not invent from schema (see [packages.md](/docs/docs/packages)).
 
 Example:
 

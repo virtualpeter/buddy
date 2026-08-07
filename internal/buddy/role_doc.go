@@ -1,0 +1,93 @@
+package buddy
+
+import "buddy/internal/docspec"
+
+func init() {
+	docspec.Register(RolesTopic)
+}
+
+// RolesTopic is the structured doc source for docs/api-roles.
+// Edit here, then run `make gendocs`.
+var RolesTopic = docspec.Topic{
+	ID:      `docs/api-roles`,
+	Title:   `API roles`,
+	Section: `Resources`,
+	Keywords: []string{
+		`role`,
+		`roles`,
+		`api role`,
+		`privileges`,
+		`privilege`,
+	},
+	Summary: "Jamf Pro API roles — list, get, create, put, and privilege catalog. Used when bootstrapping least-privilege API clients (`buddy setup` flows).",
+	Concepts: []string{
+		"**List / load:** `roles(...)` / `role(id=…)`.",
+		"**Create / update:** `role_create` / `role_put` (and privilege helpers listed in builtins).",
+		"**Setup:** `buddy setup write-script` → `setup_buddy_role.buddy` creates a role + client idempotently; privileges can be trimmed afterward.",
+	},
+	AgentNotes: []string{
+		"Do not grant destructive MDM privileges to day-to-day automation clients without review.",
+		"Do not confuse API roles with Jamf account UI roles — this is the Pro API roles API.",
+	},
+	Builtins: []docspec.Builtin{
+			{
+				Name: `roles`,
+				Summary: `List API roles`,
+				Returns: `list`,
+				Params: []docspec.Param{
+					{Name: `filter`, Type: `string`, Required: false, Description: `filter`},
+				},
+			},
+			{
+				Name: `role`,
+				Summary: `Load one role`,
+				Returns: `dict`,
+				Params: []docspec.Param{
+					{Name: `id`, Type: `string`, Required: true, Description: `id`},
+				},
+			},
+		},
+	ExamplesBuddy: []string{
+		`def main():
+    return roles(filter="Buddy")`,
+	},
+	Related: []docspec.RelatedLink{
+		{Title: `API clients`, Ref: `/docs/docs/api-clients`},
+		{Title: `Getting started`, Ref: `/docs/docs/index`},
+		{Title: `API endpoints`, Ref: `/docs/docs/api-endpoints`},
+	},
+	HelpExport: `roles`,
+	BuiltinsHelp: `ROLE
+  role_privileges(tenant?, surface?, auth?) → value: list of str
+  roles(filter?, full?=False, page?, page_size?, tenant?, surface?, auth?)
+      → value: list of {id, display_name} (or full JSON list if full=True)
+      Params: filter?: bare term → displayName=="*term*", or full RSQL.
+  role(id, tenant?, surface?, auth?) → value: dict
+  role_put(role_id, dict, tenant?, surface?, auth?) → value: dict
+  role_create(display_name, privileges, tenant?, surface?, auth?) → value: str (role ID)
+
+`,
+	CLIHelp: `buddy role - Manage Jamf Pro API roles
+
+Usage:
+  buddy [global-flags] role <subcommand> [args...]
+
+Subcommands:
+  list [--filter=<term|rsql>]             List API roles (bare → displayName contains)
+  get <role-id>                           Show API role details
+  create <displayName> [priv1 priv2...]   Create API role with optional privileges
+  update <role-id> <displayName> [priv1...]    Update API role name and privileges
+  delete <role-id>                        Delete API role
+  privileges                              List all available privilege names
+
+Examples:
+  buddy role list
+  buddy role list --filter=Buddy
+  buddy role list --filter='displayName=="*Buddy*"'
+  buddy role get 5
+  buddy role create "Read Policies" "Read Policies"
+  buddy role update 5 "Read Policies" "Read Policies" "Read Scripts"
+  buddy role delete 5
+  buddy role privileges
+`,
+}

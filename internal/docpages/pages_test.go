@@ -20,6 +20,7 @@ func TestLoadHumanEmbedded(t *testing.T) {
 		"docs/blueprints", "docs/devices", "docs/device-groups", "docs/ddm", "docs/benchmarks",
 		"docs/reference-manual", "docs/change-batches", "docs/api-endpoints",
 		"docs/mcp", "docs/mcp-tools", "docs/profile-payloads", "docs/editor",
+		"docs/apps", "docs/macapps",
 		"docs/buddyscript", "docs/buddyscript-syntax", "docs/buddyscript-stdlib", "builtins",
 		"examples/bump-release.buddy", "examples/change-batch-santa.buddy",
 		"examples/setup-app-classic.buddy",
@@ -72,17 +73,21 @@ func TestLoadAgentEmbedded(t *testing.T) {
 	for _, id := range []string{
 		"docs/index", "docs/policies", "docs/packages", "docs/blueprints",
 		"docs/change-batches", "docs/mcp", "docs/mcp-tools", "docs/profile-payloads", "docs/editor",
-		"readme", "agents", "builtins",
-		"rules/buddy-cli.mdc", "rules/buddy-auth-secrets.mdc", "rules/buddy-builtins.mdc",
+		"docs/apps", "readme", "builtins",
 		"help/root", "examples/bump-release.buddy",
 	} {
 		if ByID(res.Pages, id) == nil {
 			t.Errorf("missing agent page %q", id)
 		}
 	}
-	a := ByID(res.Pages, "agents")
-	if a == nil || !strings.Contains(a.Markdown, "Token caching") {
-		t.Fatal("agents page missing expected content")
+	for _, id := range []string{"agents", "rules/buddy-cli.mdc", "rules/buddy-auth-secrets.mdc", "rules/buddy-builtins.mdc"} {
+		if ByID(res.Pages, id) != nil {
+			t.Errorf("agent catalog must not include %q", id)
+		}
+	}
+	apps := ByID(res.Pages, "docs/apps")
+	if apps == nil || !strings.Contains(apps.Markdown, "## Agent rules") {
+		t.Fatal("docs/apps agent page missing Agent rules")
 	}
 	pol := ByID(res.Pages, "docs/policies")
 	if pol == nil || !strings.Contains(SearchHaystack(*pol), "policy") {

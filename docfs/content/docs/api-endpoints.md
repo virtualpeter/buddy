@@ -267,7 +267,7 @@ Follow-up Classic PUTs after ACS payload writes patch **metadata only** (name, s
 
 - All profile operations use the Classic API (XML). There is no v1/v2 profile endpoint in use.
 - `--redeploy` sets `redeploy_on_update` to `All` in the XML before PUT, causing Jamf to push the profile to all currently-assigned devices rather than only new assignments.
-- **Payload handling**: The profile XML contains a `<general><payloads>` element whose content is entity-encoded plist XML. Buddy supports PayloadContent (`PayloadIdentifier`) and MCX (`mcx_preference_settings`). **Get/list** (`get payload`, `list-payloads`, `profile_get_payload`) are PayloadContent only; **set/patch** merge PayloadContent keys or replace MCX settings. See [profile-payloads.md](profile-payloads.md).
+- **Payload handling**: The profile XML contains a `<general><payloads>` element whose content is entity-encoded plist XML. Buddy supports PayloadContent (`PayloadIdentifier`) and MCX (`mcx_preference_settings`). **Get/list** (`get payload`, `list-payloads`, `profile_get_payload`) are PayloadContent only; **set/patch** merge PayloadContent keys or replace MCX settings. See [profile-payloads.md](/docs/docs/profile-payloads).
 - **UUID preservation**: When updating a profile via `set xml` or `set payload`, the existing profile UUID is preserved (the fetched body is only modified in the payloads section or redeploy flag). Preserving the same UUID avoids duplicate or orphaned profiles on devices when updating from another instance.
 
 ---

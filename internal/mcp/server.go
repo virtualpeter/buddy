@@ -175,7 +175,7 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 	type docsIn struct {
 		Action string `json:"action,omitempty" jsonschema:"list (default) or get"`
 		Query  string `json:"query,omitempty" jsonschema:"for list: case-insensitive substring on id/title/section/keywords (resource nouns like policy, jcds, blueprint)"`
-		ID     string `json:"id,omitempty" jsonschema:"for get: page id (e.g. docs/policies, builtins, agents) or buddy://docs/… URI"`
+		ID     string `json:"id,omitempty" jsonschema:"for get: page id (e.g. docs/policies, builtins, docs/apps) or buddy://docs/… URI"`
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "docs",
@@ -236,7 +236,7 @@ func encodeTool(tr ToolResult) *mcpsdk.CallToolResult {
 }
 
 func registerDocResources(server *mcpsdk.Server) {
-	// Full agent knowledge (AGENTS, rules, …), embedded by default.
+	// Agent catalog (generated agent-tone pages + examples/help), embedded by default.
 	// BUDDY_DOCS_ROOT still overrides when set. The HTML docs UI uses CatalogHuman instead.
 	res, err := docpages.Load(docpages.LoadOptions{Catalog: docpages.CatalogAgent})
 	if err != nil {
@@ -249,14 +249,10 @@ func registerDocResources(server *mcpsdk.Server) {
 		if page.Plain {
 			mime = "text/plain"
 		}
-		desc := page.Title
-		if strings.HasPrefix(page.ID, "rules/") {
-			desc = "Cursor agent rule: " + page.Title
-		}
 		server.AddResource(&mcpsdk.Resource{
 			URI:         uri,
 			Name:        page.ID,
-			Description: desc,
+			Description: page.Title,
 			MIMEType:    mime,
 		}, func(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
 			return &mcpsdk.ReadResourceResult{
@@ -273,7 +269,7 @@ func registerDocResources(server *mcpsdk.Server) {
 			server.AddResource(&mcpsdk.Resource{
 				URI:         a,
 				Name:        page.ID + " (alias)",
-				Description: desc,
+				Description: page.Title,
 				MIMEType:    mime,
 			}, func(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
 				return &mcpsdk.ReadResourceResult{

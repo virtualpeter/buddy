@@ -89,11 +89,11 @@ Inline folklore moved into per-object pages — `docs` list matches **keywords**
 
 | Topic | Docs page |
 |-------|-----------|
-| Packages / JCDS READY | [packages.md](packages.md) |
-| Smart vs static vs device groups | [smart-groups.md](smart-groups.md), [static-groups.md](static-groups.md), [device-groups.md](device-groups.md) |
-| Profiles / payloads / ACS | [profiles.md](profiles.md), [profile-payloads.md](profile-payloads.md) |
-| Scripts list vs body | [scripts.md](scripts.md) |
-| Cross-tenant copy / upsert | [categories.md](categories.md) → [scripts.md](scripts.md) → [policies.md](policies.md) / [profiles.md](profiles.md); prefer `*_copy(..., upsert=True)` |
+| Packages / JCDS READY | [packages.md](/docs/docs/packages) |
+| Smart vs static vs device groups | [smart-groups.md](/docs/docs/smart-groups), [static-groups.md](/docs/docs/static-groups), [device-groups.md](/docs/docs/device-groups) |
+| Profiles / payloads / ACS | [profiles.md](/docs/docs/profiles), [profile-payloads.md](/docs/docs/profile-payloads) |
+| Scripts list vs body | [scripts.md](/docs/docs/scripts) |
+| Cross-tenant copy / upsert | [categories.md](/docs/docs/categories) → [scripts.md](/docs/docs/scripts) → [policies.md](/docs/docs/policies) / [profiles.md](/docs/docs/profiles); prefer `*_copy(..., upsert=True)` |
 
 ---
 

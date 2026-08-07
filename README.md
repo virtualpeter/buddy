@@ -203,7 +203,8 @@ buddy help lsp        # language server for the editor extension
 make docs-serve       # local docs + buddyscript notebook (buddy serve --open)
 buddy mcp             # MCP stdio server for AI tools (see docs/mcp.md)
 buddy mcp setup       # discover/write well-known MCP host configs
-make sync-docfs       # refresh embedded knowledge after editing docs/rules/AGENTS
+make gendocs          # regenerate dual docs/help from Go docspecs (Resources + Platform)
+make sync-docfs       # refresh embedded docs after editing docs/ (runs gendocs)
 ```
 
 **Globals:** `tenant` and `auth` (active session selection; empty `auth` = auto-pick), `args` (arguments after `--`), `re` (regex). Use **`error(...)`** for status and diagnostic lines (stderr); use **`print(...)`** only when you intentionally write script output to stdout (e.g. for piping). If the script defines `main`, buddy calls it after loading—do **not** add a trailing `main()` (that would run it twice).

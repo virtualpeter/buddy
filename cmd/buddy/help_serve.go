@@ -14,8 +14,8 @@ Notes:
   Serves a curated user docs UI (guides, builtins, examples) plus:
   /notebook — REPL-style buddyscript cells (explore builtins interactively)
   /ide      — Single-buffer script runner (open/save, args, trace, Run as file)
-  Contributor/agent knowledge (AGENTS, Cursor rules) is
-  embedded for MCP only — not listed in the HTML sidebar.
+  AGENTS.md and Cursor rules stay in the repo for contributors; they are not
+  listed in the HTML sidebar or embedded for MCP.
   When run from a checkout, serve prefers the repo docs/ tree so edits show
   without a rebuild; otherwise the embedded catalog is used. --docs-root /
   BUDDY_DOCS_ROOT force a filesystem override.
@@ -65,10 +65,11 @@ Notes:
   mcp channel (no Jamf call). Live auth: first buddyscript Jamf call or CLI
   buddy auth test.
 
-  Docs, AGENTS.md, examples, and editor rules are embedded in the binary and
-  exposed as buddy://docs/... resources (no BUDDY_DOCS_ROOT required). Set
-  BUDDY_DOCS_ROOT only to override with live files while developing. See
-  docs/mcp.md and make sync-docfs after editing knowledge sources.
+  Docs and examples are embedded in the binary and exposed as buddy://docs/...
+  resources (no BUDDY_DOCS_ROOT required). AGENTS.md and Cursor rules are not
+  embedded. Set BUDDY_DOCS_ROOT only to override with live files while developing.
+  See docs/mcp.md and make sync-docfs after editing knowledge sources.
+  Policy apps: edit internal/buddy/app_doc.go then make gendocs.
 
   mcp setup (no flags) lists well-known paths and whether buddy is configured.
   Prefer an absolute command path — host subprocesses often omit shell PATH.

@@ -32,12 +32,15 @@ func TestDocsListAndGet(t *testing.T) {
 		}
 	}
 
-	got, err := docsGet(pages, "agents")
+	got, err := docsGet(pages, "docs/apps")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != "agents" || got.URI != "buddy://docs/agents" || got.Markdown == "" {
+	if got.ID != "docs/apps" || got.URI != "buddy://docs/docs/apps" || got.Markdown == "" {
 		t.Fatalf("%+v", got)
+	}
+	if !strings.Contains(got.Markdown, "## Agent rules") {
+		t.Fatal("docs/apps should be agent-tone page")
 	}
 
 	viaURI, err := docsGet(pages, "buddy://docs/builtins")

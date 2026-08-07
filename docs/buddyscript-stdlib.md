@@ -35,7 +35,7 @@ Classic greenfield “new app” step builders for change batches (does **not** 
 |--------|------|
 | `setup_app_classic` | Build a list of `step_*` dicts (prefs + PPPC profiles, cache/install policies, optional SS) for `plan_change` / `run_change` |
 
-See [Change batches](change-batches.md) and [`examples/setup-app-classic.buddy`](../examples/setup-app-classic.buddy).
+See [Change batches](/docs/docs/change-batches) and [`examples/setup-app-classic.buddy`](../examples/setup-app-classic.buddy).
 
 ## Tips
 

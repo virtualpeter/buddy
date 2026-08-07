@@ -127,7 +127,30 @@ a:hover { text-decoration: underline; }
 main { padding: 1.5rem 2rem 3rem; max-width: 52rem; }
 main > h1:first-child { margin-top: 0; }
 h1,h2,h3 { line-height: 1.25; }
+main h2 { margin: 1.75rem 0 .75rem; font-size: 1.15rem; }
+main h3 { margin: 1.35rem 0 .55rem; font-size: 1.02rem; }
+main p { margin: 0 0 .9rem; max-width: 42rem; }
+main ul, main ol {
+  margin: 0 0 1.15rem;
+  padding-left: 1.15rem;
+  max-width: 44rem;
+}
+main li {
+  margin: 0 0 .65rem;
+  line-height: 1.65;
+  padding-left: .15rem;
+}
+main li:last-child { margin-bottom: 0; }
+main li > p { margin: 0; }
 pre, code { font-family: var(--mono); font-size: .88em; }
+main :not(pre) > code {
+  font-size: .84em;
+  background: color-mix(in srgb, var(--code-bg) 82%, var(--panel));
+  color: var(--code-fg);
+  padding: .12em .38em;
+  border-radius: 3px;
+  white-space: break-spaces;
+}
 pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow: auto; border-radius: 4px; }
 .code-try { position: relative; margin: 0 0 1.15rem; }
 .code-try > pre { margin: 0; padding-top: 2.1rem; }

@@ -287,7 +287,7 @@ That output lists every builtin with parameter names, types, and return shapes. 
 
 For CAB / change-record workflows (author a batch with human notes → resolve a markdown plan with no writes → apply after approval and record outcomes), see:
 
-- [**Change batches howto**](change-batches.md)
+- [**Change batches howto**](/docs/docs/change-batches)
 - Example: [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy)
 
 ---
@@ -296,7 +296,7 @@ For CAB / change-record workflows (author a batch with human notes → resolve a
 
 Which Jamf Pro URLs buddy calls (Classic XML vs JSON APIs, pagination, notes) is documented separately:
 
-- [**Jamf Pro API endpoints used by buddy**](api-endpoints.md)
+- [**Jamf Pro API endpoints used by buddy**](/docs/docs/api-endpoints)
 
 Use it when correlating buddy behavior with Jamf’s API or troubleshooting permissions.
 
@@ -307,7 +307,7 @@ Use it when correlating buddy behavior with Jamf’s API or troubleshooting perm
 Runnable Star scripts and a short index live under [**examples/**](../examples/README.md):
 
 - [`examples/bump-release.buddy`](../examples/bump-release.buddy) — minimal pattern: `policy(trigger=…)`, then updates (edit triggers/IDs for your tenant).
-- [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy) — `plan_change` / `run_change` for an approval-oriented batch ([howto](change-batches.md)).
+- [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy) — `plan_change` / `run_change` for an approval-oriented batch ([howto](/docs/docs/change-batches)).
 
 ---
 
@@ -326,5 +326,5 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 
 - [README](../README.md) — quick start, configuration table, command cheat sheet
 - [`docs/index.md`](index.md) — Getting started (install, `buddy setup`, first commands)
-- [Change batches howto](change-batches.md) — plan / approve / apply for change records
+- [Change batches howto](/docs/docs/change-batches) — plan / approve / apply for change records
 - [Editor / LSP](editor.md) — VS Code/Cursor extension and `buddy lsp`

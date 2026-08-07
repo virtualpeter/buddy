@@ -1,8 +1,11 @@
 // Package docpages loads buddy documentation pages for serve and MCP.
 //
-// Two catalogs share the same sources:
-//   - CatalogHuman — curated pages for the buddy serve HTML UI
-//   - CatalogAgent — full embedded knowledge for MCP (AGENTS, rules, …)
+// Two catalogs share curated docs (hand-authored and generated):
+//   - CatalogHuman — curated pages for the buddy serve HTML UI (neutral tone)
+//   - CatalogAgent — MCP knowledge (agent-tone generated pages, examples, help)
+//
+// AGENTS.md and .cursor/rules stay in the repo for humans/Cursor; they are not
+// embedded or exposed as buddy://docs resources.
 //
 // Pages come from the embedded docfs by default; --docs-root / BUDDY_DOCS_ROOT
 // (or a discovered repo docs/ when PreferDisk) override with live files.
@@ -138,79 +141,115 @@ func findDocsRootFromCwd() (string, error) {
 }
 
 // curatedDoc is one docs/*.md entry shared by human and agent catalogs.
+// file is relative to docs/ (or content/docs/ when embedded). When humanFile /
+// agentFile are set, each catalog loads that path instead (generated dual docs).
 type curatedDoc struct {
 	id, title, section, file string
+	humanFile, agentFile     string // optional; relative to docs/
 	keywords                 []string
+}
+
+func (e curatedDoc) humanPath() string {
+	if e.humanFile != "" {
+		return e.humanFile
+	}
+	return e.file
+}
+
+func (e curatedDoc) agentPath() string {
+	if e.agentFile != "" {
+		return e.agentFile
+	}
+	return e.file
 }
 
 // curatedDocEntries is the curated docs/*.md order for serve + MCP.
 // Keywords are search-only (MCP docs list); they are not shown in the UI.
 var curatedDocEntries = []curatedDoc{
-	{"docs/index", "Getting started", "Start here", "index.md", nil},
+	{id: "docs/index", title: "Getting started", section: "Start here", file: "index.md"},
 
 	// Resources — Classic / Pro object cookbooks
-	{"docs/policies", "Policies", "Resources", "policies.md",
-		[]string{"policy", "policies", "policy_set", "policy_copy", "policy_migrate", "trigger", "classic"}},
-	{"docs/smart-groups", "Smart computer groups", "Resources", "smart-groups.md",
-		[]string{"smart", "smart_group", "smart_groups", "criteria", "group", "groups"}},
-	{"docs/static-groups", "Static computer groups", "Resources", "static-groups.md",
-		[]string{"static", "static_group", "static_groups", "membership", "assignments", "group", "groups"}},
-	{"docs/profiles", "Configuration profiles", "Resources", "profiles.md",
-		[]string{"profile", "profiles", "clone", "copy", "redeploy", "acs"}},
-	{"docs/profile-payloads", "Profile payloads", "Resources", "profile-payloads.md",
-		[]string{"profile", "profiles", "payload", "payloads", "mcx", "acs", "plist"}},
-	{"docs/packages", "Packages / JCDS", "Resources", "packages.md",
-		[]string{"package", "packages", "jcds", "ready", "download", "upload", "cloudTransferStatus"}},
-	{"docs/scripts", "Scripts", "Resources", "scripts.md",
-		[]string{"script", "scripts", "script_copy", "script_migrate", "scriptContents"}},
-	{"docs/categories", "Categories", "Resources", "categories.md",
-		[]string{"category", "categories", "category_copy", "category_migrate"}},
-	{"docs/macapps", "Mac App Store apps", "Resources", "macapps.md",
-		[]string{"macapp", "macapps", "macapplications", "mac-app-store", "mac app store", "app store"}},
-	{"docs/apps", "Policy apps", "Resources", "apps.md",
-		[]string{"app", "apps", "policy app", "policy apps", "self service", "app upgrade", "install-next", "cache policy"}},
-	{"docs/computers", "Computers", "Resources", "computers.md",
-		[]string{"computer", "computers", "inventory", "reboot", "lock", "erase", "mdm"}},
-	{"docs/mdm", "MDM command history", "Resources", "mdm.md",
-		[]string{"mdm", "mdm_commands", "command", "commands", "history"}},
-	{"docs/api-roles", "API roles", "Resources", "api-roles.md",
-		[]string{"role", "roles", "api role", "privileges", "privilege"}},
-	{"docs/api-clients", "API clients", "Resources", "api-clients.md",
-		[]string{"client", "clients", "integration", "integrations", "oauth", "api client"}},
+	{id: "docs/policies", title: "Policies", section: "Resources",
+		humanFile: "generated/human/policies.md", agentFile: "generated/agent/policies.md",
+		keywords: []string{"policy", "policies", "policy_set", "policy_copy", "policy_migrate", "trigger", "classic"}},
+	{id: "docs/smart-groups", title: "Smart computer groups", section: "Resources",
+		humanFile: "generated/human/smart-groups.md", agentFile: "generated/agent/smart-groups.md",
+		keywords: []string{"smart", "smart_group", "smart_groups", "criteria", "group", "groups"}},
+	{id: "docs/static-groups", title: "Static computer groups", section: "Resources",
+		humanFile: "generated/human/static-groups.md", agentFile: "generated/agent/static-groups.md",
+		keywords: []string{"static", "static_group", "static_groups", "membership", "assignments", "group", "groups"}},
+	{id: "docs/profiles", title: "Configuration profiles", section: "Resources",
+		humanFile: "generated/human/profiles.md", agentFile: "generated/agent/profiles.md",
+		keywords: []string{"profile", "profiles", "clone", "copy", "redeploy", "acs"}},
+	{id: "docs/profile-payloads", title: "Profile payloads", section: "Resources",
+		humanFile: "generated/human/profile-payloads.md", agentFile: "generated/agent/profile-payloads.md",
+		keywords: []string{"profile", "profiles", "payload", "payloads", "mcx", "acs", "plist"}},
+	{id: "docs/packages", title: "Packages / JCDS", section: "Resources",
+		humanFile: "generated/human/packages.md", agentFile: "generated/agent/packages.md",
+		keywords: []string{"package", "packages", "jcds", "ready", "download", "upload", "cloudTransferStatus"}},
+	{id: "docs/scripts", title: "Scripts", section: "Resources",
+		humanFile: "generated/human/scripts.md", agentFile: "generated/agent/scripts.md",
+		keywords: []string{"script", "scripts", "script_copy", "script_migrate", "scriptContents"}},
+	{id: "docs/categories", title: "Categories", section: "Resources",
+		humanFile: "generated/human/categories.md", agentFile: "generated/agent/categories.md",
+		keywords: []string{"category", "categories", "category_copy", "category_migrate"}},
+	{id: "docs/macapps", title: "Mac App Store apps", section: "Resources",
+		humanFile: "generated/human/macapps.md", agentFile: "generated/agent/macapps.md",
+		keywords: []string{"macapp", "macapps", "macapplications", "mac-app-store", "mac app store", "app store"}},
+	{id: "docs/apps", title: "Policy apps", section: "Resources",
+		humanFile: "generated/human/apps.md", agentFile: "generated/agent/apps.md",
+		keywords: []string{"app", "apps", "policy app", "policy apps", "self service", "app upgrade", "install-next", "cache policy"}},
+	{id: "docs/computers", title: "Computers", section: "Resources",
+		humanFile: "generated/human/computers.md", agentFile: "generated/agent/computers.md",
+		keywords: []string{"computer", "computers", "inventory", "reboot", "lock", "erase", "mdm"}},
+	{id: "docs/mdm", title: "MDM command history", section: "Resources",
+		humanFile: "generated/human/mdm.md", agentFile: "generated/agent/mdm.md",
+		keywords: []string{"mdm", "mdm_commands", "command", "commands", "history"}},
+	{id: "docs/api-roles", title: "API roles", section: "Resources",
+		humanFile: "generated/human/api-roles.md", agentFile: "generated/agent/api-roles.md",
+		keywords: []string{"role", "roles", "api role", "privileges", "privilege"}},
+	{id: "docs/api-clients", title: "API clients", section: "Resources",
+		humanFile: "generated/human/api-clients.md", agentFile: "generated/agent/api-clients.md",
+		keywords: []string{"client", "clients", "integration", "integrations", "oauth", "api client"}},
 
 	// Platform — Platform API Gateway cookbooks
-	{"docs/blueprints", "Blueprints", "Platform", "blueprints.md",
-		[]string{"blueprint", "blueprints", "deploy", "undeploy", "platform"}},
-	{"docs/devices", "Platform devices", "Platform", "devices.md",
-		[]string{"device", "devices", "platform", "device_action", "check-in", "restart"}},
-	{"docs/device-groups", "Platform device groups", "Platform", "device-groups.md",
-		[]string{"device_group", "device_groups", "device-group", "platform", "membership"}},
-	{"docs/ddm", "DDM reporting", "Platform", "ddm.md",
-		[]string{"ddm", "declaration", "declarations", "declarative"}},
-	{"docs/benchmarks", "Compliance benchmarks", "Platform", "benchmarks.md",
-		[]string{"benchmark", "benchmarks", "compliance", "baseline", "baselines"}},
+	{id: "docs/blueprints", title: "Blueprints", section: "Platform",
+		humanFile: "generated/human/blueprints.md", agentFile: "generated/agent/blueprints.md",
+		keywords: []string{"blueprint", "blueprints", "deploy", "undeploy", "platform"}},
+	{id: "docs/devices", title: "Platform devices", section: "Platform",
+		humanFile: "generated/human/devices.md", agentFile: "generated/agent/devices.md",
+		keywords: []string{"device", "devices", "platform", "device_action", "check-in", "restart"}},
+	{id: "docs/device-groups", title: "Platform device groups", section: "Platform",
+		humanFile: "generated/human/device-groups.md", agentFile: "generated/agent/device-groups.md",
+		keywords: []string{"device_group", "device_groups", "device-group", "platform", "membership"}},
+	{id: "docs/ddm", title: "DDM reporting", section: "Platform",
+		humanFile: "generated/human/ddm.md", agentFile: "generated/agent/ddm.md",
+		keywords: []string{"ddm", "declaration", "declarations", "declarative"}},
+	{id: "docs/benchmarks", title: "Compliance benchmarks", section: "Platform",
+		humanFile: "generated/human/benchmarks.md", agentFile: "generated/agent/benchmarks.md",
+		keywords: []string{"benchmark", "benchmarks", "compliance", "baseline", "baselines"}},
 
 	// BuddyScript — language guide (function index appended as builtins page)
-	{"docs/buddyscript", "Overview", "BuddyScript", "buddyscript.md",
-		[]string{"buddyscript", "starlark", "script", "main", "shell", "notebook", "ide"}},
-	{"docs/buddyscript-syntax", "Syntax", "BuddyScript", "buddyscript-syntax.md",
-		[]string{"syntax", "starlark", "python", "types", "load", "spec"}},
-	{"docs/buddyscript-stdlib", "Stdlib", "BuddyScript", "buddyscript-stdlib.md",
-		[]string{"stdlib", "load", "bump_release", "setup_app_classic", "release"}},
+	{id: "docs/buddyscript", title: "Overview", section: "BuddyScript", file: "buddyscript.md",
+		keywords: []string{"buddyscript", "starlark", "script", "main", "shell", "notebook", "ide"}},
+	{id: "docs/buddyscript-syntax", title: "Syntax", section: "BuddyScript", file: "buddyscript-syntax.md",
+		keywords: []string{"syntax", "starlark", "python", "types", "load", "spec"}},
+	{id: "docs/buddyscript-stdlib", title: "Stdlib", section: "BuddyScript", file: "buddyscript-stdlib.md",
+		keywords: []string{"stdlib", "load", "bump_release", "setup_app_classic", "release"}},
 
 	// Guides — cross-cutting
-	{"docs/reference-manual", "Reference manual", "Guides", "reference-manual.md",
-		[]string{"config", "credentials", "cli", "starlark", "buddyscript", "install"}},
-	{"docs/change-batches", "Change batches", "Guides", "change-batches.md",
-		[]string{"change", "batch", "batches", "plan_change", "run_change", "step_", "release", "bump"}},
-	{"docs/api-endpoints", "API endpoints", "Guides", "api-endpoints.md",
-		[]string{"endpoint", "endpoints", "http", "api", "rsql", "jcds"}},
-	{"docs/mcp", "MCP for AI tools", "Guides", "mcp.md",
-		[]string{"mcp", "cursor", "claude", "buddyscript"}},
-	{"docs/mcp-tools", "MCP tools scorecard", "Guides", "mcp-tools.md",
-		[]string{"mcp", "scorecard", "pathfinding", "agent", "lean"}},
-	{"docs/editor", "Editor / LSP", "Guides", "editor.md",
-		[]string{"editor", "lsp", "vscode", "extension", "vsix"}},
+	{id: "docs/reference-manual", title: "Reference manual", section: "Guides", file: "reference-manual.md",
+		keywords: []string{"config", "credentials", "cli", "starlark", "buddyscript", "install"}},
+	{id: "docs/change-batches", title: "Change batches", section: "Guides", file: "change-batches.md",
+		keywords: []string{"change", "batch", "batches", "plan_change", "run_change", "step_", "release", "bump"}},
+	{id: "docs/api-endpoints", title: "API endpoints", section: "Guides", file: "api-endpoints.md",
+		keywords: []string{"endpoint", "endpoints", "http", "api", "rsql", "jcds"}},
+	{id: "docs/mcp", title: "MCP for AI tools", section: "Guides", file: "mcp.md",
+		keywords: []string{"mcp", "cursor", "claude", "buddyscript"}},
+	{id: "docs/mcp-tools", title: "MCP tools scorecard", section: "Guides", file: "mcp-tools.md",
+		keywords: []string{"mcp", "scorecard", "pathfinding", "agent", "lean"}},
+	{id: "docs/editor", title: "Editor / LSP", section: "Guides", file: "editor.md",
+		keywords: []string{"editor", "lsp", "vscode", "extension", "vsix"}},
 }
 
 func pageFromCurated(e curatedDoc, markdown, source string) Page {
@@ -224,7 +263,7 @@ func loadHumanFromDisk(docsRoot string) ([]Page, error) {
 	repoRoot := filepath.Dir(docsRoot)
 	var pages []Page
 	for _, e := range curatedDocEntries {
-		path := filepath.Join(docsRoot, e.file)
+		path := filepath.Join(docsRoot, e.humanPath())
 		b, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
@@ -251,7 +290,7 @@ func humanExampleID(id string) bool {
 func loadHumanFromEmbedded() ([]Page, error) {
 	var pages []Page
 	for _, e := range curatedDocEntries {
-		path := "content/docs/" + e.file
+		path := "content/docs/" + e.humanPath()
 		body, err := fs.ReadFile(docfs.Content, path)
 		if err != nil {
 			return nil, fmt.Errorf("embedded %s: %w", path, err)
@@ -282,7 +321,7 @@ func loadHumanFromEmbedded() ([]Page, error) {
 func loadAgentCuratedDocs(docsRoot string) ([]Page, error) {
 	var pages []Page
 	for _, e := range curatedDocEntries {
-		path := filepath.Join(docsRoot, e.file)
+		path := filepath.Join(docsRoot, e.agentPath())
 		b, err := os.ReadFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -302,34 +341,16 @@ func loadAgentFromDisk(docsRoot string) ([]Page, error) {
 		return nil, err
 	}
 
-	addMD := func(id, title, path string, keywords []string) error {
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		pages = append(pages, Page{ID: id, Title: title, Markdown: string(b), Source: path, Keywords: keywords})
-		return nil
-	}
-
-	extras := []struct {
-		id, title, path string
-		keywords        []string
-	}{
-		{"readme", "README", filepath.Join(repoRoot, "README.md"), []string{"readme", "install", "overview"}},
-		{"agents", "AGENTS", filepath.Join(repoRoot, "AGENTS.md"), []string{"agents", "auth", "token", "secrets", "tenant"}},
-	}
-	for _, e := range extras {
-		if _, err := os.Stat(e.path); err != nil {
-			continue
-		}
-		if err := addMD(e.id, e.title, e.path, e.keywords); err != nil {
-			return nil, err
-		}
+	readme := filepath.Join(repoRoot, "README.md")
+	if b, err := os.ReadFile(readme); err == nil {
+		pages = append(pages, Page{
+			ID: "readme", Title: "README", Markdown: string(b), Source: readme,
+			Keywords: []string{"readme", "install", "overview"},
+		})
 	}
 
 	pages = append(pages, builtinsPage())
 	pages = append(pages, loadExamplesDir(filepath.Join(repoRoot, "examples"))...)
-	pages = append(pages, loadRulesDir(filepath.Join(repoRoot, ".cursor", "rules"))...)
 	pages = append(pages, helpPages()...)
 	return pages, nil
 }
@@ -345,7 +366,7 @@ func loadAgentFromEmbedded() ([]Page, error) {
 	}
 
 	for _, e := range curatedDocEntries {
-		path := "content/docs/" + e.file
+		path := "content/docs/" + e.agentPath()
 		body, err := read(path)
 		if err != nil {
 			return nil, fmt.Errorf("embedded %s: %w", path, err)
@@ -353,19 +374,13 @@ func loadAgentFromEmbedded() ([]Page, error) {
 		pages = append(pages, pageFromCurated(e, body, "embedded:"+path))
 	}
 
-	extras := []struct {
-		id, title, path string
-		keywords        []string
-	}{
-		{"readme", "README", "content/README.md", []string{"readme", "install", "overview"}},
-		{"agents", "AGENTS", "content/AGENTS.md", []string{"agents", "auth", "token", "secrets", "tenant"}},
-	}
-	for _, e := range extras {
-		body, err := read(e.path)
-		if err != nil {
-			return nil, fmt.Errorf("embedded %s: %w", e.path, err)
-		}
-		pages = append(pages, Page{ID: e.id, Title: e.title, Markdown: body, Source: "embedded:" + e.path, Keywords: e.keywords})
+	if body, err := read("content/README.md"); err == nil {
+		pages = append(pages, Page{
+			ID: "readme", Title: "README", Markdown: body, Source: "embedded:content/README.md",
+			Keywords: []string{"readme", "install", "overview"},
+		})
+	} else {
+		return nil, fmt.Errorf("embedded content/README.md: %w", err)
 	}
 
 	pages = append(pages, builtinsPage())
@@ -383,22 +398,6 @@ func loadAgentFromEmbedded() ([]Page, error) {
 				return nil, err
 			}
 			pages = append(pages, examplePage("examples/"+name, name, body, "embedded:"+path))
-		}
-	}
-
-	ents, err = fs.ReadDir(docfs.Content, "content/rules")
-	if err == nil {
-		for _, ent := range ents {
-			if ent.IsDir() {
-				continue
-			}
-			name := ent.Name()
-			path := "content/rules/" + name
-			body, err := read(path)
-			if err != nil {
-				return nil, err
-			}
-			pages = append(pages, rulePage(name, body, "embedded:"+path))
 		}
 	}
 
