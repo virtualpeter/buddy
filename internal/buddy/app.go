@@ -236,7 +236,11 @@ func policyAppMatchesFilter(sum PolicyAppSummary, filter string) bool {
 		sum.Name, string(sum.Kind), sum.Version, sum.InstallTrigger,
 		sum.SSPolicyName, sum.PackageName,
 	}, " "))
-	return strings.Contains(hay, filter)
+	if strings.Contains(hay, filter) {
+		return true
+	}
+	// Treat spaces and hyphens as equivalent (claude-cli ↔ "claude cli").
+	return strings.Contains(normalizeAppSlugKey(hay), normalizeAppSlugKey(filter))
 }
 
 // policyFetchCache memoizes Classic policyGetByID within one classify/enrich pass.
@@ -274,6 +278,7 @@ func summarizePolicyAppFromList(ss policyListItem, list []policyListItem) (Polic
 	var version string
 	var installID, cacheID int
 	var bestCacheVer string
+	var installTrigFromSibling string
 
 	for _, p := range list {
 		if p.ID == ss.ID {
@@ -299,11 +304,30 @@ func summarizePolicyAppFromList(ss policyListItem, list []policyListItem) (Polic
 			if kind != PolicyAppCache {
 				kind = PolicyAppInstall
 			}
-			installID = p.ID
+			// Prefer siblings with a custom trigger (v1); SS/single rows usually have none.
+			cur := listItemByID(list, installID)
+			take := installID == 0 ||
+				(policyListHasCustomTrigger(p) && !policyListHasCustomTrigger(cur))
+			if take {
+				installID = p.ID
+				if t := policyListCustomTrigger(p); t != "" {
+					installTrigFromSibling = t
+				}
+			}
 			if version == "" {
 				version = versionFromName(p.Name)
 			}
 		}
+	}
+
+	// Soft signal from v1: if the SS row itself has an install-like custom trigger, use it.
+	// Empty triggerManual is typical for Self Service / single (not used alone for inclusion —
+	// inventory SS often has none too).
+	if ss.TriggerManual != nil && strings.TrimSpace(*ss.TriggerManual) != "" && looksLikeInstallTrigger(*ss.TriggerManual) {
+		if kind == PolicyAppSingle {
+			kind = PolicyAppInstall
+		}
+		installTrigFromSibling = normalizeTriggerForMatch(*ss.TriggerManual)
 	}
 
 	// Drop inventory/config [SS] stubs: require Install-named SS or install/cache siblings.
@@ -321,13 +345,38 @@ func summarizePolicyAppFromList(ss policyListItem, list []policyListItem) (Polic
 		CachePolicyID:   cacheID,
 	}
 	if kind == PolicyAppInstall || kind == PolicyAppCache {
-		// Best-effort trigger guess from naming convention (list has no trigger field).
-		sum.InstallTrigger = "install-" + name + "-next"
+		if installTrigFromSibling != "" {
+			sum.InstallTrigger = installTrigFromSibling
+		} else {
+			// Best-effort trigger guess from naming convention.
+			sum.InstallTrigger = "install-" + name + "-next"
+		}
 	}
 	if sum.Version == "" {
 		sum.Version = versionFromName(ss.Name)
 	}
 	return sum, true
+}
+
+func listItemByID(list []policyListItem, id int) policyListItem {
+	for _, p := range list {
+		if p.ID == id {
+			return p
+		}
+	}
+	return policyListItem{}
+}
+
+// policyListHasCustomTrigger is true when v1 reported a non-empty triggerManual.
+func policyListHasCustomTrigger(p policyListItem) bool {
+	return p.TriggerManual != nil && strings.TrimSpace(*p.TriggerManual) != ""
+}
+
+func policyListCustomTrigger(p policyListItem) string {
+	if p.TriggerManual == nil {
+		return ""
+	}
+	return normalizeTriggerForMatch(*p.TriggerManual)
 }
 
 // ssPolicyNameLooksLikeInstallApp reports whether an [SS] list name looks like a
@@ -338,21 +387,75 @@ func ssPolicyNameLooksLikeInstallApp(policyName string) bool {
 	return strings.HasPrefix(s, "install ") || strings.HasPrefix(s, "install-")
 }
 
-// policyNameContainsAppSlug reports whether policyName contains appSlug as a
-// token (alphanumeric boundaries), avoiding short-slug false positives.
-func policyNameContainsAppSlug(policyName, appSlug string) bool {
-	appSlug = strings.ToLower(strings.TrimSpace(appSlug))
-	if appSlug == "" {
-		return false
+// normalizeAppSlugKey lowercases and collapses spaces/underscores to hyphens.
+func normalizeAppSlugKey(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	b.Grow(len(s))
+	prevHyphen := false
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevHyphen = false
+		case r == ' ' || r == '-' || r == '_':
+			if !prevHyphen && b.Len() > 0 {
+				b.WriteByte('-')
+				prevHyphen = true
+			}
+		}
 	}
-	n := strings.ToLower(policyName)
-	for i := 0; i+len(appSlug) <= len(n); i++ {
-		if n[i:i+len(appSlug)] != appSlug {
+	return strings.Trim(b.String(), "-")
+}
+
+// appSlugTokens splits a name/slug into alphanumeric tokens (hyphen/space/_ agnostic).
+func appSlugTokens(s string) []string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return nil
+	}
+	var out []string
+	start := -1
+	flush := func(i int) {
+		if start >= 0 && i > start {
+			out = append(out, s[start:i])
+		}
+		start = -1
+	}
+	for i := 0; i < len(s); i++ {
+		if isAppSlugAlnum(s[i]) {
+			if start < 0 {
+				start = i
+			}
 			continue
 		}
-		leftOK := i == 0 || !isAppSlugAlnum(n[i-1])
-		rightOK := i+len(appSlug) == len(n) || !isAppSlugAlnum(n[i+len(appSlug)])
-		if leftOK && rightOK {
+		flush(i)
+	}
+	flush(len(s))
+	return out
+}
+
+// policyNameContainsAppSlug reports whether policyName contains appSlug as a
+// contiguous token sequence (hyphens/spaces equivalent), avoiding short-slug
+// false positives inside longer words.
+func policyNameContainsAppSlug(policyName, appSlug string) bool {
+	want := appSlugTokens(appSlug)
+	if len(want) == 0 {
+		return false
+	}
+	have := appSlugTokens(policyName)
+	if len(have) < len(want) {
+		return false
+	}
+	for i := 0; i+len(want) <= len(have); i++ {
+		match := true
+		for j := range want {
+			if have[i+j] != want[j] {
+				match = false
+				break
+			}
+		}
+		if match {
 			return true
 		}
 	}
@@ -378,12 +481,7 @@ func policyAppNameFromListName(policyName string) string {
 	if v := versionFromName(display); v != "" {
 		display = strings.TrimSpace(strings.Replace(display, v, "", 1))
 	}
-	slug := strings.ToLower(display)
-	slug = strings.ReplaceAll(slug, " ", "-")
-	for strings.Contains(slug, "--") {
-		slug = strings.ReplaceAll(slug, "--", "-")
-	}
-	return strings.Trim(slug, "-")
+	return normalizeAppSlugKey(display)
 }
 
 func classifyPolicyAppFromSS(credName string, ssID int, list []policyListItem, cache *policyFetchCache, logger *slog.Logger) (PolicyAppSummary, bool, error) {
@@ -687,13 +785,14 @@ func findCachePoliciesForApp(credName string, list []policyListItem, appName str
 }
 
 // policyListNameHasAppHint is the Classic GET prefilter for trigger/cache scans:
-// require the app name substring in the list name (empty hint matches all).
+// require the app name as a token sequence in the list name (empty hint matches all).
+// Hyphens and spaces are equivalent (claude-cli ↔ "Claude CLI").
 func policyListNameHasAppHint(policyName, appHint string) bool {
-	appHint = strings.ToLower(strings.TrimSpace(appHint))
+	appHint = strings.TrimSpace(appHint)
 	if appHint == "" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(policyName), appHint)
+	return policyNameContainsAppSlug(policyName, appHint)
 }
 
 func pickCurrentCache(caches []*resourcePolicy, preferVersion string) *resourcePolicy {

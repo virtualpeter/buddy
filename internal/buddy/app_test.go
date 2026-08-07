@@ -101,6 +101,9 @@ func TestPolicyAppNameFromListName(t *testing.T) {
 		{"[SS] Install VSCode - TROUBLESHOOTING", "vscode"},
 		{"Update Inventory [SS]", "update-inventory"},
 		{"Chrome [SS]", "chrome"},
+		{"Install Claude CLI [SS]", "claude-cli"},
+		{"Install Cursor IDE [SS]", "cursor-ide"},
+		{"Install claude-cli [SS]", "claude-cli"},
 	}
 	for _, tt := range cases {
 		if got := policyAppNameFromListName(tt.in); got != tt.want {
@@ -158,6 +161,29 @@ func TestSummarizePolicyAppFromList(t *testing.T) {
 	if _, ok := summarizePolicyAppFromList(bare[0], bare); ok {
 		t.Fatal("non-Install [SS] without siblings should be excluded")
 	}
+
+	// Hyphenated app slug matches spaced sibling names; prefer sibling with custom trigger.
+	trig := "install-claude-cli-next"
+	empty := ""
+	claudeList := []policyListItem{
+		{ID: 20, Name: "Install Claude CLI [SS]", TriggerManual: &empty},
+		{ID: 21, Name: "Cache Claude CLI 1.2.3"},
+		{ID: 22, Name: "Install Claude CLI", TriggerManual: &trig},
+		{ID: 23, Name: "Install Claude CLI Copy", TriggerManual: &empty},
+	}
+	claude, ok := summarizePolicyAppFromList(claudeList[0], claudeList)
+	if !ok || claude.Name != "claude-cli" {
+		t.Fatalf("claude: ok=%v name=%q", ok, claude.Name)
+	}
+	if claude.Kind != PolicyAppCache {
+		t.Errorf("claude kind = %q, want cache", claude.Kind)
+	}
+	if claude.InstallPolicyID != 22 {
+		t.Errorf("claude install id = %d, want 22 (custom trigger preferred)", claude.InstallPolicyID)
+	}
+	if claude.InstallTrigger != "install-claude-cli-next" {
+		t.Errorf("claude trigger = %q, want install-claude-cli-next", claude.InstallTrigger)
+	}
 }
 
 func TestPolicyNameContainsAppSlug(t *testing.T) {
@@ -173,6 +199,28 @@ func TestPolicyNameContainsAppSlug(t *testing.T) {
 	if policyNameContainsAppSlug("Install Foo", "santa") {
 		t.Fatal("santa must not match Install Foo")
 	}
+	if !policyNameContainsAppSlug("Cache Claude CLI 1.0", "claude-cli") {
+		t.Fatal("claude-cli must match Cache Claude CLI")
+	}
+	if !policyNameContainsAppSlug("install-cursor-ide-next", "cursor-ide") {
+		t.Fatal("cursor-ide must match install-cursor-ide-next")
+	}
+	if !policyNameContainsAppSlug("Install Cursor-IDE Next", "cursor ide") {
+		t.Fatal("spaces/hyphens equivalent")
+	}
+}
+
+func TestPolicyAppMatchesFilterDashed(t *testing.T) {
+	sum := PolicyAppSummary{Name: "claude-cli", Kind: PolicyAppCache, SSPolicyName: "Install Claude CLI [SS]"}
+	if !policyAppMatchesFilter(sum, "claude-cli") {
+		t.Fatal("exact dashed filter")
+	}
+	if !policyAppMatchesFilter(sum, "claude cli") {
+		t.Fatal("spaced filter should match dashed name")
+	}
+	if !policyAppMatchesFilter(sum, "claude") {
+		t.Fatal("prefix token filter")
+	}
 }
 
 func TestPolicyListNameHasAppHint(t *testing.T) {
@@ -187,6 +235,9 @@ func TestPolicyListNameHasAppHint(t *testing.T) {
 	}
 	if !policyListNameHasAppHint("anything", "") {
 		t.Fatal("empty hint matches all")
+	}
+	if !policyListNameHasAppHint("Install Claude CLI Next", "claude-cli") {
+		t.Fatal("dashed hint must match spaced policy name")
 	}
 }
 

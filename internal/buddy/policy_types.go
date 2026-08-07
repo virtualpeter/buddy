@@ -302,7 +302,8 @@ func parseV1PolicyListResults(resultsJSON []byte) ([]policyListItem, error) {
 			item.ExecutionFrequency = ef
 		}
 		if tm, ok := m["triggerManual"].(string); ok {
-			item.TriggerManual = tm
+			s := tm
+			item.TriggerManual = &s
 		}
 		if b, ok := m["enabled"].(bool); ok {
 			item.Enabled = &b

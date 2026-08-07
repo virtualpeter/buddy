@@ -2429,13 +2429,15 @@ const policyListCacheTTL = 60 * time.Second
 type policyListItem struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
-	// Optional fields from undocumented Pro GET /api/v1/policies (zero/empty on Classic list).
-	Enabled            *bool  `json:"enabled,omitempty"`
-	CategoryID         string `json:"categoryId,omitempty"`
-	ExecutionFrequency string `json:"executionFrequency,omitempty"`
-	TriggerCheckin     *bool  `json:"triggerCheckin,omitempty"`
-	TriggerManual      string `json:"triggerManual,omitempty"`
-	UpdateInventory    *bool  `json:"updateInventory,omitempty"`
+	// Optional fields from undocumented Pro GET /api/v1/policies (nil/empty on Classic list).
+	Enabled            *bool   `json:"enabled,omitempty"`
+	CategoryID         string  `json:"categoryId,omitempty"`
+	ExecutionFrequency string  `json:"executionFrequency,omitempty"`
+	TriggerCheckin     *bool   `json:"triggerCheckin,omitempty"`
+	// TriggerManual is set (non-nil) only when the v1 list included triggerManual
+	// (often "" for Self Service / single policies). Classic list leaves it nil.
+	TriggerManual   *string `json:"triggerManual,omitempty"`
+	UpdateInventory *bool   `json:"updateInventory,omitempty"`
 }
 
 type policyListCacheEntry struct {
