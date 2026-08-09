@@ -23,9 +23,9 @@ Jamf Pro categories. Used heavily when copying scripts/policies across tenants.
 
 ## Facts
 
-- **List / load:** `categories(...)` / `category(id=…)` or by name where supported.
-- **Copy / migrate:** `category_copy(..., upsert=True)` / `category_migrate` — Pro `{name, priority}` body; upsert by exact name.
-- **Migrate order:** categories → [scripts](/docs/docs/scripts) → [policies](/docs/docs/policies) / [profiles](/docs/docs/profiles). Missing categories on policy copy become **uncategorized**.
+- List / load: `categories(...)` / `category(id=…)` · `buddy category list` / `get` — Or by name where supported
+- Copy / migrate: `category_copy` / `category_migrate` — Pro `{name, priority}`; upsert by exact name
+- Typical migrate order: categories → [scripts](/docs/docs/scripts) → [policies](/docs/docs/policies) / [profiles](/docs/docs/profiles). Missing categories on policy copy become **uncategorized**.
 
 ## Builtins
 

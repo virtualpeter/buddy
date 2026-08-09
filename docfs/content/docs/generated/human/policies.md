@@ -3,12 +3,18 @@
 
 List, load, mutate, copy, and migrate Jamf Classic policies with buddy.
 
-## Overview
+## Surfaces
 
-- **List / find:** `policies(keywords=…)` or `policies(ids=True)` — summary dicts `{id, name, …}`.
-- **Load one:** `policy(id=…)` **or** `policy(trigger=…)` (not both) — full Classic XML as a dict tree (or use `policy_xml(id=…)` for the raw string).
-- **Mutate:** fat helpers (`policy_set`, `policy_set_ss`, `policy_set_package`, `policy_set_scope_*`, …) cover common field edits; `policy_put_xml` writes raw Classic XML.
-- **Versioned release bumps:** [change batches](/docs/docs/change-batches) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.
+| Do this | BuddyScript | CLI | Notes |
+|---------|-------------|-----|-------|
+| List / find | `policies(keywords=…)` / `policies(ids=True)` | `buddy policy list` | Summary dicts `{id, name, …}` |
+| Load | `policy(id=…)` / `policy(trigger=…)` / `policy_xml(id=…)` | `buddy policy get` | Full Classic XML as dict or string |
+| Mutate | `policy_set*` / `policy_put_xml` | `buddy policy set` | Multi-step helpers for common fields; raw XML when needed |
+| Copy / migrate | `policy_copy` / `policy_migrate` | — | Cross-session; remap by name |
+
+## Notes
+
+Versioned release bumps use [change batches](/docs/docs/change-batches) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.
 
 ## Example
 

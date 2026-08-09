@@ -118,7 +118,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "blueprint_component", blueprintComponentBuiltin(credName, logger))
 	registerPlatformBuiltins(dict, credName, logger)
 
-	// Fat helpers / specialized actions.
+	// Multi-step helpers / specialized actions.
 	putBuiltin(dict, "policy_set_ss", policySetSS(credName, logger))
 	putBuiltin(dict, "policy_set_install", policySetInstall(credName, logger))
 	putBuiltin(dict, "policy_create_ss", policyCreateSS(credName, logger))

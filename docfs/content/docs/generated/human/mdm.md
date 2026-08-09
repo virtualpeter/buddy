@@ -3,10 +3,15 @@
 
 Query Jamf Pro MDM **command history** with RSQL filters. Device **actions** (reboot, lock, erase) live on [computers](/docs/docs/computers) (Pro) or [devices](/docs/docs/devices) (Platform).
 
-## Overview
+## Surfaces
 
-- **List / find:** `mdm_commands(filter=…)` — bare term → `status=="term"`, or full RSQL (status, clientManagementId, dates, …).
-- CLI: `buddy mdm list --filter=…` (e.g. `--filter=Pending`).
+| Do this | BuddyScript | CLI | Notes |
+|---------|-------------|-----|-------|
+| List / find | `mdm_commands(filter=…)` | `buddy mdm list --filter=…` | Bare term → `status=="term"`, or full RSQL |
+
+## Notes
+
+Device **actions** (reboot, lock, erase) live on [computers](/docs/docs/computers) or Platform [devices](/docs/docs/devices).
 
 ## Example
 

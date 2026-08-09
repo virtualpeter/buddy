@@ -43,6 +43,15 @@ type KindRow struct {
 	Upgrade string
 }
 
+// SurfaceRow is one human Surfaces table row (action → BuddyScript → CLI → note).
+// Empty BuddyScript or CLI is rendered as "—" so coverage gaps stay visible.
+type SurfaceRow struct {
+	Action      string // e.g. "List", "Load", "Copy / migrate"
+	BuddyScript string // e.g. "`scripts(filter?)`"
+	CLI         string // e.g. "`buddy script list`"; empty when no CLI yet
+	Notes       string // short cell text (no Prefer/Do not agent voice)
+}
+
 // RelatedLink is a related doc pointer.
 type RelatedLink struct {
 	Title string
@@ -57,7 +66,12 @@ type Topic struct {
 	Keywords []string
 	Summary  string // short neutral blurb
 
-	Concepts []string // factual bullets for humans
+	// Surfaces drives the human Surfaces table (Do this | BuddyScript | CLI | Notes).
+	Surfaces []SurfaceRow
+	// Notes are short factual paragraphs for humans (and agent Facts when Concepts empty).
+	Notes []string
+	// Concepts are agent Facts bullets (optional). When empty, RenderAgent uses Notes + Surface notes.
+	Concepts []string
 	Kinds    []KindRow
 	CLI      []CLICommand
 	Builtins []Builtin
@@ -138,14 +152,29 @@ func RenderHuman(t Topic) string {
 		}
 		b.WriteString("\n")
 	}
-	if len(t.Concepts) > 0 {
-		b.WriteString("## Overview\n\n")
-		for _, c := range t.Concepts {
-			b.WriteString("- ")
-			b.WriteString(c)
-			b.WriteString("\n")
+	if len(t.Surfaces) > 0 {
+		b.WriteString("## Surfaces\n\n")
+		b.WriteString("| Do this | BuddyScript | CLI | Notes |\n")
+		b.WriteString("|---------|-------------|-----|-------|\n")
+		for _, s := range t.Surfaces {
+			b.WriteString("| ")
+			b.WriteString(escapeTableCell(s.Action))
+			b.WriteString(" | ")
+			b.WriteString(escapeTableCell(surfaceCell(s.BuddyScript)))
+			b.WriteString(" | ")
+			b.WriteString(escapeTableCell(surfaceCell(s.CLI)))
+			b.WriteString(" | ")
+			b.WriteString(escapeTableCell(s.Notes))
+			b.WriteString(" |\n")
 		}
 		b.WriteString("\n")
+	}
+	if len(t.Notes) > 0 {
+		b.WriteString("## Notes\n\n")
+		for _, n := range t.Notes {
+			b.WriteString(n)
+			b.WriteString("\n\n")
+		}
 	}
 	if len(t.ExamplesBuddy) > 0 || len(t.ExamplesShell) > 0 {
 		if len(t.ExamplesBuddy)+len(t.ExamplesShell) == 1 {
@@ -176,6 +205,43 @@ func RenderHuman(t Topic) string {
 		b.WriteString("\n")
 	}
 	return strings.TrimSpace(b.String()) + "\n"
+}
+
+func agentFacts(t Topic) []string {
+	if len(t.Concepts) > 0 {
+		return t.Concepts
+	}
+	var out []string
+	for _, s := range t.Surfaces {
+		line := s.Action
+		switch {
+		case s.BuddyScript != "" && s.CLI != "":
+			line += ": " + s.BuddyScript + " · " + s.CLI
+		case s.BuddyScript != "":
+			line += ": " + s.BuddyScript
+		case s.CLI != "":
+			line += ": " + s.CLI
+		}
+		if s.Notes != "" {
+			line += " — " + s.Notes
+		}
+		out = append(out, line)
+	}
+	out = append(out, t.Notes...)
+	return out
+}
+
+func surfaceCell(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "—"
+	}
+	return s
+}
+
+func escapeTableCell(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "|", "\\|")
+	return s
 }
 
 // RenderAgent returns MCP-oriented Markdown: frontmatter, H1–H3, imperatives, JSON Schema.
@@ -217,9 +283,9 @@ func RenderAgent(t Topic) string {
 		}
 		b.WriteString("\n")
 	}
-	if len(t.Concepts) > 0 {
+	if facts := agentFacts(t); len(facts) > 0 {
 		b.WriteString("## Facts\n\n")
-		for _, c := range t.Concepts {
+		for _, c := range facts {
 			b.WriteString("- ")
 			b.WriteString(c)
 			b.WriteString("\n")

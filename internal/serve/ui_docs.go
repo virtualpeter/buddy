@@ -151,6 +151,31 @@ main :not(pre) > code {
   border-radius: 3px;
   white-space: break-spaces;
 }
+main table {
+  width: 100%;
+  max-width: 52rem;
+  border-collapse: collapse;
+  font-size: .92rem;
+  margin: 0 0 1.25rem;
+}
+main th, main td {
+  text-align: left;
+  vertical-align: top;
+  padding: .55rem .65rem;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.5;
+}
+main th {
+  font-family: var(--mono);
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+  font-weight: 600;
+}
+main td:first-child { white-space: nowrap; font-weight: 600; width: 7.5rem; }
+main td:nth-child(2), main td:nth-child(3) { width: 28%; }
+main td code { white-space: break-spaces; }
 pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow: auto; border-radius: 4px; }
 .code-try { position: relative; margin: 0 0 1.15rem; }
 .code-try > pre { margin: 0; padding-top: 2.1rem; }

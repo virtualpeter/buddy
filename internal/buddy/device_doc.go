@@ -21,10 +21,12 @@ var DevicesTopic = docspec.Topic{
 		`restart`,
 	},
 	Summary: "Platform API Gateway device inventory and **actions** (check-in, restart, erase, …). This is **not** Pro [computers](/docs/docs/computers) — different IDs, gateway, and builtins (`device*` vs `computer*`).",
-	Concepts: []string{
-		"**List / load:** `devices(...)` / `device(id=…)`.",
-		"**Actions:** named `device_*` action builtins (see builtins catalog).",
-		"CLI: `buddy device …`.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / load", BuddyScript: "`devices(...)` / `device(id=…)`", CLI: "`buddy device list` / `get`", Notes: ""},
+		{Action: "Actions", BuddyScript: "`device_*` action builtins", CLI: "`buddy device check-in|restart|erase|…`", Notes: "Check-in, restart, erase, …"},
+	},
+	Notes: []string{
+		"Platform gateway inventory — not Pro [computers](/docs/docs/computers) (`device*` vs `computer*`).",
 	},
 	AgentNotes: []string{
 		"Do not use `computer*` builtins against Platform device IDs (or the reverse).",

@@ -3,10 +3,15 @@
 
 Platform Declarative Device Management (DDM) **declaration reporting** — read-oriented devices / declarations / channels. Requires platform-capable tenant + auth.
 
-## Overview
+## Surfaces
 
-- Use `ddm_*` builtins (see catalog) for report queries.
-- CLI: `buddy ddm …`.
+| Do this | BuddyScript | CLI | Notes |
+|---------|-------------|-----|-------|
+| Report | `ddm_*` builtins | `buddy ddm declaration\|device …` | Devices / declarations / channels |
+
+## Notes
+
+Read-oriented Platform DDM declaration reporting. Requires platform-capable tenant + auth.
 
 ## Example
 

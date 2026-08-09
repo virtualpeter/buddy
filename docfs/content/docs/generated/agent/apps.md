@@ -31,11 +31,12 @@ Classic **Mac App Store** records are separate — use [`macapp` / `macapps`](/d
 
 ## Facts
 
-- Discovery starts from policies whose **name contains `[SS]`**.
-- `buddy app list` / `apps()` — one hybrid policy list call (undocumented Pro `GET /api/v1/policies` when available, else Classic `{id,name}`), then **name-only** heuristics for kind/version/trigger. Rows need an `Install…[SS]` name and/or install/cache sibling policies for the app slug (inventory/config `[SS]` stubs are omitted). App slugs treat hyphens and spaces as equivalent (`claude-cli` ↔ `Claude CLI`). When v1 `triggerManual` is present, install siblings with a custom trigger are preferred (Self Service / single rows usually have none). Approximate; `app get` is authoritative.
-- `buddy app get` / `app()` — authoritative Classic XML classify (Self Service flag, scripts, packages, triggers). Excludes non-apps (no package and no install-like script / inferred install trigger).
+- List: `apps(filter?)` · `buddy app list` — Hybrid policy list + name heuristics; approximate
+- Get: `app(name=…)` · `buddy app get` — Authoritative Classic XML classify
+- Upgrade: `app_upgrade(name, version, …)` · `buddy app upgrade` — Dispatches by kind after package READY
+- Discovery starts from policies whose **name contains `[SS]`**. List keeps Install…[SS] and/or install/cache siblings; inventory/config `[SS]` stubs are omitted. App slugs treat hyphens and spaces as equivalent (`claude-cli` ↔ `Claude CLI`). When v1 `triggerManual` is present, install siblings with a custom trigger are preferred.
 - Jamf does **not** publish a Pro policy CRUD API; RSQL on `/api/v1/policies` cannot filter by Self Service (only `id`, `name`, `enabled`, `categoryId`, `executionFrequency`, `triggerCheckin`, `triggerManual`).
-- Greenfield setup (prefs + PPPC + cache + install + optional SS) remains `setup_app_classic` in `stdlib/app_setup.buddy` / change batches — not `app create`.
+- Greenfield setup remains `setup_app_classic` in `stdlib/app_setup.buddy` / change batches — there is no `app create`.
 
 ## Kinds
 

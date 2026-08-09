@@ -21,10 +21,13 @@ var ClientsTopic = docspec.Topic{
 		`api client`,
 	},
 	Summary: "Jamf Pro API integrations (OAuth clients) — list, get, create, put. Pair with [API roles](/docs/docs/api-roles) and `buddy setup store-oauth` for instance-surface oauth auths.",
-	Concepts: []string{
-		"**List / load:** `clients(...)` / `client(id=…)`.",
-		"**Create / update:** `client_create` / `client_put` (see builtins).",
-		"**Store secret in buddy:** `buddy setup store-oauth` rotates a Jamf Pro *instance* API client secret into a buddy oauth auth (`surface=instance`). Platform gateway oauth cannot manage API roles/integrations.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / load", BuddyScript: "`clients(...)` / `client(id=…)`", CLI: "`buddy client list` / `get`", Notes: ""},
+		{Action: "Create / update", BuddyScript: "`client_create` / `client_put`", CLI: "`buddy client create` / `update`", Notes: ""},
+		{Action: "Store secret", BuddyScript: "", CLI: "`buddy setup store-oauth`", Notes: "Instance API client → buddy oauth auth (`surface=instance`)"},
+	},
+	Notes: []string{
+		"Pair with [API roles](/docs/docs/api-roles). Platform gateway oauth cannot manage API roles/integrations.",
 	},
 	AgentNotes: []string{
 		"Do not put production client secrets only in `config.yaml` when the platform secret store exists.",

@@ -72,7 +72,7 @@ Prefer plural/singular nouns over `*_list` / `*_find_ids` / `*_fetch` / `*_get_i
 - **plural** — enumerate (summary list).
 - **singular** — load one resource (full or summary depending on kwargs).
 - **singular_verb** — mutate (`policy_set`, `smart_group_put`, `computer_reboot`).
-- Keep fat multi-step helpers (`policy_set_ss`, `policy_set_package`, …).
+- Keep multi-step helpers (`policy_set_ss`, `policy_set_package`, …).
 
 ## Help text
 
@@ -210,7 +210,7 @@ array. They return bare values and raise on failure.
 
 ## Policies — copy / upsert
 
-Typed MCP and buddyscript expose CRUD plus cross-session copy. Fat release helpers
+Typed MCP and buddyscript expose CRUD plus cross-session copy. Multi-step release helpers
 (`policy_set_ss`, `policy_set_package`, …) stay on buddyscript / scripts. Versioned
 release bumps use change batches (`step_clone_policy` / `step_set_package`) or
 compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.

@@ -21,13 +21,16 @@ var ProfilesTopic = docspec.Topic{
 		`acs`,
 	},
 	Summary: `Jamf Classic macOS configuration profiles — lifecycle (list, get, create, clone, copy, delete, redeploy). For **payload / MCX / ACS** editing, use the dedicated [profile payloads](/docs/docs/profile-payloads) cookbook.`,
-	Concepts: []string{
-		"**List / load:** `profiles(...)` / `profile(id=…)` or `profile_xml(id=…)` (XML string; same Classic document).",
-		"**Clone (same tenant):** `profile_clone(profile_id, name)` — randomizes general + PayloadUUID; default unassigned scope.",
-		"**Copy / migrate:** `profile_copy(..., to_tenant?, to_auth?)` — source = `tenant`/`auth`; dest = `to_*`.",
-		"**Create from prepared XML:** `profile_xml_prepare_for_create` → `profile_create_xml`, or greenfield `profile_create` with `payloads_set_content`.",
-		"**Write back:** `profile_put_xml(profile_id, xml_str)` after offline edits.",
-		"**Redeploy / ACS:** `profile_redeploy`; `profile_acs_bind_uuid` when legacy HTML scrape fails for ACS payload UUID.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / load", BuddyScript: "`profiles(...)` / `profile(id=…)` / `profile_xml(id=…)`", CLI: "`buddy profile list` / `get xml`", Notes: "XML string is the same Classic document"},
+		{Action: "Clone", BuddyScript: "`profile_clone(profile_id, name)`", CLI: "`buddy profile clone`", Notes: "Same tenant; new UUIDs; unassigned scope"},
+		{Action: "Copy / migrate", BuddyScript: "`profile_copy(..., to_tenant?, to_auth?)`", Notes: "Source = tenant/auth; dest = to_*"},
+		{Action: "Create", BuddyScript: "`profile_xml_prepare_for_create` → `profile_create_xml`", Notes: "Or greenfield `profile_create` + payloads"},
+		{Action: "Write back", BuddyScript: "`profile_put_xml(profile_id, xml_str)`", CLI: "`buddy profile set xml`", Notes: "After offline edits"},
+		{Action: "Redeploy / ACS", BuddyScript: "`profile_redeploy` / `profile_acs_bind_uuid`", CLI: "`buddy profile redeploy`", Notes: "ACS bind is BuddyScript-only when HTML scrape fails"},
+	},
+	Notes: []string{
+		"Payload / MCX / ACS editing is covered in [profile payloads](/docs/docs/profile-payloads).",
 	},
 	AgentNotes: []string{
 		"Do not hand-edit UUIDs in Classic XML — clone/copy mint new ones; in-place patch keeps PayloadUUID.",

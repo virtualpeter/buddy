@@ -5,12 +5,18 @@ Jamf **Mac App Store Apps** objects live on Classic `/JSSResource/macapplication
 
 Bare `buddy app` / `apps(...)` manage **policy apps** (Self Service + packages) — see [Policy apps](/docs/docs/apps). Those names are a different resource family from Mac App Store records.
 
-## Overview
+## Surfaces
 
-- **List:** `macapps(filter?)` or `buddy macapp list [--filter=…]` — client-side substring on name / version / bundle_id (Classic list has no RSQL).
-- **Load:** `macapp(id=…)` or `macapp(name=…)` / `buddy macapp get <macapp-id>`.
-- **Create:** `macapp_create(name, version, bundle_id, url, free?=False, category?)` or CLI `buddy macapp create --name= --version= --bundle-id= --url= [--free] [--category=<name>]`.
-- **Delete:** `macapp_delete(macapp_id)` / `buddy macapp delete <macapp-id> […]`.
+| Do this | BuddyScript | CLI | Notes |
+|---------|-------------|-----|-------|
+| List | `macapps(filter?)` | `buddy macapp list` | Client-side substring; Classic list has no RSQL |
+| Load | `macapp(id=…)` / `macapp(name=…)` | `buddy macapp get` | Full Classic record |
+| Create | `macapp_create(...)` | `buddy macapp create` | Requires name, version, bundle_id, url |
+| Delete | `macapp_delete(macapp_id)` | `buddy macapp delete` |  |
+
+## Notes
+
+Classic `/JSSResource/macapplications` only — no Pro JSON catalog CRUD. Instance-surface auth with Classic privileges is required.
 
 ## Example
 

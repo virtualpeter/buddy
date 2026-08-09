@@ -22,11 +22,14 @@ var PackagesTopic = docspec.Topic{
 		`cloudTransferStatus`,
 	},
 	Summary: `Jamf Pro packages and Jamf Cloud Distribution Service (JCDS) readiness. Package **existence** is not the same as **READY** for attach/download.`,
-	Concepts: []string{
-		"**List / load:** `packages(filter=…)` / `package(id=…)` (or `name=` + `version=`). Bare `filter=\"Chrome\"` → `packageName==\"*Chrome*\"`; full RSQL still works.",
-		"**After upload / before policy attach:** `package_wait_ready(id=…, timeout?=…)` — polls until `cloudTransferStatus == \"READY\"` **and** `sha256` is set (default ~10 minutes); best-effort JCDS refresh between polls.",
-		"**Check:** `package_ready(id=…)` → `true` only when the package exists, status is `\"READY\"`, and `sha256` is non-empty. HTTP 404 → `false`, not an error.",
-		"**Download (Jamf Cloud / JCDS only):** `package_download(id=…, path?=…)` — same READY + sha256 wait, streams via pre-signed URI, verifies hash, retries once on URI 403.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / load", BuddyScript: "`packages(filter=…)` / `package(id=…)`", CLI: "`buddy package list` / `get`", Notes: "Or `name=` + `version=`; bare filter → `packageName==\"*term*\"`"},
+		{Action: "Wait READY", BuddyScript: "`package_wait_ready(id=…, timeout?=…)`", Notes: "Polls until READY and sha256 set (~10 min default)"},
+		{Action: "Check READY", BuddyScript: "`package_ready(id=…)`", Notes: "`true` only when READY + sha256; HTTP 404 → `false`"},
+		{Action: "Download", BuddyScript: "`package_download(id=…, path?=…)`", CLI: "`buddy package download`", Notes: "Jamf Cloud / JCDS only; hash-verified"},
+	},
+	Notes: []string{
+		"Package **existence** is not the same as **READY** for attach or download. Full RSQL still works on list filters.",
 	},
 	AgentNotes: []string{
 		"Prefer `package_ready` / `package_wait_ready` / `package_download` — do not hand-roll single GET “exists?”, treat blank sha256 as needs-upload while transfer is pending, or save a raw JCDS URI without hash verify.",

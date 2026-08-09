@@ -20,9 +20,11 @@ var MdmTopic = docspec.Topic{
 		`history`,
 	},
 	Summary: `Query Jamf Pro MDM **command history** with RSQL filters. Device **actions** (reboot, lock, erase) live on [computers](/docs/docs/computers) (Pro) or [devices](/docs/docs/devices) (Platform).`,
-	Concepts: []string{
-		"**List / find:** `mdm_commands(filter=…)` — bare term → `status==\"term\"`, or full RSQL (status, clientManagementId, dates, …).",
-		"CLI: `buddy mdm list --filter=…` (e.g. `--filter=Pending`).",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / find", BuddyScript: "`mdm_commands(filter=…)`", CLI: "`buddy mdm list --filter=…`", Notes: "Bare term → `status==\"term\"`, or full RSQL"},
+	},
+	Notes: []string{
+		"Device **actions** (reboot, lock, erase) live on [computers](/docs/docs/computers) or Platform [devices](/docs/docs/devices).",
 	},
 	AgentNotes: []string{
 		"Do not treat this as the way to **issue** MDM actions — use `computer_*` / Platform device action builtins.",

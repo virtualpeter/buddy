@@ -3,11 +3,16 @@
 
 Platform API Gateway device groups and membership. **Not** Pro [smart](/docs/docs/smart-groups) or [static](/docs/docs/static-groups) computer groups.
 
-## Overview
+## Surfaces
 
-- **List / load:** `device_groups(...)` / `device_group(id=…)`.
-- **Membership / mutate:** `device_group*` helpers in the builtins catalog.
-- CLI: `buddy device-group …`.
+| Do this | BuddyScript | CLI | Notes |
+|---------|-------------|-----|-------|
+| List / load | `device_groups(...)` / `device_group(id=…)` | `buddy device-group list` / `get` |  |
+| Membership | `device_group*` helpers | `buddy device-group members` / `set-members` | See builtins catalog |
+
+## Notes
+
+Not Pro [smart](/docs/docs/smart-groups) or [static](/docs/docs/static-groups) computer groups.
 
 ## Example
 

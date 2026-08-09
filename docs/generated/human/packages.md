@@ -3,12 +3,18 @@
 
 Jamf Pro packages and Jamf Cloud Distribution Service (JCDS) readiness. Package **existence** is not the same as **READY** for attach/download.
 
-## Overview
+## Surfaces
 
-- **List / load:** `packages(filter=…)` / `package(id=…)` (or `name=` + `version=`). Bare `filter="Chrome"` → `packageName=="*Chrome*"`; full RSQL still works.
-- **After upload / before policy attach:** `package_wait_ready(id=…, timeout?=…)` — polls until `cloudTransferStatus == "READY"` **and** `sha256` is set (default ~10 minutes); best-effort JCDS refresh between polls.
-- **Check:** `package_ready(id=…)` → `true` only when the package exists, status is `"READY"`, and `sha256` is non-empty. HTTP 404 → `false`, not an error.
-- **Download (Jamf Cloud / JCDS only):** `package_download(id=…, path?=…)` — same READY + sha256 wait, streams via pre-signed URI, verifies hash, retries once on URI 403.
+| Do this | BuddyScript | CLI | Notes |
+|---------|-------------|-----|-------|
+| List / load | `packages(filter=…)` / `package(id=…)` | `buddy package list` / `get` | Or `name=` + `version=`; bare filter → `packageName=="*term*"` |
+| Wait READY | `package_wait_ready(id=…, timeout?=…)` | — | Polls until READY and sha256 set (~10 min default) |
+| Check READY | `package_ready(id=…)` | — | `true` only when READY + sha256; HTTP 404 → `false` |
+| Download | `package_download(id=…, path?=…)` | `buddy package download` | Jamf Cloud / JCDS only; hash-verified |
+
+## Notes
+
+Package **existence** is not the same as **READY** for attach or download. Full RSQL still works on list filters.
 
 ## Example
 

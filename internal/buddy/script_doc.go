@@ -20,11 +20,14 @@ var ScriptsTopic = docspec.Topic{
 		`scriptContents`,
 	},
 	Summary: `Jamf Pro scripts — list summaries vs full body, create/update, and copy/migrate.`,
-	Concepts: []string{
-		"**List:** `scripts(filter=…)` → summaries `{id, name, categoryId, categoryName}` only. Bare term → `name==\"*term*\"` (server); bodies are stripped even if Jamf list JSON includes `scriptContents`.",
-		"**Full record / body:** `script(id=…)` or `script_get_contents(script_id=…)`.",
-		"**Create / update:** `script_put` (full dict) / `script_update` (from file) — see builtins.",
-		"**Copy / migrate:** `script_copy` / `script_migrate` (`upsert=True`); category remapped via destination name resolution.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List", BuddyScript: "`scripts(filter?)`", CLI: "`buddy script list`", Notes: "Summaries `{id, name, categoryId, categoryName}` only; bodies stripped"},
+		{Action: "Load", BuddyScript: "`script(id=…)` / `script_get_contents(script_id=…)`", CLI: "`buddy script get` / `get contents`", Notes: "Full record / body"},
+		{Action: "Create / update", BuddyScript: "`script_put` / `script_update`", CLI: "`buddy script create` / `upload`", Notes: "Full dict or from file"},
+		{Action: "Copy / migrate", BuddyScript: "`script_copy` / `script_migrate`", Notes: "Upsert by name; category remapped on destination"},
+	},
+	Notes: []string{
+		"Bare `filter` terms become `name==\"*term*\"` on the server. List JSON never yields usable `scriptContents` — load with `script(id=…)`.",
 	},
 	AgentNotes: []string{
 		"Do not expect `scripts(...)` to return script bodies — use `script(id=…)` for contents.",

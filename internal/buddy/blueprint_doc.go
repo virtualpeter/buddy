@@ -20,11 +20,13 @@ var BlueprintsTopic = docspec.Topic{
 		`platform`,
 	},
 	Summary: "Platform API Gateway blueprints — CRUD, deploy/undeploy/status, components. Requires a **platform-capable** tenant + auth (`region`/`url` + `tenantId`).",
-	Concepts: []string{
-		"**List / load:** `blueprints(search=…)` / `blueprint(id=…)`.",
-		"**Create / patch:** `blueprint_create(body)` / `blueprint_set(blueprint_id, body)` — `blueprint_set` is a merge-patch.",
-		"**Lifecycle:** deploy / undeploy / status helpers listed in builtins (`blueprint_deploy`, …).",
-		"CLI: `buddy blueprint …`.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / load", BuddyScript: "`blueprints(search=…)` / `blueprint(id=…)`", CLI: "`buddy blueprint list` / `get`", Notes: ""},
+		{Action: "Create / patch", BuddyScript: "`blueprint_create(body)` / `blueprint_set(id, body)`", CLI: "`buddy blueprint create` / `set`", Notes: "`blueprint_set` is merge-patch"},
+		{Action: "Lifecycle", BuddyScript: "`blueprint_deploy` / undeploy / status …", CLI: "`buddy blueprint deploy|undeploy|status`", Notes: "See builtins catalog"},
+	},
+	Notes: []string{
+		"Requires a **platform-capable** tenant + auth (`region`/`url` + `tenantId`).",
 	},
 	AgentNotes: []string{
 		"Do not call blueprint builtins with an instance-only session — you need Platform surface credentials.",

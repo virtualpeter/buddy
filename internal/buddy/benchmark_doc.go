@@ -20,9 +20,11 @@ var BenchmarksTopic = docspec.Topic{
 		`baselines`,
 	},
 	Summary: `Platform compliance benchmarks (beta) — baselines, catalog rules, reports. Requires platform-capable tenant + auth.`,
-	Concepts: []string{
-		"**List / load / mutate:** `benchmark*` builtins (CRUD-ish, baselines, reports — see catalog).",
-		"CLI: `buddy benchmark …`.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / load / mutate", BuddyScript: "`benchmark*` builtins", CLI: "`buddy benchmark …`", Notes: "Baselines, catalog rules, reports"},
+	},
+	Notes: []string{
+		"Platform compliance benchmarks (beta). Requires platform-capable tenant + auth.",
 	},
 	AgentNotes: []string{
 		"Do not invent benchmark HTTP from schema alone when builtins exist.",

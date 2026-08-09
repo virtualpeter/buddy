@@ -20,10 +20,10 @@ var RolesTopic = docspec.Topic{
 		`privilege`,
 	},
 	Summary: "Jamf Pro API roles — list, get, create, put, and privilege catalog. Used when bootstrapping least-privilege API clients (`buddy setup` flows).",
-	Concepts: []string{
-		"**List / load:** `roles(...)` / `role(id=…)`.",
-		"**Create / update:** `role_create` / `role_put` (and privilege helpers listed in builtins).",
-		"**Setup:** `buddy setup write-script` → `setup_buddy_role.buddy` creates a role + client idempotently; privileges can be trimmed afterward.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / load", BuddyScript: "`roles(...)` / `role(id=…)`", CLI: "`buddy role list` / `get`", Notes: ""},
+		{Action: "Create / update", BuddyScript: "`role_create` / `role_put`", CLI: "`buddy role create` / `update`", Notes: "Privilege helpers in builtins"},
+		{Action: "Bootstrap", BuddyScript: "", CLI: "`buddy setup write-script` → `setup_buddy_role.buddy`", Notes: "Idempotent role + client; trim privileges after"},
 	},
 	AgentNotes: []string{
 		"Do not grant destructive MDM privileges to day-to-day automation clients without review.",

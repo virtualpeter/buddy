@@ -288,7 +288,7 @@ That output lists every builtin with parameter names, types, and return shapes. 
 For CAB / change-record workflows (author a batch with human notes → resolve a markdown plan with no writes → apply after approval and record outcomes), see:
 
 - [**Change batches howto**](/docs/docs/change-batches)
-- Example: [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy)
+- Example: [`examples/demochange.buddy`](../examples/demochange.buddy) (starter); [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy) (Santa-shaped)
 
 ---
 
@@ -307,7 +307,8 @@ Use it when correlating buddy behavior with Jamf’s API or troubleshooting perm
 Runnable Star scripts and a short index live under [**examples/**](../examples/README.md):
 
 - [`examples/bump-release.buddy`](../examples/bump-release.buddy) — minimal pattern: `policy(trigger=…)`, then updates (edit triggers/IDs for your tenant).
-- [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy) — `plan_change` / `run_change` for an approval-oriented batch ([howto](/docs/docs/change-batches)).
+- [`examples/demochange.buddy`](../examples/demochange.buddy) — easiest change-batch starter (edit SETUP, then plan/apply) ([howto](/docs/docs/change-batches)).
+- [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy) — same flow with Santa-shaped triggers/package patterns ([howto](/docs/docs/change-batches)).
 
 ---
 

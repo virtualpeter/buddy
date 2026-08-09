@@ -22,12 +22,12 @@ var SmartGroupsTopic = docspec.Topic{
 		`groups`,
 	},
 	Summary: "Pro v3 smart computer groups — dynamic membership via **criteria**. Distinct from static computer groups (`static_group*`) and Platform device groups (`device_group*`).",
-	Concepts: []string{
-		"**List:** `smart_groups(search=…)` — summary list.",
-		"**Load:** `smart_group(id=…)` **or** `smart_group(name=…)` (not both) — full JSON document.",
-		"**Criteria:** `smart_group_get_criteria(group_id)` → list of criterion dicts; `smart_group_set_criteria` / `smart_group_find_criteria` / `smart_group_update_criterion_value` for targeted edits.",
-		"**Create / replace:** `smart_group_create(body)` / `smart_group_put(group_id, body)`.",
-		"**Copy / migrate:** `smart_group_copy` / `smart_group_migrate` (upsert by exact name); clears `siteId` unless `site_id` set.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List", BuddyScript: "`smart_groups(search=…)`", CLI: "`buddy group list smart`", Notes: "Summary list"},
+		{Action: "Load", BuddyScript: "`smart_group(id=…)` / `smart_group(name=…)`", CLI: "`buddy group get`", Notes: "Full JSON; pass id or name, not both"},
+		{Action: "Criteria", BuddyScript: "`smart_group_get_criteria` / `smart_group_set_criteria` / …", CLI: "`buddy group get|set version`", Notes: "CLI covers version criterion; other criteria via builtins"},
+		{Action: "Create / replace", BuddyScript: "`smart_group_create` / `smart_group_put`", CLI: "`buddy group create smart`", Notes: "Full body PUT; create from JSON file supported"},
+		{Action: "Copy / migrate", BuddyScript: "`smart_group_copy` / `smart_group_migrate`", Notes: "Upsert by exact name; clears siteId unless set"},
 	},
 	AgentNotes: []string{
 		"Do not mix with `static_group*` (explicit computer IDs) or Platform `device_group*`.",
@@ -196,11 +196,11 @@ var StaticGroupsTopic = docspec.Topic{
 		`groups`,
 	},
 	Summary: "Pro v3 static computer groups — membership is an explicit list of **computer IDs**. Distinct from smart computer groups (`smart_group*`) and Platform device groups (`device_group*`).",
-	Concepts: []string{
-		"**List groups:** `static_groups(search=…)`.",
-		"**List members:** `static_group_list_computers(group_id, filter?)` → `[{id, name, serial}, …]` (`name` may be empty when the API returns only assignment IDs).",
-		"**Mutate membership:** `static_group_add_computers` / `static_group_remove_computers` / `static_group_set_computers` (read-modify-write; add/remove are no-ops when already satisfied).",
-		"**Create:** `static_group_create(body)` — `name` required; `assignments` optional list of computer id strings.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List groups", BuddyScript: "`static_groups(search=…)`", CLI: "`buddy group list static`", Notes: ""},
+		{Action: "List members", BuddyScript: "`static_group_list_computers(group_id, filter?)`", CLI: "`buddy group static members`", Notes: "`[{id, name, serial}, …]`; name may be empty"},
+		{Action: "Mutate membership", BuddyScript: "`static_group_add_computers` / `remove` / `set`", CLI: "`buddy group static add|remove`", Notes: "Read-modify-write; add/remove no-op when already satisfied; no CLI set-all"},
+		{Action: "Create", BuddyScript: "`static_group_create(body)`", CLI: "`buddy group create static`", Notes: "`name` required; `assignments` optional"},
 	},
 	AgentNotes: []string{
 		"Do not use smart-group criteria APIs for static membership (or the reverse).",

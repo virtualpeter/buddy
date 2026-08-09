@@ -22,10 +22,13 @@ var ComputersTopic = docspec.Topic{
 		`mdm`,
 	},
 	Summary: `Jamf Pro computer inventory (v3) and MDM **actions** (reboot, lock, erase, …). For MDM **command history** queries, see [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices) — different API surface.`,
-	Concepts: []string{
-		"**List / find:** `computers(filter=…, page?, page_size?)` — omit `page` to fetch all pages. Buddy uses **inventory v3**.",
-		"**Load one:** `computer(id=…)` (and detail-slice helpers where listed in builtins).",
-		"**MDM actions:** `computer_reboot`, `computer_lock`, and related named builtins.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / find", BuddyScript: "`computers(filter=…, page?, page_size?)`", CLI: "`buddy computer list`", Notes: "Omit page to fetch all; inventory v3"},
+		{Action: "Load", BuddyScript: "`computer(id=…)`", CLI: "`buddy computer get`", Notes: "Detail-slice helpers in builtins"},
+		{Action: "MDM actions", BuddyScript: "`computer_reboot` / `computer_lock` / …", CLI: "`buddy computer reboot|lock|…`", Notes: "Named builtins and matching CLI verbs"},
+	},
+	Notes: []string{
+		"MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).",
 	},
 	AgentNotes: []string{
 		"Do not mix Pro `computer*` with Platform `device*` — different gateways and IDs.",

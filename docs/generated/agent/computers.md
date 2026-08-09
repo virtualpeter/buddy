@@ -27,9 +27,10 @@ Jamf Pro computer inventory (v3) and MDM **actions** (reboot, lock, erase, …).
 
 ## Facts
 
-- **List / find:** `computers(filter=…, page?, page_size?)` — omit `page` to fetch all pages. Buddy uses **inventory v3**.
-- **Load one:** `computer(id=…)` (and detail-slice helpers where listed in builtins).
-- **MDM actions:** `computer_reboot`, `computer_lock`, and related named builtins.
+- List / find: `computers(filter=…, page?, page_size?)` · `buddy computer list` — Omit page to fetch all; inventory v3
+- Load: `computer(id=…)` · `buddy computer get` — Detail-slice helpers in builtins
+- MDM actions: `computer_reboot` / `computer_lock` / … · `buddy computer reboot|lock|…` — Named builtins and matching CLI verbs
+- MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).
 
 ## Builtins
 

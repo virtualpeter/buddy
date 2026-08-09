@@ -3,11 +3,13 @@
 
 Jamf Pro API roles — list, get, create, put, and privilege catalog. Used when bootstrapping least-privilege API clients (`buddy setup` flows).
 
-## Overview
+## Surfaces
 
-- **List / load:** `roles(...)` / `role(id=…)`.
-- **Create / update:** `role_create` / `role_put` (and privilege helpers listed in builtins).
-- **Setup:** `buddy setup write-script` → `setup_buddy_role.buddy` creates a role + client idempotently; privileges can be trimmed afterward.
+| Do this | BuddyScript | CLI | Notes |
+|---------|-------------|-----|-------|
+| List / load | `roles(...)` / `role(id=…)` | `buddy role list` / `get` |  |
+| Create / update | `role_create` / `role_put` | `buddy role create` / `update` | Privilege helpers in builtins |
+| Bootstrap | — | `buddy setup write-script` → `setup_buddy_role.buddy` | Idempotent role + client; trim privileges after |
 
 ## Example
 

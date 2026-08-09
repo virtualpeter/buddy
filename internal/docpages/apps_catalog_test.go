@@ -49,6 +49,13 @@ func TestGeneratedResourcesHumanVsAgentTone(t *testing.T) {
 		if strings.Contains(h.Markdown, `"$schema"`) {
 			t.Errorf("%s: human page should not include JSON Schema", id)
 		}
+		if strings.Contains(h.Markdown, "## Overview\n") {
+			t.Errorf("%s: human page still has Overview bullets section", id)
+		}
+		// Action cookbooks should use Surfaces table, not **List:** bullet blobs.
+		if strings.Contains(h.Markdown, "- **List:") || strings.Contains(h.Markdown, "- **Load:") {
+			t.Errorf("%s: human page still uses bold-label Overview bullets", id)
+		}
 	}
 }
 

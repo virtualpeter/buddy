@@ -22,11 +22,14 @@ var PoliciesTopic = docspec.Topic{
 		`classic`,
 	},
 	Summary: `List, load, mutate, copy, and migrate Jamf Classic policies with buddy.`,
-	Concepts: []string{
-		"**List / find:** `policies(keywords=…)` or `policies(ids=True)` — summary dicts `{id, name, …}`.",
-		"**Load one:** `policy(id=…)` **or** `policy(trigger=…)` (not both) — full Classic XML as a dict tree (or use `policy_xml(id=…)` for the raw string).",
-		"**Mutate:** fat helpers (`policy_set`, `policy_set_ss`, `policy_set_package`, `policy_set_scope_*`, …) cover common field edits; `policy_put_xml` writes raw Classic XML.",
-		"**Versioned release bumps:** [change batches](/docs/docs/change-batches) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / find", BuddyScript: "`policies(keywords=…)` / `policies(ids=True)`", CLI: "`buddy policy list`", Notes: "Summary dicts `{id, name, …}`"},
+		{Action: "Load", BuddyScript: "`policy(id=…)` / `policy(trigger=…)` / `policy_xml(id=…)`", CLI: "`buddy policy get`", Notes: "Full Classic XML as dict or string"},
+		{Action: "Mutate", BuddyScript: "`policy_set*` / `policy_put_xml`", CLI: "`buddy policy set`", Notes: "Multi-step helpers for common fields; raw XML when needed"},
+		{Action: "Copy / migrate", BuddyScript: "`policy_copy` / `policy_migrate`", Notes: "Cross-session; remap by name"},
+	},
+	Notes: []string{
+		"Versioned release bumps use [change batches](/docs/docs/change-batches) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.",
 	},
 	AgentNotes: []string{
 		"Do not invent Classic policy PUT/POST bodies from `jamf_schema` or Jamf MCP `execute-request` when a named builtin exists.",

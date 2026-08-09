@@ -26,10 +26,10 @@ Pro v3 static computer groups — membership is an explicit list of **computer I
 
 ## Facts
 
-- **List groups:** `static_groups(search=…)`.
-- **List members:** `static_group_list_computers(group_id, filter?)` → `[{id, name, serial}, …]` (`name` may be empty when the API returns only assignment IDs).
-- **Mutate membership:** `static_group_add_computers` / `static_group_remove_computers` / `static_group_set_computers` (read-modify-write; add/remove are no-ops when already satisfied).
-- **Create:** `static_group_create(body)` — `name` required; `assignments` optional list of computer id strings.
+- List groups: `static_groups(search=…)` · `buddy group list static`
+- List members: `static_group_list_computers(group_id, filter?)` · `buddy group static members` — `[{id, name, serial}, …]`; name may be empty
+- Mutate membership: `static_group_add_computers` / `remove` / `set` · `buddy group static add|remove` — Read-modify-write; add/remove no-op when already satisfied; no CLI set-all
+- Create: `static_group_create(body)` · `buddy group create static` — `name` required; `assignments` optional
 
 ## Builtins
 

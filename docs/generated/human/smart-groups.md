@@ -3,13 +3,15 @@
 
 Pro v3 smart computer groups — dynamic membership via **criteria**. Distinct from static computer groups (`static_group*`) and Platform device groups (`device_group*`).
 
-## Overview
+## Surfaces
 
-- **List:** `smart_groups(search=…)` — summary list.
-- **Load:** `smart_group(id=…)` **or** `smart_group(name=…)` (not both) — full JSON document.
-- **Criteria:** `smart_group_get_criteria(group_id)` → list of criterion dicts; `smart_group_set_criteria` / `smart_group_find_criteria` / `smart_group_update_criterion_value` for targeted edits.
-- **Create / replace:** `smart_group_create(body)` / `smart_group_put(group_id, body)`.
-- **Copy / migrate:** `smart_group_copy` / `smart_group_migrate` (upsert by exact name); clears `siteId` unless `site_id` set.
+| Do this | BuddyScript | CLI | Notes |
+|---------|-------------|-----|-------|
+| List | `smart_groups(search=…)` | `buddy group list smart` | Summary list |
+| Load | `smart_group(id=…)` / `smart_group(name=…)` | `buddy group get` | Full JSON; pass id or name, not both |
+| Criteria | `smart_group_get_criteria` / `smart_group_set_criteria` / … | `buddy group get\|set version` | CLI covers version criterion; other criteria via builtins |
+| Create / replace | `smart_group_create` / `smart_group_put` | `buddy group create smart` | Full body PUT; create from JSON file supported |
+| Copy / migrate | `smart_group_copy` / `smart_group_migrate` | — | Upsert by exact name; clears siteId unless set |
 
 ## Example
 

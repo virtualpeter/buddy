@@ -3,15 +3,17 @@
 
 Edit Jamf macOS configuration profile payloads with buddy (PayloadContent and MCX).
 
-## Overview
+## Surfaces
 
-- `profile_xml(id=…)` — full Classic XML (preserves outer UUID).
-- Optional inspect: `profile_xml_extract_payloads` → `payloads_list_identifiers` (PayloadContent) or `payloads_get_mcx_dict` (MCX).
-- `profile_xml_patch_payload(xml, domain, new_payload)` — offline patch (**merge** for PayloadContent).
-- `profile_put_xml(profile_id, xml_str)` — write back (ACS quirks inside).
-- **Clone / copy:** `profile_clone` (same tenant) or `profile_copy` (`tenant`/`auth` = source; `to_tenant`/`to_auth` = destination) — randomizes general + PayloadUUID values and sets unassigned scope by default.
-- **Offline create prep:** `profile_xml_prepare_for_create` → `profile_create_xml`.
-- **Greenfield:** `profile_create` with `payloads_set_content` / `content`.
+| Do this | BuddyScript | CLI | Notes |
+|---------|-------------|-----|-------|
+| Load XML | `profile_xml(id=…)` | `buddy profile get xml` | Preserves outer UUID |
+| Inspect | `profile_xml_extract_payloads` → `payloads_list_identifiers` / `payloads_get_mcx_dict` | `buddy profile get list-payloads` / `get payload` | PayloadContent vs MCX; CLI is PayloadContent only |
+| Patch | `profile_xml_patch_payload(xml, domain, new_payload)` | `buddy profile set payload` | Offline merge for PayloadContent |
+| Write back | `profile_put_xml(profile_id, xml_str)` | `buddy profile set xml` | ACS quirks handled inside |
+| Clone / copy | `profile_clone` / `profile_copy` | `buddy profile clone` | Randomizes UUIDs; unassigned scope; copy/migrate is BuddyScript-only |
+| Create prep | `profile_xml_prepare_for_create` → `profile_create_xml` | — | Offline then POST |
+| Greenfield | `profile_create` + `payloads_set_content` | — |  |
 
 ## Examples
 

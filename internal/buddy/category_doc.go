@@ -19,10 +19,12 @@ var CategoriesTopic = docspec.Topic{
 		`category_migrate`,
 	},
 	Summary: `Jamf Pro categories. Used heavily when copying scripts/policies across tenants.`,
-	Concepts: []string{
-		"**List / load:** `categories(...)` / `category(id=…)` or by name where supported.",
-		"**Copy / migrate:** `category_copy(..., upsert=True)` / `category_migrate` — Pro `{name, priority}` body; upsert by exact name.",
-		"**Migrate order:** categories → [scripts](/docs/docs/scripts) → [policies](/docs/docs/policies) / [profiles](/docs/docs/profiles). Missing categories on policy copy become **uncategorized**.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / load", BuddyScript: "`categories(...)` / `category(id=…)`", CLI: "`buddy category list` / `get`", Notes: "Or by name where supported"},
+		{Action: "Copy / migrate", BuddyScript: "`category_copy` / `category_migrate`", Notes: "Pro `{name, priority}`; upsert by exact name"},
+	},
+	Notes: []string{
+		"Typical migrate order: categories → [scripts](/docs/docs/scripts) → [policies](/docs/docs/policies) / [profiles](/docs/docs/profiles). Missing categories on policy copy become **uncategorized**.",
 	},
 	AgentNotes: []string{
 		"Create/copy categories before migrating policies that should keep category assignment.",

@@ -21,11 +21,14 @@ var MacappsTopic = docspec.Topic{
 		`app store`,
 	},
 	Summary: "Jamf **Mac App Store Apps** objects live on Classic `/JSSResource/macapplications`. There is no Pro JSON catalog CRUD for the same resource. Classic privileges on an instance-surface auth are required.\n\nBare `buddy app` / `apps(...)` manage **policy apps** (Self Service + packages) — see [Policy apps](/docs/docs/apps). Those names are a different resource family from Mac App Store records.",
-	Concepts: []string{
-		"**List:** `macapps(filter?)` or `buddy macapp list [--filter=…]` — client-side substring on name / version / bundle_id (Classic list has no RSQL).",
-		"**Load:** `macapp(id=…)` or `macapp(name=…)` / `buddy macapp get <macapp-id>`.",
-		"**Create:** `macapp_create(name, version, bundle_id, url, free?=False, category?)` or CLI `buddy macapp create --name= --version= --bundle-id= --url= [--free] [--category=<name>]`.",
-		"**Delete:** `macapp_delete(macapp_id)` / `buddy macapp delete <macapp-id> […]`.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List", BuddyScript: "`macapps(filter?)`", CLI: "`buddy macapp list`", Notes: "Client-side substring; Classic list has no RSQL"},
+		{Action: "Load", BuddyScript: "`macapp(id=…)` / `macapp(name=…)`", CLI: "`buddy macapp get`", Notes: "Full Classic record"},
+		{Action: "Create", BuddyScript: "`macapp_create(...)`", CLI: "`buddy macapp create`", Notes: "Requires name, version, bundle_id, url"},
+		{Action: "Delete", BuddyScript: "`macapp_delete(macapp_id)`", CLI: "`buddy macapp delete`", Notes: ""},
+	},
+	Notes: []string{
+		"Classic `/JSSResource/macapplications` only — no Pro JSON catalog CRUD. Instance-surface auth with Classic privileges is required.",
 	},
 	AgentNotes: []string{
 		"Do not invent Pro “Mac App Store” or “Jamf Apps” list/create paths — they are not exposed for this object.",

@@ -23,10 +23,11 @@ Jamf Pro scripts — list summaries vs full body, create/update, and copy/migrat
 
 ## Facts
 
-- **List:** `scripts(filter=…)` → summaries `{id, name, categoryId, categoryName}` only. Bare term → `name=="*term*"` (server); bodies are stripped even if Jamf list JSON includes `scriptContents`.
-- **Full record / body:** `script(id=…)` or `script_get_contents(script_id=…)`.
-- **Create / update:** `script_put` (full dict) / `script_update` (from file) — see builtins.
-- **Copy / migrate:** `script_copy` / `script_migrate` (`upsert=True`); category remapped via destination name resolution.
+- List: `scripts(filter?)` · `buddy script list` — Summaries `{id, name, categoryId, categoryName}` only; bodies stripped
+- Load: `script(id=…)` / `script_get_contents(script_id=…)` · `buddy script get` / `get contents` — Full record / body
+- Create / update: `script_put` / `script_update` · `buddy script create` / `upload` — Full dict or from file
+- Copy / migrate: `script_copy` / `script_migrate` — Upsert by name; category remapped on destination
+- Bare `filter` terms become `name=="*term*"` on the server. List JSON never yields usable `scriptContents` — load with `script(id=…)`.
 
 ## Builtins
 

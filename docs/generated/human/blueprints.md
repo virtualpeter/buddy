@@ -3,12 +3,17 @@
 
 Platform API Gateway blueprints — CRUD, deploy/undeploy/status, components. Requires a **platform-capable** tenant + auth (`region`/`url` + `tenantId`).
 
-## Overview
+## Surfaces
 
-- **List / load:** `blueprints(search=…)` / `blueprint(id=…)`.
-- **Create / patch:** `blueprint_create(body)` / `blueprint_set(blueprint_id, body)` — `blueprint_set` is a merge-patch.
-- **Lifecycle:** deploy / undeploy / status helpers listed in builtins (`blueprint_deploy`, …).
-- CLI: `buddy blueprint …`.
+| Do this | BuddyScript | CLI | Notes |
+|---------|-------------|-----|-------|
+| List / load | `blueprints(search=…)` / `blueprint(id=…)` | `buddy blueprint list` / `get` |  |
+| Create / patch | `blueprint_create(body)` / `blueprint_set(id, body)` | `buddy blueprint create` / `set` | `blueprint_set` is merge-patch |
+| Lifecycle | `blueprint_deploy` / undeploy / status … | `buddy blueprint deploy\|undeploy\|status` | See builtins catalog |
+
+## Notes
+
+Requires a **platform-capable** tenant + auth (`region`/`url` + `tenantId`).
 
 ## Example
 

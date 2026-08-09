@@ -37,12 +37,15 @@ var AppsTopic = docspec.Topic{
 			Upgrade: "Keep old cache; new cache + replace install; optional SS description bump",
 		},
 	},
-	Concepts: []string{
-		"Discovery starts from policies whose **name contains `[SS]`**.",
-		"`buddy app list` / `apps()` — one hybrid policy list call (undocumented Pro `GET /api/v1/policies` when available, else Classic `{id,name}`), then **name-only** heuristics for kind/version/trigger. Rows need an `Install…[SS]` name and/or install/cache sibling policies for the app slug (inventory/config `[SS]` stubs are omitted). App slugs treat hyphens and spaces as equivalent (`claude-cli` ↔ `Claude CLI`). When v1 `triggerManual` is present, install siblings with a custom trigger are preferred (Self Service / single rows usually have none). Approximate; `app get` is authoritative.",
-		"`buddy app get` / `app()` — authoritative Classic XML classify (Self Service flag, scripts, packages, triggers). Excludes non-apps (no package and no install-like script / inferred install trigger).",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List", BuddyScript: "`apps(filter?)`", CLI: "`buddy app list`", Notes: "Hybrid policy list + name heuristics; approximate"},
+		{Action: "Get", BuddyScript: "`app(name=…)`", CLI: "`buddy app get`", Notes: "Authoritative Classic XML classify"},
+		{Action: "Upgrade", BuddyScript: "`app_upgrade(name, version, …)`", CLI: "`buddy app upgrade`", Notes: "Dispatches by kind after package READY"},
+	},
+	Notes: []string{
+		"Discovery starts from policies whose **name contains `[SS]`**. List keeps Install…[SS] and/or install/cache siblings; inventory/config `[SS]` stubs are omitted. App slugs treat hyphens and spaces as equivalent (`claude-cli` ↔ `Claude CLI`). When v1 `triggerManual` is present, install siblings with a custom trigger are preferred.",
 		"Jamf does **not** publish a Pro policy CRUD API; RSQL on `/api/v1/policies` cannot filter by Self Service (only `id`, `name`, `enabled`, `categoryId`, `executionFrequency`, `triggerCheckin`, `triggerManual`).",
-		"Greenfield setup (prefs + PPPC + cache + install + optional SS) remains `setup_app_classic` in `stdlib/app_setup.buddy` / change batches — not `app create`.",
+		"Greenfield setup remains `setup_app_classic` in `stdlib/app_setup.buddy` / change batches — there is no `app create`.",
 	},
 	AgentNotes: []string{
 		"List is approximate; call `app(name=…)` / `buddy app get` before mutate or upgrade.",

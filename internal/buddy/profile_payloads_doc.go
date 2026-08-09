@@ -22,14 +22,14 @@ var ProfilePayloadsTopic = docspec.Topic{
 		`plist`,
 	},
 	Summary: `Edit Jamf macOS configuration profile payloads with buddy (PayloadContent and MCX).`,
-	Concepts: []string{
-		"`profile_xml(id=…)` — full Classic XML (preserves outer UUID).",
-		"Optional inspect: `profile_xml_extract_payloads` → `payloads_list_identifiers` (PayloadContent) or `payloads_get_mcx_dict` (MCX).",
-		"`profile_xml_patch_payload(xml, domain, new_payload)` — offline patch (**merge** for PayloadContent).",
-		"`profile_put_xml(profile_id, xml_str)` — write back (ACS quirks inside).",
-		"**Clone / copy:** `profile_clone` (same tenant) or `profile_copy` (`tenant`/`auth` = source; `to_tenant`/`to_auth` = destination) — randomizes general + PayloadUUID values and sets unassigned scope by default.",
-		"**Offline create prep:** `profile_xml_prepare_for_create` → `profile_create_xml`.",
-		"**Greenfield:** `profile_create` with `payloads_set_content` / `content`.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "Load XML", BuddyScript: "`profile_xml(id=…)`", CLI: "`buddy profile get xml`", Notes: "Preserves outer UUID"},
+		{Action: "Inspect", BuddyScript: "`profile_xml_extract_payloads` → `payloads_list_identifiers` / `payloads_get_mcx_dict`", CLI: "`buddy profile get list-payloads` / `get payload`", Notes: "PayloadContent vs MCX; CLI is PayloadContent only"},
+		{Action: "Patch", BuddyScript: "`profile_xml_patch_payload(xml, domain, new_payload)`", CLI: "`buddy profile set payload`", Notes: "Offline merge for PayloadContent"},
+		{Action: "Write back", BuddyScript: "`profile_put_xml(profile_id, xml_str)`", CLI: "`buddy profile set xml`", Notes: "ACS quirks handled inside"},
+		{Action: "Clone / copy", BuddyScript: "`profile_clone` / `profile_copy`", CLI: "`buddy profile clone`", Notes: "Randomizes UUIDs; unassigned scope; copy/migrate is BuddyScript-only"},
+		{Action: "Create prep", BuddyScript: "`profile_xml_prepare_for_create` → `profile_create_xml`", Notes: "Offline then POST"},
+		{Action: "Greenfield", BuddyScript: "`profile_create` + `payloads_set_content`", Notes: ""},
 	},
 	AgentNotes: []string{
 		"Prefer named builtins via buddyscript; do not invent Classic/Pro PUTs from jamf_schema alone.",

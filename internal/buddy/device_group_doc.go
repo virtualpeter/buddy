@@ -20,10 +20,12 @@ var DeviceGroupsTopic = docspec.Topic{
 		`membership`,
 	},
 	Summary: `Platform API Gateway device groups and membership. **Not** Pro [smart](/docs/docs/smart-groups) or [static](/docs/docs/static-groups) computer groups.`,
-	Concepts: []string{
-		"**List / load:** `device_groups(...)` / `device_group(id=…)`.",
-		"**Membership / mutate:** `device_group*` helpers in the builtins catalog.",
-		"CLI: `buddy device-group …`.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / load", BuddyScript: "`device_groups(...)` / `device_group(id=…)`", CLI: "`buddy device-group list` / `get`", Notes: ""},
+		{Action: "Membership", BuddyScript: "`device_group*` helpers", CLI: "`buddy device-group members` / `set-members`", Notes: "See builtins catalog"},
+	},
+	Notes: []string{
+		"Not Pro [smart](/docs/docs/smart-groups) or [static](/docs/docs/static-groups) computer groups.",
 	},
 	AgentNotes: []string{
 		"Do not use `smart_group*` / `static_group*` for Platform device groups (or the reverse).",

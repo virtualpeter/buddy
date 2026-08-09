@@ -23,8 +23,8 @@ Platform compliance benchmarks (beta) — baselines, catalog rules, reports. Req
 
 ## Facts
 
-- **List / load / mutate:** `benchmark*` builtins (CRUD-ish, baselines, reports — see catalog).
-- CLI: `buddy benchmark …`.
+- List / load / mutate: `benchmark*` builtins · `buddy benchmark …` — Baselines, catalog rules, reports
+- Platform compliance benchmarks (beta). Requires platform-capable tenant + auth.
 
 ## Builtins
 

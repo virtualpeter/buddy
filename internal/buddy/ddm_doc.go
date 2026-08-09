@@ -19,9 +19,11 @@ var DDMTopic = docspec.Topic{
 		`declarative`,
 	},
 	Summary: `Platform Declarative Device Management (DDM) **declaration reporting** — read-oriented devices / declarations / channels. Requires platform-capable tenant + auth.`,
-	Concepts: []string{
-		"Use `ddm_*` builtins (see catalog) for report queries.",
-		"CLI: `buddy ddm …`.",
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "Report", BuddyScript: "`ddm_*` builtins", CLI: "`buddy ddm declaration|device …`", Notes: "Devices / declarations / channels"},
+	},
+	Notes: []string{
+		"Read-oriented Platform DDM declaration reporting. Requires platform-capable tenant + auth.",
 	},
 	AgentNotes: []string{
 		"Do not treat DDM reporting as a substitute for blueprint deploy or configuration profile push.",

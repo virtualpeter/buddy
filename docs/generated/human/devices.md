@@ -3,11 +3,16 @@
 
 Platform API Gateway device inventory and **actions** (check-in, restart, erase, …). This is **not** Pro [computers](/docs/docs/computers) — different IDs, gateway, and builtins (`device*` vs `computer*`).
 
-## Overview
+## Surfaces
 
-- **List / load:** `devices(...)` / `device(id=…)`.
-- **Actions:** named `device_*` action builtins (see builtins catalog).
-- CLI: `buddy device …`.
+| Do this | BuddyScript | CLI | Notes |
+|---------|-------------|-----|-------|
+| List / load | `devices(...)` / `device(id=…)` | `buddy device list` / `get` |  |
+| Actions | `device_*` action builtins | `buddy device check-in\|restart\|erase\|…` | Check-in, restart, erase, … |
+
+## Notes
+
+Platform gateway inventory — not Pro [computers](/docs/docs/computers) (`device*` vs `computer*`).
 
 ## Example
 

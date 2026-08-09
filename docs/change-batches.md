@@ -90,12 +90,13 @@ Self Service already calls install-app-next.""",
     run_change(change = change, steps = steps, planned = planned)
 ```
 
-Runnable sample: [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy).
+Runnable starter (edit the SETUP block): [`examples/demochange.buddy`](../examples/demochange.buddy).
+Santa-shaped variant: [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy).
 
 ```sh
-buddy examples/change-batch-santa.buddy              # plan only
-buddy examples/change-batch-santa.buddy -- apply     # apply (prompts)
-buddy -y examples/change-batch-santa.buddy -- apply  # apply, skip confirms
+buddy examples/demochange.buddy              # plan only
+buddy examples/demochange.buddy -- apply     # apply (prompts)
+buddy -y examples/demochange.buddy -- apply  # apply, skip confirms
 ```
 
 ---
@@ -193,7 +194,7 @@ On success, markdown continues with **## Outcomes**, for example:
 
 | Kind | Typical steps | Example |
 |------|---------------|---------|
-| **Version bump** | `step_set_package` / `step_clone_policy` against existing cache/install triggers | [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy) |
+| **Version bump** | `step_set_package` / `step_clone_policy` against existing cache/install triggers | [`examples/demochange.buddy`](../examples/demochange.buddy), [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy) |
 | **New app (Classic)** | Separate prefs + PPPC `step_create_profile`, then `step_create_package_policy` (cache + install), optional `step_create_ss` | [`examples/setup-app-classic.buddy`](../examples/setup-app-classic.buddy) |
 
 ### New app setup (Classic)
@@ -236,7 +237,8 @@ Prefs: `prefs_payload(domain, settings)` for a simple preference-domain payload,
 
 ## Related
 
-- Version-bump example: [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy)
+- Starter (edit SETUP): [`examples/demochange.buddy`](../examples/demochange.buddy)
+- Version-bump (Santa-shaped): [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy)
 - New-app example: [`examples/setup-app-classic.buddy`](../examples/setup-app-classic.buddy)
 - Examples index: [`examples/README.md`](../examples/README.md)
 - Builtins reference: `buddy help builtins`

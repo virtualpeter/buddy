@@ -25,9 +25,9 @@ Platform API Gateway device inventory and **actions** (check-in, restart, erase,
 
 ## Facts
 
-- **List / load:** `devices(...)` / `device(id=…)`.
-- **Actions:** named `device_*` action builtins (see builtins catalog).
-- CLI: `buddy device …`.
+- List / load: `devices(...)` / `device(id=…)` · `buddy device list` / `get`
+- Actions: `device_*` action builtins · `buddy device check-in|restart|erase|…` — Check-in, restart, erase, …
+- Platform gateway inventory — not Pro [computers](/docs/docs/computers) (`device*` vs `computer*`).
 
 ## Builtins
 

@@ -22,8 +22,8 @@ Platform Declarative Device Management (DDM) **declaration reporting** — read-
 
 ## Facts
 
-- Use `ddm_*` builtins (see catalog) for report queries.
-- CLI: `buddy ddm …`.
+- Report: `ddm_*` builtins · `buddy ddm declaration|device …` — Devices / declarations / channels
+- Read-oriented Platform DDM declaration reporting. Requires platform-capable tenant + auth.
 
 ## Builtins
 

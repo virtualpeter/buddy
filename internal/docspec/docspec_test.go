@@ -28,11 +28,14 @@ func TestRenderHumanVsAgent(t *testing.T) {
 		if len(topic.Builtins) > 0 && !strings.Contains(a, "```json") {
 			t.Errorf("%s: agent render missing JSON Schema fence", topic.ID)
 		}
-		if strings.Contains(h, "## Happy path") {
-			t.Errorf("%s: human render still uses Happy path", topic.ID)
+		if strings.Contains(h, "## Happy path") || strings.Contains(h, "## Overview") {
+			t.Errorf("%s: human render still uses Happy path/Overview", topic.ID)
 		}
-		if !strings.Contains(h, "## Overview") && !strings.Contains(h, "## Patterns") {
-			t.Errorf("%s: human render missing Overview or Patterns", topic.ID)
+		if !strings.Contains(h, "## Surfaces") && !strings.Contains(h, "## Patterns") {
+			t.Errorf("%s: human render missing Surfaces or Patterns", topic.ID)
+		}
+		if strings.Contains(h, "## Surfaces") && !strings.Contains(h, "| Do this | BuddyScript | CLI | Notes |") {
+			t.Errorf("%s: Surfaces section missing split BuddyScript/CLI table header", topic.ID)
 		}
 	}
 }
