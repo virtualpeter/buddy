@@ -13,10 +13,15 @@ const AppsBuiltinsSection = `POLICY APPS (Self Service + packages)
   app(name, tenant?, surface?, auth?) → value: dict (summary + linked install/cache policies)
       Params: name: str (app identifier, e.g. santa, vscode).
       Notes: Classic XML classify (excludes inventory-only SS stubs).
+  app_reconcile(desired, apply?=False, tenant?, surface?, auth?)
+      → value: dict {markdown, fingerprints} (plan) or None (after apply)
+      Params: desired: dict (name, version required; kind?, install_trigger?, cache_trigger?,
+             package_pattern?, title?, summary?, risk?, window?); apply?: bool.
+      Notes: Diffs live AppGet vs desired; invents change-batch steps (or noop note).
+             Package must already be READY. No greenfield create in v1.
   app_upgrade(name, version, package_pattern?, tenant?, surface?, auth?) → None
       Params: name: str; version: str; package_pattern?: str (package name glob).
-      Notes: Dispatches by kind — single in-place package+SS description; install PolicyPackage
-             with disable-source; cache keep prior cache + replace install-next.
+      Notes: One-shot imperative by kind. Prefer import + app_reconcile for CAB bumps.
 `
 
 // AppsCLIHelp is the text for buddy help / CLI.
@@ -28,11 +33,15 @@ Usage:
 Subcommands:
   list [--filter=<keyword>]                              Discover policy apps from Self Service policies
   get <name>                                             Show one policy app (kind, linked policies, package)
+  import <name> [--output=<path>|-o <path>]               Write desired-state .buddy from get
   upgrade <name> --version=<version> [--package-pattern=…]
-                                                         Bump app to a new package version by kind
+                                                         One-shot bump by kind (prefer import + reconcile)
 
 Flags for 'list':
   --filter=<keyword>   Client-side substring on name, kind, version, trigger, or package
+
+Flags for 'import':
+  -o, --output=<path>  Output .buddy path (default apps/<slug>.buddy)
 
 Flags for 'upgrade':
   --version=<version>           Target version (required)
@@ -47,12 +56,16 @@ Notes:
     install — SS script calls install-{app} / install-{app}-next / {app}-install
     cache   — install pattern plus versioned cache-{app}-{version} policies
   Non-app Self Service (e.g. inventory-only) is excluded on get.
-  Upgrade composes existing policy package / Self Service helpers (same as change batches).
+  Import emits a script that calls app_reconcile (plan by default; -- apply to write).
+  Upgrade is imperative (same helpers as change batches). Prefer import for durable bumps.
   Classic Mac App Store records use 'buddy macapp', not this command.
 
 Examples:
   buddy app list
   buddy app list --filter=santa
   buddy app get santa
+  buddy app import santa -o apps/santa.buddy
+  buddy apps/santa.buddy
+  buddy apps/santa.buddy -- apply
   buddy app upgrade santa --version=2026.3 --package-pattern='*santa*2026.3*'
 `

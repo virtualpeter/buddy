@@ -19,7 +19,9 @@ Classic **Mac App Store** records are separate — use [`macapp` / `macapps`](/d
 |---------|-------------|-----|-------|
 | List | `apps(filter?)` | `buddy app list` | Hybrid policy list + name heuristics; approximate |
 | Get | `app(name=…)` | `buddy app get` | Authoritative Classic XML classify |
-| Upgrade | `app_upgrade(name, version, …)` | `buddy app upgrade` | Dispatches by kind after package READY |
+| Import | — | `buddy app import <name> [-o path]` | Emit desired-state `.buddy` from get |
+| Reconcile | `app_reconcile(desired, apply?)` | run the imported script | Diff live vs desired → change-batch plan / apply |
+| Upgrade | `app_upgrade(name, version, …)` | `buddy app upgrade` | One-shot imperative bump by kind |
 
 ## Notes
 
@@ -27,7 +29,9 @@ Discovery starts from policies whose **name contains `[SS]`**. List keeps Instal
 
 Jamf does **not** publish a Pro policy CRUD API; RSQL on `/api/v1/policies` cannot filter by Self Service (only `id`, `name`, `enabled`, `categoryId`, `executionFrequency`, `triggerCheckin`, `triggerManual`).
 
-Greenfield setup remains `setup_app_classic` in `stdlib/app_setup.buddy` / change batches — there is no `app create`.
+Desired-state scripts declare name/kind/version/triggers/package_pattern. Edit `VERSION` then re-run to plan a bump. v1 does not greenfield-create a missing app — use `setup_app_classic` for that.
+
+Wait until the target package is READY (`package_wait_ready` / `package_ready`) before apply/upgrade.
 
 ## Examples
 
@@ -37,15 +41,17 @@ def main():
     if not rows:
         return None
     detail = app(name=rows[0]["name"])
-    # After the package is READY in Jamf:
-    # app_upgrade(name="santa", version="2026.3", package_pattern="*santa*2026.3*")
+    # Prefer: buddy app import santa -o apps/santa.buddy
+    # Then edit VERSION and run the script (app_reconcile).
     return detail
 ```
 
 ```sh
 buddy app list
 buddy app get santa
-buddy app upgrade santa --version=2026.3 --package-pattern='*santa*2026.3*'
+buddy app import santa -o apps/santa.buddy
+buddy apps/santa.buddy
+buddy apps/santa.buddy -- apply
 ```
 
 ## Related

@@ -22,6 +22,8 @@ Canonical signatures: `buddy help builtins` (sections **DECLARATIVE WORKFLOW** a
 
 Prefer **triggers** (`from_trigger=` / `--trigger=`) over app-name heuristics when naming a source policy.
 
+For a durable **per-app** config, prefer `buddy app import` → edit `VERSION` → `app_reconcile` (see [Policy apps](/docs/docs/apps) and [`examples/app-desired.buddy`](../examples/app-desired.buddy)). Hand-authored change batches remain best for multi-app CAB tickets.
+
 ---
 
 ## The approval loop
@@ -194,7 +196,7 @@ On success, markdown continues with **## Outcomes**, for example:
 
 | Kind | Typical steps | Example |
 |------|---------------|---------|
-| **Version bump** | `step_set_package` / `step_clone_policy` against existing cache/install triggers | [`examples/demochange.buddy`](../examples/demochange.buddy), [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy) |
+| **Version bump** | `step_set_package` / `step_clone_policy` against existing cache/install triggers | [`examples/demochange.buddy`](../examples/demochange.buddy), [`examples/change-batch-santa.buddy`](../examples/change-batch-santa.buddy), or `buddy app import` + [`examples/app-desired.buddy`](../examples/app-desired.buddy) |
 | **New app (Classic)** | Separate prefs + PPPC `step_create_profile`, then `step_create_package_policy` (cache + install), optional `step_create_ss` | [`examples/setup-app-classic.buddy`](../examples/setup-app-classic.buddy) |
 
 ### New app setup (Classic)

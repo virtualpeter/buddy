@@ -1,0 +1,41 @@
+#!/usr/bin/env buddy
+# Example desired-state app config (same shape as `buddy app import`).
+# Against a real tenant, prefer: buddy app import <name> -o apps/<name>.buddy
+#
+# Usage:
+#   buddy examples/app-desired.buddy              # plan (needs live app "app")
+#   buddy examples/app-desired.buddy -- apply
+#
+# Edit VERSION to plan a bump. Package must already be READY in Jamf.
+
+def main():
+    NAME             = "app"
+    KIND             = "cache"
+    VERSION          = "2.0"
+    INSTALL_TRIGGER  = "install-app-next"
+    CACHE_TRIGGER    = "cache-app-1.0"
+    PACKAGE_PATTERN  = "*app*2.0*"
+
+    TITLE   = "App 2.0 desired state"
+    SUMMARY = "Reconcile policy app \"app\" to version 2.0."
+    RISK    = "low"
+    WINDOW  = ""
+
+    desired = {
+        "name": NAME,
+        "kind": KIND,
+        "version": VERSION,
+        "install_trigger": INSTALL_TRIGGER,
+        "cache_trigger": CACHE_TRIGGER,
+        "package_pattern": PACKAGE_PATTERN,
+        "title": TITLE,
+        "summary": SUMMARY,
+        "risk": RISK,
+        "window": WINDOW,
+    }
+
+    apply = False
+    if len(args) > 0 and args[0] in ("apply", "run"):
+        apply = True
+
+    return app_reconcile(desired = desired, apply = apply)

@@ -31,6 +31,7 @@ const (
 	stepTypeCreateProfile       = "create_profile"
 	stepTypeCreateSS            = "create_ss"
 	stepTypeNote                = "note"
+	stepTypeUpgradeApp          = "upgrade_app"
 )
 
 // Step is a validated, typed workflow step descriptor.
@@ -150,6 +151,12 @@ func (s *Step) planLine() string {
 		return fmt.Sprintf("create_ss          %q  trigger=%s", s.DisplayName, s.Trigger)
 	case stepTypeNote:
 		return fmt.Sprintf("note               %s", s.Note)
+	case stepTypeUpgradeApp:
+		pat := s.PackagePattern
+		if pat == "" {
+			pat = "(default package search)"
+		}
+		return fmt.Sprintf("upgrade_app        %s -> %s  %s", s.Name, s.Version, pat)
 	case stepTypeSetProfilePayload:
 		redeployStr := ""
 		if s.Redeploy {
@@ -275,6 +282,18 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		if s.Note == "" {
 			return nil, fmt.Errorf("step_note requires note text")
 		}
+
+	case stepTypeUpgradeApp:
+		if s.Name, _, err = getStr("name"); err != nil {
+			return nil, err
+		}
+		if s.Version, _, err = getStr("version"); err != nil {
+			return nil, err
+		}
+		if s.Name == "" || s.Version == "" {
+			return nil, fmt.Errorf("step_upgrade_app requires name, version")
+		}
+		s.PackagePattern, _, _ = getStr("package_pattern")
 
 	case stepTypeSetPackage:
 		if s.Name, _, err = getStr("name"); err != nil {
@@ -791,6 +810,9 @@ func executeStep(credName string, s *Step, opts buddy.Opts, logger *slog.Logger)
 	switch s.Type {
 	case stepTypeNote:
 		return nil
+
+	case stepTypeUpgradeApp:
+		return buddy.AppUpgrade(credName, opts, s.Name, s.Version, s.PackagePattern, logger)
 
 	case stepTypeSetPackage:
 		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, logger)

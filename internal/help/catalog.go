@@ -180,6 +180,9 @@ planned = plan_change(change, steps)
 		return "planned = plan_change(change, steps)"
 	case "run_change":
 		return "run_change(change, steps, planned = planned)"
+	case "app_reconcile":
+		return `desired = {"name": "santa", "version": "2026.3", "kind": "cache"}
+app_reconcile(desired = desired)  # plan; apply = True to write`
 	default:
 		return name + "()"
 	}

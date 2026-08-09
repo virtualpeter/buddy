@@ -160,6 +160,16 @@ func formatChangeStepPlan(n int, rs resolvedStep) string {
 		fmt.Fprintf(&b, "%d. **Note:** %s\n", n, s.Note)
 		return b.String()
 	}
+	if s.Type == stepTypeUpgradeApp {
+		fmt.Fprintf(&b, "%d. **Upgrade app** %q to version %s (in-place Self Service package)\n", n, s.Name, s.Version)
+		if s.PackagePattern != "" {
+			fmt.Fprintf(&b, "   - Package pattern: `%s`\n", s.PackagePattern)
+		}
+		if s.Note != "" {
+			fmt.Fprintf(&b, "   - %s\n", s.Note)
+		}
+		return b.String()
+	}
 	if rs.pkgPlan != nil {
 		p := rs.pkgPlan
 		if p.IsModify {

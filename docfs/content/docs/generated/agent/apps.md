@@ -11,6 +11,9 @@ keywords:
   - policy apps
   - self service
   - app upgrade
+  - app import
+  - app_reconcile
+  - desired state
   - "install-next"
   - cache policy
 ---
@@ -24,8 +27,9 @@ Classic **Mac App Store** records are separate — use [`macapp` / `macapps`](/d
 ## Agent rules
 
 - List is approximate; call `app(name=…)` / `buddy app get` before mutate or upgrade.
-- Do not invent Classic PUTs for app upgrades — use `app_upgrade` (or policy package / Self Service helpers).
-- Wait until the target package is READY in Jamf (`package_wait_ready` / `package_ready`) before `app_upgrade`.
+- Prefer `buddy app import` → edit desired → `app_reconcile` for durable version bumps; `app_upgrade` is one-shot imperative.
+- Do not invent Classic PUTs for app upgrades — use `app_reconcile` / `app_upgrade` (or policy package / Self Service helpers).
+- Wait until the target package is READY in Jamf (`package_wait_ready` / `package_ready`) before reconcile apply or `app_upgrade`.
 - Prefer `docs/apps` then named builtins via `buddyscript`; Classic Mac App Store is `macapp` / `macapps`, not `app` / `apps`.
 - Platform-only auth cannot list apps (Pro `/api/v1/policies` via gateway returns 403); use an instance-surface auth.
 
@@ -33,10 +37,13 @@ Classic **Mac App Store** records are separate — use [`macapp` / `macapps`](/d
 
 - List: `apps(filter?)` · `buddy app list` — Hybrid policy list + name heuristics; approximate
 - Get: `app(name=…)` · `buddy app get` — Authoritative Classic XML classify
-- Upgrade: `app_upgrade(name, version, …)` · `buddy app upgrade` — Dispatches by kind after package READY
+- Import: `buddy app import <name> [-o path]` — Emit desired-state `.buddy` from get
+- Reconcile: `app_reconcile(desired, apply?)` · run the imported script — Diff live vs desired → change-batch plan / apply
+- Upgrade: `app_upgrade(name, version, …)` · `buddy app upgrade` — One-shot imperative bump by kind
 - Discovery starts from policies whose **name contains `[SS]`**. List keeps Install…[SS] and/or install/cache siblings; inventory/config `[SS]` stubs are omitted. App slugs treat hyphens and spaces as equivalent (`claude-cli` ↔ `Claude CLI`). When v1 `triggerManual` is present, install siblings with a custom trigger are preferred.
 - Jamf does **not** publish a Pro policy CRUD API; RSQL on `/api/v1/policies` cannot filter by Self Service (only `id`, `name`, `enabled`, `categoryId`, `executionFrequency`, `triggerCheckin`, `triggerManual`).
-- Greenfield setup remains `setup_app_classic` in `stdlib/app_setup.buddy` / change batches — there is no `app create`.
+- Desired-state scripts declare name/kind/version/triggers/package_pattern. Edit `VERSION` then re-run to plan a bump. v1 does not greenfield-create a missing app — use `setup_app_classic` for that.
+- Wait until the target package is READY (`package_wait_ready` / `package_ready`) before apply/upgrade.
 
 ## Kinds
 
@@ -182,7 +189,51 @@ Returns: None
 }
 ```
 
-- Dispatches by kind — single in-place package+SS description; install PolicyPackage with disable-source; cache keep prior cache + replace install-next.
+- One-shot imperative by kind. Prefer import + `app_reconcile` for change-record bumps.
+
+### app_reconcile
+
+`app_reconcile(desired, apply?=False)` — diff live AppGet vs desired dict; plan_change / optional run_change
+
+Returns: dict {markdown, fingerprints} on plan; None after apply
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "apply": {
+      "description": "When True, run_change after plan (default False)",
+      "type": "boolean"
+    },
+    "auth": {
+      "description": "Session override",
+      "type": "string"
+    },
+    "desired": {
+      "description": "name, version, kind?, install_trigger?, cache_trigger?, package_pattern?, title?, summary?, risk?, window?",
+      "type": "object"
+    },
+    "surface": {
+      "description": "Session override",
+      "type": "string"
+    },
+    "tenant": {
+      "description": "Session override",
+      "type": "string"
+    }
+  },
+  "required": [
+    "desired"
+  ],
+  "title": "app_reconcile",
+  "type": "object"
+}
+```
+
+- Invented steps mirror install/cache change batches; single uses in-place upgrade_app.
+- Fails if the app is missing (no greenfield create in v1).
 
 ## CLI
 
@@ -239,9 +290,40 @@ buddy [global-flags] app get <name>
 }
 ```
 
+### app import
+
+Write a desired-state .buddy script from app get
+
+```
+buddy [global-flags] app import <name> [--output=<path>|-o <path>]
+```
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "name": {
+      "description": "App identifier",
+      "type": "string"
+    },
+    "output": {
+      "description": "Output path (default apps/\u003cslug\u003e.buddy)",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "app import",
+  "type": "object"
+}
+```
+
 ### app upgrade
 
-Bump app to a new package version by kind
+Bump app to a new package version by kind (imperative)
 
 ```
 buddy [global-flags] app upgrade <name> --version=<version> [--package-pattern=…]
@@ -283,13 +365,15 @@ def main():
     if not rows:
         return None
     detail = app(name=rows[0]["name"])
-    # After the package is READY in Jamf:
-    # app_upgrade(name="santa", version="2026.3", package_pattern="*santa*2026.3*")
+    # Prefer: buddy app import santa -o apps/santa.buddy
+    # Then edit VERSION and run the script (app_reconcile).
     return detail
 ```
 
 ```sh
 buddy app list
 buddy app get santa
-buddy app upgrade santa --version=2026.3 --package-pattern='*santa*2026.3*'
+buddy app import santa -o apps/santa.buddy
+buddy apps/santa.buddy
+buddy apps/santa.buddy -- apply
 ```

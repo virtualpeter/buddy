@@ -1005,8 +1005,22 @@ func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 			return fmt.Errorf("--version is required; run 'buddy app help' for usage")
 		}
 		return buddy.AppUpgrade(credName, opts, name, version, packagePattern, log)
+	case "import":
+		if len(args) < 1 {
+			return fmt.Errorf("missing app name; run 'buddy app help' for usage")
+		}
+		name := args[0]
+		var output string
+		fs := flag.NewFlagSet("app import", flag.ContinueOnError)
+		fs.StringVar(&output, "output", "", "output .buddy path (default apps/<slug>.buddy)")
+		fs.StringVar(&output, "o", "", "shorthand for --output")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		_, err := buddy.AppImport(credName, name, output, log)
+		return err
 	default:
-		return errUnknownSubcommand("app", subcommand, []string{"list", "get", "upgrade"})
+		return errUnknownSubcommand("app", subcommand, []string{"list", "get", "upgrade", "import"})
 	}
 }
 

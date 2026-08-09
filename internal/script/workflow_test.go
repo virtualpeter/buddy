@@ -144,6 +144,17 @@ func TestStepFromStarlark_SetPackage_MissingField(t *testing.T) {
 	}
 }
 
+func TestStepFromStarlark_UpgradeApp_Valid(t *testing.T) {
+	d := stepDict(stepTypeUpgradeApp, "name", "tool", "version", "1.1", "package_pattern", "*tool*1.1*")
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.Type != stepTypeUpgradeApp || s.Name != "tool" || s.Version != "1.1" || s.PackagePattern != "*tool*1.1*" {
+		t.Errorf("got %+v", s)
+	}
+}
+
 func TestStepFromStarlark_SetSS_Valid(t *testing.T) {
 	d := stepDict(stepTypeSetSS, "policy_id", 10, "version", "2.0")
 	s, err := stepFromStarlark(d)
