@@ -8,17 +8,17 @@ const AppsBuiltinsSection = `POLICY APPS (Self Service + packages)
   apps(filter?, tenant?, surface?, auth?)
       → value: list of summary dicts {name, kind, version, ss_policy_id, install_trigger, …}
       Params: filter?: str (client-side substring on name/kind/version/trigger/package).
-      Notes: Name-index from one hybrid policy list ([SS] in name); kind/version may be approximate.
-             Prefer app(name=…) for authoritative classify.
-  app(name, tenant?, surface?, auth?) → value: dict (summary + linked install/cache policies)
+      Notes: Imported apps only (apps/index.json). Empty until buddy app import.
+             Heuristic discovery is CLI: buddy app scan.
+  app(name, tenant?, surface?, auth?) → value: dict (summary + linked install/cache/uninstall policies)
       Params: name: str (app identifier, e.g. santa, vscode).
-      Notes: Classic XML classify (excludes inventory-only SS stubs).
+      Notes: Uses apps/index.json when present; else Classic XML classify.
   app_reconcile(desired, apply?=False, tenant?, surface?, auth?)
       → value: dict {markdown, fingerprints} (plan) or None (after apply)
       Params: desired: dict (name, version required; kind?, install_trigger?, cache_trigger?,
-             package_pattern?, title?, summary?, risk?, window?); apply?: bool.
+             uninstall_trigger?, package_pattern?, title?, summary?, risk?, window?); apply?: bool.
       Notes: Diffs live AppGet vs desired; invents change-batch steps (or noop note).
-             Package must already be READY. No greenfield create in v1.
+             Package must already be READY. No greenfield create in v1. Uninstall not mutated in v1.
   app_upgrade(name, version, package_pattern?, tenant?, surface?, auth?) → None
       Params: name: str; version: str; package_pattern?: str (package name glob).
       Notes: One-shot imperative by kind. Prefer import + app_reconcile for CAB bumps.
@@ -31,40 +31,48 @@ Usage:
   buddy [global-flags] app <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<keyword>]                              Discover policy apps from Self Service policies
-  get <name>                                             Show one policy app (kind, linked policies, package)
-  import <name> [--output=<path>|-o <path>]               Write desired-state .buddy from get
+  list [--filter=<keyword>]                              List imported apps (apps/index.json)
+  scan [--filter=<keyword>]                              Heuristic [SS] discovery (onboarding)
+  get <name>                                             Show one policy app (index or classify)
+  import [name] [--ss=<id>] [--install=…] [options]      Interview or flags → index + .buddy
+  cache <status|refresh>                                 Classic policy payload cache
   upgrade <name> --version=<version> [--package-pattern=…]
                                                          One-shot bump by kind (prefer import + reconcile)
 
-Flags for 'list':
+Flags for 'list' / 'scan':
   --filter=<keyword>   Client-side substring on name, kind, version, trigger, or package
 
 Flags for 'import':
-  -o, --output=<path>  Output .buddy path (default apps/<slug>.buddy)
+  -o, --output=<path>       Output .buddy path (default apps/<slug>.buddy)
+  --ss=<id>                 Self Service policy ID (non-interactive when set)
+  --install=<ids>           Comma-separated install policy IDs
+  --cache=<ids>             Comma-separated cache policy IDs
+  --uninstall=<ids>         Comma-separated uninstall policy IDs
+  --package-pattern=<glob>  Package name glob
+  --install-trigger=…       Install trigger
+  --cache-trigger=…         Cache trigger
+  --uninstall-trigger=…     Uninstall trigger
+  --kind=single|install|cache
+  --version=<version>       Current version
 
 Flags for 'upgrade':
   --version=<version>           Target version (required)
   --package-pattern=<glob>      Optional package name glob (e.g. *santa*2026.3*)
 
 Notes:
-  List is a fast name-index from one hybrid policy list (Pro /api/v1/policies when
-  available, else Classic); kind/version/trigger may be approximate. List keeps
-  Install…[SS] and/or rows with install/cache siblings; inventory [SS] stubs omitted.
-  Get classifies via Classic XML (authoritative). Discovery starts from names containing [SS]:
-    single  — Self Service policy has the Install package attached
-    install — SS script calls install-{app} / install-{app}-next / {app}-install
-    cache   — install pattern plus versioned cache-{app}-{version} policies
-  Non-app Self Service (e.g. inventory-only) is excluded on get.
-  Import emits a script that calls app_reconcile (plan by default; -- apply to write).
-  Upgrade is imperative (same helpers as change batches). Prefer import for durable bumps.
+  Onboarding: buddy app cache refresh → scan → import. Import writes apps/index.json
+  and apps/<slug>.buddy. List shows imported apps only; scan is heuristic only.
+  Policy cache (~/.config/buddy/policy-cache/) stores Classic XML; import prompts to
+  refresh when missing or older than 3 days. True Self Service uses use_for_self_service.
+  Uninstall policies are part of the imported set; reconcile v1 does not mutate them.
   Classic Mac App Store records use 'buddy macapp', not this command.
 
 Examples:
+  buddy app cache refresh
+  buddy app scan --filter=santa
+  buddy app import santa
   buddy app list
-  buddy app list --filter=santa
   buddy app get santa
-  buddy app import santa -o apps/santa.buddy
   buddy apps/santa.buddy
   buddy apps/santa.buddy -- apply
   buddy app upgrade santa --version=2026.3 --package-pattern='*santa*2026.3*'

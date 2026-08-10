@@ -1,9 +1,10 @@
 #!/usr/bin/env buddy
 # Example desired-state app config (same shape as `buddy app import`).
-# Against a real tenant, prefer: buddy app import <name> -o apps/<name>.buddy
+# Against a real tenant, prefer: buddy app cache refresh && buddy app import <name>
+# (writes apps/index.json + apps/<name>.buddy).
 #
 # Usage:
-#   buddy examples/app-desired.buddy              # plan (needs live app "app")
+#   buddy examples/app-desired.buddy              # plan (needs live/imported app "app")
 #   buddy examples/app-desired.buddy -- apply
 #
 # Edit VERSION to plan a bump. Package must already be READY in Jamf.
@@ -14,6 +15,7 @@ def main():
     VERSION          = "2.0"
     INSTALL_TRIGGER  = "install-app-next"
     CACHE_TRIGGER    = "cache-app-1.0"
+    UNINSTALL_TRIGGER = "uninstall-app"
     PACKAGE_PATTERN  = "*app*2.0*"
 
     TITLE   = "App 2.0 desired state"
@@ -27,6 +29,7 @@ def main():
         "version": VERSION,
         "install_trigger": INSTALL_TRIGGER,
         "cache_trigger": CACHE_TRIGGER,
+        "uninstall_trigger": UNINSTALL_TRIGGER,
         "package_pattern": PACKAGE_PATTERN,
         "title": TITLE,
         "summary": SUMMARY,

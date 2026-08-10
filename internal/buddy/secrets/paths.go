@@ -59,6 +59,15 @@ func TokensDir() (string, error) {
 	return filepath.Join(dir, "tokens"), nil
 }
 
+// PolicyCacheDir returns the root directory for on-disk Classic policy payload caches.
+func PolicyCacheDir() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "policy-cache"), nil
+}
+
 func secretFilePath(credName string) (string, error) {
 	dir, err := SecretsDir()
 	if err != nil {

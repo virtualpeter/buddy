@@ -964,6 +964,47 @@ func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		if err := fs.Parse(args); err != nil {
 			return err
 		}
+		apps, err := buddy.AppListImported(buddy.DefaultAppsDir(), filter)
+		if err != nil {
+			return err
+		}
+		if len(apps) == 0 {
+			fmt.Println("No imported apps (apps/index.json empty or missing).")
+			fmt.Println("Onboard with: buddy app cache refresh && buddy app scan && buddy app import <name>")
+			return nil
+		}
+		fmt.Printf("%-24s  %-8s  %-12s  %-8s  %-8s  %-8s  %-8s  %s\n",
+			"Name", "Kind", "Version", "SS", "Install", "Cache", "Uninst", "Trigger")
+		fmt.Printf("%-24s  %-8s  %-12s  %-8s  %-8s  %-8s  %-8s  %s\n",
+			"------------------------", "--------", "------------", "--------", "--------", "--------", "--------", "----------------")
+		idx, _ := buddy.LoadAppIndex(buddy.DefaultAppsDir())
+		for _, a := range apps {
+			inst, cache, uninst := a.InstallPolicyID, a.CachePolicyID, 0
+			if idx != nil {
+				if e, ok := idx.Apps[a.Name]; ok {
+					if len(e.UninstallPolicyIDs) > 0 {
+						uninst = e.UninstallPolicyIDs[0]
+					}
+					if len(e.InstallPolicyIDs) > 0 {
+						inst = e.InstallPolicyIDs[0]
+					}
+					if len(e.CachePolicyIDs) > 0 {
+						cache = e.CachePolicyIDs[0]
+					}
+				}
+			}
+			fmt.Printf("%-24s  %-8s  %-12s  %-8d  %-8d  %-8d  %-8d  %s\n",
+				truncatePad(a.Name, 24), truncatePad(string(a.Kind), 8), truncatePad(a.Version, 12),
+				a.SSPolicyID, inst, cache, uninst, a.InstallTrigger)
+		}
+		return nil
+	case "scan":
+		var filter string
+		fs := flag.NewFlagSet("app scan", flag.ContinueOnError)
+		fs.StringVar(&filter, "filter", "", "substring matched against name, kind, version, trigger, or package")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
 		apps, err := buddy.AppSearch(credName, filter, log)
 		if err != nil {
 			return err
@@ -975,6 +1016,7 @@ func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 				truncatePad(a.Name, 30), truncatePad(string(a.Kind), 8), truncatePad(a.Version, 12),
 				a.SSPolicyID, truncatePad(a.InstallTrigger, 24), a.PackageName)
 		}
+		fmt.Println("\nHeuristic scan only — import with: buddy app import <name>")
 		return nil
 	case "get":
 		if len(args) < 1 {
@@ -1007,21 +1049,72 @@ func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		}
 		return buddy.AppUpgrade(credName, opts, name, version, packagePattern, log)
 	case "import":
-		if len(args) < 1 {
-			return fmt.Errorf("missing app name; run 'buddy app help' for usage")
+		var name string
+		rest := args
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			name = rest[0]
+			rest = rest[1:]
 		}
-		name := args[0]
-		var output string
+		var output, installCSV, cacheCSV, uninstallCSV, packagePattern, installTrig, cacheTrig, uninstallTrig, kind, version string
+		var ssID int
 		fs := flag.NewFlagSet("app import", flag.ContinueOnError)
 		fs.StringVar(&output, "output", "", "output .buddy path (default apps/<slug>.buddy)")
 		fs.StringVar(&output, "o", "", "shorthand for --output")
-		if err := fs.Parse(args[1:]); err != nil {
+		fs.IntVar(&ssID, "ss", 0, "Self Service policy ID (non-interactive)")
+		fs.StringVar(&installCSV, "install", "", "comma-separated install policy IDs")
+		fs.StringVar(&cacheCSV, "cache", "", "comma-separated cache policy IDs")
+		fs.StringVar(&uninstallCSV, "uninstall", "", "comma-separated uninstall policy IDs")
+		fs.StringVar(&packagePattern, "package-pattern", "", "package name glob")
+		fs.StringVar(&installTrig, "install-trigger", "", "install trigger")
+		fs.StringVar(&cacheTrig, "cache-trigger", "", "cache trigger")
+		fs.StringVar(&uninstallTrig, "uninstall-trigger", "", "uninstall trigger")
+		fs.StringVar(&kind, "kind", "", "single|install|cache")
+		fs.StringVar(&version, "version", "", "current version")
+		if err := fs.Parse(rest); err != nil {
 			return err
 		}
-		_, err := buddy.AppImport(credName, name, output, log)
+		installIDs, err := buddy.ParseIntCSVList(installCSV)
+		if err != nil {
+			return err
+		}
+		cacheIDs, err := buddy.ParseIntCSVList(cacheCSV)
+		if err != nil {
+			return err
+		}
+		uninstallIDs, err := buddy.ParseIntCSVList(uninstallCSV)
+		if err != nil {
+			return err
+		}
+		_, err = buddy.AppImport(credName, opts, buddy.AppImportOpts{
+			Name:               name,
+			Output:             output,
+			SSPolicyID:         ssID,
+			InstallPolicyIDs:   installIDs,
+			CachePolicyIDs:     cacheIDs,
+			UninstallPolicyIDs: uninstallIDs,
+			PackagePattern:     packagePattern,
+			InstallTrigger:     installTrig,
+			CacheTrigger:       cacheTrig,
+			UninstallTrigger:   uninstallTrig,
+			Kind:               kind,
+			Version:            version,
+		}, log)
 		return err
+	case "cache":
+		if len(args) == 0 || args[0] == "help" {
+			fmt.Println("Usage: buddy [global-flags] app cache <status|refresh>")
+			return nil
+		}
+		switch args[0] {
+		case "status":
+			return buddy.PrintPolicyCacheStatus(credName)
+		case "refresh":
+			return buddy.PolicyCacheRefresh(credName, log)
+		default:
+			return errUnknownSubcommand("app cache", args[0], []string{"status", "refresh"})
+		}
 	default:
-		return errUnknownSubcommand("app", subcommand, []string{"list", "get", "upgrade", "import"})
+		return errUnknownSubcommand("app", subcommand, []string{"list", "scan", "get", "import", "cache", "upgrade"})
 	}
 }
 

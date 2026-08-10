@@ -12,36 +12,43 @@ keywords:
   - self service
   - app upgrade
   - app import
+  - app scan
+  - app cache
   - app_reconcile
   - desired state
   - "install-next"
   - cache policy
+  - uninstall
 ---
 
 # Policy apps
 
-**Policy apps** are not a Jamf object type. They are a convention: Self Service + packages, discovered and upgraded as one unit via `buddy app` / `apps(...)`.
+**Policy apps** are not a Jamf object type. They are a curated convention: Self Service + install/cache/uninstall policies, tracked in `apps/index.json` after an interactive import.
 
 Classic **Mac App Store** records are separate — use [`macapp` / `macapps`](/docs/docs/macapps).
 
 ## Agent rules
 
-- List is approximate; call `app(name=…)` / `buddy app get` before mutate or upgrade.
-- Prefer `buddy app import` → edit desired → `app_reconcile` for durable version bumps; `app_upgrade` is one-shot imperative.
+- `apps()` / `buddy app list` = imported registry. Use `buddy app scan` only when onboarding.
+- Prefer `buddy app import` (interview or `--ss=`/`--install=`/…) → edit desired → `app_reconcile`. Ensure policy cache is fresh.
 - Do not invent Classic PUTs for app upgrades — use `app_reconcile` / `app_upgrade` (or policy package / Self Service helpers).
 - Wait until the target package is READY in Jamf (`package_wait_ready` / `package_ready`) before reconcile apply or `app_upgrade`.
 - Prefer `docs/apps` then named builtins via `buddyscript`; Classic Mac App Store is `macapp` / `macapps`, not `app` / `apps`.
-- Platform-only auth cannot list apps (Pro `/api/v1/policies` via gateway returns 403); use an instance-surface auth.
+- Platform-only auth cannot list/scan apps (Pro `/api/v1/policies` via gateway returns 403); use an instance-surface auth.
 
 ## Facts
 
-- List: `apps(filter?)` · `buddy app list` — Hybrid policy list + name heuristics; approximate
-- Get: `app(name=…)` · `buddy app get` — Authoritative Classic XML classify
-- Import: `buddy app import <name> [-o path]` — Emit desired-state `.buddy` from get
+- List: `apps(filter?)` · `buddy app list` — Imported apps only (`apps/index.json`)
+- Scan: `buddy app scan` — Heuristic onboarding discovery ([SS] name index)
+- Get: `app(name=…)` · `buddy app get` — Index bindings first; else Classic classify
+- Import: `buddy app import [name]` — Interview (or `--ss=` flags) → index + desired `.buddy`
+- Cache: `buddy app cache status|refresh` — Full Classic policy XML under `~/.config/buddy/policy-cache/`
 - Reconcile: `app_reconcile(desired, apply?)` · run the imported script — Diff live vs desired → change-batch plan / apply
 - Upgrade: `app_upgrade(name, version, …)` · `buddy app upgrade` — One-shot imperative bump by kind
-- Discovery starts from policies whose **name contains `[SS]`**. List keeps Install…[SS] and/or install/cache siblings; inventory/config `[SS]` stubs are omitted. App slugs treat hyphens and spaces as equivalent (`claude-cli` ↔ `Claude CLI`). When v1 `triggerManual` is present, install siblings with a custom trigger are preferred.
-- Jamf does **not** publish a Pro policy CRUD API; RSQL on `/api/v1/policies` cannot filter by Self Service (only `id`, `name`, `enabled`, `categoryId`, `executionFrequency`, `triggerCheckin`, `triggerManual`).
+- **Onboarding:** `buddy app cache refresh` → `buddy app scan` → `buddy app import <name>` (picks SS/install/cache/uninstall IDs). Import writes `apps/index.json` + `apps/<slug>.buddy`.
+- **List** is the curated registry only. **Scan** is approximate heuristics for finding candidates — not for day-to-day inventory.
+- Policy payload cache (age > 3 days prompts refresh) is how import knows true Self Service (`use_for_self_service`), not `[SS]` name markers alone.
+- Uninstall policies are recorded in the index/interview set; reconcile v1 does not auto-mutate uninstall on version bumps.
 - Desired-state scripts declare name/kind/version/triggers/package_pattern. Edit `VERSION` then re-run to plan a bump. v1 does not greenfield-create a missing app — use `setup_app_classic` for that.
 - Wait until the target package is READY (`package_wait_ready` / `package_ready`) before apply/upgrade.
 
@@ -101,14 +108,14 @@ Returns: list of summary dicts {name, kind, version, ss_policy_id, install_trigg
 }
 ```
 
-- Name-index from one hybrid policy list ([SS] in name); kind/version may be approximate.
-- Authoritative classify is `app(name=…)`, not the list row alone.
+- Reads `apps/index.json` (imported apps only). Empty when nothing imported.
+- Heuristic discovery is CLI `buddy app scan`, not this builtin.
 
 ### app
 
 `app(name=…)` or `buddy app get <name>`
 
-Returns: dict (summary + linked install/cache policies)
+Returns: dict (summary + linked install/cache/uninstall policies)
 
 #### Parameters (JSON Schema)
 
@@ -141,7 +148,7 @@ Returns: dict (summary + linked install/cache policies)
 }
 ```
 
-- Classic XML classify (excludes inventory-only SS stubs).
+- Uses apps/index.json bindings when present; else Classic XML classify.
 
 ### app_upgrade
 
@@ -212,7 +219,7 @@ Returns: dict {markdown, fingerprints} on plan; None after apply
       "type": "string"
     },
     "desired": {
-      "description": "name, version, kind?, install_trigger?, cache_trigger?, package_pattern?, title?, summary?, risk?, window?",
+      "description": "name, version, kind?, install_trigger?, cache_trigger?, uninstall_trigger?, package_pattern?, title?, summary?, risk?, window?",
       "type": "object"
     },
     "surface": {
@@ -233,13 +240,13 @@ Returns: dict {markdown, fingerprints} on plan; None after apply
 ```
 
 - Invented steps mirror install/cache change batches; single uses in-place upgrade_app.
-- Fails if the app is missing (no greenfield create in v1).
+- Fails if the app is missing (no greenfield create in v1). Uninstall is not mutated in v1.
 
 ## CLI
 
 ### app list
 
-Discover policy apps from Self Service policies
+List imported policy apps from apps/index.json
 
 ```
 buddy [global-flags] app list [--filter=<keyword>]
@@ -261,7 +268,33 @@ buddy [global-flags] app list [--filter=<keyword>]
 }
 ```
 
-- List is a fast name-index from one hybrid policy list; kind/version/trigger may be approximate.
+- Empty until apps are imported.
+
+### app scan
+
+Heuristic discovery of [SS] policy apps (onboarding aid)
+
+```
+buddy [global-flags] app scan [--filter=<keyword>]
+```
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "filter": {
+      "description": "Client-side substring on name, kind, version, trigger, or package",
+      "type": "string"
+    }
+  },
+  "title": "app scan",
+  "type": "object"
+}
+```
+
+- Approximate name-index; use import to curate real bindings.
 
 ### app get
 
@@ -292,10 +325,10 @@ buddy [global-flags] app get <name>
 
 ### app import
 
-Write a desired-state .buddy script from app get
+Interview (or flags) to bind policies and write index + desired-state script
 
 ```
-buddy [global-flags] app import <name> [--output=<path>|-o <path>]
+buddy [global-flags] app import [name] [--ss=<id>] [--install=…] [--cache=…] [--uninstall=…] [-o path]
 ```
 
 #### Parameters (JSON Schema)
@@ -304,21 +337,45 @@ buddy [global-flags] app import <name> [--output=<path>|-o <path>]
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "cache": {
+      "description": "Comma-separated cache policy IDs",
+      "type": "string"
+    },
+    "install": {
+      "description": "Comma-separated install policy IDs",
+      "type": "string"
+    },
     "name": {
-      "description": "App identifier",
+      "description": "App slug (prompted when omitted)",
       "type": "string"
     },
     "output": {
       "description": "Output path (default apps/\u003cslug\u003e.buddy)",
       "type": "string"
+    },
+    "ss": {
+      "description": "Self Service policy ID (skips interview when set)",
+      "type": "integer"
+    },
+    "uninstall": {
+      "description": "Comma-separated uninstall policy IDs",
+      "type": "string"
     }
   },
-  "required": [
-    "name"
-  ],
   "title": "app import",
   "type": "object"
 }
+```
+
+- Ensures policy cache (prompts refresh if missing/stale > 3 days).
+- Writes apps/index.json and apps/<slug>.buddy.
+
+### app cache
+
+Show or rebuild the Classic policy payload cache
+
+```
+buddy [global-flags] app cache <status|refresh>
 ```
 
 ### app upgrade
@@ -365,15 +422,17 @@ def main():
     if not rows:
         return None
     detail = app(name=rows[0]["name"])
-    # Prefer: buddy app import santa -o apps/santa.buddy
+    # Prefer: buddy app import santa
     # Then edit VERSION and run the script (app_reconcile).
     return detail
 ```
 
 ```sh
+buddy app cache refresh
+buddy app scan --filter=santa
+buddy app import santa
 buddy app list
 buddy app get santa
-buddy app import santa -o apps/santa.buddy
 buddy apps/santa.buddy
 buddy apps/santa.buddy -- apply
 ```

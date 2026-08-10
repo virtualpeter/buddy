@@ -34,12 +34,16 @@ type PolicyAppSummary struct {
 // PolicyAppDetail is AppGet output: summary plus linked policy IDs/names.
 type PolicyAppDetail struct {
 	PolicyAppSummary
-	SSDisplayName    string             `json:"ss_display_name,omitempty"`
-	SSDescription    string             `json:"ss_description,omitempty"`
-	InstallPolicyName string            `json:"install_policy_name,omitempty"`
-	CachePolicyName  string             `json:"cache_policy_name,omitempty"`
-	CachePolicies    []PolicyAppRef  `json:"cache_policies,omitempty"`
-	InstallPolicies  []PolicyAppRef  `json:"install_policies,omitempty"`
+	SSDisplayName       string          `json:"ss_display_name,omitempty"`
+	SSDescription       string          `json:"ss_description,omitempty"`
+	InstallPolicyName   string          `json:"install_policy_name,omitempty"`
+	CachePolicyName     string          `json:"cache_policy_name,omitempty"`
+	UninstallTrigger    string          `json:"uninstall_trigger,omitempty"`
+	UninstallPolicyID   int             `json:"uninstall_policy_id,omitempty"`
+	UninstallPolicyName string          `json:"uninstall_policy_name,omitempty"`
+	CachePolicies       []PolicyAppRef  `json:"cache_policies,omitempty"`
+	InstallPolicies     []PolicyAppRef  `json:"install_policies,omitempty"`
+	UninstallPolicies   []PolicyAppRef  `json:"uninstall_policies,omitempty"`
 }
 
 // PolicyAppRef is a short linked-policy row.
@@ -93,10 +97,120 @@ func AppSearch(credName, filter string, logger *slog.Logger) ([]PolicyAppSummary
 }
 
 // AppGet returns one policy app by app name (case-insensitive).
-// Performs full Classic XML classify (not the cheap list heuristics).
+// Prefers apps/index.json bindings when present; otherwise Classic XML classify.
 // Query matching uses normalized slugs (hyphen/space equivalent) and accepts
 // compatible forms (e.g. "cursor" matches SS slug "cursor-ide").
 func AppGet(credName, name string, logger *slog.Logger) (*PolicyAppDetail, error) {
+	return AppGetWithAppsDir(credName, DefaultAppsDir(), name, logger)
+}
+
+// AppGetWithAppsDir is AppGet with an explicit apps registry directory.
+func AppGetWithAppsDir(credName, appsDir, name string, logger *slog.Logger) (*PolicyAppDetail, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("app name is required")
+	}
+	if entry, ok, err := LookupAppIndexEntry(appsDir, name); err != nil {
+		return nil, err
+	} else if ok {
+		return AppGetFromIndex(credName, entry, logger)
+	}
+	return appGetHeuristic(credName, name, logger)
+}
+
+// AppGetFromIndex builds detail from a curated index entry (cache/live policy GETs).
+func AppGetFromIndex(credName string, e AppIndexEntry, logger *slog.Logger) (*PolicyAppDetail, error) {
+	sum := policyAppSummaryFromIndex(e)
+	d := &PolicyAppDetail{
+		PolicyAppSummary: sum,
+		UninstallTrigger: e.UninstallTrigger,
+	}
+	if e.SSPolicyID > 0 {
+		ss, err := PolicyCacheGet(credName, e.SSPolicyID, logger)
+		if err != nil {
+			return nil, fmt.Errorf("ss policy %d: %w", e.SSPolicyID, err)
+		}
+		d.SSPolicyName = ss.General.Name
+		d.SSDisplayName = ss.SelfService.SelfServiceDisplayName
+		d.SSDescription = ss.SelfService.SelfServiceDescription
+		if d.Version == "" {
+			d.Version = ExtractVersion(ss.SelfService.SelfServiceDescription)
+		}
+	}
+	for i, id := range e.InstallPolicyIDs {
+		p, err := PolicyCacheGet(credName, id, logger)
+		if err != nil {
+			return nil, fmt.Errorf("install policy %d: %w", id, err)
+		}
+		ref := refFromPolicy(p)
+		d.InstallPolicies = append(d.InstallPolicies, ref)
+		if i == 0 || (p.General.Enabled && d.InstallPolicyID == e.InstallPolicyIDs[0]) {
+			d.InstallPolicyID = p.General.ID
+			d.InstallPolicyName = p.General.Name
+			if len(p.PackageConfiguration.Packages) > 0 {
+				d.PackageID = p.PackageConfiguration.Packages[0].ID
+				d.PackageName = p.PackageConfiguration.Packages[0].Name
+			}
+			if ver := policyAppVersion(p, nil); ver != "" {
+				d.Version = ver
+			}
+		}
+	}
+	for i, id := range e.CachePolicyIDs {
+		p, err := PolicyCacheGet(credName, id, logger)
+		if err != nil {
+			return nil, fmt.Errorf("cache policy %d: %w", id, err)
+		}
+		ref := refFromPolicy(p)
+		d.CachePolicies = append(d.CachePolicies, ref)
+		if i == 0 {
+			d.CachePolicyID = p.General.ID
+			d.CachePolicyName = p.General.Name
+			if d.Version == "" {
+				d.Version = policyAppVersion(p, nil)
+			}
+			if d.PackageID == 0 && len(p.PackageConfiguration.Packages) > 0 {
+				d.PackageID = p.PackageConfiguration.Packages[0].ID
+				d.PackageName = p.PackageConfiguration.Packages[0].Name
+			}
+		}
+	}
+	for i, id := range e.UninstallPolicyIDs {
+		p, err := PolicyCacheGet(credName, id, logger)
+		if err != nil {
+			return nil, fmt.Errorf("uninstall policy %d: %w", id, err)
+		}
+		ref := refFromPolicy(p)
+		d.UninstallPolicies = append(d.UninstallPolicies, ref)
+		if i == 0 {
+			d.UninstallPolicyID = p.General.ID
+			d.UninstallPolicyName = p.General.Name
+			if d.UninstallTrigger == "" {
+				d.UninstallTrigger = strings.TrimSpace(p.General.TriggerOther)
+			}
+		}
+	}
+	if e.Version != "" && d.Version == "" {
+		d.Version = e.Version
+	}
+	return d, nil
+}
+
+func refFromPolicy(p *resourcePolicy) PolicyAppRef {
+	if p == nil {
+		return PolicyAppRef{}
+	}
+	return PolicyAppRef{
+		ID:      p.General.ID,
+		Name:    p.General.Name,
+		Trigger: strings.TrimSpace(p.General.TriggerOther),
+		Enabled: p.General.Enabled,
+		Version: policyAppVersion(p, nil),
+	}
+}
+
+// appGetHeuristic discovers an app via [SS] name heuristics + Classic classify.
+func appGetHeuristic(credName, name string, logger *slog.Logger) (*PolicyAppDetail, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, fmt.Errorf("app name is required")
@@ -136,7 +250,7 @@ func AppGet(credName, name string, logger *slog.Logger) (*PolicyAppDetail, error
 		ssListName = fuzzyName
 	}
 	if ssID == 0 {
-		return nil, fmt.Errorf("app %q not found", name)
+		return nil, fmt.Errorf("app %q not found (not in apps/index.json and no matching [SS] policy); try: buddy app scan --filter=%s", name, query)
 	}
 	cache := newPolicyFetchCache(credName)
 	sum, ok, err := classifyPolicyAppFromSS(credName, ssID, list, cache, logger)
@@ -283,7 +397,7 @@ func (c *policyFetchCache) get(id int) (*resourcePolicy, error) {
 	if p, ok := c.m[id]; ok {
 		return p, nil
 	}
-	p, err := policyGetByID(c.cred, id)
+	p, err := PolicyCacheGet(c.cred, id, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -168,6 +168,7 @@ func TestRenderAppImportScript(t *testing.T) {
 		`NAME             = "santa"`,
 		`VERSION          = "2026.2"`,
 		`CACHE_TRIGGER    = "cache-santa-2026.2"`,
+		"UNINSTALL_TRIGGER",
 		"app_reconcile",
 		"apply = True",
 	} {

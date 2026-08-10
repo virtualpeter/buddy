@@ -31,7 +31,8 @@ func appsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 			return resultErr(sessErr.Error())
 		}
 		defer restore()
-		apps, err := buddy.AppSearch(pin, string(filter), logger)
+		_ = pin
+		apps, err := buddy.AppListImported(buddy.DefaultAppsDir(), string(filter))
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -178,6 +179,7 @@ func appDesiredFromStarlark(d *starlark.Dict) (buddy.AppDesired, error) {
 		Version:        get("version"),
 		InstallTrigger: get("install_trigger"),
 		CacheTrigger:   get("cache_trigger"),
+		UninstallTrigger: get("uninstall_trigger"),
 		PackagePattern: get("package_pattern"),
 		Title:          get("title"),
 		Summary:        get("summary"),
