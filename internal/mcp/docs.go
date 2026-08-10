@@ -33,12 +33,9 @@ func loadAgentDocs() ([]docpages.Page, error) {
 }
 
 func docsList(pages []docpages.Page, query string) []docsCatalogEntry {
-	q := strings.ToLower(strings.TrimSpace(query))
-	out := make([]docsCatalogEntry, 0, len(pages))
-	for _, p := range pages {
-		if q != "" && !strings.Contains(docpages.SearchHaystack(p), q) {
-			continue
-		}
+	filtered := docpages.FilterByQuery(pages, query)
+	out := make([]docsCatalogEntry, 0, len(filtered))
+	for _, p := range filtered {
 		out = append(out, docsCatalogEntry{
 			ID:      p.ID,
 			Title:   p.Title,

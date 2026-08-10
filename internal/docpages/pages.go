@@ -542,10 +542,151 @@ func URI(p Page) string {
 }
 
 // SearchHaystack returns the lowercased string used for docs list query matching.
+// It includes separator-normalized and collapsed forms of id/title/keywords so
+// queries like "smart_groups" / "smart groups" align with "smart-groups".
 func SearchHaystack(p Page) string {
-	parts := []string{p.ID, p.Title, p.Section}
-	parts = append(parts, p.Keywords...)
+	base := []string{p.ID, p.Title, p.Section}
+	base = append(base, p.Keywords...)
+	parts := make([]string, 0, len(base)*3)
+	parts = append(parts, base...)
+	for _, s := range append([]string{p.ID, p.Title}, p.Keywords...) {
+		parts = append(parts, sepNormalize(s), collapseAlnum(s))
+	}
 	return strings.ToLower(strings.Join(parts, " "))
+}
+
+func sepNormalize(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case '_', '-', '/', '.':
+			b.WriteByte(' ')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func collapseAlnum(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// tokenizeQuery splits a lowercased query on non-alphanumeric separators.
+// Tokens shorter than 2 characters are dropped unless they are all digits.
+func tokenizeQuery(query string) []string {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return nil
+	}
+	var tokens []string
+	var b strings.Builder
+	flush := func() {
+		t := b.String()
+		b.Reset()
+		if t == "" {
+			return
+		}
+		if len(t) >= 2 || isAllDigits(t) {
+			tokens = append(tokens, t)
+		}
+	}
+	for _, r := range q {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			flush()
+		}
+	}
+	flush()
+	return tokens
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func haystackHasAllTokens(hay string, tokens []string) bool {
+	if len(tokens) == 0 {
+		return false
+	}
+	for _, t := range tokens {
+		if !strings.Contains(hay, t) {
+			return false
+		}
+	}
+	return true
+}
+
+func haystackHasAnyToken(hay string, tokens []string) bool {
+	for _, t := range tokens {
+		if strings.Contains(hay, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// MatchQuery reports whether a single page matches query under the strict
+// rule (exact substring or all tokens present). Empty query matches.
+// Prefer FilterByQuery for list filtering (AND then OR fallback).
+func MatchQuery(p Page, query string) bool {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return true
+	}
+	hay := SearchHaystack(p)
+	if strings.Contains(hay, q) {
+		return true
+	}
+	return haystackHasAllTokens(hay, tokenizeQuery(q))
+}
+
+// FilterByQuery returns pages matching query. Empty/whitespace query returns
+// all pages. Matching is case-insensitive and treats _, -, /, spaces, and
+// other non-alphanumerics as token separators. Prefer exact/AND hits; if none,
+// fall back to OR (any token) so agents get recall instead of an empty list.
+func FilterByQuery(pages []Page, query string) []Page {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		out := make([]Page, len(pages))
+		copy(out, pages)
+		return out
+	}
+	tokens := tokenizeQuery(q)
+	strict := make([]Page, 0)
+	for _, p := range pages {
+		hay := SearchHaystack(p)
+		if strings.Contains(hay, q) || haystackHasAllTokens(hay, tokens) {
+			strict = append(strict, p)
+		}
+	}
+	if len(strict) > 0 || len(tokens) == 0 {
+		return strict
+	}
+	loose := make([]Page, 0)
+	for _, p := range pages {
+		if haystackHasAnyToken(SearchHaystack(p), tokens) {
+			loose = append(loose, p)
+		}
+	}
+	return loose
 }
 
 // NavSections returns unique section names in page order (for the human UI).

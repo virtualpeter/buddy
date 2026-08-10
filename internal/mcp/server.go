@@ -175,15 +175,15 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 
 	type docsIn struct {
 		Action string `json:"action,omitempty" jsonschema:"list (default) or get"`
-		Query  string `json:"query,omitempty" jsonschema:"for list: case-insensitive substring on id/title/section/keywords (resource nouns like policy, jcds, blueprint)"`
+		Query  string `json:"query,omitempty" jsonschema:"for list: case-insensitive fuzzy match on id/title/section/keywords; splits on _ - / spaces (e.g. smart_groups, smart groups, policy)"`
 		ID     string `json:"id,omitempty" jsonschema:"for get: page id (e.g. docs/policies, builtins, docs/apps) or buddy://docs/… URI"`
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "docs",
 		Description: "Read buddy embedded documentation and design rules (same catalog as buddy://docs/… resources). " +
 			"Prefer this before inventing buddy conventions. " +
-			"action=list (default) returns [{id,title,section,uri},…]; optional query filters id/title/section/keywords " +
-			"(try resource nouns: policy, packages, smart-groups, blueprints). " +
+			"action=list (default) returns [{id,title,section,uri},…]; optional query fuzzy-filters id/title/section/keywords " +
+			"(case-insensitive; splits on _ - / spaces — try smart_groups, smart groups, policy, packages, blueprints; may return multiple hits). " +
 			"action=get requires id and returns {id,title,uri,markdown}. List then get.",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in docsIn) (*mcpsdk.CallToolResult, any, error) {
 		pages, err := loadAgentDocs()

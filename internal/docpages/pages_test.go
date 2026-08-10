@@ -101,6 +101,59 @@ func TestURI(t *testing.T) {
 	}
 }
 
+func TestFilterByQueryFuzzy(t *testing.T) {
+	res, err := Load(LoadOptions{Catalog: CatalogAgent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pages := res.Pages
+
+	all := FilterByQuery(pages, "")
+	if len(all) != len(pages) {
+		t.Fatalf("empty query len=%d want %d", len(all), len(pages))
+	}
+
+	for _, q := range []string{
+		"smart_groups", "smart-groups", "smart groups", "smart group", "Smart_Groups", "smartgroups",
+	} {
+		hits := FilterByQuery(pages, q)
+		found := false
+		for _, p := range hits {
+			if p.ID == "docs/smart-groups" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			ids := make([]string, len(hits))
+			for i, p := range hits {
+				ids[i] = p.ID
+			}
+			t.Errorf("query %q: expected docs/smart-groups in %v", q, ids)
+		}
+	}
+
+	polHits := FilterByQuery(pages, "policy_set")
+	foundPol := false
+	for _, p := range polHits {
+		if p.ID == "docs/policies" {
+			foundPol = true
+			break
+		}
+	}
+	if !foundPol {
+		t.Fatal("policy_set should match docs/policies")
+	}
+
+	// AND preference: smart groups must not OR-fallback to static-only pages.
+	andHits := FilterByQuery(pages, "smart groups")
+	for _, p := range andHits {
+		if p.ID == "docs/static-groups" {
+			t.Fatalf("smart groups AND match must not include static-groups")
+		}
+	}
+}
+
 func TestStripFrontMatter(t *testing.T) {
 	in := "---\nalwaysApply: true\n---\n\n# Title\n"
 	got := stripFrontMatter(in)
