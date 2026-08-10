@@ -252,6 +252,7 @@ Read embedded buddy documentation (same data as `buddy://docs/...` resources):
 - MCP returns `{ok, value: {stdout, stderr, result, error}}`. **Primary output is `value.result`** (last expression or `main()` return). `stdout` is from `print` / `unwrap`; when `result` is set and `stdout` is empty, `result` is mirrored into `stdout`.
 - Prefer a **single expression**, or define `main()` **without** calling it and **without** a trailing top-level expression (MCP sets `CallMain`; a trailing expression skips `main`).
 - Top-level `if` / `for` outside a function is invalid Starlark—put control flow inside `main()`.
+- Starlark has **no `while`** (also no `try`/`class`). Use `for … in` / `range`, or wait builtins like `package_wait_ready` for polling — full vs-Python list: [buddyscript-syntax](buddyscript-syntax.md).
 - Mutating Jamf calls **always skip** interactive confirmation in MCP (same as `-y`); the host’s tool-call approval is the guard. You do **not** need `args: ["-y", "mcp"]`.
 - You can `load("stdlib/….buddy", …)` the same as in CLI scripts / the notebook (e.g. `load("stdlib/release.buddy", "bump_release")`).
 - Prefer named builtins over `jamf_get`/`jamf_put` when a builtin exists. Before resource mutates, `docs` query the object noun (see [mcp-tools.md](mcp-tools.md) pathfinding) — e.g. [profile-payloads.md](/docs/docs/profile-payloads), [packages.md](/docs/docs/packages).

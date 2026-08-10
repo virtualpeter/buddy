@@ -29,6 +29,9 @@ func TestServerInstructions(t *testing.T) {
 	if !strings.Contains(ServerInstructions, "buddyscript") {
 		t.Fatal("instructions should prefer buddyscript")
 	}
+	if !strings.Contains(ServerInstructions, "no while") {
+		t.Fatal("instructions should note Starlark has no while")
+	}
 	if !strings.Contains(ServerInstructions, "package_wait_ready") {
 		t.Fatal("instructions should point at package_wait_ready builtin folklore")
 	}
