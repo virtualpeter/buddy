@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -722,7 +723,7 @@ func jcdsStreamVerifyToFile(uri, outfile, wantSHA string, logger *slog.Logger) (
 			onProgress: func(read, tot int64) {
 				now := time.Now()
 				if lastWrite.IsZero() || now.Sub(lastWrite) >= 200*time.Millisecond || read == tot {
-					fmt.Fprintf(os.Stderr, "\r%s", formatProgressBar(read, tot))
+					fmt.Fprintf(os.Stderr, "\r%s", formatProgressBar("Downloading", read, tot))
 					lastWrite = now
 				}
 			},
@@ -1158,8 +1159,9 @@ func formatBytes(n int64) string {
 // progressBarWidth is the number of characters for the bar.
 const progressBarWidth = 40
 
-// formatProgressBar returns a line like "[########################--------] 75% (1.1 GB / 1.5 GB)".
-func formatProgressBar(read, total int64) string {
+// formatProgressBar returns a line like "Uploading: [####----] 75% (1.1 GB / 1.5 GB)".
+// label may be empty for an unlabeled bar.
+func formatProgressBar(label string, read, total int64) string {
 	if total <= 0 {
 		return ""
 	}
@@ -1172,7 +1174,11 @@ func formatProgressBar(read, total int64) string {
 		filled = progressBarWidth
 	}
 	bar := strings.Repeat("#", filled) + strings.Repeat("-", progressBarWidth-filled)
-	return fmt.Sprintf("[%s] %.0f%% (%s / %s)", bar, pct*100, formatBytes(read), formatBytes(total))
+	body := fmt.Sprintf("[%s] %.0f%% (%s / %s)", bar, pct*100, formatBytes(read), formatBytes(total))
+	if label == "" {
+		return body
+	}
+	return label + ": " + body
 }
 
 // minProgressSize is the minimum file size (bytes) to show progress bar.
@@ -1236,7 +1242,7 @@ func formatUploadRate(n int64, d time.Duration) string {
 }
 
 // packageUploadFile streams the file as multipart/form-data to /api/v1/packages/{id}/upload.
-// Progress (when shown) tracks bytes read for the HTTP request body (network send), not disk buffering.
+// Progress (when shown) tracks bytes of the HTTP request body as they are sent.
 // On success it returns the file byte count and wall time of the HTTP transfer.
 func packageUploadFile(credName, id string, file *os.File, opts Opts) (uploaded int64, elapsed time.Duration, err error) {
 	_ = opts
@@ -1280,20 +1286,26 @@ func packageUploadFile(credName, id string, file *os.File, opts Opts) (uploaded 
 
 	var body io.Reader = pr
 	showProgress := fileSize >= minProgressSize && fileSize > 0
+	var waitingShown atomic.Bool
 	if showProgress {
-		var lastPct int
+		fmt.Fprintf(os.Stderr, "Uploading %s (%s)…\n", filename, formatBytes(fileSize))
+		var lastWrite time.Time
 		body = &progressReader{
 			r:     pr,
 			total: contentLength,
 			onProgress: func(read, tot int64) {
-				pct := int(100 * float64(read) / float64(tot))
-				if pct > 100 {
-					pct = 100
+				now := time.Now()
+				if !(lastWrite.IsZero() || now.Sub(lastWrite) >= 200*time.Millisecond || read >= tot) {
+					return
 				}
-				if pct != lastPct && (pct-lastPct >= 1 || pct == 100 || read == tot) {
-					lastPct = pct
-					fmt.Fprintf(os.Stderr, "\r%s", formatProgressBar(read, tot))
+				lastWrite = now
+				if read >= tot {
+					if waitingShown.CompareAndSwap(false, true) {
+						fmt.Fprintf(os.Stderr, "\r%s\nWaiting for server response…\n", formatProgressBar("Uploading", tot, tot))
+					}
+					return
 				}
+				fmt.Fprintf(os.Stderr, "\r%s", formatProgressBar("Uploading", read, tot))
 			},
 		}
 	}
@@ -1318,7 +1330,7 @@ func packageUploadFile(credName, id string, file *os.File, opts Opts) (uploaded 
 	elapsed = time.Since(start)
 	writeErr := <-writeErrCh
 	if err != nil {
-		if showProgress {
+		if showProgress && !waitingShown.Load() {
 			fmt.Fprintln(os.Stderr)
 		}
 		if writeErr != nil {
@@ -1327,8 +1339,8 @@ func packageUploadFile(credName, id string, file *os.File, opts Opts) (uploaded 
 		return 0, elapsed, fmt.Errorf("upload package file: %w", err)
 	}
 	defer resp.Body.Close()
-	if showProgress {
-		fmt.Fprintf(os.Stderr, "\r%s\n", formatProgressBar(contentLength, contentLength))
+	if showProgress && !waitingShown.Load() {
+		fmt.Fprintf(os.Stderr, "\r%s\n", formatProgressBar("Uploading", contentLength, contentLength))
 	}
 	if writeErr != nil && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return 0, elapsed, fmt.Errorf("upload package file: %w", writeErr)
@@ -1344,12 +1356,22 @@ func packageUploadFile(credName, id string, file *os.File, opts Opts) (uploaded 
 	return fileSize, elapsed, nil
 }
 
+// PackageUploadOptions controls optional post-upload behavior.
+type PackageUploadOptions struct {
+	// WaitReady polls until cloudTransferStatus is READY and sha256 is set.
+	WaitReady bool
+	// WaitReadyTimeout caps the wait; ≤0 uses the PackageWaitReady default (10 minutes).
+	WaitReadyTimeout time.Duration
+}
+
 // PackageUpload creates a new package record and uploads the file to Jamf Pro.
 // If a package with the same fileName already exists, the file is treated as an
 // update: the existing record is fetched, summarised, and the upload is skipped
 // when a server checksum matches the local file. attrs set metadata on create
 // and are applied to an existing record when they differ (even if the file is skipped).
-func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAttrs, logger *slog.Logger) error {
+// When upOpts.WaitReady is set, polls until the package is READY (and sha256 set)
+// after a successful upload or when the file was already unchanged.
+func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAttrs, upOpts PackageUploadOptions, logger *slog.Logger) error {
 	if err := attrs.Validate(); err != nil {
 		return err
 	}
@@ -1429,7 +1451,7 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 		printPackageRecordSummary(pkg)
 
 		fmt.Printf("Hashing local file (%s)…\n", formatBytes(info.Size()))
-		localHashes, err := hashPackageReader(file)
+		localHashes, err := hashPackageReader(file, info.Size())
 		if err != nil {
 			return fmt.Errorf("hash local file: %w", err)
 		}
@@ -1441,7 +1463,7 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 
 		if fileMatch && !metaNeeded {
 			fmt.Printf("File unchanged (%s matches) — skipping upload\n", how)
-			return nil
+			return maybeWaitPackageReady(credName, id, upOpts, logger)
 		}
 		if fileMatch && metaNeeded {
 			fmt.Printf("File unchanged (%s matches) — updating metadata only\n", how)
@@ -1450,7 +1472,10 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 					return nil
 				}
 			}
-			return packageApplyAttrs(credName, id, opts, attrs, pkg, logger)
+			if err := packageApplyAttrs(credName, id, opts, attrs, pkg, logger); err != nil {
+				return err
+			}
+			return maybeWaitPackageReady(credName, id, upOpts, logger)
 		}
 		// After a recent upload Jamf clears checksums until cloudTransferStatus is
 		// READY — empty sha256 then means "still transferring", not "needs re-upload".
@@ -1528,6 +1553,23 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 	}
 	fmt.Printf("%s package %q (ID %s) — %s in %s (%s)\n",
 		action, packageName, id, formatBytes(uploaded), formatUploadDuration(elapsed), formatUploadRate(uploaded, elapsed))
+	return maybeWaitPackageReady(credName, id, upOpts, logger)
+}
+
+// maybeWaitPackageReady runs PackageWaitReady when upOpts.WaitReady is set.
+func maybeWaitPackageReady(credName, id string, upOpts PackageUploadOptions, logger *slog.Logger) error {
+	if !upOpts.WaitReady || strings.TrimSpace(id) == "" {
+		return nil
+	}
+	timeout := upOpts.WaitReadyTimeout
+	if timeout <= 0 {
+		timeout = packageWaitReadyDefaultTimeout
+	}
+	fmt.Printf("Waiting until package %s is READY (timeout %s)…\n", id, formatUploadDuration(timeout))
+	if err := PackageWaitReady(credName, id, timeout, logger); err != nil {
+		return err
+	}
+	fmt.Printf("Package %s is READY\n", id)
 	return nil
 }
 
@@ -1538,11 +1580,35 @@ type packageFileHashes struct {
 }
 
 // hashPackageReader computes MD5 and SHA-256 of r in a single pass.
-func hashPackageReader(r io.Reader) (packageFileHashes, error) {
+// When totalSize >= minProgressSize, writes a labeled progress bar to stderr
+// (reading the file for checksums — not the network upload).
+func hashPackageReader(r io.Reader, totalSize int64) (packageFileHashes, error) {
 	md5Hash := md5.New()
 	sha256Hash := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(md5Hash, sha256Hash), r); err != nil {
+	var src io.Reader = io.TeeReader(r, io.MultiWriter(md5Hash, sha256Hash))
+	showProgress := totalSize >= minProgressSize && totalSize > 0
+	if showProgress {
+		var lastWrite time.Time
+		src = &progressReader{
+			r:     src,
+			total: totalSize,
+			onProgress: func(read, tot int64) {
+				now := time.Now()
+				if lastWrite.IsZero() || now.Sub(lastWrite) >= 200*time.Millisecond || read >= tot {
+					fmt.Fprintf(os.Stderr, "\r%s", formatProgressBar("Hashing", read, tot))
+					lastWrite = now
+				}
+			},
+		}
+	}
+	if _, err := io.Copy(io.Discard, src); err != nil {
+		if showProgress {
+			fmt.Fprintln(os.Stderr)
+		}
 		return packageFileHashes{}, err
+	}
+	if showProgress {
+		fmt.Fprintf(os.Stderr, "\r%s\n", formatProgressBar("Hashing", totalSize, totalSize))
 	}
 	return packageFileHashes{
 		MD5:    hex.EncodeToString(md5Hash.Sum(nil)),

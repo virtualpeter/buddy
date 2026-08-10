@@ -163,12 +163,16 @@ func TestProgressReader_ReportsTotal(t *testing.T) {
 
 func TestFormatProgressBar(t *testing.T) {
 	t.Parallel()
-	s := formatProgressBar(75, 100)
+	s := formatProgressBar("", 75, 100)
 	if !strings.Contains(s, "75%") {
 		t.Fatalf("bar = %q", s)
 	}
-	if formatProgressBar(1, 0) != "" {
+	if formatProgressBar("", 1, 0) != "" {
 		t.Fatal("expected empty for total<=0")
+	}
+	labeled := formatProgressBar("Uploading", 50, 100)
+	if !strings.HasPrefix(labeled, "Uploading: ") || !strings.Contains(labeled, "50%") {
+		t.Fatalf("labeled=%q", labeled)
 	}
 }
 
@@ -190,7 +194,7 @@ func TestFormatUploadDurationAndRate(t *testing.T) {
 func TestHashPackageReaderAndMatch(t *testing.T) {
 	t.Parallel()
 	payload := []byte("hello-package-bytes")
-	local, err := hashPackageReader(strings.NewReader(string(payload)))
+	local, err := hashPackageReader(strings.NewReader(string(payload)), int64(len(payload)))
 	if err != nil {
 		t.Fatalf("hashPackageReader: %v", err)
 	}

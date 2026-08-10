@@ -27,6 +27,7 @@ Jamf Pro packages and Jamf Cloud Distribution Service (JCDS) readiness. Package 
 ## Facts
 
 - List / load: `packages(filter=…)` / `package(id=…)` · `buddy package list` / `get` — Or `name=` + `version=`; bare filter → `packageName=="*term*"`
+- Upload: `package_upload(file, …, wait_ready?)` · `buddy package upload [--wait-ready]` — Create/update by fileName; optional wait until READY
 - Wait READY: `package_wait_ready(id=…, timeout?=…)` — Polls until READY and sha256 set (~10 min default)
 - Check READY: `package_ready(id=…)` — `true` only when READY + sha256; HTTP 404 → `false`
 - Download: `package_download(id=…, path?=…)` · `buddy package download` — Jamf Cloud / JCDS only; hash-verified

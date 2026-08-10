@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"buddy/internal/buddy"
 	"buddy/internal/help"
@@ -1636,11 +1637,11 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		if len(args) < 1 {
 			return fmt.Errorf("missing file argument; run 'buddy package help' for usage")
 		}
-		filePath, attrs, err := parsePackageUploadArgs(args)
+		filePath, attrs, upOpts, err := parsePackageUploadArgs(args)
 		if err != nil {
 			return err
 		}
-		return buddy.PackageUpload(credName, opts, filePath, attrs, log)
+		return buddy.PackageUpload(credName, opts, filePath, attrs, upOpts, log)
 	case "list":
 		filter, rest, err := extractStringFlag(args, "filter")
 		if err != nil {
@@ -1706,22 +1707,54 @@ func parsePackageListSort(spec string) (order string, err error) {
 	}
 }
 
-func parsePackageUploadArgs(args []string) (filePath string, attrs buddy.PackageAttrs, err error) {
-	attrs, positional, err := parsePackageAttrFlags(args)
+func parsePackageUploadArgs(args []string) (filePath string, attrs buddy.PackageAttrs, upOpts buddy.PackageUploadOptions, err error) {
+	filtered := make([]string, 0, len(args))
+	for _, a := range args {
+		switch {
+		case a == "--wait-ready":
+			upOpts.WaitReady = true
+		case strings.HasPrefix(a, "--wait-ready="):
+			upOpts.WaitReady = true
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--wait-ready="))
+			if v == "" || strings.EqualFold(v, "true") {
+				break
+			}
+			if strings.EqualFold(v, "false") {
+				upOpts.WaitReady = false
+				break
+			}
+			sec, e := strconv.Atoi(v)
+			if e != nil || sec < 0 {
+				return "", buddy.PackageAttrs{}, buddy.PackageUploadOptions{}, fmt.Errorf("--wait-ready= expects true/false or seconds >= 0, got %q", v)
+			}
+			upOpts.WaitReadyTimeout = time.Duration(sec) * time.Second
+		case strings.HasPrefix(a, "--wait-ready-timeout="):
+			upOpts.WaitReady = true
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--wait-ready-timeout="))
+			sec, e := strconv.Atoi(v)
+			if e != nil || sec < 0 {
+				return "", buddy.PackageAttrs{}, buddy.PackageUploadOptions{}, fmt.Errorf("--wait-ready-timeout= expects seconds >= 0, got %q", v)
+			}
+			upOpts.WaitReadyTimeout = time.Duration(sec) * time.Second
+		default:
+			filtered = append(filtered, a)
+		}
+	}
+	attrs, positional, err := parsePackageAttrFlags(filtered)
 	if err != nil {
-		return "", buddy.PackageAttrs{}, err
+		return "", buddy.PackageAttrs{}, buddy.PackageUploadOptions{}, err
 	}
 	if len(positional) < 1 {
-		return "", buddy.PackageAttrs{}, fmt.Errorf("missing file argument; run 'buddy package help' for usage")
+		return "", buddy.PackageAttrs{}, buddy.PackageUploadOptions{}, fmt.Errorf("missing file argument; run 'buddy package help' for usage")
 	}
 	if len(positional) > 1 {
-		return "", buddy.PackageAttrs{}, fmt.Errorf("unexpected arguments after file: %v", positional[1:])
+		return "", buddy.PackageAttrs{}, buddy.PackageUploadOptions{}, fmt.Errorf("unexpected arguments after file: %v", positional[1:])
 	}
 	filePath = strings.TrimSpace(positional[0])
 	if filePath == "" {
-		return "", buddy.PackageAttrs{}, fmt.Errorf("missing file argument; run 'buddy package help' for usage")
+		return "", buddy.PackageAttrs{}, buddy.PackageUploadOptions{}, fmt.Errorf("missing file argument; run 'buddy package help' for usage")
 	}
-	return filePath, attrs, nil
+	return filePath, attrs, upOpts, nil
 }
 
 // parsePackageAttrFlags parses shared upload/set metadata flags.

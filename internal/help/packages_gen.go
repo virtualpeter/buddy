@@ -25,11 +25,14 @@ const PackagesBuiltinsSection = `PACKAGE
       Params: id=: package id; path?: local outfile (default fileName); tenant?/surface?/auth?: str.
       Waits READY+sha256, streams JCDS pre-signed URI to temp while hashing
       SHA-256, renames only on match. JCDS only.
-  package_upload(file, name?, category_id?, priority?, notes?, info?, reboot?, tenant?, surface?, auth?)
+  package_upload(file, name?, category_id?, priority?, notes?, info?, reboot?, wait_ready?, wait_ready_timeout?, tenant?, surface?, auth?)
       → value: None
       Params: file: str path (.pkg/.dmg); name?: display name (default basename);
         category_id?: str (default "-1"); priority?: int 1–20 (default 10);
-        notes?/info?: str; reboot?: bool (default false); tenant?/surface?/auth?: str.
+        notes?/info?: str; reboot?: bool (default false);
+        wait_ready?: bool — poll until READY+sha256 after upload (default false);
+        wait_ready_timeout?: int seconds (default 600; implies wait_ready);
+        tenant?/surface?/auth?: str.
         Same fileName → update path (GET + checksum compare; skip upload if match;
         if hashes blank and status not READY, raise not-ready — do not re-upload;
         apply metadata flags when they differ). New fileName → create with flags,
@@ -67,6 +70,12 @@ Flags for 'upload' / 'set':
   --priority=<1-20>           Install priority (upload default: 10)
   --reboot=true|false         rebootRequired flag (upload default: false)
 
+Flags for 'upload' only:
+  --wait-ready[=<seconds>]    After upload (or skip-if-unchanged), poll until
+                              cloudTransferStatus=READY and sha256 is set
+                              (default timeout 600s / 10 minutes)
+  --wait-ready-timeout=<sec>  Same as --wait-ready=<sec> (implies --wait-ready)
+
 Notes:
   --sort=version sorts client-side by a dotted version extracted from the package
   name (latest first). Use --sort=version:asc for oldest first.
@@ -94,6 +103,8 @@ Examples:
   buddy package history 55
   buddy package upload Chrome-121.pkg --name="Google Chrome 121" --category=3 --priority=10
   buddy package upload Chrome-121.pkg --notes="rollout" --reboot=false
+  buddy package upload Chrome-121.pkg --wait-ready
+  buddy package upload Chrome-121.pkg --wait-ready=900
   buddy package set 55 --name="Google Chrome 121" --priority=5 --reboot=true
   buddy package delete 55 56
 `
