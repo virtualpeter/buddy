@@ -70,6 +70,64 @@ func TestPolicyAppNameFromSS(t *testing.T) {
 	if got := policyAppNameFromSS(ss2, "vscode-install"); got != "vscode" {
 		t.Errorf("vscode name = %q, want vscode", got)
 	}
+
+	// SS slug is richer than install trigger (cursor-ide vs install-cursor-next).
+	ss3 := &resourcePolicy{}
+	ss3.General.Name = "Install Cursor IDE [SS]"
+	ss3.SelfService.SelfServiceDisplayName = "Install Cursor IDE"
+	if got := policyAppNameFromSS(ss3, "install-cursor-next"); got != "cursor-ide" {
+		t.Errorf("cursor name = %q, want cursor-ide", got)
+	}
+	if got := policyAppNameFromSS(ss3, "cursor-install"); got != "cursor-ide" {
+		t.Errorf("cursor reversed trigger name = %q, want cursor-ide", got)
+	}
+}
+
+func TestChooseAppCanonicalName(t *testing.T) {
+	cases := []struct {
+		ss, trig, want string
+	}{
+		{"cursor-ide", "cursor", "cursor-ide"},
+		{"cursor", "cursor-ide", "cursor-ide"},
+		{"santa", "santa", "santa"},
+		{"", "santa", "santa"},
+		{"santa", "", "santa"},
+		{"claude-cli", "claude", "claude-cli"},
+	}
+	for _, tt := range cases {
+		if got := chooseAppCanonicalName(tt.ss, tt.trig); got != tt.want {
+			t.Errorf("chooseAppCanonicalName(%q, %q) = %q, want %q", tt.ss, tt.trig, got, tt.want)
+		}
+	}
+}
+
+func TestAppSlugsCompatible(t *testing.T) {
+	if !appSlugsCompatible("cursor-ide", "cursor") {
+		t.Fatal("expected cursor-ide ~ cursor")
+	}
+	if !appSlugsCompatible("Cursor IDE", "cursor-ide") {
+		t.Fatal("expected normalized equality")
+	}
+	if appSlugsCompatible("chrome", "cursor") {
+		t.Fatal("chrome should not match cursor")
+	}
+}
+
+func TestInstallTriggerCandidates(t *testing.T) {
+	got := installTriggerCandidates("cursor-ide")
+	wantSome := []string{"install-cursor-ide-next", "install-cursor", "cursor-install", "cursor-ide-install"}
+	for _, w := range wantSome {
+		found := false
+		for _, g := range got {
+			if g == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("installTriggerCandidates missing %q; got %v", w, got)
+		}
+	}
 }
 
 func TestPolicyAppMatchesFilter(t *testing.T) {

@@ -109,7 +109,7 @@ func BuildAppReconcilePlan(live *PolicyAppDetail, desired AppDesired) (*AppRecon
 	if desired.Version == "" {
 		return nil, fmt.Errorf("desired.version is required")
 	}
-	if !strings.EqualFold(desired.Name, live.Name) {
+	if !appSlugsCompatible(desired.Name, live.Name) {
 		return nil, fmt.Errorf("desired.name %q does not match live app %q", desired.Name, live.Name)
 	}
 	liveKind := string(live.Kind)

@@ -137,6 +137,22 @@ func TestBuildAppReconcilePlanKindRewriteRejected(t *testing.T) {
 	}
 }
 
+func TestBuildAppReconcilePlanCompatibleNames(t *testing.T) {
+	live := &PolicyAppDetail{
+		PolicyAppSummary: PolicyAppSummary{
+			Name: "cursor-ide", Kind: PolicyAppInstall, Version: "1.0",
+			InstallTrigger: "install-cursor-next",
+		},
+	}
+	plan, err := BuildAppReconcilePlan(live, AppDesired{Name: "cursor", Version: "1.0", Kind: "install"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.Noop {
+		t.Fatalf("expected noop for same version, plan=%+v", plan)
+	}
+}
+
 func TestRenderAppImportScript(t *testing.T) {
 	body, err := RenderAppImportScript(AppDesired{
 		Name: "santa", Kind: "cache", Version: "2026.2",

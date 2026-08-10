@@ -94,24 +94,46 @@ func AppSearch(credName, filter string, logger *slog.Logger) ([]PolicyAppSummary
 
 // AppGet returns one policy app by app name (case-insensitive).
 // Performs full Classic XML classify (not the cheap list heuristics).
+// Query matching uses normalized slugs (hyphen/space equivalent) and accepts
+// compatible forms (e.g. "cursor" matches SS slug "cursor-ide").
 func AppGet(credName, name string, logger *slog.Logger) (*PolicyAppDetail, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
+		return nil, fmt.Errorf("app name is required")
+	}
+	query := normalizeAppSlugKey(name)
+	if query == "" {
 		return nil, fmt.Errorf("app name is required")
 	}
 	list, err := getPolicyList(credName, logger)
 	if err != nil {
 		return nil, err
 	}
-	var ssID int
+	var exactID, fuzzyID int
+	var exactName, fuzzyName string
 	for _, p := range list {
 		if !ssNameMarkerRe.MatchString(p.Name) {
 			continue
 		}
-		if strings.EqualFold(policyAppNameFromListName(p.Name), name) {
-			ssID = p.ID
+		slug := policyAppNameFromListName(p.Name)
+		if slug == "" {
+			continue
+		}
+		if slug == query {
+			exactID = p.ID
+			exactName = p.Name
 			break
 		}
+		if fuzzyID == 0 && appSlugsCompatible(slug, query) {
+			fuzzyID = p.ID
+			fuzzyName = p.Name
+		}
+	}
+	ssID := exactID
+	ssListName := exactName
+	if ssID == 0 {
+		ssID = fuzzyID
+		ssListName = fuzzyName
 	}
 	if ssID == 0 {
 		return nil, fmt.Errorf("app %q not found", name)
@@ -122,7 +144,11 @@ func AppGet(credName, name string, logger *slog.Logger) (*PolicyAppDetail, error
 		return nil, err
 	}
 	if !ok {
-		return nil, fmt.Errorf("app %q not found", name)
+		label := ssListName
+		if label == "" {
+			label = fmt.Sprintf("id %d", ssID)
+		}
+		return nil, fmt.Errorf("app %q matches Self Service policy %q but could not classify it (need an Install package on the SS policy, or an install-like script trigger / sibling install policy)", name, label)
 	}
 	return enrichPolicyAppDetail(credName, sum, list, cache, logger)
 }
@@ -498,11 +524,11 @@ func classifyPolicyAppFromSS(credName string, ssID int, list []policyListItem, c
 
 	pkgs := ss.PackageConfiguration.Packages
 	installTrig := installTriggerFromScripts(ss.Scripts)
+	ssSlug := policyAppNameFromSS(ss, "")
 
 	// single: packages on SS and no install-like script param
 	if len(pkgs) > 0 && installTrig == "" {
 		pkg := pkgs[0]
-		name := policyAppNameFromSS(ss, "")
 		ver := ExtractVersion(pkg.Name)
 		if ver == "" {
 			ver = versionFromName(ss.General.Name)
@@ -511,7 +537,7 @@ func classifyPolicyAppFromSS(credName string, ssID int, list []policyListItem, c
 			ver = ExtractVersion(ss.SelfService.SelfServiceDescription)
 		}
 		return PolicyAppSummary{
-			Name:         name,
+			Name:         ssSlug,
 			Kind:         PolicyAppSingle,
 			Version:      ver,
 			SSPolicyID:   ss.General.ID,
@@ -523,17 +549,14 @@ func classifyPolicyAppFromSS(credName string, ssID int, list []policyListItem, c
 
 	if installTrig == "" {
 		// Stub SS: infer install trigger from display/name slug.
-		slug := policyAppNameFromSS(ss, "")
-		installTrig = inferInstallTrigger(credName, slug, list, cache, logger)
+		installTrig = inferInstallTrigger(credName, ssSlug, list, cache, logger)
 		if installTrig == "" {
 			return PolicyAppSummary{}, false, nil
 		}
 	}
 
-	appName, _, _ := parseTrigger(installTrig)
-	if appName == "" {
-		appName = policyAppNameFromSS(ss, installTrig)
-	}
+	trigName, _, _ := parseTrigger(installTrig)
+	appName := chooseAppCanonicalName(ssSlug, trigName)
 
 	installs := findPoliciesByTrigger(credName, list, installTrig, cache, logger)
 	var current *resourcePolicy
@@ -671,11 +694,6 @@ func looksLikeCacheTrigger(s string) bool {
 }
 
 func policyAppNameFromSS(ss *resourcePolicy, installTrig string) string {
-	if installTrig != "" {
-		if n, _, _ := parseTrigger(installTrig); n != "" {
-			return n
-		}
-	}
 	display := strings.TrimSpace(ss.SelfService.SelfServiceDisplayName)
 	if display == "" {
 		display = ss.General.Name
@@ -696,25 +714,104 @@ func policyAppNameFromSS(ss *resourcePolicy, installTrig string) string {
 	for strings.Contains(slug, "--") {
 		slug = strings.ReplaceAll(slug, "--", "-")
 	}
-	return strings.Trim(slug, "-")
+	ssSlug := strings.Trim(slug, "-")
+	if installTrig == "" {
+		return ssSlug
+	}
+	trigName, _, _ := parseTrigger(installTrig)
+	return chooseAppCanonicalName(ssSlug, trigName)
+}
+
+// chooseAppCanonicalName picks the discovery slug for an app.
+// Prefer the Self Service-derived slug when it is equal to, or a more specific
+// form of, the install-trigger slug (e.g. SS "cursor-ide" vs trigger "cursor").
+func chooseAppCanonicalName(ssSlug, triggerSlug string) string {
+	ssSlug = normalizeAppSlugKey(ssSlug)
+	triggerSlug = normalizeAppSlugKey(triggerSlug)
+	switch {
+	case ssSlug == "" && triggerSlug == "":
+		return ""
+	case ssSlug == "":
+		return triggerSlug
+	case triggerSlug == "":
+		return ssSlug
+	case ssSlug == triggerSlug:
+		return ssSlug
+	case strings.HasPrefix(ssSlug, triggerSlug+"-"):
+		return ssSlug
+	case strings.HasPrefix(triggerSlug, ssSlug+"-"):
+		return triggerSlug
+	case policyNameContainsAppSlug(ssSlug, triggerSlug):
+		return ssSlug
+	case policyNameContainsAppSlug(triggerSlug, ssSlug):
+		return triggerSlug
+	default:
+		// Conflicting names — prefer SS (the AppGet discovery key).
+		return ssSlug
+	}
+}
+
+// appSlugsCompatible reports whether two app slugs refer to the same app
+// (exact, hyphen-boundary prefix, or token containment).
+func appSlugsCompatible(a, b string) bool {
+	a = normalizeAppSlugKey(a)
+	b = normalizeAppSlugKey(b)
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	if strings.HasPrefix(a, b+"-") || strings.HasPrefix(b, a+"-") {
+		return true
+	}
+	return policyNameContainsAppSlug(a, b) || policyNameContainsAppSlug(b, a)
 }
 
 func inferInstallTrigger(credName, appName string, list []policyListItem, cache *policyFetchCache, logger *slog.Logger) string {
 	if appName == "" {
 		return ""
 	}
-	candidates := []string{
-		"install-" + appName + "-next",
-		"install-" + appName,
-		appName + "-install-next",
-		appName + "-install",
-	}
-	for _, trig := range candidates {
+	for _, trig := range installTriggerCandidates(appName) {
 		if len(findPoliciesByTrigger(credName, list, trig, cache, logger)) > 0 {
 			return trig
 		}
 	}
 	return ""
+}
+
+// installTriggerCandidates returns install trigger forms to try for an app slug,
+// including shorter hyphen prefixes (cursor-ide → also try install-cursor).
+func installTriggerCandidates(appName string) []string {
+	appName = normalizeAppSlugKey(appName)
+	if appName == "" {
+		return nil
+	}
+	var names []string
+	seen := map[string]bool{}
+	addName := func(n string) {
+		n = normalizeAppSlugKey(n)
+		if n == "" || seen[n] {
+			return
+		}
+		seen[n] = true
+		names = append(names, n)
+	}
+	addName(appName)
+	parts := strings.Split(appName, "-")
+	for i := len(parts) - 1; i >= 1; i-- {
+		addName(strings.Join(parts[:i], "-"))
+	}
+	var out []string
+	for _, n := range names {
+		out = append(out,
+			"install-"+n+"-next",
+			"install-"+n,
+			n+"-install-next",
+			n+"-install",
+		)
+	}
+	return out
 }
 
 func findPoliciesByTrigger(credName string, list []policyListItem, trigger string, cache *policyFetchCache, logger *slog.Logger) []*resourcePolicy {
@@ -767,7 +864,7 @@ func findCachePoliciesForApp(credName string, list []policyListItem, appName str
 			continue
 		}
 		name, _, _ := parseTrigger(trig)
-		if !strings.EqualFold(name, appName) {
+		if !appSlugsCompatible(name, appName) {
 			continue
 		}
 		out = append(out, p)
@@ -787,12 +884,21 @@ func findCachePoliciesForApp(credName string, list []policyListItem, appName str
 // policyListNameHasAppHint is the Classic GET prefilter for trigger/cache scans:
 // require the app name as a token sequence in the list name (empty hint matches all).
 // Hyphens and spaces are equivalent (claude-cli ↔ "Claude CLI").
+// Multi-token slugs also accept the primary (first) token so "Cache Cursor"
+// is considered when classifying "cursor-ide".
 func policyListNameHasAppHint(policyName, appHint string) bool {
 	appHint = strings.TrimSpace(appHint)
 	if appHint == "" {
 		return true
 	}
-	return policyNameContainsAppSlug(policyName, appHint)
+	if policyNameContainsAppSlug(policyName, appHint) {
+		return true
+	}
+	tokens := appSlugTokens(appHint)
+	if len(tokens) > 1 {
+		return policyNameContainsAppSlug(policyName, tokens[0])
+	}
+	return false
 }
 
 func pickCurrentCache(caches []*resourcePolicy, preferVersion string) *resourcePolicy {
