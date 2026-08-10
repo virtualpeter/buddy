@@ -52,7 +52,7 @@ Config/secrets/tokens live under `~/.config/buddy` on macOS/Linux (`$XDG_CONFIG_
 See **[docs/mcp.md](docs/mcp.md)** for MCP host setup and **[docs/mcp-tools.md](docs/mcp-tools.md)** for the lean tool scorecard / agent priority (`docs` → `buddyscript` named builtins → `jamf_*` last). Summary:
 
 - `buddy mcp` speaks stdio MCP for AI hosts (Cursor, Claude Desktop, etc.).
-- Lean MCP tools: `buddy_info`, `docs`, `jamf_schema`, `buddyscript`. Resource work uses named builtins via `buddyscript` (including package READY/download).
+- Lean MCP tools: `get_instructions`, `buddy_info`, `docs`, `jamf_schema`, `buddyscript`. Call `get_instructions` once first; resource work uses named builtins via `buddyscript` (including package READY/download).
 - `buddy_info` reports binary version plus default tenant/auth, channel policy (`channel_access`, allowlists), and available tenants/auths for the mcp channel (no Jamf call).
 - `buddy mcp setup` lists well-known config paths and can `--write` a `mcpServers.buddy` entry (`--create` for missing files). Cursor: `~/.cursor/mcp.json` / `.cursor/mcp.json`; Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS).
 - Prefer an absolute `command` path and `args: ["mcp"]`.

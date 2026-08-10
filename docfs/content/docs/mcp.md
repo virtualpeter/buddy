@@ -98,12 +98,13 @@ Docs and examples are **embedded in the buddy binary** and exposed as `buddy://d
 
 ### 3. Reload the AI host
 
-Restart or refresh MCP in your client so it picks up the new server. The server should show as ready with tools such as `buddy_info`, `buddyscript`, `docs`.
+Restart or refresh MCP in your client so it picks up the new server. The server should show as ready with tools such as `get_instructions`, `buddy_info`, `buddyscript`, `docs`.
 
 ### 4. Use it in chat
 
 Ask in natural language; the agent calls tools for you:
 
+- “How should I use buddy MCP?” (`get_instructions`)
 - “What buddy version / tenant is MCP using?” (`buddy_info`)
 - “List Jamf smart groups via buddyscript” / “Bump the version criterion on smart group X”
 - “List computers in static group Y” / “Add computer 42 to static group Y”
@@ -118,16 +119,17 @@ Optional tool arguments `tenant`, `surface` (`instance`|`platform`), and `auth` 
 
 MCP blocks Jamf token/keep-alive paths via `jamf_*` / `buddyscript` and refuses `file_read` of buddy config/secrets/token cache files.
 
-**Tool priority for agents:** `docs` → `buddyscript` with named builtins → `jamf_get`/`jamf_put` only if no helper exists. See [mcp-tools.md](mcp-tools.md) for the lean scorecard, smart vs static vs Platform groups, the profile payload cookbook, and how buddy relates to Jamf’s hosted MCP (`developer.jamf.com/mcp`). The MCP server also advertises that split in Initialize `instructions`.
+**Tool priority for agents:** call `get_instructions` once first, then `docs` → `buddyscript` with named builtins → `jamf_get`/`jamf_put` only if no helper exists. See [mcp-tools.md](mcp-tools.md) for the lean scorecard, smart vs static vs Platform groups, the profile payload cookbook, and how buddy relates to Jamf’s hosted MCP (`developer.jamf.com/mcp`). The MCP server also advertises that split in Initialize `instructions` and via the `get_instructions` tool.
 
 ---
 
 ## Tools
 
-Lean surface (4 tools). Resource automation uses **named buddyscript builtins** via `buddyscript` (see [reference manual](reference-manual.md#built-in-functions) or `buddy help builtins`). Full scorecard: [mcp-tools.md](mcp-tools.md).
+Lean surface (5 tools). Call **`get_instructions` once** at session start before the others. Resource automation uses **named buddyscript builtins** via `buddyscript` (see [reference manual](reference-manual.md#built-in-functions) or `buddy help builtins`). Full scorecard: [mcp-tools.md](mcp-tools.md).
 
 | Tool | Returns `value` | Notes |
 |------|-----------------|-------|
+| `get_instructions` | markdown playbook | Firm agent guidance (no Jamf call). Call once before other tools |
 | `buddy_info` | `{version, channel, tenant, auth, tenants, auths, channel_access, …}` | Binary version + mcp session selection (no Jamf call). Live auth: first `buddyscript` Jamf call or CLI `buddy auth test` |
 | `docs` | Catalog entries or page markdown | Embedded buddy docs (+ agent-tone generated pages); prefer `mcp-tools` for agent guidance |
 | `jamf_schema` | Operations catalog (+ optional docs) | Discovery; then prefer named builtins via `buddyscript` |

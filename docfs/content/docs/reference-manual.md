@@ -198,7 +198,7 @@ Add a `mcpServers.buddy` entry (absolute `command` path, `args: ["mcp"]`) to you
 
 **Response shape:** every tool returns a JSON **object** `{ok, value, error?, count?}`—never a bare array—so hosts that require object `structuredContent` accept list results.
 
-Curated MCP tools: `buddy_info`, `docs`, `jamf_schema`, `buddyscript` (primary automation). Pro groups, profiles, policies, package READY/download, Platform CRUD, and related helpers run as **named builtins inside `buddyscript`**. Full table and agent priority: [`docs/mcp.md`](mcp.md) and [`docs/mcp-tools.md`](mcp-tools.md). Resources under `buddy://docs/...` (agents should prefer the `docs` tool).
+Curated MCP tools: `get_instructions`, `buddy_info`, `docs`, `jamf_schema`, `buddyscript` (primary automation). Call `get_instructions` once at session start. Pro groups, profiles, policies, package READY/download, Platform CRUD, and related helpers run as **named builtins inside `buddyscript`**. Full table and agent priority: [`docs/mcp.md`](mcp.md) and [`docs/mcp-tools.md`](mcp-tools.md). Resources under `buddy://docs/...` (agents should prefer the `docs` tool).
 
 Uses the active tenant/auth (`--tenant` / `--user` to override). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 

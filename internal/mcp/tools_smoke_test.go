@@ -11,8 +11,9 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// expectedLeanTools is the keep-list for the lean MCP surface.
+// expectedLeanTools is the keep-list for the lean MCP surface (registration order).
 var expectedLeanTools = []string{
+	"get_instructions",
 	"buddy_info",
 	"docs",
 	"jamf_schema",
@@ -20,6 +21,9 @@ var expectedLeanTools = []string{
 }
 
 func TestServerInstructions(t *testing.T) {
+	if !strings.Contains(ServerInstructions, "get_instructions") {
+		t.Fatal("instructions should tell agents to call get_instructions first")
+	}
 	if !strings.Contains(ServerInstructions, "developer.jamf.com/mcp") {
 		t.Fatal("instructions should mention Jamf hosted MCP URL")
 	}
@@ -47,6 +51,9 @@ func TestServerInstructions(t *testing.T) {
 	if !strings.Contains(ServerInstructions, "never invent Classic PUT") {
 		t.Fatal("instructions should forbid inventing Classic profile PUTs")
 	}
+	if !strings.Contains(ServerInstructions, "round-trips") {
+		t.Fatal("instructions should discourage micro-batching round-trips")
+	}
 	if strings.Contains(ServerInstructions, "starlark_eval") {
 		t.Fatal("instructions should not mention starlark_eval")
 	}
@@ -58,12 +65,50 @@ func TestServerInstructions(t *testing.T) {
 	}
 }
 
+func TestAgentPlaybook(t *testing.T) {
+	for _, want := range []string{
+		"get_instructions",
+		"docs",
+		"buddyscript",
+		"no while",
+		"smart_group",
+		"Bare values",
+		"{ok, value",
+		"value.result",
+		"round-trips",
+		"package_wait_ready",
+		"profile_put_xml",
+		"developer.jamf.com/mcp",
+	} {
+		if !strings.Contains(AgentPlaybook, want) {
+			t.Errorf("AgentPlaybook missing %q", want)
+		}
+	}
+}
+
+func TestToolDescriptionsRequireGetInstructions(t *testing.T) {
+	for _, desc := range []string{descBuddyInfo, descDocs, descJamfSchema, descBuddyscript} {
+		if !strings.HasPrefix(desc, toolPrerequisite) {
+			t.Errorf("description must start with toolPrerequisite: %q…", desc[:min(60, len(desc))])
+		}
+		if !strings.Contains(desc, "get_instructions") {
+			t.Errorf("description must mention get_instructions")
+		}
+	}
+	if strings.Contains(descGetInstructions, toolPrerequisite) {
+		t.Fatal("get_instructions description should not require itself as prerequisite")
+	}
+}
+
 func TestRegisterLeanTools_Present(t *testing.T) {
 	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "buddy-test", Version: "test"}, nil)
 	registerTools(server, "", buddy.Opts{}, slog.Default(), "test")
 	_ = expectedLeanTools
 	if server == nil {
 		t.Fatal("nil server")
+	}
+	if expectedLeanTools[0] != "get_instructions" {
+		t.Fatalf("first lean tool want get_instructions, got %q", expectedLeanTools[0])
 	}
 }
 

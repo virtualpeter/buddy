@@ -4,8 +4,9 @@ How AI agents should use buddy MCP tools after the lean-surface cut.
 
 ## Tool priority (do this order)
 
-1. **`docs`** — object-type cookbooks before inventing. Query a **resource noun** (`policy`, `packages`, `smart-groups`, `blueprints`, …) or a page id (`profile-payloads`, `mcp-tools`, `builtins`), then `get` that page.
-2. **`buddyscript`** with **named builtins** (`smart_group_*`, `policy_migrate`, `profile_xml_*`, `package_wait_ready`, `blueprint_*`, …) for Jamf work.
+0. **`get_instructions`** — call once at session start (firm playbook: dialect, return contract, docs-first, long-work guidance).
+1. **`docs`** — object-type cookbooks before inventing. Query a **resource noun** (`policy`, `packages`, `smart_groups` / `smart groups`, `blueprints`, …) or a page id (`profile-payloads`, `mcp-tools`, `builtins`), then `get` that page.
+2. **`buddyscript`** with **named builtins** (`smart_group_*`, `policy_migrate`, `profile_xml_*`, `package_wait_ready`, `blueprint_*`, …) for Jamf work. Prefer **one** `def main()` over many tiny round-trips (host timeouts).
 3. **`jamf_get` / `jamf_put` / …** via `buddyscript` only when no named builtin exists.
 
 Do **not** invent Classic/Pro HTTP from `jamf_schema` when a named builtin already covers the job. Schema is for discovery; builtins encode Jamf quirks (pagination, READY polling, criteria vs membership, payload entity encoding, ACS).
@@ -56,6 +57,7 @@ Hosts may also connect Jamf’s remote MCP at `https://developer.jamf.com/mcp` (
 
 | Tool | Role |
 |------|------|
+| `get_instructions` | Firm playbook; call once before other tools |
 | `buddy_info` | Session/channel without Jamf call |
 | `docs` | Embedded conventions / object cookbooks |
 | `jamf_schema` | Endpoint discovery only |
@@ -103,6 +105,7 @@ Inline folklore moved into per-object pages — `docs` list matches **keywords**
 
 | Tool | Notes |
 |------|-------|
+| `get_instructions` | Call once at session start |
 | `buddy_info` / `docs` / `jamf_schema` | Meta / discovery |
 | `buddyscript` | Primary surface |
 
