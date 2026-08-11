@@ -7,7 +7,9 @@ audience: agent
 keywords:
   - computer
   - computers
+  - computer_detail
   - inventory
+  - section
   - reboot
   - lock
   - erase
@@ -23,12 +25,14 @@ Jamf Pro computer inventory (v3) and MDM **actions** (reboot, lock, erase, …).
 - Do not mix Pro `computer*` with Platform `device*` — different gateways and IDs.
 - Do not use this page for RSQL history of MDM commands — that is [mdm](/docs/docs/mdm).
 - Do not invent computers-inventory **v4** paths from schema; buddy and production stay on v3 for now (see [api-endpoints](/docs/docs/api-endpoints)).
+- `computer(id)` returns full inventory JSON for requested sections (Jamf default GENERAL). Use `computer_detail(id)` for all sections.
 - Prefer named `computer_*` builtins over raw MDM POSTs.
 
 ## Facts
 
 - List / find: `computers(filter=…, page?, page_size?)` · `buddy computer list` — Omit page to fetch all; inventory v3
-- Load: `computer(id=…)` · `buddy computer get` — Detail-slice helpers in builtins
+- Load: `computer(id=…, section?)` · `buddy computer get [--section=…]` — Passthrough JSON; default GENERAL; `section` → `?section=`
+- Load all sections: `computer_detail(id=…)` · `buddy computer detail` — `GET …/computers-inventory-detail/{id}`
 - MDM actions: `computer_reboot` / `computer_lock` / … · `buddy computer reboot|lock|…` — Named builtins and matching CLI verbs
 - MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).
 
@@ -58,9 +62,9 @@ Returns: list of summary dicts
 
 ### computer
 
-Load one computer
+Load inventory (passthrough JSON)
 
-Returns: dict
+Returns: dict (Jamf inventory document)
 
 #### Parameters (JSON Schema)
 
@@ -69,7 +73,11 @@ Returns: dict
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "id": {
-      "description": "id",
+      "description": "computer id",
+      "type": "string"
+    },
+    "section": {
+      "description": "inventory section(s); omit for GENERAL",
       "type": "string"
     }
   },
@@ -77,6 +85,31 @@ Returns: dict
     "id"
   ],
   "title": "computer",
+  "type": "object"
+}
+```
+
+### computer_detail
+
+Load all inventory sections
+
+Returns: dict (Jamf inventory document)
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "description": "computer id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "title": "computer_detail",
   "type": "object"
 }
 ```
@@ -110,6 +143,8 @@ Returns: None
 
 ```python
 def main():
-    rows = computers(filter="MacBook", page_size=50)
-    return rows
+    general = computer(id="101")
+    hw = computer(id="101", section=["GENERAL", "HARDWARE"])
+    full = computer_detail(id="101")
+    return {"name": general["general"]["name"], "sections": list(full.keys())}
 ```

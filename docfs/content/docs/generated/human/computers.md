@@ -8,7 +8,8 @@ Jamf Pro computer inventory (v3) and MDM **actions** (reboot, lock, erase, …).
 | Do this | BuddyScript | CLI | Notes |
 |---------|-------------|-----|-------|
 | List / find | `computers(filter=…, page?, page_size?)` | `buddy computer list` | Omit page to fetch all; inventory v3 |
-| Load | `computer(id=…)` | `buddy computer get` | Detail-slice helpers in builtins |
+| Load | `computer(id=…, section?)` | `buddy computer get [--section=…]` | Passthrough JSON; default GENERAL; `section` → `?section=` |
+| Load all sections | `computer_detail(id=…)` | `buddy computer detail` | `GET …/computers-inventory-detail/{id}` |
 | MDM actions | `computer_reboot` / `computer_lock` / … | `buddy computer reboot\|lock\|…` | Named builtins and matching CLI verbs |
 
 ## Notes
@@ -19,8 +20,10 @@ MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices
 
 ```python
 def main():
-    rows = computers(filter="MacBook", page_size=50)
-    return rows
+    general = computer(id="101")
+    hw = computer(id="101", section=["GENERAL", "HARDWARE"])
+    full = computer_detail(id="101")
+    return {"name": general["general"]["name"], "sections": list(full.keys())}
 ```
 
 ## Related

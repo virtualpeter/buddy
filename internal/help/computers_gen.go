@@ -8,8 +8,11 @@ const ComputersBuiltinsSection = `COMPUTER
   computers(filter?, ids?=False, page?, page_size?, tenant?, surface?, auth?)
       → value: list of summary dicts (or list of int if ids=True)
       Params: filter?: bare term → general.name=="*term*", or full RSQL.
-  computer(id, tenant?, surface?, auth?)
-      → value: dict (id, name, serialNumber, udid, managementId, ...)
+  computer(id, section?, tenant?, surface?, auth?)
+      → value: dict (full GET /api/v3/computers-inventory/{id} JSON)
+      Params: section?: string or list → ?section= (omit = Jamf GENERAL default).
+  computer_detail(id, tenant?, surface?, auth?)
+      → value: dict (full GET /api/v3/computers-inventory-detail/{id} JSON; all sections)
   computer_send_mdm_command(computer_ids, command_type, command_data?, tenant?, surface?, auth?) → None
   computer_reboot(computer_ids, tenant?, surface?, auth?) → None
   computer_redeploy(computer_ids, tenant?, surface?, auth?) → None
@@ -34,7 +37,8 @@ Usage:
 
 Subcommands:
   list [--filter=<term|rsql>] [--management-id=<uuid>]    List computers (bare term → general.name contains; --management-id looks up by MDM management UUID)
-  get <computer-id>                                   Show computer details
+  get <computer-id> [--section=<name>[,<name>...]]        Show inventory JSON (default GENERAL)
+  detail <computer-id>                                    Show all inventory sections (inventory-detail)
   reboot <computer-id> [computer-id...]               Send RESTART_DEVICE MDM command
   redeploy <computer-id> [computer-id...]            Trigger Jamf management framework redeploy
   shutdown <computer-id> [computer-id...]            Send SHUT_DOWN_DEVICE MDM command
@@ -48,12 +52,17 @@ Subcommands:
   managed-apps <computer-id> [computer-id...] [--identifiers=...]       Send MANAGED_APPLICATION_LIST (queued)
   certificates <computer-id> [computer-id...]         Send CERTIFICATE_LIST (queued)
 
+Flags for 'get':
+  --section=<name>[,<name>...]   Inventory sections (e.g. GENERAL,HARDWARE); omit for GENERAL
+
 Examples:
   buddy computer list
   buddy computer list --filter=Example
   buddy computer list --filter='general.name=="*Example*"'
   buddy computer list --management-id=00000000-0000-4000-8000-000000000003
   buddy computer get 101
+  buddy computer get 101 --section=GENERAL,HARDWARE
+  buddy computer detail 101
   buddy computer reboot 101 102
   buddy computer lock 101 --message="Lost device" --pin=123456
   buddy computer erase 101 --pin=123456

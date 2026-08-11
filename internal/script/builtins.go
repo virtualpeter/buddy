@@ -89,6 +89,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "script", scriptBuiltin(credName, logger))
 	putBuiltin(dict, "computers", computersBuiltin(credName, logger))
 	putBuiltin(dict, "computer", computerBuiltin(credName, logger))
+	putBuiltin(dict, "computer_detail", computerDetailBuiltin(credName, logger))
 	putBuiltin(dict, "mdm_commands", mdmCommandsBuiltin(credName, logger))
 	putBuiltin(dict, "profiles", profilesBuiltin(credName, logger))
 	putBuiltin(dict, "profile", profileBuiltin(credName, logger))

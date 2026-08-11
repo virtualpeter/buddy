@@ -28,7 +28,7 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 	for _, name := range []string{
 		"policies", "policy", "policy_xml", "policy_set",
 		"packages", "package", "scripts", "script",
-		"computers", "computer", "mdm_commands",
+		"computers", "computer", "computer_detail", "mdm_commands",
 		"profiles", "profile", "profile_xml",
 		"smart_groups", "static_groups", "smart_group", "static_group",
 		"roles", "role", "role_privileges", "clients", "client",

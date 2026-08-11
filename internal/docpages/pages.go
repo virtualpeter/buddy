@@ -201,7 +201,7 @@ var curatedDocEntries = []curatedDoc{
 		keywords: []string{"app", "apps", "policy app", "policy apps", "self service", "app upgrade", "install-next", "cache policy"}},
 	{id: "docs/computers", title: "Computers", section: "Resources",
 		humanFile: "generated/human/computers.md", agentFile: "generated/agent/computers.md",
-		keywords: []string{"computer", "computers", "inventory", "reboot", "lock", "erase", "mdm"}},
+		keywords: []string{"computer", "computers", "computer_detail", "inventory", "section", "reboot", "lock", "erase", "mdm"}},
 	{id: "docs/mdm", title: "MDM command history", section: "Resources",
 		humanFile: "generated/human/mdm.md", agentFile: "generated/agent/mdm.md",
 		keywords: []string{"mdm", "mdm_commands", "command", "commands", "history"}},

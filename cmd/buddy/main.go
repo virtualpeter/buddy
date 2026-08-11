@@ -1994,7 +1994,26 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 		if len(args) < 1 {
 			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
 		}
-		return buddy.ComputerGet(credName, args[0], log)
+		fs := flag.NewFlagSet("computer get", flag.ContinueOnError)
+		var sectionFlag string
+		fs.StringVar(&sectionFlag, "section", "", "inventory section(s), comma-separated (e.g. GENERAL,HARDWARE); omit for Jamf GENERAL default")
+		flagArgs, positionals := staticGroupSplitFlags(args)
+		if err := fs.Parse(flagArgs); err != nil {
+			return err
+		}
+		if len(positionals) < 1 {
+			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
+		}
+		var sections []string
+		if sectionFlag != "" {
+			sections = []string{sectionFlag}
+		}
+		return buddy.ComputerGet(credName, positionals[0], sections, log)
+	case "detail":
+		if len(args) < 1 {
+			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
+		}
+		return buddy.ComputerDetail(credName, args[0], log)
 	case "reboot":
 		if len(args) < 1 {
 			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
@@ -2156,7 +2175,7 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 		return buddy.ComputerCertificates(credName, opts, computerIDs, log)
 	default:
 		return errUnknownSubcommand("computer", subcommand, []string{
-			"list", "get", "reboot", "redeploy", "shutdown", "lock", "logout", "erase",
+			"list", "get", "detail", "reboot", "redeploy", "shutdown", "lock", "logout", "erase",
 			"device-info", "device-location", "security-info", "installed-apps", "managed-apps", "certificates",
 		})
 	}

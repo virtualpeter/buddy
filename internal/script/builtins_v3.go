@@ -448,12 +448,14 @@ func computersBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 	}
 }
 
-// computer(id, tenant?, surface?, auth?)
+// computer(id, section?, tenant?, surface?, auth?) → full inventory JSON dict
+// section?: string or list of strings → ?section= (Jamf default GENERAL when omitted).
 func computerBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value
+		section := starlark.Value(starlark.None)
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("computer", args, kwargs, "id", &idVal,
+		if err := starlark.UnpackArgs("computer", args, kwargs, "id", &idVal, "section?", &section,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -469,24 +471,76 @@ func computerBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 		if err != nil {
 			return nil, err
 		}
-		rec, err := buddy.ComputerGetValue(c, idStr, logger)
+		sections, err := parseComputerSectionArg(section)
+		if err != nil {
+			return nil, err
+		}
+		body, err := buddy.ComputerFetchInventory(c, idStr, sections)
 		if err != nil {
 			return resultErr(err.Error())
 		}
-		d := new(starlark.Dict)
-		for k, v := range rec {
-			var sv starlark.Value
-			switch tv := v.(type) {
-			case int:
-				sv = starlark.MakeInt(tv)
-			case string:
-				sv = starlark.String(tv)
-			default:
-				sv = starlark.String(fmt.Sprint(v))
-			}
-			_ = d.SetKey(starlark.String(k), sv)
+		val, err := JSONDecodeToStarlark(string(body))
+		if err != nil {
+			return resultErr(err.Error())
 		}
-		return resultOK(d), nil
+		return resultOK(val), nil
+	}
+}
+
+// computer_detail(id, tenant?, surface?, auth?) → full inventory (all sections) via computers-inventory-detail.
+func computerDetailBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("computer_detail", args, kwargs, "id", &idVal,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		idStr, err := starlarkIDString(idVal, "id")
+		if err != nil {
+			return nil, err
+		}
+		body, err := buddy.ComputerFetchDetail(c, idStr)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		val, err := JSONDecodeToStarlark(string(body))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(val), nil
+	}
+}
+
+// parseComputerSectionArg accepts None, a string ("GENERAL" or "GENERAL,HARDWARE"), or a list of strings.
+func parseComputerSectionArg(v starlark.Value) ([]string, error) {
+	if v == nil || v == starlark.None {
+		return nil, nil
+	}
+	switch t := v.(type) {
+	case starlark.String:
+		return buddy.NormalizeComputerSections([]string{string(t)}), nil
+	case *starlark.List:
+		var parts []string
+		for i := 0; i < t.Len(); i++ {
+			item := t.Index(i)
+			s, ok := item.(starlark.String)
+			if !ok {
+				return nil, fmt.Errorf("section list entries must be strings, got %s", item.Type())
+			}
+			parts = append(parts, string(s))
+		}
+		return buddy.NormalizeComputerSections(parts), nil
+	default:
+		return nil, fmt.Errorf("section must be a string or list of strings, got %s", v.Type())
 	}
 }
 

@@ -314,7 +314,8 @@ Base paths: `/api/v3/computers-inventory`, `/api/v2/mdm/commands`, `/api/v1/jamf
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
 | `GET` | `/api/v3/computers-inventory` | `ComputerSearch`, `ComputerSearchPrint` | List computers (paginated; all pages by default); optional RSQL `filter` |
-| `GET` | `/api/v3/computers-inventory/{id}` | `ComputerGet`, `ComputerGetValue`, `computerGetManagementID` | Fetch single computer (optionally `?section=GENERAL` for MDM commands) |
+| `GET` | `/api/v3/computers-inventory/{id}` | `ComputerGet`, `ComputerGetValue`, `computer`, `computerGetManagementID` | Fetch computer inventory (default GENERAL; optional `?section=`) |
+| `GET` | `/api/v3/computers-inventory-detail/{id}` | `ComputerDetail`, `ComputerDetailValue`, `computer_detail` | Fetch all inventory sections |
 | `POST` | `/api/v2/mdm/commands` | `ComputerReboot`, `ComputerShutdown`, `ComputerLock`, `ComputerLogOut`, `ComputerErase`, `ComputerDeviceInfo`, `ComputerDeviceLocation`, `ComputerSecurityInfo`, `ComputerInstalledApps`, `ComputerManagedApps`, `ComputerCertificates` | Send MDM command (requires managementId from inventory) |
 | `POST` | `/api/v1/jamf-management-framework/redeploy/{id}` | `ComputerRedeploy` | Trigger Jamf Management Framework redeploy on a computer |
 
@@ -593,8 +594,11 @@ buddy package set <package-id> [--name=] [--notes=] [--info=] [--category=] [--p
 buddy computer list [--filter=<term|rsql>]
   └─ GET /api/v3/computers-inventory          (bare → general.name=="*term*"; page-size=200)
 
-buddy computer get <id>
-  └─ GET /api/v3/computers-inventory/{id}
+buddy computer get <id> [--section=GENERAL,HARDWARE]
+  └─ GET /api/v3/computers-inventory/{id}[?section=…]
+
+buddy computer detail <id>
+  └─ GET /api/v3/computers-inventory-detail/{id}
 
 buddy computer reboot <id> [id...]
   └─ GET /api/v3/computers-inventory/{id}?section=GENERAL  (per ID, for managementId)

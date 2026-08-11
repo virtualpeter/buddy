@@ -158,82 +158,134 @@ func truncateComputer(s string, n int) string {
 	return string(runes[:n-1]) + "…"
 }
 
-// ComputerGet fetches a single computer by ID and returns/prints details.
-func ComputerGet(credName, idStr string, logger *slog.Logger) error {
-	rec, err := ComputerGetValue(credName, idStr, logger)
+// ComputerGet fetches a single computer by ID and prints full inventory JSON
+// (passthrough of GET /api/v3/computers-inventory/{id}; default section is GENERAL).
+func ComputerGet(credName, idStr string, sections []string, logger *slog.Logger) error {
+	body, err := ComputerFetchInventory(credName, idStr, sections)
 	if err != nil {
 		return err
 	}
-	out, _ := json.MarshalIndent(rec, "", "  ")
-	fmt.Println(string(out))
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, body, "", "  "); err != nil {
+		fmt.Println(string(body))
+		return nil
+	}
+	fmt.Println(pretty.String())
 	return nil
 }
 
-// ComputerGetValue fetches a single computer by ID and returns a map for builtins.
-func ComputerGetValue(credName, idStr string, logger *slog.Logger) (map[string]interface{}, error) {
+// ComputerDetail prints full inventory from GET /api/v3/computers-inventory-detail/{id} (all sections).
+func ComputerDetail(credName, idStr string, logger *slog.Logger) error {
+	body, err := ComputerFetchDetail(credName, idStr)
+	if err != nil {
+		return err
+	}
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, body, "", "  "); err != nil {
+		fmt.Println(string(body))
+		return nil
+	}
+	fmt.Println(pretty.String())
+	return nil
+}
+
+// NormalizeComputerSections trims, uppercases, and dedupes section names for ?section=.
+func NormalizeComputerSections(sections []string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, s := range sections {
+		for _, part := range strings.Split(s, ",") {
+			part = strings.ToUpper(strings.TrimSpace(part))
+			if part == "" {
+				continue
+			}
+			if _, ok := seen[part]; ok {
+				continue
+			}
+			seen[part] = struct{}{}
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func computerInventoryPath(idStr string, sections []string) (string, error) {
+	id, err := strconv.Atoi(strings.TrimSpace(idStr))
+	if err != nil || id <= 0 {
+		return "", fmt.Errorf("invalid computer-id %q: must be positive integer", idStr)
+	}
+	path := "/api/v3/computers-inventory/" + strconv.Itoa(id)
+	secs := NormalizeComputerSections(sections)
+	if len(secs) == 0 {
+		return path, nil
+	}
+	q := url.Values{}
+	for _, s := range secs {
+		q.Add("section", s)
+	}
+	return path + "?" + q.Encode(), nil
+}
+
+// ComputerFetchInventory returns raw JSON from GET /api/v3/computers-inventory/{id}.
+// When sections is empty, Jamf defaults to the GENERAL section.
+func ComputerFetchInventory(credName, idStr string, sections []string) ([]byte, error) {
+	path, err := computerInventoryPath(idStr, sections)
+	if err != nil {
+		return nil, err
+	}
+	body, err := jamfGET(credName, path)
+	if err != nil {
+		return nil, fmt.Errorf("get computer %s: %w", strings.TrimSpace(idStr), err)
+	}
+	return body, nil
+}
+
+// ComputerFetchDetail returns raw JSON from GET /api/v3/computers-inventory-detail/{id} (all sections).
+func ComputerFetchDetail(credName, idStr string) ([]byte, error) {
 	id, err := strconv.Atoi(strings.TrimSpace(idStr))
 	if err != nil || id <= 0 {
 		return nil, fmt.Errorf("invalid computer-id %q: must be positive integer", idStr)
 	}
-	endpoint, err := ResolveEndpoint(credName, "/api/v3/computers-inventory/" + strconv.Itoa(id))
+	path := "/api/v3/computers-inventory-detail/" + strconv.Itoa(id)
+	body, err := jamfGET(credName, path)
+	if err != nil {
+		return nil, fmt.Errorf("get computer detail %s: %w", strings.TrimSpace(idStr), err)
+	}
+	return body, nil
+}
+
+// ComputerGetValue fetches inventory JSON and returns it as a map (full passthrough; no field projection).
+// sections maps to ?section= (empty = Jamf GENERAL default).
+func ComputerGetValue(credName, idStr string, sections []string, logger *slog.Logger) (map[string]interface{}, error) {
+	_ = logger
+	body, err := ComputerFetchInventory(credName, idStr, sections)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+	var out map[string]interface{}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("parse computer %s: %w", strings.TrimSpace(idStr), err)
 	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return nil, fmt.Errorf("get computer %d: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get computer %d status %d: %s", id, resp.StatusCode, string(body))
-	}
-	var detail computerInventoryDetailResponseV3
-	if err := json.Unmarshal(body, &detail); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	parsedID, err := parseComputerID(detail.ID)
+	return out, nil
+}
+
+// ComputerDetailValue fetches all-section inventory JSON as a map.
+func ComputerDetailValue(credName, idStr string, logger *slog.Logger) (map[string]interface{}, error) {
+	_ = logger
+	body, err := ComputerFetchDetail(credName, idStr)
 	if err != nil {
 		return nil, err
 	}
-	rec := map[string]interface{}{
-		"id":            parsedID,
-		"name":          "",
-		"serialNumber":  "",
-		"udid":          detail.UDID,
-		"managementId":  "",
+	var out map[string]interface{}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("parse computer detail %s: %w", strings.TrimSpace(idStr), err)
 	}
-	if detail.General != nil {
-		rec["name"] = detail.General.Name
-		rec["managementId"] = detail.General.ManagementID
-	}
-	if detail.SerialNumber != "" {
-		rec["serialNumber"] = detail.SerialNumber
-	} else if detail.Hardware != nil {
-		rec["serialNumber"] = detail.Hardware.SerialNumber
-	}
-	// Fallback: parse raw JSON for managementId if not in General
-	if rec["managementId"] == "" {
-		var raw map[string]interface{}
-		if err := json.Unmarshal(body, &raw); err == nil {
-			if v, ok := raw["managementId"]; ok {
-				if s, ok := v.(string); ok {
-					rec["managementId"] = s
-				}
-			}
-		}
-	}
-	return rec, nil
+	return out, nil
 }
 
 // computerGetManagementID fetches a computer's managementId (for MDM commands).
 func computerGetManagementID(credName string, computerID int) (string, error) {
-	endpoint, err := ResolveEndpoint(credName, "/api/v3/computers-inventory/" + strconv.Itoa(computerID) + "?section=GENERAL")
+	endpoint, err := ResolveEndpoint(credName, "/api/v3/computers-inventory/"+strconv.Itoa(computerID)+"?section=GENERAL")
 	if err != nil {
 		return "", err
 	}
