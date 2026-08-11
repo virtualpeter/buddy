@@ -179,8 +179,12 @@ buddy policy list [--filter=<keyword>] [--ids]    # List policies (keyword filte
 ### Group Commands
 
 ```sh
-buddy group get version <group-id>                # Show current version criterion
-buddy group set version <group-id> <version>      # Update version criterion
+buddy group smart members <group-id> [--filter=…]  # Effective membership (computer IDs)
+buddy group smart criteria <group-id>               # Show criteria JSON
+buddy group smart set-criteria <group-id> [--file=|-]  # Replace criteria (JSON array)
+buddy group smart version <group-id>                # Show current version criterion
+buddy group smart set-version <group-id> <version>  # Update version criterion
+buddy group static members <group-id> [--filter=…]  # Static group membership
 ```
 
 ### Scripting

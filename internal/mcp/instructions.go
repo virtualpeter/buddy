@@ -14,7 +14,7 @@ Tools: get_instructions, buddy_info, docs, jamf_schema (discovery only), buddysc
 Before resource work: docs query the object noun (e.g. smart_groups, policies, packages, profile-payloads, blueprints) then get that page.
 Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic PUT from schema.
 Packages/JCDS: package_ready / package_wait_ready / package_download.
-Groups: smart_group* (criteria) vs static_group* (membership) — do not mix; Platform device_group* is separate.
+Groups: smart_group* (criteria + smart_group_list_computers) vs static_group* (membership mutate) — do not mix; Platform device_group* is separate.
 buddyscript: prefer def main(): … return …; Starlark has no while/try/class (use for … in / range, or builtins like package_wait_ready for polling); builtins return bare values and raise on failure; MCP wraps {ok,value} only at the tool boundary.
 Jamf remote MCP (developer.jamf.com/mcp) is useful for product schemas; prefer buddy builtins for tenant changes.`
 
@@ -65,7 +65,7 @@ MCP hosts (Claude Desktop, Cursor, …) often time out tool calls. Do **not** pr
 
 ## Resource rules (do not invent from schema)
 
-- **Groups:** smart_group* (criteria) vs static_group* (membership) vs Platform device_group* — do not mix.
+- **Groups:** smart_group* (criteria + smart_group_list_computers) vs static_group* (membership mutate) vs Platform device_group* — do not mix.
 - **Profiles/ACS:** profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic profile PUT from jamf_schema.
 - **Packages/JCDS:** package_ready / package_wait_ready / package_download.
 - Jamf remote MCP (developer.jamf.com/mcp) = product schemas; buddy = tenant changes with your config/secrets.
@@ -108,7 +108,8 @@ const (
 		"Prefer def main(): … return … (no trailing top-level expr), or a single bare expression. " +
 		"Before resource work: docs query object noun (policies, packages, smart-groups, profile-payloads, blueprints). " +
 		"Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload — never jamf_put Classic profile XML. " +
-		"Packages: package_wait_ready / package_download. Groups: smart_group* vs static_group*. " +
+		"Packages: package_wait_ready / package_download. " +
+		"Groups: smart_group* (criteria + smart_group_list_computers) vs static_group* (membership mutate) — do not mix; Platform device_group* is separate. " +
 		"jamf_get/jamf_put only when no builtin exists. Top-level if/for must be inside functions. " +
 		"Starlark has no while/try/class (use for … in / range, or builtins like package_wait_ready for polling)."
 )

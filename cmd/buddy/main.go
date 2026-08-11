@@ -1147,21 +1147,10 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 			return errUnknownSubcommand("group list", groupType, []string{"smart", "static"})
 		}
 	case "get":
-		if len(args) >= 2 && args[0] == "version" {
-			groupID := strings.TrimSpace(args[1])
-			return buddy.GroupGetVersion(credName, opts, groupID, log)
-		}
-		if len(args) < 1 || args[0] == "version" {
+		if len(args) < 1 {
 			return fmt.Errorf("missing group-id; run 'buddy group help' for usage")
 		}
 		return buddy.GroupGet(credName, strings.TrimSpace(args[0]), log)
-	case "set":
-		if len(args) < 3 || args[0] != "version" {
-			return fmt.Errorf("missing 'version', group-id, or version value; run 'buddy group help' for usage")
-		}
-		groupID := strings.TrimSpace(args[1])
-		newVersion := strings.TrimSpace(args[2])
-		return buddy.GroupVersion(credName, opts, groupID, newVersion, log)
 	case "delete":
 		if len(args) < 1 {
 			return fmt.Errorf("missing group-id; run 'buddy group help' for usage")
@@ -1170,6 +1159,59 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 		return buddy.GroupDelete(credName, opts, groupID, log)
 	case "create":
 		return runGroupCreate(credName, opts, args, log)
+	case "smart":
+		if len(args) == 0 {
+			return fmt.Errorf("usage: buddy group smart <members|criteria|set-criteria|version|set-version> ...; run 'buddy group help' for usage")
+		}
+		sub := args[0]
+		args = args[1:]
+		switch sub {
+		case "members":
+			var filter string
+			fs := flag.NewFlagSet("group smart members", flag.ContinueOnError)
+			fs.StringVar(&filter, "filter", "", "client-side substring filter on id, name, or serial")
+			flagArgs, positionals := staticGroupSplitFlags(args)
+			if err := fs.Parse(flagArgs); err != nil {
+				return err
+			}
+			if len(positionals) < 1 {
+				return fmt.Errorf("missing <group-id>; run 'buddy group help' for usage")
+			}
+			groupID := strings.TrimSpace(positionals[0])
+			return buddy.GroupSmartListMembers(credName, groupID, filter, log)
+		case "criteria":
+			if len(args) < 1 {
+				return fmt.Errorf("missing <group-id>; run 'buddy group help' for usage")
+			}
+			return buddy.GroupSmartPrintCriteria(credName, strings.TrimSpace(args[0]), log)
+		case "set-criteria":
+			if len(args) < 1 {
+				return fmt.Errorf("missing <group-id>; run 'buddy group help' for usage")
+			}
+			groupID := strings.TrimSpace(args[0])
+			body, rest, err := readJSONFileArg(args[1:])
+			if err != nil {
+				return err
+			}
+			if len(rest) > 0 {
+				return fmt.Errorf("unexpected argument %q; usage: buddy group smart set-criteria <group-id> [--file=<json>|-]", rest[0])
+			}
+			return buddy.GroupSmartSetCriteria(credName, opts, groupID, body, log)
+		case "version":
+			if len(args) < 1 {
+				return fmt.Errorf("missing <group-id>; run 'buddy group help' for usage")
+			}
+			return buddy.GroupGetVersion(credName, opts, strings.TrimSpace(args[0]), log)
+		case "set-version":
+			if len(args) < 2 {
+				return fmt.Errorf("missing <group-id> or <version>; run 'buddy group help' for usage")
+			}
+			groupID := strings.TrimSpace(args[0])
+			newVersion := strings.TrimSpace(args[1])
+			return buddy.GroupVersion(credName, opts, groupID, newVersion, log)
+		default:
+			return errUnknownSubcommand("group smart", sub, []string{"members", "criteria", "set-criteria", "version", "set-version"})
+		}
 	case "static":
 		if len(args) == 0 {
 			return fmt.Errorf("usage: buddy group static <members|add|remove> ...; run 'buddy group help' for usage")
@@ -1248,7 +1290,7 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 			return errUnknownSubcommand("group static", sub, []string{"members", "add", "remove"})
 		}
 	default:
-		cands := []string{"list", "get", "set", "create", "delete", "static"}
+		cands := []string{"list", "get", "create", "delete", "smart", "static"}
 		msg := fmt.Sprintf("unknown group subcommand: %q", mode)
 		msg += formatDidYouMean(suggestClosest(mode, cands))
 		msg += fmt.Sprintf(" (use: %s)", strings.Join(cands, ", "))

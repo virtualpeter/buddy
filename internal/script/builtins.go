@@ -137,6 +137,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "smart_group_find_criteria", smartGroupFindCriteria(credName, logger))
 	putBuiltin(dict, "smart_group_update_criterion_value", smartGroupUpdateCriterionValue(credName, logger))
 	putBuiltin(dict, "group_delete", groupDelete(credName, logger))
+	putBuiltin(dict, "smart_group_list_computers", smartGroupListComputers(credName, logger))
 	putBuiltin(dict, "static_group_list_computers", staticGroupListComputers(credName, logger))
 	putBuiltin(dict, "static_group_create", staticGroupCreate(credName, logger))
 	putBuiltin(dict, "static_group_add_computers", staticGroupAddComputers(credName, logger))
@@ -678,6 +679,40 @@ func groupListBuiltin(name string, search groupSearchFunc, credName string, logg
 			_ = d.SetKey(starlark.String("id"), starlark.String(g.ID))
 			_ = d.SetKey(starlark.String("name"), starlark.String(g.Name))
 			_ = d.SetKey(starlark.String("description"), starlark.String(g.Description))
+			_ = list.Append(d)
+		}
+		return resultOK(list), nil
+	}
+}
+
+// smart_group_list_computers(group_id, filter?, tenant?, surface?, auth?) → {ok, value: list[dict]}
+func smartGroupListComputers(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var groupID, filter starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("smart_group_list_computers", args, kwargs, "group_id", &groupID, "filter?", &filter,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		members, err := buddy.SmartGroupFetchMembers(c, string(groupID))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		members = buddy.FilterStaticGroupMembers(members, string(filter))
+		list := starlark.NewList(nil)
+		for _, m := range members {
+			d := new(starlark.Dict)
+			_ = d.SetKey(starlark.String("id"), starlark.String(m.ID))
+			_ = d.SetKey(starlark.String("name"), starlark.String(m.Name))
+			_ = d.SetKey(starlark.String("serial"), starlark.String(m.Serial))
 			_ = list.Append(d)
 		}
 		return resultOK(list), nil

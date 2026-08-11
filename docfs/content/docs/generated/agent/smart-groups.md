@@ -9,6 +9,7 @@ keywords:
   - smart_group
   - smart_groups
   - criteria
+  - membership
   - group
   - groups
 ---
@@ -21,13 +22,15 @@ Pro v3 smart computer groups — dynamic membership via **criteria**. Distinct f
 
 - Do not mix with `static_group*` (explicit computer IDs) or Platform `device_group*`.
 - Do not invent criteria PUT bodies from `jamf_schema` alone — use the criteria helpers.
+- Effective membership: `smart_group_list_computers` / `GET /api/v3/computer-groups/smart-group-membership/{id}` (IDs only).
 - Do not assume Classic computergroup XML is the write path for smart groups (buddy uses `/api/v3/computer-groups/smart-groups`).
 
 ## Facts
 
 - List: `smart_groups(search=…)` · `buddy group list smart` — Summary list
 - Load: `smart_group(id=…)` / `smart_group(name=…)` · `buddy group get` — Full JSON; pass id or name, not both
-- Criteria: `smart_group_get_criteria` / `smart_group_set_criteria` / … · `buddy group get|set version` — CLI covers version criterion; other criteria via builtins
+- List members: `smart_group_list_computers(group_id, filter?)` · `buddy group smart members` — Pro membership endpoint; IDs only (`name`/`serial` empty)
+- Criteria: `smart_group_get_criteria` / `smart_group_set_criteria` / … · `buddy group smart criteria` / `set-criteria` — Round-trip JSON array; version helpers: `version` / `set-version`
 - Create / replace: `smart_group_create` / `smart_group_put` · `buddy group create smart` — Full body PUT; create from JSON file supported
 - Copy / migrate: `smart_group_copy` / `smart_group_migrate` — Upsert by exact name; clears siteId unless set
 
@@ -68,6 +71,35 @@ Returns: dict
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {},
   "title": "smart_group",
+  "type": "object"
+}
+```
+
+### smart_group_list_computers
+
+List effective membership
+
+Returns: list of {id,name,serial}
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "filter": {
+      "description": "client-side substring on id/name/serial",
+      "type": "string"
+    },
+    "group_id": {
+      "description": "group_id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "group_id"
+  ],
+  "title": "smart_group_list_computers",
   "type": "object"
 }
 ```
@@ -126,10 +158,11 @@ Returns: dict
 
 ```python
 def main():
+    members = smart_group_list_computers(group_id="123")
     smart_group_update_criterion_value(
         group_id="123",
         name_substring="version",
         new_value="2.0.0",
     )
-    return "ok"
+    return members
 ```

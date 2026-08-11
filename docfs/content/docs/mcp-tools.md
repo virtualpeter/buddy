@@ -21,7 +21,8 @@ Typed per-resource MCP tools (smart/static groups, profiles, policies, packages 
 |------|------------------|--------------------------------------|--------|
 | Policies | `policies` / `policy` | `policies` / `policy` / `policy_set*` / `policy_copy` | Invent Classic policy PUT from schema |
 | Smart group criteria | `smart-groups` / `smart` | `smart_group*` / `smart_group_update_criterion_value` | `static_group*` / invent criteria PUT |
-| Static membership | `static-groups` / `static` | `static_group_list_computers` / add/remove/set | `smart_group*` |
+| Smart group members | `smart-groups` / `smart` | `smart_group_list_computers` | Classic computergroup XML / invent from schema |
+| Static membership | `static-groups` / `static` | `static_group_list_computers` / add/remove/set | `smart_group*` for mutate |
 | Edit profile / ACS prefs | `profile-payloads` | `profile_xml` → `profile_xml_patch_payload` → `profile_put_xml` | Classic PUT from schema |
 | Create/clone profile | `profiles` / `profile-payloads` | `profile_create` / `profile_clone` / `profile_copy` | Hand-edit UUIDs |
 | Package after upload | `packages` / `jcds` | `package_wait_ready` / `package_ready` / `package_download` | Attach/download before READY |

@@ -152,6 +152,14 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
     - Fetches the smart group, scans its `criteria` list, and for each criterion whose `name` contains `name_substring`, sets `value` to `new_value`.
     - Raises if no criteria match.
 
+- `smart_group_list_computers(group_id, filter?, tenant?, surface?, auth?) → value: list[dict]`
+  - **Params**:
+    - `group_id` (string): Smart computer group ID.
+    - `filter?` (string, optional): Client-side substring; matched case-insensitively against `id`, `name`, and `serial`.
+    - `tenant?` / `surface?` / `auth?` (string, optional).
+  - **Returns**:
+    - `value`: list of dicts `{id, name, serial}` from `GET /api/v3/computer-groups/smart-group-membership/{id}`. Pro returns IDs only (`name`/`serial` empty).
+
 **Example (bump version criterion):**
 
 ```python

@@ -129,7 +129,7 @@ buddy help [command] [subcommand]
 | `cred` | Manage `config.yaml` tenants, auths, and platform secrets |
 | *(path)* | Execute a script: `buddy script.buddy` (`.buddy` preferred; `.star` still works) |
 | `policy` | Policies (get/set/clone/create/delete/find) |
-| `group` | Smart/static computer groups (list/get/set/create/delete; static membership) |
+| `group` | Smart/static computer groups (list/get/create/delete; smart/static membership) |
 | `profile` | macOS configuration profiles |
 | `package` | Package records (upload, metadata, history) |
 | `computer` | Computer inventory and MDM actions |

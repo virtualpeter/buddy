@@ -15,6 +15,7 @@ def main():
         fail("patch did not apply")
     # Group helper builtins must be registered (MCP wraps these).
     _ = smart_group_get_criteria
+    _ = smart_group_list_computers
     _ = static_group_list_computers
     print("mcp-smoke-offline: ok")
     return None

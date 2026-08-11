@@ -9,7 +9,8 @@ Pro v3 smart computer groups — dynamic membership via **criteria**. Distinct f
 |---------|-------------|-----|-------|
 | List | `smart_groups(search=…)` | `buddy group list smart` | Summary list |
 | Load | `smart_group(id=…)` / `smart_group(name=…)` | `buddy group get` | Full JSON; pass id or name, not both |
-| Criteria | `smart_group_get_criteria` / `smart_group_set_criteria` / … | `buddy group get\|set version` | CLI covers version criterion; other criteria via builtins |
+| List members | `smart_group_list_computers(group_id, filter?)` | `buddy group smart members` | Pro membership endpoint; IDs only (`name`/`serial` empty) |
+| Criteria | `smart_group_get_criteria` / `smart_group_set_criteria` / … | `buddy group smart criteria` / `set-criteria` | Round-trip JSON array; version helpers: `version` / `set-version` |
 | Create / replace | `smart_group_create` / `smart_group_put` | `buddy group create smart` | Full body PUT; create from JSON file supported |
 | Copy / migrate | `smart_group_copy` / `smart_group_migrate` | — | Upsert by exact name; clears siteId unless set |
 
@@ -17,12 +18,13 @@ Pro v3 smart computer groups — dynamic membership via **criteria**. Distinct f
 
 ```python
 def main():
+    members = smart_group_list_computers(group_id="123")
     smart_group_update_criterion_value(
         group_id="123",
         name_substring="version",
         new_value="2.0.0",
     )
-    return "ok"
+    return members
 ```
 
 ## Related

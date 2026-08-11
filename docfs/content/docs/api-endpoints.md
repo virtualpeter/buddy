@@ -362,9 +362,10 @@ Base path: `/api/v3/computer-groups`
 |--------|----------|---------|---------|
 | `GET` | `/api/v3/computer-groups/smart-groups` | `GroupSearchSmart`, `GroupListSmart`, `GroupFindID` | List smart groups (paginated, RSQL filter on `id`, `name`, `siteId`) |
 | `GET` | `/api/v3/computer-groups/static-groups` | `GroupSearchStatic`, `GroupListStatic` | List static groups (paginated, RSQL filter on `id`, `name`, `siteId`) |
-| `GET` | `/api/v3/computer-groups/smart-groups/{id}` | `GroupGetVersion`, `GroupVersion`, `GroupDelete` | Fetch smart group detail (name, criteria) |
+| `GET` | `/api/v3/computer-groups/smart-groups/{id}` | `GroupGetVersion`, `GroupVersion`, `GroupDelete`, criteria helpers | Fetch smart group detail (name, criteria) |
+| `GET` | `/api/v3/computer-groups/smart-group-membership/{id}` | `SmartGroupFetchMembers`, `GroupSmartListMembers` | Effective smart group membership (computer IDs) |
 | `POST` | `/api/v3/computer-groups/smart-groups` | `GroupCreateSmart`, `GroupCreateSmartNamed` | Create a smart computer group |
-| `PUT` | `/api/v3/computer-groups/smart-groups/{id}` | `GroupVersion` | Update smart group criteria (version value) |
+| `PUT` | `/api/v3/computer-groups/smart-groups/{id}` | `GroupVersion`, `SmartGroupSetCriteria` | Update smart group (criteria / version criterion) |
 | `DELETE` | `/api/v3/computer-groups/smart-groups/{id}` | `GroupDelete` | Delete a smart computer group |
 | `POST` | `/api/v3/computer-groups/static-groups` | `GroupCreateStatic`, `GroupCreateStaticNamed` | Create a static computer group |
 | `GET` | `/api/v3/computer-groups/static-groups/{id}` | `StaticGroupFetchMembers`, `StaticGroupPutAssignments` | Fetch static group (including assignments when present) |
@@ -499,10 +500,20 @@ buddy group list smart [--filter=<term|rsql>]
 buddy group list static [--filter=<term|rsql>]
   └─ GET /api/v3/computer-groups/static-groups      (paginated; bare → name=="*term*")
 
-buddy group get version <group-id>
+buddy group smart members <group-id>
+  └─ GET /api/v3/computer-groups/smart-group-membership/{id}
+
+buddy group smart criteria <group-id>
   └─ GET /api/v3/computer-groups/smart-groups/{id}
 
-buddy group set version <group-id> <version>
+buddy group smart set-criteria <group-id> [--file=|-]
+  └─ GET /api/v3/computer-groups/smart-groups/{id}
+  └─ PUT /api/v3/computer-groups/smart-groups/{id}
+
+buddy group smart version <group-id>
+  └─ GET /api/v3/computer-groups/smart-groups/{id}
+
+buddy group smart set-version <group-id> <version>
   └─ GET /api/v3/computer-groups/smart-groups/{id}
   └─ PUT /api/v3/computer-groups/smart-groups/{id}
 

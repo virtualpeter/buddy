@@ -174,7 +174,7 @@ var curatedDocEntries = []curatedDoc{
 		keywords: []string{"policy", "policies", "policy_set", "policy_copy", "policy_migrate", "trigger", "classic"}},
 	{id: "docs/smart-groups", title: "Smart computer groups", section: "Resources",
 		humanFile: "generated/human/smart-groups.md", agentFile: "generated/agent/smart-groups.md",
-		keywords: []string{"smart", "smart_group", "smart_groups", "criteria", "group", "groups"}},
+		keywords: []string{"smart", "smart_group", "smart_groups", "criteria", "membership", "smart_group_list_computers", "group", "groups"}},
 	{id: "docs/static-groups", title: "Static computer groups", section: "Resources",
 		humanFile: "generated/human/static-groups.md", agentFile: "generated/agent/static-groups.md",
 		keywords: []string{"static", "static_group", "static_groups", "membership", "assignments", "group", "groups"}},

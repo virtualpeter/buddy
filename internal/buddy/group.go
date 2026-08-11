@@ -32,14 +32,21 @@ type smartGroupV2 struct {
 }
 
 const uriSmartGroups = "/api/v3/computer-groups/smart-groups"
+const uriSmartGroupMembership = "/api/v3/computer-groups/smart-group-membership"
 const uriStaticGroups = "/api/v3/computer-groups/static-groups"
 const uriClassicComputerGroup = "/JSSResource/computergroups/id"
 
-// StaticComputerMember is one computer in a static group (from v2 assignments or Classic XML).
+// StaticComputerMember is one computer in a static or smart group membership list.
+// Pro smart-group-membership and static assignments may return IDs only (Name/Serial empty).
 type StaticComputerMember struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Serial string `json:"serial"`
+}
+
+// smartGroupMembershipJSON is GET /api/v3/computer-groups/smart-group-membership/{id}.
+type smartGroupMembershipJSON struct {
+	Members []int64 `json:"members"`
 }
 
 // computerGroupXMLRoot is the Classic API response for GET /JSSResource/computergroups/id/{id}.
@@ -432,6 +439,36 @@ func GroupDelete(credName string, opts Opts, groupID string, logger *slog.Logger
 	return nil
 }
 
+// parseSmartGroupMembership parses SmartGroupMembership JSON ({"members":[1,2,…]}).
+func parseSmartGroupMembership(body []byte) ([]StaticComputerMember, error) {
+	var raw smartGroupMembershipJSON
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse smart group membership: %w", err)
+	}
+	out := make([]StaticComputerMember, 0, len(raw.Members))
+	for _, id := range raw.Members {
+		if id <= 0 {
+			continue
+		}
+		out = append(out, StaticComputerMember{ID: fmt.Sprintf("%d", id)})
+	}
+	return out, nil
+}
+
+// SmartGroupFetchMembers returns effective membership for a smart group via
+// GET /api/v3/computer-groups/smart-group-membership/{id} (computer IDs only).
+func SmartGroupFetchMembers(credName, groupID string) ([]StaticComputerMember, error) {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return nil, fmt.Errorf("group id is required")
+	}
+	body, err := jamfGET(credName, fmt.Sprintf("%s/%s", uriSmartGroupMembership, url.PathEscape(groupID)))
+	if err != nil {
+		return nil, fmt.Errorf("fetch smart group membership %s: %w", groupID, err)
+	}
+	return parseSmartGroupMembership(body)
+}
+
 // StaticGroupFetchMembers returns computers in a static group: v2 GET first if JSON includes
 // "assignments"; otherwise Classic GET /JSSResource/computergroups/id/{id}.
 func StaticGroupFetchMembers(credName, groupID string) ([]StaticComputerMember, error) {
@@ -702,7 +739,35 @@ func GroupStaticListMembers(credName, groupID, filter string, _ *slog.Logger) er
 	if err != nil {
 		return err
 	}
-	members = FilterStaticGroupMembers(members, filter)
+	printGroupMembersTable(FilterStaticGroupMembers(members, filter))
+	return nil
+}
+
+// GroupSmartListMembers prints smart group effective members as a table.
+func GroupSmartListMembers(credName, groupID, filter string, _ *slog.Logger) error {
+	members, err := SmartGroupFetchMembers(credName, groupID)
+	if err != nil {
+		return err
+	}
+	printGroupMembersTable(FilterStaticGroupMembers(members, filter))
+	return nil
+}
+
+// GroupSmartPrintCriteria pretty-prints the smart group's criteria JSON array.
+func GroupSmartPrintCriteria(credName, groupID string, _ *slog.Logger) error {
+	crit, err := SmartGroupCriteriaValue(credName, groupID)
+	if err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(crit, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal criteria: %w", err)
+	}
+	fmt.Println(string(raw))
+	return nil
+}
+
+func printGroupMembersTable(members []StaticComputerMember) {
 	fmt.Printf("%-12s  %-36s  %s\n", "ID", "Name", "Serial")
 	fmt.Printf("%-12s  %-36s  %s\n", "------------", "------------------------------------", "------------------------------")
 	for _, m := range members {
@@ -717,7 +782,6 @@ func GroupStaticListMembers(credName, groupID, filter string, _ *slog.Logger) er
 		fmt.Printf("%-12s  %-36s  %s\n", m.ID, truncateRunes(name, 36), truncateRunes(serial, 28))
 	}
 	fmt.Printf("\n%d computer(s)\n", len(members))
-	return nil
 }
 
 func truncateRunes(s string, max int) string {
@@ -776,6 +840,56 @@ func SmartGroupCriteriaValue(credName, groupID string) ([]any, error) {
 		return nil, fmt.Errorf("smart group %s: criteria is not an array", groupID)
 	}
 	return lst, nil
+}
+
+// SmartGroupSetCriteria replaces the criteria array on a smart group (fetch → replace → PUT).
+// criteriaJSON must be a JSON array (same shape as smart_group_get_criteria / buddy group smart criteria).
+func SmartGroupSetCriteria(credName string, opts Opts, groupID string, criteriaJSON []byte, logger *slog.Logger) error {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return fmt.Errorf("group id is required")
+	}
+	criteriaJSON = bytes.TrimSpace(criteriaJSON)
+	if len(criteriaJSON) == 0 {
+		return fmt.Errorf("criteria JSON is empty")
+	}
+	var criteria []any
+	if err := json.Unmarshal(criteriaJSON, &criteria); err != nil {
+		return fmt.Errorf("criteria must be a JSON array: %w", err)
+	}
+	root, err := SmartGroupFetchValue(credName, groupID)
+	if err != nil {
+		return err
+	}
+	name, _ := root["name"].(string)
+	root["criteria"] = criteria
+	payload, err := json.Marshal(root)
+	if err != nil {
+		return fmt.Errorf("marshal smart group: %w", err)
+	}
+	if !opts.SkipConfirm {
+		label := name
+		if label == "" {
+			label = groupID
+		} else {
+			label = fmt.Sprintf("%q (ID %s)", label, groupID)
+		}
+		msg := fmt.Sprintf("\nReplace criteria on smart group %s (%d criterion(s))", label, len(criteria))
+		if !ConfirmPrompt(msg, logger) {
+			return nil
+		}
+	}
+	opts.SkipConfirm = true
+	if err := GroupPutSmartRaw(credName, opts, groupID, payload, logger); err != nil {
+		return err
+	}
+	fmt.Printf("Updated smart group %s criteria (%d criterion(s))\n", groupID, len(criteria))
+	return nil
+}
+
+// GroupSmartSetCriteria is the CLI entry for smart set-criteria.
+func GroupSmartSetCriteria(credName string, opts Opts, groupID string, criteriaJSON []byte, logger *slog.Logger) error {
+	return SmartGroupSetCriteria(credName, opts, groupID, criteriaJSON, logger)
 }
 
 // SmartGroupUpdateCriterionValue sets value on every criterion whose name contains nameSubstring

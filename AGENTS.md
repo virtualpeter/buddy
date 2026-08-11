@@ -58,7 +58,7 @@ See **[docs/mcp.md](docs/mcp.md)** for MCP host setup and **[docs/mcp-tools.md](
 - Prefer an absolute `command` path and `args: ["mcp"]`.
 - Docs and examples are embedded in the binary (`docfs/`; refresh with `make sync-docfs`). `AGENTS.md` and `.cursor/rules` are **repo/editor only** (not embedded for MCP). `BUDDY_DOCS_ROOT` is an optional live override. Agents should use the MCP `docs` tool (list/get); the same pages are also `buddy://docs/...` resources. List `query` matches id/title/section/**keywords** (resource nouns like `policy`, `jcds`, `blueprint`) — then `get` the object cookbook (`docs/policies`, …).
 - **Resource cookbooks (structured docs):** edit `internal/buddy/*_doc.go` (e.g. `policy_doc.go`, `app_doc.go`), then `make gendocs` (writes `docs/generated/{human,agent}/*.md` + `internal/help/*_gen.go`). Do not hand-edit generated markdown. BuddyScript language pages and Guides remain hand-authored under `docs/*.md`.
-- Prefer named builtins (smart criteria vs static membership, profile payload edits) via `buddyscript`; do not invent Classic PUTs from `jamf_schema` alone.
+- Prefer named builtins (smart criteria / smart_group_list_computers vs static membership, profile payload edits) via `buddyscript`; do not invent Classic PUTs from `jamf_schema` alone.
 - Tool results are always `{ok, value, ...}` objects (lists under `value`) so hosts accept `structuredContent`. buddyscript builtins return bare values and raise on failure; the envelope is MCP-only.
 - Reload or restart the AI host after changing MCP config or rebuilding buddy.
 

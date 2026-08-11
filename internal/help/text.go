@@ -18,7 +18,7 @@ Commands:
   category Manage categories (list/get/create/delete)
   macapp   Manage Classic Mac App Store apps (list/get/create/delete)
   app      Manage policy apps (list/get/upgrade)
-  group    Manage computer groups (list/get/set/create/delete; static membership)
+  group    Manage computer groups (list/get/create/delete; smart/static membership)
   profile  Manage configuration profiles (list/get/set/clone/redeploy)
   package  Manage package records (list/get/download/upload/delete/set/history)
   computer Manage computers and MDM commands (list/get/reboot/lock/erase/...)
