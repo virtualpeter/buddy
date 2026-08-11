@@ -197,12 +197,13 @@ Reports the buddy binary version (same as the MCP handshake `Implementation.Vers
     ],
     "channel_access": "readonly",
     "channel_tenant": "sandbox",
-    "channel_tenants": ["sandbox"]
+    "channel_tenants": ["sandbox"],
+    "deny_builtins": ["jamf_*", "computer_erase"]
   }
 }
 ```
 
-`tenant` / `auth` reflect the process default (`--tenant` / `--user`, or `channels.mcp.tenant` / `tenant.default`). Empty `auth` means auto-pick. `auths` is filtered by each auth’s `channels:` list (omit = all). `channel_access` / `channel_tenants` come from top-level `channels.mcp` policy. Live Jamf auth is proven by the first `buddyscript` Jamf call, or CLI `buddy auth test`.
+`tenant` / `auth` reflect the process default (`--tenant` / `--user`, or `channels.mcp.tenant` / `tenant.default`). Empty `auth` means auto-pick. `auths` is filtered by each auth’s `channels:` list (omit = all). `channel_access` / `channel_tenants` / `deny_builtins` come from top-level `channels.mcp` policy. `deny_builtins` (exact names or trailing-`*` prefix globs like `jamf_*`) makes matching buddyscript builtins raise on call so agents cannot fall back to generic HTTP — treat that raise as a coverage gap. Live Jamf auth is proven by the first `buddyscript` Jamf call, or CLI `buddy auth test`.
 
 ### `jamf_schema` tips
 

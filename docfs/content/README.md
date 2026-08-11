@@ -93,6 +93,7 @@ buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=us --
 buddy cred set auth sandbox-admin --type=oauth --client-id=abc --tenants=sandbox --channels=cli,ide
 buddy cred set auth sandbox-platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp,notebook
 buddy cred set channel mcp --access=readonly --tenant=sandbox
+buddy cred set channel mcp --deny-builtins=jamf_*,computer_erase
 buddy cred set secret sandbox-admin --client-secret
 buddy cred use sandbox
 buddy cred use --mcp sandbox

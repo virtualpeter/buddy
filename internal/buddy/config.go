@@ -712,6 +712,12 @@ func (cfg *Config) ValidateTenantSelectionAndChannels() error {
 				return err
 			}
 		}
+		normalized, err := NormalizeDenyBuiltins(p.DenyBuiltins)
+		if err != nil {
+			return fmt.Errorf("channels.%s.deny_builtins: %w", ch, err)
+		}
+		p.DenyBuiltins = normalized
+		cfg.Channels[ch] = p
 	}
 	for name, a := range cfg.Auths {
 		for _, c := range a.Channels {

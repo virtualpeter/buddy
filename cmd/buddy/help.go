@@ -108,6 +108,7 @@ Flags for 'set channel':
   --access=readonly|full            Clamp mutates for this client (omit = full)
   --tenant=<name>                   Default tenant for this client
   --tenants=<a,b>                   Optional tenant allowlist (empty clears)
+  --deny-builtins=<a,b,jamf_*>      Block named buddyscript builtins (empty clears)
 
 Flags for 'set secret':
   --password[=value]                Store basic-auth password (no-echo prompt if omitted)
@@ -128,12 +129,16 @@ Flags for 'set secret':
   Auth channels (cli/mcp/ide/notebook) default to all. Channel policy access and
   auth access both clamp mutates (most restrictive wins). Restrict MCP e.g.:
   channels.mcp.access=readonly and/or auth channels excluding mcp from full auths.
+  channels.mcp.deny_builtins blocks named builtins (exact or trailing-* glob, e.g.
+  jamf_*) so MCP agents cannot fall back to generic jamf_get/jamf_put; treat raises
+  as coverage gaps.
 
 Examples:
   buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=apac --tenant-id=…
   buddy cred set auth platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp,notebook
   buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox --surface=instance --channels=cli,ide
   buddy cred set channel mcp --access=readonly --tenant=sandbox --tenants=sandbox
+  buddy cred set channel mcp --deny-builtins=jamf_*,computer_erase
   buddy cred set secret platform-ro --client-secret
   buddy cred delete auth sandbox-admin
   buddy cred delete tenant sandbox

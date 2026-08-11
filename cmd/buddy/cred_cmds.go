@@ -152,7 +152,7 @@ func runCredUse(cfg *buddy.Config, args []string) error {
 		fmt.Printf("tenant.default set to %q\n", name)
 		return nil
 	}
-	if err := cfg.SetChannelPolicy(surface, "", name, nil, false, true, false); err != nil {
+	if err := cfg.SetChannelPolicy(surface, "", name, nil, false, true, false, nil, false); err != nil {
 		return err
 	}
 	if err := buddy.SaveConfig(cfg); err != nil {
@@ -216,16 +216,21 @@ func runCredShowChannel(cfg *buddy.Config, name string) error {
 	} else {
 		fmt.Printf("tenants:  %s\n", strings.Join(p.Tenants, ", "))
 	}
+	if len(p.DenyBuiltins) == 0 {
+		fmt.Printf("deny_builtins:  (none)\n")
+	} else {
+		fmt.Printf("deny_builtins:  %s\n", strings.Join(p.DenyBuiltins, ", "))
+	}
 	return nil
 }
 
 func runCredSetChannel(cfg *buddy.Config, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: buddy cred set channel <cli|mcp|ide|notebook> [--access=readonly|full] [--tenant=…] [--tenants=a,b]")
+		return fmt.Errorf("usage: buddy cred set channel <cli|mcp|ide|notebook> [--access=readonly|full] [--tenant=…] [--tenants=a,b] [--deny-builtins=a,b,jamf_*]")
 	}
 	name := strings.ToLower(strings.TrimSpace(args[0]))
-	var access, tenant, tenantsCSV string
-	var setAccess, setTenant, setTenants bool
+	var access, tenant, tenantsCSV, denyCSV string
+	var setAccess, setTenant, setTenants, setDeny bool
 	for _, a := range args[1:] {
 		switch {
 		case strings.HasPrefix(a, "--access="):
@@ -240,12 +245,18 @@ func runCredSetChannel(cfg *buddy.Config, args []string) error {
 		case strings.HasPrefix(a, "--tenants="):
 			tenantsCSV = strings.TrimPrefix(a, "--tenants=")
 			setTenants = true
+		case a == "--deny-builtins=" || a == "--deny-builtins":
+			denyCSV = ""
+			setDeny = true
+		case strings.HasPrefix(a, "--deny-builtins="):
+			denyCSV = strings.TrimPrefix(a, "--deny-builtins=")
+			setDeny = true
 		default:
-			return fmt.Errorf("unknown flag %q; usage: buddy cred set channel <name> [--access=…] [--tenant=…] [--tenants=…]", a)
+			return fmt.Errorf("unknown flag %q; usage: buddy cred set channel <name> [--access=…] [--tenant=…] [--tenants=…] [--deny-builtins=…]", a)
 		}
 	}
-	if !setAccess && !setTenant && !setTenants {
-		return fmt.Errorf("specify at least one of --access, --tenant, --tenants")
+	if !setAccess && !setTenant && !setTenants && !setDeny {
+		return fmt.Errorf("specify at least one of --access, --tenant, --tenants, --deny-builtins")
 	}
 	var tenants []string
 	if setTenants && tenantsCSV != "" {
@@ -253,6 +264,15 @@ func runCredSetChannel(cfg *buddy.Config, args []string) error {
 			p = strings.TrimSpace(p)
 			if p != "" {
 				tenants = append(tenants, p)
+			}
+		}
+	}
+	var denyBuiltins []string
+	if setDeny && denyCSV != "" {
+		for _, p := range strings.Split(denyCSV, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				denyBuiltins = append(denyBuiltins, p)
 			}
 		}
 	}
@@ -268,7 +288,7 @@ func runCredSetChannel(cfg *buddy.Config, args []string) error {
 			}
 		}
 	}
-	if err := cfg.SetChannelPolicy(name, access, tenant, tenants, setAccess, setTenant, setTenants); err != nil {
+	if err := cfg.SetChannelPolicy(name, access, tenant, tenants, setAccess, setTenant, setTenants, denyBuiltins, setDeny); err != nil {
 		return err
 	}
 	if err := cfg.ValidateTenantSelectionAndChannels(); err != nil {

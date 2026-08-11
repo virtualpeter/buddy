@@ -7,11 +7,12 @@ const toolPrerequisite = "Prerequisite: call get_instructions at least once befo
 // buddy usage guidance (including how buddy relates to Jamf's hosted MCP).
 const ServerInstructions = `buddy is a local Jamf automation MCP using your buddy config/secrets.
 
-Call get_instructions first (firm playbook). Then: docs → buddyscript named builtins → jamf_get/jamf_put only when no builtin exists.
+Call get_instructions first (firm playbook). Then: docs → buddyscript named builtins → jamf_get/jamf_put only when no builtin exists and not denied.
 Prefer one buddyscript def main() over many tiny round-trips (host timeouts); do not micro-batch “just in case.”
 
 Tools: get_instructions, buddy_info, docs, jamf_schema (discovery only), buddyscript (primary).
 Before resource work: docs query the object noun (e.g. smart_groups, policies, packages, profile-payloads, blueprints) then get that page.
+Respect buddy_info.deny_builtins (channels.mcp.deny_builtins); blocked builtins raise — treat as a gap, do not invent schema HTTP.
 Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic PUT from schema.
 Packages/JCDS: package_ready / package_wait_ready / package_download.
 Groups: smart_group* (criteria + smart_group_list_computers) vs static_group* (membership mutate) — do not mix; Platform device_group* is separate.
@@ -65,6 +66,7 @@ MCP hosts (Claude Desktop, Cursor, …) often time out tool calls. Do **not** pr
 
 ## Resource rules (do not invent from schema)
 
+- Respect **buddy_info.deny_builtins** (channels.mcp.deny_builtins). Blocked builtins raise on call — treat as a coverage gap; do not invent alternate HTTP.
 - **Groups:** smart_group* (criteria + smart_group_list_computers) vs static_group* (membership mutate) vs Platform device_group* — do not mix.
 - **Profiles/ACS:** profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic profile PUT from jamf_schema.
 - **Packages/JCDS:** package_ready / package_wait_ready / package_download.
@@ -80,6 +82,7 @@ const (
 	descBuddyInfo = toolPrerequisite +
 		"Buddy binary version and MCP session selection: default tenant, optional auth pin, " +
 		"and which tenants/auths are available on the mcp channel (respects auth channels:). " +
+		"Includes deny_builtins from channels.mcp (exact or trailing-* globs). " +
 		"Does not call Jamf. Live auth is proven by the first buddyscript Jamf call, or CLI buddy auth test."
 
 	descDocs = toolPrerequisite +

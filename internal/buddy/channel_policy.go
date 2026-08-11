@@ -20,9 +20,10 @@ func AllBuddyChannels() []string {
 
 // ChannelPolicy is per-client policy under top-level channels:.
 type ChannelPolicy struct {
-	Access  string   `yaml:"access,omitempty"`  // readonly | full (omit = full)
-	Tenant  string   `yaml:"tenant,omitempty"`  // default tenant for this channel
-	Tenants []string `yaml:"tenants,omitempty"` // optional allowlist
+	Access       string   `yaml:"access,omitempty"`        // readonly | full (omit = full)
+	Tenant       string   `yaml:"tenant,omitempty"`        // default tenant for this channel
+	Tenants      []string `yaml:"tenants,omitempty"`       // optional allowlist
+	DenyBuiltins []string `yaml:"deny_builtins,omitempty"` // exact names or trailing-* prefix globs
 }
 
 // EffectiveAccess returns channel access, defaulting to full.
@@ -48,7 +49,7 @@ func (cfg *Config) ChannelPolicy(channel string) ChannelPolicy {
 }
 
 // SetChannelPolicy merges fields into channels[channel] (creates map/entry as needed).
-func (cfg *Config) SetChannelPolicy(channel string, access, tenant string, tenants []string, setAccess, setTenant, setTenants bool) error {
+func (cfg *Config) SetChannelPolicy(channel string, access, tenant string, tenants []string, setAccess, setTenant, setTenants bool, denyBuiltins []string, setDenyBuiltins bool) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
@@ -76,6 +77,17 @@ func (cfg *Config) SetChannelPolicy(channel string, access, tenant string, tenan
 	}
 	if setTenants {
 		p.Tenants = normalizeNameList(tenants)
+	}
+	if setDenyBuiltins {
+		normalized, err := NormalizeDenyBuiltins(denyBuiltins)
+		if err != nil {
+			return err
+		}
+		if len(normalized) == 0 {
+			p.DenyBuiltins = nil
+		} else {
+			p.DenyBuiltins = normalized
+		}
 	}
 	cfg.Channels[channel] = p
 	return nil

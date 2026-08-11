@@ -7,9 +7,9 @@ How AI agents should use buddy MCP tools after the lean-surface cut.
 0. **`get_instructions`** — call once at session start (firm playbook: dialect, return contract, docs-first, long-work guidance).
 1. **`docs`** — object-type cookbooks before inventing. Query a **resource noun** (`policy`, `packages`, `smart_groups` / `smart groups`, `blueprints`, …) or a page id (`profile-payloads`, `mcp-tools`, `builtins`), then `get` that page.
 2. **`buddyscript`** with **named builtins** (`smart_group_*`, `policy_migrate`, `profile_xml_*`, `package_wait_ready`, `blueprint_*`, …) for Jamf work. Prefer **one** `def main()` over many tiny round-trips (host timeouts).
-3. **`jamf_get` / `jamf_put` / …** via `buddyscript` only when no named builtin exists.
+3. **`jamf_get` / `jamf_put` / …** via `buddyscript` only when no named builtin exists **and** the MCP channel has not denied them (`channels.mcp.deny_builtins` / `buddy_info.deny_builtins`).
 
-Do **not** invent Classic/Pro HTTP from `jamf_schema` when a named builtin already covers the job. Schema is for discovery; builtins encode Jamf quirks (pagination, READY polling, criteria vs membership, payload entity encoding, ACS).
+Do **not** invent Classic/Pro HTTP from `jamf_schema` when a named builtin already covers the job. Schema is for discovery; builtins encode Jamf quirks (pagination, READY polling, criteria vs membership, payload entity encoding, ACS). When a call raises *blocked for channel … deny_builtins*, treat it as a gap: use a named builtin or stop — do not invent an alternate HTTP path.
 
 Typed per-resource MCP tools (smart/static groups, profiles, policies, packages READY/download, Platform CRUD, list stubs) were **removed** to cut host schema token cost. The same capabilities remain as buddyscript builtins — lean MCP did **not** remove ACS/profile quirk handling.
 

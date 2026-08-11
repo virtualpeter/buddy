@@ -25,6 +25,7 @@ type SessionSelection struct {
 	ChannelAccess  string        `json:"channel_access,omitempty"`
 	ChannelTenant  string        `json:"channel_tenant,omitempty"`
 	ChannelTenants []string      `json:"channel_tenants,omitempty"`
+	DenyBuiltins   []string      `json:"deny_builtins,omitempty"`
 	// Legacy keys kept for /api/creds compatibility (auth pin / auth names).
 	Active string   `json:"active,omitempty"`
 	Creds  []string `json:"creds,omitempty"`
@@ -62,6 +63,7 @@ func SessionSelectionFor(channel, defaultTenant, defaultAuth string) SessionSele
 	out.ChannelAccess = pol.EffectiveAccess()
 	out.ChannelTenant = strings.TrimSpace(pol.Tenant)
 	out.ChannelTenants = append([]string(nil), pol.Tenants...)
+	out.DenyBuiltins = append([]string(nil), pol.DenyBuiltins...)
 
 	if tenant == "" {
 		tenant = cfg.DefaultTenant(channel)
@@ -120,6 +122,7 @@ func (s SessionSelection) ToMap() map[string]any {
 		"channel_access":  s.ChannelAccess,
 		"channel_tenant":  s.ChannelTenant,
 		"channel_tenants": s.ChannelTenants,
+		"deny_builtins":   s.DenyBuiltins,
 		"active":          s.Active,
 		"creds":           s.Creds,
 	}
@@ -140,5 +143,6 @@ func (s SessionSelection) InfoMap(version string) map[string]any {
 		"channel_access":  s.ChannelAccess,
 		"channel_tenant":  s.ChannelTenant,
 		"channel_tenants": s.ChannelTenants,
+		"deny_builtins":   s.DenyBuiltins,
 	}
 }

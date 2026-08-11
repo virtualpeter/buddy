@@ -49,7 +49,7 @@ Or run `./buddy` from the build directory.
 
 Default config path: `~/.config/buddy/config.yaml` (override config root with `XDG_CONFIG_HOME`).
 
-Config is split into **tenant selection** (`tenant.default`), **channel policies** (`channels.cli|mcp|ide|notebook` with optional `access` / `tenant` / `tenants`), **tenants** (instance URL and/or Platform `region`+`tenantId`), and **auths** (command/basic/oauth principals linked to one or more tenants). Optional auth `channels:` (`cli`/`mcp`/`ide`/`notebook`; omit = all) limits which buddy clients may use that auth. Legacy shapes migrate on load; `tenant.cli|mcp|serve|ide` and the `serve` client are removed (use `channels.*`).
+Config is split into **tenant selection** (`tenant.default`), **channel policies** (`channels.cli|mcp|ide|notebook` with optional `access` / `tenant` / `tenants` / `deny_builtins`), **tenants** (instance URL and/or Platform `region`+`tenantId`), and **auths** (command/basic/oauth principals linked to one or more tenants). Optional auth `channels:` (`cli`/`mcp`/`ide`/`notebook`; omit = all) limits which buddy clients may use that auth. Legacy shapes migrate on load; `tenant.cli|mcp|serve|ide` and the `serve` client are removed (use `channels.*`).
 
 - `buddy cred help` — set/list/get/delete tenants, auths, and channel policies; manage secrets; `cred use` / `cred set channel`
 - `buddy cred set secret <auth>` — store password/client secret in Keychain, file, or pass

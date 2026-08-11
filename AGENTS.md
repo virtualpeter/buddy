@@ -70,7 +70,7 @@ Config is **tenants** + **auths** + optional **channels** policies (breaking cha
 - **Tenant** — Jamf environment: instance `url` and/or Platform `region` + `tenantId`.
 - **Auth** — secret-bearing principal (`command` / `basic` / `oauth`) linked to one or more tenants via `tenants: […]`. A platform clientId may list multiple tenants. Optional `access` (`full`|`readonly`) and `surface` (`any`|`platform`|`instance`).
 - **Tenant selection** — `tenant.default` plus optional `channels.<cli|mcp|ide|notebook>.tenant`. Global `--tenant` still wins; `--user` / `--auth` pins an auth. buddyscript/MCP use tenant-first session kwargs (`tenant=` / `surface=` / `auth=`); `cred=` was removed.
-- **Channel policy** — optional `channels.<client>.access` (`readonly`|`full`), `tenant`, and `tenants` allowlist. Clamps mutates and filters selectable tenants (most restrictive with auth access wins).
+- **Channel policy** — optional `channels.<client>.access` (`readonly`|`full`), `tenant`, `tenants` allowlist, and `deny_builtins` (exact names or trailing-`*` globs like `jamf_*`). Clamps mutates, filters selectable tenants, and can block named buddyscript builtins on that channel (most restrictive with auth access wins for mutates).
 - **Auth channels** — optional `channels: [cli, mcp, ide, notebook]` on each auth (omit = all). Filters auto-pick and rejects pins / UI choices. Notebook and IDE are separate clients (no shared `serve` channel).
 
 | `auth.type` | Config fields | Secret storage |

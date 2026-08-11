@@ -48,6 +48,9 @@ func TestServerInstructions(t *testing.T) {
 	if !strings.Contains(ServerInstructions, "smart_group") {
 		t.Fatal("instructions should distinguish smart vs static groups")
 	}
+	if !strings.Contains(ServerInstructions, "deny_builtins") {
+		t.Fatal("instructions should mention deny_builtins")
+	}
 	if !strings.Contains(ServerInstructions, "smart_group_list_computers") {
 		t.Fatal("instructions should name smart_group_list_computers for effective membership")
 	}
@@ -82,6 +85,7 @@ func TestAgentPlaybook(t *testing.T) {
 		"round-trips",
 		"package_wait_ready",
 		"profile_put_xml",
+		"deny_builtins",
 		"developer.jamf.com/mcp",
 	} {
 		if !strings.Contains(AgentPlaybook, want) {

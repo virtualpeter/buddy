@@ -304,7 +304,29 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 			})
 		}
 	}
+	wrapDeniedBuiltins(dict)
 	return dict
+}
+
+// wrapDeniedBuiltins replaces channel-denied builtins with raisers so calls fail loudly.
+func wrapDeniedBuiltins(dict starlark.StringDict) {
+	patterns := buddy.ActiveChannelDenyBuiltins()
+	if len(patterns) == 0 {
+		return
+	}
+	channel := buddy.ActiveChannel()
+	for name, val := range dict {
+		if _, ok := val.(*starlark.Builtin); !ok {
+			continue
+		}
+		if !buddy.BuiltinNameDenied(patterns, name) {
+			continue
+		}
+		bName := name
+		dict[bName] = starlark.NewBuiltin(bName, func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			return nil, buddy.ErrBuiltinDenied(channel, bName)
+		})
+	}
 }
 
 func policyDetailsToStarlark(d *buddy.PolicyDetails) *starlark.Dict {
