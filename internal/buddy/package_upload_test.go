@@ -240,26 +240,91 @@ func TestPackageUploadShouldWaitNotReady(t *testing.T) {
 	}
 	if !packageUploadShouldWaitNotReady(&PackageRecord{
 		CloudTransferStatus: "PENDING",
-		Sha3512:             "x",
+		HashType:            "SHA3_512",
+		HashValue:           "x",
 	}) {
-		t.Fatal("pending with sha3512")
+		t.Fatal("pending with SHA3 hashValue")
+	}
+	if !packageUploadShouldWaitNotReady(&PackageRecord{
+		CloudTransferStatus: "PENDING",
+		HashValue:           "x", // hashType often omitted mid-transfer
+	}) {
+		t.Fatal("pending with hashValue and empty hashType")
+	}
+	if packageUploadShouldWaitNotReady(&PackageRecord{
+		CloudTransferStatus: "PENDING",
+		Sha3512:             "x", // sha3512 alone is not the signal
+	}) {
+		t.Fatal("sha3512 alone should not force wait")
 	}
 	if packageUploadShouldWaitNotReady(&PackageRecord{
 		CloudTransferStatus: "PENDING",
 	}) {
-		t.Fatal("pending without checksums is failed upload")
+		t.Fatal("pending without hashValue is failed upload")
 	}
 	if packageUploadShouldWaitNotReady(&PackageRecord{
 		CloudTransferStatus: "PENDING",
-		Sha3512:             "x",
+		HashType:            "SHA3_512",
+		HashValue:           "x",
 		Sha256:              "y",
 	}) {
 		t.Fatal("has comparable checksum — not wait-only")
 	}
 	if packageUploadShouldWaitNotReady(&PackageRecord{
+		CloudTransferStatus: "PENDING",
+		HashType:            "SHA_256",
+		HashValue:           "y",
+	}) {
+		t.Fatal("SHA-256 hashValue is comparable, not pending-only evidence")
+	}
+	if packageUploadShouldWaitNotReady(&PackageRecord{
 		CloudTransferStatus: packageCloudTransferReady,
-		Sha3512:             "x",
+		HashType:            "SHA3_512",
+		HashValue:           "x",
 	}) {
 		t.Fatal("READY should not wait-not-ready")
+	}
+}
+
+func TestPackageIssueClass(t *testing.T) {
+	t.Parallel()
+	if packageIssueClass(nil) != "" {
+		t.Fatal("nil")
+	}
+	if got := packageIssueClass(&PackageRecord{}); got != PackageIssueFailedUpload {
+		t.Fatalf("empty record: %q", got)
+	}
+	if got := packageIssueClass(&PackageRecord{
+		CloudTransferStatus: "PENDING",
+		HashType:            "SHA3_512",
+		HashValue:           "abc",
+	}); got != PackageIssuePending {
+		t.Fatalf("pending: %q", got)
+	}
+	if got := packageIssueClass(&PackageRecord{
+		CloudTransferStatus: packageCloudTransferReady,
+	}); got != PackageIssueUnusableReady {
+		t.Fatalf("READY no sha256: %q", got)
+	}
+	if got := packageIssueClass(&PackageRecord{
+		CloudTransferStatus: packageCloudTransferReady,
+		Sha256:              "deadbeef",
+	}); got != "" {
+		t.Fatalf("healthy: %q", got)
+	}
+}
+
+func TestParsePackageScanClasses(t *testing.T) {
+	t.Parallel()
+	all, err := ParsePackageScanClasses("")
+	if err != nil || len(all) != 3 {
+		t.Fatalf("default all: %v %v", all, err)
+	}
+	got, err := ParsePackageScanClasses("failed-upload,pending")
+	if err != nil || len(got) != 2 || got[0] != PackageIssueFailedUpload {
+		t.Fatalf("got %#v err=%v", got, err)
+	}
+	if _, err := ParsePackageScanClasses("nope"); err == nil {
+		t.Fatal("expected error")
 	}
 }

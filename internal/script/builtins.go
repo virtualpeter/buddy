@@ -218,6 +218,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "run_workflow", runWorkflowBuiltin(credName, logger))
 
 	putBuiltin(dict, "package_upload", packageUpload(credName, logger))
+	putBuiltin(dict, "packages_scan", packagesScanBuiltin(credName, logger))
 	putBuiltin(dict, "package_ready", packageReady(credName, logger))
 	putBuiltin(dict, "package_wait_ready", packageWaitReady(credName, logger))
 	putBuiltin(dict, "package_download", packageDownload(credName, logger))
@@ -1994,6 +1995,51 @@ func packageWaitReady(credName string, logger *slog.Logger) func(*starlark.Threa
 			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
+	}
+}
+
+// packages_scan(class?, filter?, tenant?, surface?, auth?) → list of issue dicts
+func packagesScanBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var class, filter starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("packages_scan", args, kwargs,
+			"class?", &class,
+			"filter?", &filter,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
+		); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		classes, err := buddy.ParsePackageScanClasses(string(class))
+		if err != nil {
+			return nil, err
+		}
+		hits, err := buddy.PackageScan(sessionPin, string(filter), classes, logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		list := starlark.NewList(nil)
+		for _, h := range hits {
+			d := new(starlark.Dict)
+			_ = d.SetKey(starlark.String("id"), starlark.String(h.ID))
+			_ = d.SetKey(starlark.String("packageName"), starlark.String(h.PackageName))
+			_ = d.SetKey(starlark.String("fileName"), starlark.String(h.FileName))
+			_ = d.SetKey(starlark.String("cloudTransferStatus"), starlark.String(h.CloudTransferStatus))
+			_ = d.SetKey(starlark.String("class"), starlark.String(h.Class))
+			_ = d.SetKey(starlark.String("hashType"), starlark.String(h.HashType))
+			_ = d.SetKey(starlark.String("hashValue"), starlark.String(h.HashValue))
+			_ = d.SetKey(starlark.String("sha256"), starlark.String(h.Sha256))
+			_ = d.SetKey(starlark.String("md5"), starlark.String(h.Md5))
+			_ = list.Append(d)
+		}
+		return resultOK(list), nil
 	}
 }
 

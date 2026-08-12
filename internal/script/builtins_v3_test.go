@@ -27,7 +27,7 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 	dict := makeBuiltins("default", slog.Default(), false)
 	for _, name := range []string{
 		"policies", "policy", "policy_xml", "policy_set",
-		"packages", "package", "scripts", "script",
+		"packages", "package", "packages_scan", "scripts", "script",
 		"computers", "computer", "computer_detail", "mdm_commands",
 		"profiles", "profile", "profile_xml",
 		"smart_groups", "static_groups", "smart_group", "static_group",

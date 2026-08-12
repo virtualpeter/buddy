@@ -439,22 +439,161 @@ func packageHasComparableChecksum(pkg *PackageRecord) bool {
 }
 
 // packageHasPendingTransferEvidence reports whether Jamf has started cloud
-// transfer for this package. Mid-transfer records often have sha3512 while
-// sha256 is still empty. A failed upload typically leaves a metadata record
-// with no checksums at all (no sha3512 either).
+// transfer for this package. Mid-transfer records typically populate hashValue
+// with a non-comparable type (usually SHA3_512 / hashType SHA3_512) while sha256
+// is still empty. A failed upload typically leaves a metadata record with no
+// hashValue (and no comparable checksums).
 func packageHasPendingTransferEvidence(pkg *PackageRecord) bool {
-	return pkg != nil && strings.TrimSpace(pkg.Sha3512) != ""
+	if pkg == nil || strings.TrimSpace(pkg.HashValue) == "" {
+		return false
+	}
+	// MD5/SHA-256 hashValue is a comparable checksum (see packageHasComparableChecksum).
+	switch strings.ToUpper(strings.ReplaceAll(pkg.HashType, "-", "_")) {
+	case "SHA256", "SHA_256", "MD5":
+		return false
+	default:
+		// Empty hashType with a hashValue still counts — Jamf often uses SHA3 here.
+		return true
+	}
 }
 
 // packageUploadShouldWaitNotReady is true when the record looks mid-transfer
-// (not READY, no comparable checksums yet, but sha3512 present). Callers should
+// (not READY, no comparable checksums yet, but hashValue present). Callers should
 // wait with package_wait_ready instead of re-uploading. Empty checksums with no
-// sha3512 mean a failed/empty upload — re-upload is appropriate.
+// hashValue mean a failed/empty upload — re-upload is appropriate.
 func packageUploadShouldWaitNotReady(pkg *PackageRecord) bool {
 	return pkg != nil &&
 		!packageIsCloudReady(pkg) &&
 		!packageHasComparableChecksum(pkg) &&
 		packageHasPendingTransferEvidence(pkg)
+}
+
+// Package issue classes returned by PackageScan / packages_scan.
+const (
+	PackageIssueFailedUpload  = "failed-upload"  // no hashValue and no md5/sha256
+	PackageIssuePending       = "pending"        // mid-transfer: hashValue set, sha256 empty, not READY
+	PackageIssueUnusableReady = "unusable-ready" // READY but sha256 still empty
+)
+
+// PackageScanHit is one package that matches an issue class.
+type PackageScanHit struct {
+	ID                  string `json:"id"`
+	PackageName         string `json:"packageName"`
+	FileName            string `json:"fileName"`
+	CloudTransferStatus string `json:"cloudTransferStatus,omitempty"`
+	Class               string `json:"class"`
+	HashType            string `json:"hashType,omitempty"`
+	HashValue           string `json:"hashValue,omitempty"`
+	Sha256              string `json:"sha256,omitempty"`
+	Md5                 string `json:"md5,omitempty"`
+}
+
+// packageIssueClass returns a scan class for pkg, or "" if it looks healthy.
+func packageIssueClass(pkg *PackageRecord) string {
+	if pkg == nil {
+		return ""
+	}
+	// READY without sha256 is its own class (even when hashValue is also missing).
+	if packageIsCloudReady(pkg) && strings.TrimSpace(pkg.Sha256) == "" {
+		return PackageIssueUnusableReady
+	}
+	if packageUploadShouldWaitNotReady(pkg) {
+		return PackageIssuePending
+	}
+	if !packageHasComparableChecksum(pkg) && !packageHasPendingTransferEvidence(pkg) {
+		return PackageIssueFailedUpload
+	}
+	return ""
+}
+
+// ParsePackageScanClasses parses a class filter. Empty or "all" → all issue classes.
+// Accepts a single class or comma-separated list.
+func ParsePackageScanClasses(spec string) ([]string, error) {
+	spec = strings.TrimSpace(strings.ToLower(spec))
+	if spec == "" || spec == "all" {
+		return []string{PackageIssueFailedUpload, PackageIssuePending, PackageIssueUnusableReady}, nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		switch part {
+		case PackageIssueFailedUpload, PackageIssuePending, PackageIssueUnusableReady:
+			if !seen[part] {
+				seen[part] = true
+				out = append(out, part)
+			}
+		default:
+			return nil, fmt.Errorf("unknown package scan class %q (use failed-upload, pending, unusable-ready, or all)", part)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no package scan classes specified")
+	}
+	return out, nil
+}
+
+// PackageScan lists packages (optional RSQL/bare filter) and returns those whose
+// issue class is in classes. classes must be non-empty (see ParsePackageScanClasses).
+// Uses the collection list response (checksums/status are included there).
+func PackageScan(credName, filter string, classes []string, logger *slog.Logger) ([]PackageScanHit, error) {
+	want := map[string]bool{}
+	for _, c := range classes {
+		want[c] = true
+	}
+	if len(want) == 0 {
+		return nil, fmt.Errorf("package scan: no classes selected")
+	}
+	pkgs, err := PackageSearch(credName, filter, PageOpts{Page: PageAll}, logger)
+	if err != nil {
+		return nil, err
+	}
+	var hits []PackageScanHit
+	for i := range pkgs {
+		pkg := &pkgs[i]
+		class := packageIssueClass(pkg)
+		if class == "" || !want[class] {
+			continue
+		}
+		hits = append(hits, PackageScanHit{
+			ID:                  pkg.ID,
+			PackageName:         pkg.PackageName,
+			FileName:            pkg.FileName,
+			CloudTransferStatus: pkg.CloudTransferStatus,
+			Class:               class,
+			HashType:            pkg.HashType,
+			HashValue:           pkg.HashValue,
+			Sha256:              pkg.Sha256,
+			Md5:                 pkg.Md5,
+		})
+	}
+	return hits, nil
+}
+
+// PackageScanPrint runs PackageScan and prints a table.
+func PackageScanPrint(credName, filter, classSpec string, logger *slog.Logger) error {
+	classes, err := ParsePackageScanClasses(classSpec)
+	if err != nil {
+		return err
+	}
+	hits, err := PackageScan(credName, filter, classes, logger)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%-8s  %-16s  %-8s  %-36s  %s\n", "ID", "CLASS", "STATUS", "Package Name", "File Name")
+	fmt.Printf("%-8s  %-16s  %-8s  %-36s  %s\n", "--------", "----------------", "--------", "------------------------------------", "--------------------")
+	for _, h := range hits {
+		status := h.CloudTransferStatus
+		if status == "" {
+			status = "(none)"
+		}
+		fmt.Printf("%-8s  %-16s  %-8s  %-36s  %s\n", h.ID, h.Class, truncatePkg(status, 8), truncatePkg(h.PackageName, 36), h.FileName)
+	}
+	fmt.Printf("\n%d issue(s)\n", len(hits))
+	return nil
 }
 
 // packageIsUsable is READY with a non-empty sha256 (JCDS inventory settled).
@@ -1503,21 +1642,21 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 			}
 			return maybeWaitPackageReady(credName, id, upOpts, logger)
 		}
-		// Mid-transfer: sha256/md5 empty but sha3512 present → wait, do not re-upload.
-		// Failed upload: no checksums at all (no sha3512) → allow re-upload.
+		// Mid-transfer: sha256/md5 empty but hashValue present (usually SHA3) → wait.
+		// Failed upload: no hashValue / comparable checksums → allow re-upload.
 		if !upOpts.Force && packageUploadShouldWaitNotReady(pkg) {
 			status := pkg.CloudTransferStatus
 			if status == "" {
 				status = "(empty)"
 			}
-			return fmt.Errorf("package %s (%q) is not ready yet (cloudTransferStatus=%s, sha256 empty, sha3512 set); wait with package_wait_ready / 'buddy package wait-ready' before re-uploading or attaching (or pass --force / force=True to upload anyway)",
+			return fmt.Errorf("package %s (%q) is not ready yet (cloudTransferStatus=%s, sha256 empty, hashValue set); wait with package_wait_ready / 'buddy package wait-ready' before re-uploading or attaching (or pass --force / force=True to upload anyway)",
 				id, pkg.PackageName, status)
 		}
 		switch {
 		case upOpts.Force && fileMatch:
 			fmt.Printf("Force: re-uploading even though %s matches\n", how)
 		case upOpts.Force && packageUploadShouldWaitNotReady(pkg):
-			fmt.Println("Force: re-uploading even though package looks mid-transfer (sha3512 set, sha256 empty)")
+			fmt.Println("Force: re-uploading even though package looks mid-transfer (hashValue set, sha256 empty)")
 		case !packageHasComparableChecksum(pkg) && !packageHasPendingTransferEvidence(pkg):
 			fmt.Println("Package record has no checksums (previous upload may have failed) — file upload needed")
 		default:
@@ -1653,8 +1792,8 @@ func hexEqualFold(a, b string) bool {
 // packageFileMatches reports whether the Jamf package record's checksums match local.
 // Prefers sha256, then md5, then hashType/hashValue when those are MD5 or SHA-256.
 // Returns false when the server has no comparable checksum yet — callers must also
-// check packageUploadShouldWaitNotReady (blank hashes with sha3512 while not READY
-// means transfer pending; blank hashes with no sha3512 means a failed/empty upload).
+// check packageUploadShouldWaitNotReady (blank hashes with hashValue while not READY
+// means transfer pending; blank hashes with no hashValue means a failed/empty upload).
 func packageFileMatches(pkg *PackageRecord, local packageFileHashes) (matched bool, field string) {
 	if pkg == nil {
 		return false, ""
@@ -1710,10 +1849,8 @@ func printPackageRecordSummary(pkg *PackageRecord) {
 	} else {
 		fmt.Printf("  sha3512:     (none)\n")
 	}
-	if pkg.HashType != "" || pkg.HashValue != "" {
-		fmt.Printf("  hashType:    %s\n", emptyDash(pkg.HashType))
-		fmt.Printf("  hashValue:   %s\n", emptyDash(pkg.HashValue))
-	}
+	fmt.Printf("  hashType:    %s\n", emptyDash(pkg.HashType))
+	fmt.Printf("  hashValue:   %s\n", emptyDash(pkg.HashValue))
 }
 
 func emptyDash(s string) string {

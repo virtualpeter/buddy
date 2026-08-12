@@ -1820,8 +1820,18 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 			return fmt.Errorf("missing package-id; run 'buddy package help' for usage")
 		}
 		return buddy.PackageHistory(credName, args[0], 20, log)
+	case "scan":
+		classSpec, rest, err := extractStringFlag(args, "class")
+		if err != nil {
+			return err
+		}
+		filter, _, err := extractStringFlag(rest, "filter")
+		if err != nil {
+			return err
+		}
+		return buddy.PackageScanPrint(credName, filter, classSpec, log)
 	default:
-		return errUnknownSubcommand("package", subcommand, []string{"list", "get", "download", "delete", "set", "history", "upload"})
+		return errUnknownSubcommand("package", subcommand, []string{"list", "get", "download", "delete", "set", "history", "upload", "scan"})
 	}
 }
 
