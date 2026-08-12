@@ -66,25 +66,32 @@ func TestPackageHasComparableChecksum(t *testing.T) {
 
 func TestPackageUploadSkipsWhenPendingNoChecksum(t *testing.T) {
 	t.Parallel()
-	// Mirrors PackageUpload decision: empty checksums + not READY → pending, not replace.
+	// Mid-transfer: empty comparable checksums + sha3512 + not READY → wait, not replace.
 	pkg := &PackageRecord{
 		PackageName:         "Chrome",
 		CloudTransferStatus: "PENDING",
+		Sha3512:             "abc123sha3512",
 	}
 	local := packageFileHashes{MD5: "dead", SHA256: "beef"}
 	match, _ := packageFileMatches(pkg, local)
 	if match {
 		t.Fatal("should not match without server checksums")
 	}
-	if packageIsCloudReady(pkg) || packageHasComparableChecksum(pkg) {
-		t.Fatal("expected pending path (not ready, no checksums)")
+	if !packageUploadShouldWaitNotReady(pkg) {
+		t.Fatal("expected pending wait path (sha3512 set, no sha256)")
+	}
+	// Failed upload: no checksums at all → re-upload allowed.
+	failed := &PackageRecord{
+		PackageName:         "Chrome",
+		CloudTransferStatus: "",
+	}
+	if packageUploadShouldWaitNotReady(failed) {
+		t.Fatal("empty checksums without sha3512 should allow re-upload")
 	}
 	// READY with no checksums still means we cannot prove identity — upload path allowed.
 	readyEmpty := &PackageRecord{CloudTransferStatus: packageCloudTransferReady}
-	if packageIsCloudReady(readyEmpty) && !packageHasComparableChecksum(readyEmpty) {
-		// upload may proceed; not the pending error path
-	} else {
-		t.Fatal("READY empty checksums should not take pending path")
+	if packageUploadShouldWaitNotReady(readyEmpty) {
+		t.Fatal("READY empty checksums should not take pending wait path")
 	}
 }
 

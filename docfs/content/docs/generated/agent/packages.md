@@ -20,14 +20,15 @@ Jamf Pro packages and Jamf Cloud Distribution Service (JCDS) readiness. Package 
 
 ## Agent rules
 
-- Prefer `package_ready` / `package_wait_ready` / `package_download` — do not hand-roll single GET “exists?”, treat blank sha256 as needs-upload while transfer is pending, or save a raw JCDS URI without hash verify.
+- Prefer `package_ready` / `package_wait_ready` / `package_download` — do not hand-roll single GET “exists?”, treat blank sha256 as needs-upload while transfer is pending (sha3512 set), or save a raw JCDS URI without hash verify.
+- A package record with **no checksums at all** (no sha3512 either) usually means a failed upload — re-upload is appropriate. Mid-transfer has sha3512 while sha256 is still empty.
 - Do not attach a package to a policy before READY.
 - Do not invent Classic/Pro package PUTs from jamf_schema when named builtins exist.
 
 ## Facts
 
 - List / load: `packages(filter=…)` / `package(id=…)` · `buddy package list` / `get` — Or `name=` + `version=`; bare filter → `packageName=="*term*"`
-- Upload: `package_upload(file, …, wait_ready?)` · `buddy package upload [--wait-ready]` — Create/update by fileName; optional wait until READY
+- Upload: `package_upload(file, …, wait_ready?, force?)` · `buddy package upload [--wait-ready] [--force]` — Create/update by fileName; optional wait until READY; --force re-uploads
 - Wait READY: `package_wait_ready(id=…, timeout?=…)` — Polls until READY and sha256 set (~10 min default)
 - Check READY: `package_ready(id=…)` — `true` only when READY + sha256; HTTP 404 → `false`
 - Download: `package_download(id=…, path?=…)` · `buddy package download` — Jamf Cloud / JCDS only; hash-verified

@@ -1846,6 +1846,8 @@ func parsePackageUploadArgs(args []string) (filePath string, attrs buddy.Package
 	filtered := make([]string, 0, len(args))
 	for _, a := range args {
 		switch {
+		case a == "--force":
+			upOpts.Force = true
 		case a == "--wait-ready":
 			upOpts.WaitReady = true
 		case strings.HasPrefix(a, "--wait-ready="):

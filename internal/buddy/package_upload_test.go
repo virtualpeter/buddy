@@ -232,3 +232,34 @@ func TestHashPackageReaderAndMatch(t *testing.T) {
 		t.Fatal("empty server hashes should not match")
 	}
 }
+
+func TestPackageUploadShouldWaitNotReady(t *testing.T) {
+	t.Parallel()
+	if packageUploadShouldWaitNotReady(nil) {
+		t.Fatal("nil")
+	}
+	if !packageUploadShouldWaitNotReady(&PackageRecord{
+		CloudTransferStatus: "PENDING",
+		Sha3512:             "x",
+	}) {
+		t.Fatal("pending with sha3512")
+	}
+	if packageUploadShouldWaitNotReady(&PackageRecord{
+		CloudTransferStatus: "PENDING",
+	}) {
+		t.Fatal("pending without checksums is failed upload")
+	}
+	if packageUploadShouldWaitNotReady(&PackageRecord{
+		CloudTransferStatus: "PENDING",
+		Sha3512:             "x",
+		Sha256:              "y",
+	}) {
+		t.Fatal("has comparable checksum — not wait-only")
+	}
+	if packageUploadShouldWaitNotReady(&PackageRecord{
+		CloudTransferStatus: packageCloudTransferReady,
+		Sha3512:             "x",
+	}) {
+		t.Fatal("READY should not wait-not-ready")
+	}
+}

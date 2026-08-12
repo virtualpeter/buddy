@@ -24,7 +24,7 @@ var PackagesTopic = docspec.Topic{
 	Summary: `Jamf Pro packages and Jamf Cloud Distribution Service (JCDS) readiness. Package **existence** is not the same as **READY** for attach/download.`,
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / load", BuddyScript: "`packages(filter=…)` / `package(id=…)`", CLI: "`buddy package list` / `get`", Notes: "Or `name=` + `version=`; bare filter → `packageName==\"*term*\"`"},
-		{Action: "Upload", BuddyScript: "`package_upload(file, …, wait_ready?)`", CLI: "`buddy package upload [--wait-ready]`", Notes: "Create/update by fileName; optional wait until READY"},
+		{Action: "Upload", BuddyScript: "`package_upload(file, …, wait_ready?, force?)`", CLI: "`buddy package upload [--wait-ready] [--force]`", Notes: "Create/update by fileName; optional wait until READY; --force re-uploads"},
 		{Action: "Wait READY", BuddyScript: "`package_wait_ready(id=…, timeout?=…)`", Notes: "Polls until READY and sha256 set (~10 min default)"},
 		{Action: "Check READY", BuddyScript: "`package_ready(id=…)`", Notes: "`true` only when READY + sha256; HTTP 404 → `false`"},
 		{Action: "Download", BuddyScript: "`package_download(id=…, path?=…)`", CLI: "`buddy package download`", Notes: "Jamf Cloud / JCDS only; hash-verified"},
@@ -33,7 +33,8 @@ var PackagesTopic = docspec.Topic{
 		"Package **existence** is not the same as **READY** for attach or download. Full RSQL still works on list filters.",
 	},
 	AgentNotes: []string{
-		"Prefer `package_ready` / `package_wait_ready` / `package_download` — do not hand-roll single GET “exists?”, treat blank sha256 as needs-upload while transfer is pending, or save a raw JCDS URI without hash verify.",
+		"Prefer `package_ready` / `package_wait_ready` / `package_download` — do not hand-roll single GET “exists?”, treat blank sha256 as needs-upload while transfer is pending (sha3512 set), or save a raw JCDS URI without hash verify.",
+		"A package record with **no checksums at all** (no sha3512 either) usually means a failed upload — re-upload is appropriate. Mid-transfer has sha3512 while sha256 is still empty.",
 		"Do not attach a package to a policy before READY.",
 		"Do not invent Classic/Pro package PUTs from jamf_schema when named builtins exist.",
 	},
@@ -99,18 +100,20 @@ var PackagesTopic = docspec.Topic{
       Params: id=: package id; path?: local outfile (default fileName); tenant?/surface?/auth?: str.
       Waits READY+sha256, streams JCDS pre-signed URI to temp while hashing
       SHA-256, renames only on match. JCDS only.
-  package_upload(file, name?, category_id?, priority?, notes?, info?, reboot?, wait_ready?, wait_ready_timeout?, tenant?, surface?, auth?)
+  package_upload(file, name?, category_id?, priority?, notes?, info?, reboot?, wait_ready?, wait_ready_timeout?, force?, tenant?, surface?, auth?)
       → value: None
       Params: file: str path (.pkg/.dmg); name?: display name (default basename);
         category_id?: str (default "-1"); priority?: int 1–20 (default 10);
         notes?/info?: str; reboot?: bool (default false);
         wait_ready?: bool — poll until READY+sha256 after upload (default false);
         wait_ready_timeout?: int seconds (default 600; implies wait_ready);
-        tenant?/surface?/auth?: str.
+        force?: bool — re-upload even if checksums match or the record looks
+        mid-transfer (default false); tenant?/surface?/auth?: str.
         Same fileName → update path (GET + checksum compare; skip upload if match;
-        if hashes blank and status not READY, raise not-ready — do not re-upload;
-        apply metadata flags when they differ). New fileName → create with flags,
-        wait until readable, then stream upload.
+        if hashes blank, status not READY, and sha3512 set, raise not-ready —
+        wait instead of re-uploading; no checksums at all → treat as failed upload
+        and re-upload; apply metadata flags when they differ). New fileName →
+        create with flags (no confirm), wait until readable, then stream upload.
   package_delete(ids) → None
   package_put(package_id, dict, tenant?, surface?, auth?) → value: dict
       Params: package_id: str; dict: full package body; tenant?/surface?/auth?: str.
@@ -147,6 +150,8 @@ Flags for 'upload' only:
                               cloudTransferStatus=READY and sha256 is set
                               (default timeout 600s / 10 minutes)
   --wait-ready-timeout=<sec>  Same as --wait-ready=<sec> (implies --wait-ready)
+  --force                     Re-upload even if checksums match or the package
+                              looks mid-transfer (sha3512 set, sha256 empty)
 
 Notes:
   --sort=version sorts client-side by a dotted version extracted from the package
@@ -157,9 +162,11 @@ Notes:
   JCDS pre-signed URI, streams to a temp file while hashing SHA-256, and renames
   only on match. JCDS only (Jamf Cloud). Default outfile is the package fileName.
   upload looks up fileName first: existing record → compare checksums and skip or
-  replace the file (and apply attr flags when they differ); if checksums are empty
-  and cloudTransferStatus is not READY, report not ready (do not re-upload — wait
-  with wait-ready); new fileName → create metadata with attr flags, wait until
+  replace the file (and apply attr flags when they differ); if comparable checksums
+  are empty, status is not READY, and sha3512 is set, report not ready (do not
+  re-upload — wait with wait-ready); a record with no checksums at all (failed
+  upload) is treated as needing re-upload; --force overrides skip/not-ready guards.
+  New fileName → create metadata with attr flags (no y/N prompt), wait until
   readable, then upload.
   wait-ready / package_ready require cloudTransferStatus READY and a non-empty sha256.
   Only .pkg and .dmg are supported.
@@ -177,6 +184,7 @@ Examples:
   buddy package upload Chrome-121.pkg --notes="rollout" --reboot=false
   buddy package upload Chrome-121.pkg --wait-ready
   buddy package upload Chrome-121.pkg --wait-ready=900
+  buddy package upload Chrome-121.pkg --force
   buddy package set 55 --name="Google Chrome 121" --priority=5 --reboot=true
   buddy package delete 55 56
 `,

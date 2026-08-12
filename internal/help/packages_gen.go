@@ -25,18 +25,20 @@ const PackagesBuiltinsSection = `PACKAGE
       Params: id=: package id; path?: local outfile (default fileName); tenant?/surface?/auth?: str.
       Waits READY+sha256, streams JCDS pre-signed URI to temp while hashing
       SHA-256, renames only on match. JCDS only.
-  package_upload(file, name?, category_id?, priority?, notes?, info?, reboot?, wait_ready?, wait_ready_timeout?, tenant?, surface?, auth?)
+  package_upload(file, name?, category_id?, priority?, notes?, info?, reboot?, wait_ready?, wait_ready_timeout?, force?, tenant?, surface?, auth?)
       → value: None
       Params: file: str path (.pkg/.dmg); name?: display name (default basename);
         category_id?: str (default "-1"); priority?: int 1–20 (default 10);
         notes?/info?: str; reboot?: bool (default false);
         wait_ready?: bool — poll until READY+sha256 after upload (default false);
         wait_ready_timeout?: int seconds (default 600; implies wait_ready);
-        tenant?/surface?/auth?: str.
+        force?: bool — re-upload even if checksums match or the record looks
+        mid-transfer (default false); tenant?/surface?/auth?: str.
         Same fileName → update path (GET + checksum compare; skip upload if match;
-        if hashes blank and status not READY, raise not-ready — do not re-upload;
-        apply metadata flags when they differ). New fileName → create with flags,
-        wait until readable, then stream upload.
+        if hashes blank, status not READY, and sha3512 set, raise not-ready —
+        wait instead of re-uploading; no checksums at all → treat as failed upload
+        and re-upload; apply metadata flags when they differ). New fileName →
+        create with flags (no confirm), wait until readable, then stream upload.
   package_delete(ids) → None
   package_put(package_id, dict, tenant?, surface?, auth?) → value: dict
       Params: package_id: str; dict: full package body; tenant?/surface?/auth?: str.
@@ -75,6 +77,8 @@ Flags for 'upload' only:
                               cloudTransferStatus=READY and sha256 is set
                               (default timeout 600s / 10 minutes)
   --wait-ready-timeout=<sec>  Same as --wait-ready=<sec> (implies --wait-ready)
+  --force                     Re-upload even if checksums match or the package
+                              looks mid-transfer (sha3512 set, sha256 empty)
 
 Notes:
   --sort=version sorts client-side by a dotted version extracted from the package
@@ -85,9 +89,11 @@ Notes:
   JCDS pre-signed URI, streams to a temp file while hashing SHA-256, and renames
   only on match. JCDS only (Jamf Cloud). Default outfile is the package fileName.
   upload looks up fileName first: existing record → compare checksums and skip or
-  replace the file (and apply attr flags when they differ); if checksums are empty
-  and cloudTransferStatus is not READY, report not ready (do not re-upload — wait
-  with wait-ready); new fileName → create metadata with attr flags, wait until
+  replace the file (and apply attr flags when they differ); if comparable checksums
+  are empty, status is not READY, and sha3512 is set, report not ready (do not
+  re-upload — wait with wait-ready); a record with no checksums at all (failed
+  upload) is treated as needing re-upload; --force overrides skip/not-ready guards.
+  New fileName → create metadata with attr flags (no y/N prompt), wait until
   readable, then upload.
   wait-ready / package_ready require cloudTransferStatus READY and a non-empty sha256.
   Only .pkg and .dmg are supported.
@@ -105,6 +111,7 @@ Examples:
   buddy package upload Chrome-121.pkg --notes="rollout" --reboot=false
   buddy package upload Chrome-121.pkg --wait-ready
   buddy package upload Chrome-121.pkg --wait-ready=900
+  buddy package upload Chrome-121.pkg --force
   buddy package set 55 --name="Google Chrome 121" --priority=5 --reboot=true
   buddy package delete 55 56
 `

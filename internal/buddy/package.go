@@ -438,6 +438,25 @@ func packageHasComparableChecksum(pkg *PackageRecord) bool {
 	}
 }
 
+// packageHasPendingTransferEvidence reports whether Jamf has started cloud
+// transfer for this package. Mid-transfer records often have sha3512 while
+// sha256 is still empty. A failed upload typically leaves a metadata record
+// with no checksums at all (no sha3512 either).
+func packageHasPendingTransferEvidence(pkg *PackageRecord) bool {
+	return pkg != nil && strings.TrimSpace(pkg.Sha3512) != ""
+}
+
+// packageUploadShouldWaitNotReady is true when the record looks mid-transfer
+// (not READY, no comparable checksums yet, but sha3512 present). Callers should
+// wait with package_wait_ready instead of re-uploading. Empty checksums with no
+// sha3512 mean a failed/empty upload — re-upload is appropriate.
+func packageUploadShouldWaitNotReady(pkg *PackageRecord) bool {
+	return pkg != nil &&
+		!packageIsCloudReady(pkg) &&
+		!packageHasComparableChecksum(pkg) &&
+		packageHasPendingTransferEvidence(pkg)
+}
+
 // packageIsUsable is READY with a non-empty sha256 (JCDS inventory settled).
 func packageIsUsable(pkg *PackageRecord) bool {
 	return packageIsCloudReady(pkg) && strings.TrimSpace(pkg.Sha256) != ""
@@ -1347,11 +1366,15 @@ func packageUploadFile(credName, id string, file *os.File, opts Opts) (uploaded 
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return 0, elapsed, fmt.Errorf("%w: status %d: %s", errPackageUploadNotFound, resp.StatusCode, string(bodyBytes))
+		return 0, elapsed, fmt.Errorf("%w: status %d: %s", errPackageUploadNotFound, resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return 0, elapsed, fmt.Errorf("upload package file status %d: %s", resp.StatusCode, string(bodyBytes))
+		msg := strings.TrimSpace(string(bodyBytes))
+		if msg == "" {
+			msg = "(empty response body)"
+		}
+		return 0, elapsed, fmt.Errorf("upload package file status %d: %s", resp.StatusCode, msg)
 	}
 	return fileSize, elapsed, nil
 }
@@ -1362,6 +1385,9 @@ type PackageUploadOptions struct {
 	WaitReady bool
 	// WaitReadyTimeout caps the wait; ≤0 uses the PackageWaitReady default (10 minutes).
 	WaitReadyTimeout time.Duration
+	// Force re-uploads even when checksums match or the record looks mid-transfer
+	// (overrides skip-if-unchanged and the not-ready wait guard).
+	Force bool
 }
 
 // PackageUpload creates a new package record and uploads the file to Jamf Pro.
@@ -1461,11 +1487,11 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 		fileMatch, how := packageFileMatches(pkg, localHashes)
 		metaNeeded := attrs.AnySet() && attrs.DiffersFrom(pkg)
 
-		if fileMatch && !metaNeeded {
-			fmt.Printf("File unchanged (%s matches) — skipping upload\n", how)
-			return maybeWaitPackageReady(credName, id, upOpts, logger)
-		}
-		if fileMatch && metaNeeded {
+		if fileMatch && !upOpts.Force {
+			if !metaNeeded {
+				fmt.Printf("File unchanged (%s matches) — skipping upload\n", how)
+				return maybeWaitPackageReady(credName, id, upOpts, logger)
+			}
 			fmt.Printf("File unchanged (%s matches) — updating metadata only\n", how)
 			if !opts.SkipConfirm {
 				if !ConfirmPrompt(fmt.Sprintf("\nUpdate metadata for package %s (%q)?", id, pkg.PackageName), logger) {
@@ -1477,17 +1503,26 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 			}
 			return maybeWaitPackageReady(credName, id, upOpts, logger)
 		}
-		// After a recent upload Jamf clears checksums until cloudTransferStatus is
-		// READY — empty sha256 then means "still transferring", not "needs re-upload".
-		if !packageIsCloudReady(pkg) && !packageHasComparableChecksum(pkg) {
+		// Mid-transfer: sha256/md5 empty but sha3512 present → wait, do not re-upload.
+		// Failed upload: no checksums at all (no sha3512) → allow re-upload.
+		if !upOpts.Force && packageUploadShouldWaitNotReady(pkg) {
 			status := pkg.CloudTransferStatus
 			if status == "" {
 				status = "(empty)"
 			}
-			return fmt.Errorf("package %s (%q) is not ready yet (cloudTransferStatus=%s, sha256 empty); wait with package_wait_ready / 'buddy package wait-ready' before re-uploading or attaching",
+			return fmt.Errorf("package %s (%q) is not ready yet (cloudTransferStatus=%s, sha256 empty, sha3512 set); wait with package_wait_ready / 'buddy package wait-ready' before re-uploading or attaching (or pass --force / force=True to upload anyway)",
 				id, pkg.PackageName, status)
 		}
-		fmt.Println("Local file differs from server checksums — file upload needed")
+		switch {
+		case upOpts.Force && fileMatch:
+			fmt.Printf("Force: re-uploading even though %s matches\n", how)
+		case upOpts.Force && packageUploadShouldWaitNotReady(pkg):
+			fmt.Println("Force: re-uploading even though package looks mid-transfer (sha3512 set, sha256 empty)")
+		case !packageHasComparableChecksum(pkg) && !packageHasPendingTransferEvidence(pkg):
+			fmt.Println("Package record has no checksums (previous upload may have failed) — file upload needed")
+		default:
+			fmt.Println("Local file differs from server checksums — file upload needed")
+		}
 		if metaNeeded {
 			fmt.Printf("Metadata will also be updated: %s\n", strings.Join(attrs.summaryLines(pkg), ", "))
 		}
@@ -1504,11 +1539,6 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 		}
 	} else {
 		fmt.Printf("No existing package with fileName %q — create path\n", fileName)
-		if !opts.SkipConfirm {
-			if !ConfirmPrompt(fmt.Sprintf("\nUpload new package %q as %q (priority %d)?", filePath, packageName, priority), logger) {
-				return nil
-			}
-		}
 		id, err = packageCreate(credName, payload)
 		if err != nil {
 			return err
@@ -1623,8 +1653,8 @@ func hexEqualFold(a, b string) bool {
 // packageFileMatches reports whether the Jamf package record's checksums match local.
 // Prefers sha256, then md5, then hashType/hashValue when those are MD5 or SHA-256.
 // Returns false when the server has no comparable checksum yet — callers must also
-// check cloudTransferStatus (blank hashes while not READY means transfer pending,
-// not "upload needed").
+// check packageUploadShouldWaitNotReady (blank hashes with sha3512 while not READY
+// means transfer pending; blank hashes with no sha3512 means a failed/empty upload).
 func packageFileMatches(pkg *PackageRecord, local packageFileHashes) (matched bool, field string) {
 	if pkg == nil {
 		return false, ""
@@ -1674,6 +1704,11 @@ func printPackageRecordSummary(pkg *PackageRecord) {
 		fmt.Printf("  sha256:      %s\n", pkg.Sha256)
 	} else {
 		fmt.Printf("  sha256:      (none)\n")
+	}
+	if pkg.Sha3512 != "" {
+		fmt.Printf("  sha3512:     %s\n", pkg.Sha3512)
+	} else {
+		fmt.Printf("  sha3512:     (none)\n")
 	}
 	if pkg.HashType != "" || pkg.HashValue != "" {
 		fmt.Printf("  hashType:    %s\n", emptyDash(pkg.HashType))

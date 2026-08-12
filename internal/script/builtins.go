@@ -1852,7 +1852,7 @@ func packageUpload(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		var file, name, categoryID, notes, info starlark.String
 		var priority starlark.Int
 		var reboot starlark.Value = starlark.None
-		var waitReady starlark.Bool
+		var waitReady, force starlark.Bool
 		var waitReadyTimeout starlark.Value = starlark.None
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("package_upload", args, kwargs,
@@ -1861,6 +1861,7 @@ func packageUpload(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			"notes?", &notes, "info?", &info, "reboot?", &reboot,
 			"wait_ready?", &waitReady,
 			"wait_ready_timeout?", &waitReadyTimeout,
+			"force?", &force,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth,
@@ -1903,7 +1904,7 @@ func packageUpload(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			v := bool(b)
 			attrs.Reboot = &v
 		}
-		upOpts := buddy.PackageUploadOptions{WaitReady: bool(waitReady)}
+		upOpts := buddy.PackageUploadOptions{WaitReady: bool(waitReady), Force: bool(force)}
 		if waitReadyTimeout != nil && waitReadyTimeout != starlark.None {
 			n, ok := waitReadyTimeout.(starlark.Int)
 			if !ok {
