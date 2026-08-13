@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	policyCacheManifestName = "manifest.json"
+	policyCacheManifestName  = "manifest.json"
 	policyCacheSummariesName = "summaries.json"
 	// PolicyCacheStaleAfter is how long a policy payload cache stays fresh.
 	PolicyCacheStaleAfter = 72 * time.Hour
@@ -133,23 +133,76 @@ func GetPolicyCacheStatus(credName string) (PolicyCacheStatus, error) {
 	return st, nil
 }
 
-// PrintPolicyCacheStatus writes a short status line to stdout.
-func PrintPolicyCacheStatus(credName string) error {
-	st, err := GetPolicyCacheStatus(credName)
-	if err != nil {
-		return err
-	}
+// FormatPolicyCacheLine is a one-line cache age summary (fetched date + age).
+func FormatPolicyCacheLine(st PolicyCacheStatus) string {
 	if !st.Exists {
-		fmt.Printf("Policy cache: missing\n  dir: %s\n", st.Dir)
-		return nil
+		return "Policy cache: missing"
 	}
 	age := st.Age.Round(time.Minute)
 	state := "fresh"
 	if st.Stale {
 		state = "stale"
 	}
-	fmt.Printf("Policy cache: %s (%d policies, age %s)\n  fetched: %s\n  tenant: %s\n  dir: %s\n",
-		state, st.Manifest.Count, age, st.Manifest.FetchedAt.UTC().Format(time.RFC3339), st.Manifest.Tenant, st.Dir)
+	n := st.Manifest.Count
+	if n == 0 {
+		n = st.Summaries
+	}
+	return fmt.Sprintf("Policy cache: %s (%d policies, fetched %s, age %s)",
+		state, n, st.Manifest.FetchedAt.UTC().Format(time.RFC3339), age)
+}
+
+// PolicyCacheInfo is the JSON/Starlark view of PolicyCacheStatus.
+type PolicyCacheInfo struct {
+	Exists     bool   `json:"exists"`
+	Stale      bool   `json:"stale"`
+	FetchedAt  string `json:"fetched_at,omitempty"`
+	AgeSeconds int    `json:"age_seconds"`
+	Count      int    `json:"count"`
+	Tenant     string `json:"tenant,omitempty"`
+	Dir        string `json:"dir,omitempty"`
+}
+
+// Info returns a JSON-friendly snapshot of the cache (fetched date, age, count).
+func (st PolicyCacheStatus) Info() PolicyCacheInfo {
+	info := PolicyCacheInfo{
+		Exists:     st.Exists,
+		Stale:      st.Stale,
+		AgeSeconds: int(st.Age.Seconds()),
+		Count:      st.Manifest.Count,
+		Tenant:     st.Manifest.Tenant,
+		Dir:        st.Dir,
+	}
+	if info.Count == 0 {
+		info.Count = st.Summaries
+	}
+	if !st.Manifest.FetchedAt.IsZero() {
+		info.FetchedAt = st.Manifest.FetchedAt.UTC().Format(time.RFC3339)
+	}
+	return info
+}
+
+// PrintPolicyCacheLine writes FormatPolicyCacheLine for the active session.
+// Errors resolving the cache dir are ignored so listing apps still works.
+func PrintPolicyCacheLine(credName string) {
+	st, err := GetPolicyCacheStatus(credName)
+	if err != nil {
+		return
+	}
+	fmt.Println(FormatPolicyCacheLine(st))
+}
+
+// PrintPolicyCacheStatus writes a short status line to stdout.
+func PrintPolicyCacheStatus(credName string) error {
+	st, err := GetPolicyCacheStatus(credName)
+	if err != nil {
+		return err
+	}
+	fmt.Println(FormatPolicyCacheLine(st))
+	if !st.Exists {
+		fmt.Printf("  dir: %s\n", st.Dir)
+		return nil
+	}
+	fmt.Printf("  tenant: %s\n  dir: %s\n", st.Manifest.Tenant, st.Dir)
 	return nil
 }
 
@@ -268,7 +321,7 @@ func PolicyCacheRefresh(credName string, logger *slog.Logger) error {
 	if err := os.WriteFile(filepath.Join(dir, policyCacheManifestName), mData, 0o600); err != nil {
 		return err
 	}
-	fmt.Printf("Policy cache refreshed: %d policies → %s\n", okCount, dir)
+	fmt.Printf("Policy cache refreshed: %d policies → %s (fetched %s)\n", okCount, dir, manifest.FetchedAt.UTC().Format(time.RFC3339))
 	return nil
 }
 
@@ -279,11 +332,11 @@ func EnsurePolicyCache(credName string, opts Opts, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	PrintPolicyCacheLine(credName)
 	if !PolicyCacheNeedsRefresh(m, time.Now()) {
 		return nil
 	}
 	missing := m == nil || m.FetchedAt.IsZero()
-	_ = PrintPolicyCacheStatus(credName)
 	question := "Policy cache is older than 3 days. Refresh now?"
 	if missing {
 		question = "Policy cache is missing. Build it now? (required for import)"

@@ -18,18 +18,18 @@ Classic **Mac App Store** records are separate — use [`macapp` / `macapps`](/d
 | Do this | BuddyScript | CLI | Notes |
 |---------|-------------|-----|-------|
 | List | `apps(filter?)` | `buddy app list` | Imported apps only (`apps/index.json`) |
-| Scan | — | `buddy app scan` | Heuristic onboarding discovery ([SS] name index) |
+| Scan | `app_scan(filter?, refresh?)` | `buddy app scan [--refresh]` | Heuristic onboarding; uses policy cache when present |
 | Get | `app(name=…)` | `buddy app get` | Index bindings first; else Classic classify |
-| Import | — | `buddy app import [name]` | Interview (or `--ss=` flags) → index + desired `.buddy` |
-| Cache | — | `buddy app cache status\|refresh` | Full Classic policy XML under `~/.config/buddy/policy-cache/` |
+| Import | `app_import(name, ss_policy_id, …)` | `buddy app import [name]` | CLI interview or flags; builtin is flags-only (requires ss_policy_id) |
+| Cache | `app_cache()` / `app_cache_refresh()` | `buddy app cache status\|refresh` | Full Classic policy XML under `~/.config/buddy/policy-cache/` |
 | Reconcile | `app_reconcile(desired, apply?)` | run the imported script | Diff live vs desired → change-batch plan / apply |
 | Upgrade | `app_upgrade(name, version, …)` | `buddy app upgrade` | One-shot imperative bump by kind |
 
 ## Notes
 
-**Onboarding:** `buddy app cache refresh` → `buddy app scan` → `buddy app import <name>` (picks SS/install/cache/uninstall IDs). Import writes `apps/index.json` + `apps/<slug>.buddy`.
+**Onboarding:** `app_cache_refresh()` / `buddy app cache refresh` → `app_scan()` / `buddy app scan` → `app_import(name, ss_policy_id, …)` or `buddy app import`. Import writes `apps/index.json` + `apps/<slug>.buddy`.
 
-**List** is the curated registry only. **Scan** is approximate heuristics for finding candidates — not for day-to-day inventory.
+**List** is the curated registry only. **Scan** is approximate heuristics for finding candidates — not for day-to-day inventory. Scan uses the policy cache when present (prints fetched date); `--refresh` rebuilds it first.
 
 Policy payload cache (age > 3 days prompts refresh) is how import knows true Self Service (`use_for_self_service`), not `[SS]` name markers alone.
 
@@ -43,18 +43,19 @@ Wait until the target package is READY (`package_wait_ready` / `package_ready`) 
 
 ```python
 def main():
+    st = app_cache()
+    scan = app_scan(filter="santa")
     rows = apps(filter="santa")
     if not rows:
-        return None
+        return {"cache": st, "scan": scan}
     detail = app(name=rows[0]["name"])
-    # Prefer: buddy app import santa
-    # Then edit VERSION and run the script (app_reconcile).
     return detail
 ```
 
 ```sh
 buddy app cache refresh
 buddy app scan --filter=santa
+buddy app scan --refresh
 buddy app import santa
 buddy app list
 buddy app get santa

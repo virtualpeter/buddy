@@ -14,6 +14,9 @@ keywords:
   - app import
   - app scan
   - app cache
+  - app_scan
+  - app_import
+  - app_cache
   - app_reconcile
   - desired state
   - "install-next"
@@ -29,8 +32,8 @@ Classic **Mac App Store** records are separate — use [`macapp` / `macapps`](/d
 
 ## Agent rules
 
-- `apps()` / `buddy app list` = imported registry. Use `buddy app scan` only when onboarding.
-- Prefer `buddy app import` (interview or `--ss=`/`--install=`/…) → edit desired → `app_reconcile`. Ensure policy cache is fresh.
+- `apps()` / `buddy app list` = imported registry. Use `app_scan(filter?, refresh?)` only when onboarding (policy cache if present; `refresh=True` to rebuild).
+- Prefer `app_import(name, ss_policy_id, …)` (or CLI interview) → edit desired → `app_reconcile`. Check `app_cache()` fetched_at; `app_cache_refresh()` if stale.
 - Do not invent Classic PUTs for app upgrades — use `app_reconcile` / `app_upgrade` (or policy package / Self Service helpers).
 - Wait until the target package is READY in Jamf (`package_wait_ready` / `package_ready`) before reconcile apply or `app_upgrade`.
 - Prefer `docs/apps` then named builtins via `buddyscript`; Classic Mac App Store is `macapp` / `macapps`, not `app` / `apps`.
@@ -39,14 +42,14 @@ Classic **Mac App Store** records are separate — use [`macapp` / `macapps`](/d
 ## Facts
 
 - List: `apps(filter?)` · `buddy app list` — Imported apps only (`apps/index.json`)
-- Scan: `buddy app scan` — Heuristic onboarding discovery ([SS] name index)
+- Scan: `app_scan(filter?, refresh?)` · `buddy app scan [--refresh]` — Heuristic onboarding; uses policy cache when present
 - Get: `app(name=…)` · `buddy app get` — Index bindings first; else Classic classify
-- Import: `buddy app import [name]` — Interview (or `--ss=` flags) → index + desired `.buddy`
-- Cache: `buddy app cache status|refresh` — Full Classic policy XML under `~/.config/buddy/policy-cache/`
+- Import: `app_import(name, ss_policy_id, …)` · `buddy app import [name]` — CLI interview or flags; builtin is flags-only (requires ss_policy_id)
+- Cache: `app_cache()` / `app_cache_refresh()` · `buddy app cache status|refresh` — Full Classic policy XML under `~/.config/buddy/policy-cache/`
 - Reconcile: `app_reconcile(desired, apply?)` · run the imported script — Diff live vs desired → change-batch plan / apply
 - Upgrade: `app_upgrade(name, version, …)` · `buddy app upgrade` — One-shot imperative bump by kind
-- **Onboarding:** `buddy app cache refresh` → `buddy app scan` → `buddy app import <name>` (picks SS/install/cache/uninstall IDs). Import writes `apps/index.json` + `apps/<slug>.buddy`.
-- **List** is the curated registry only. **Scan** is approximate heuristics for finding candidates — not for day-to-day inventory.
+- **Onboarding:** `app_cache_refresh()` / `buddy app cache refresh` → `app_scan()` / `buddy app scan` → `app_import(name, ss_policy_id, …)` or `buddy app import`. Import writes `apps/index.json` + `apps/<slug>.buddy`.
+- **List** is the curated registry only. **Scan** is approximate heuristics for finding candidates — not for day-to-day inventory. Scan uses the policy cache when present (prints fetched date); `--refresh` rebuilds it first.
 - Policy payload cache (age > 3 days prompts refresh) is how import knows true Self Service (`use_for_self_service`), not `[SS]` name markers alone.
 - Uninstall policies are recorded in the index/interview set; reconcile v1 does not auto-mutate uninstall on version bumps.
 - Desired-state scripts declare name/kind/version/triggers/package_pattern. Edit `VERSION` then re-run to plan a bump. v1 does not greenfield-create a missing app — use `setup_app_classic` for that.
@@ -109,7 +112,7 @@ Returns: list of summary dicts {name, kind, version, ss_policy_id, install_trigg
 ```
 
 - Reads `apps/index.json` (imported apps only). Empty when nothing imported.
-- Heuristic discovery is CLI `buddy app scan`, not this builtin.
+- Heuristic discovery is `app_scan()`, not this builtin.
 
 ### app
 
@@ -149,6 +152,196 @@ Returns: dict (summary + linked install/cache/uninstall policies)
 ```
 
 - Uses apps/index.json bindings when present; else Classic XML classify.
+
+### app_scan
+
+`app_scan(filter?, refresh?)` or `buddy app scan [--filter=…] [--refresh]`
+
+Returns: dict {apps: list of summaries, source: cache|live, cache: {exists, stale, fetched_at, …}}
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "auth": {
+      "description": "Session override",
+      "type": "string"
+    },
+    "filter": {
+      "description": "Client-side substring on name/kind/version/trigger/package",
+      "type": "string"
+    },
+    "refresh": {
+      "description": "Rebuild the Classic policy cache, then scan it",
+      "type": "boolean"
+    },
+    "surface": {
+      "description": "Session override",
+      "type": "string"
+    },
+    "tenant": {
+      "description": "Session override",
+      "type": "string"
+    }
+  },
+  "title": "app_scan",
+  "type": "object"
+}
+```
+
+- Onboarding aid — approximate. Prefer `apps()` after import.
+- Uses ~/.config/buddy/policy-cache/ when present. Missing cache falls back to a live policy list.
+
+### app_import
+
+`app_import(name, ss_policy_id, …)` or `buddy app import [name] --ss=…`
+
+Returns: dict {name, kind, version, ss_policy_id, script}
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "auth": {
+      "description": "Session override",
+      "type": "string"
+    },
+    "cache_policy_ids": {
+      "description": "Cache policy IDs",
+      "type": "string"
+    },
+    "cache_trigger": {
+      "description": "Cache trigger",
+      "type": "string"
+    },
+    "install_policy_ids": {
+      "description": "Install policy IDs",
+      "type": "string"
+    },
+    "install_trigger": {
+      "description": "Install trigger",
+      "type": "string"
+    },
+    "kind": {
+      "description": "single|install|cache (inferred when omitted)",
+      "type": "string"
+    },
+    "name": {
+      "description": "App slug",
+      "type": "string"
+    },
+    "output": {
+      "description": "Output .buddy path (default apps/\u003cslug\u003e.buddy)",
+      "type": "string"
+    },
+    "package_pattern": {
+      "description": "Package name glob",
+      "type": "string"
+    },
+    "ss_policy_id": {
+      "description": "Self Service policy ID (no TTY interview)",
+      "type": "integer"
+    },
+    "surface": {
+      "description": "Session override",
+      "type": "string"
+    },
+    "tenant": {
+      "description": "Session override",
+      "type": "string"
+    },
+    "uninstall_policy_ids": {
+      "description": "Uninstall policy IDs",
+      "type": "string"
+    },
+    "uninstall_trigger": {
+      "description": "Uninstall trigger",
+      "type": "string"
+    },
+    "version": {
+      "description": "Current version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "ss_policy_id"
+  ],
+  "title": "app_import",
+  "type": "object"
+}
+```
+
+- Non-interactive only (requires ss_policy_id). CLI interview stays on `buddy app import`.
+- Writes apps/index.json + desired-state script. Auto-refreshes a missing/stale policy cache (SkipConfirm).
+
+### app_cache
+
+`app_cache()` or `buddy app cache status`
+
+Returns: dict {exists, stale, fetched_at, age_seconds, count, tenant, dir}
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "auth": {
+      "description": "Session override",
+      "type": "string"
+    },
+    "surface": {
+      "description": "Session override",
+      "type": "string"
+    },
+    "tenant": {
+      "description": "Session override",
+      "type": "string"
+    }
+  },
+  "title": "app_cache",
+  "type": "object"
+}
+```
+
+- No Jamf call. fetched_at is RFC3339 UTC when the cache exists.
+
+### app_cache_refresh
+
+`app_cache_refresh()` or `buddy app cache refresh`
+
+Returns: dict {exists, stale, fetched_at, age_seconds, count, tenant, dir} after rebuild
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "auth": {
+      "description": "Session override",
+      "type": "string"
+    },
+    "surface": {
+      "description": "Session override",
+      "type": "string"
+    },
+    "tenant": {
+      "description": "Session override",
+      "type": "string"
+    }
+  },
+  "title": "app_cache_refresh",
+  "type": "object"
+}
+```
+
+- GETs every Classic policy XML into ~/.config/buddy/policy-cache/. Local files only (not a Jamf mutate).
 
 ### app_upgrade
 
@@ -200,7 +393,7 @@ Returns: None
 
 ### app_reconcile
 
-`app_reconcile(desired, apply?=False)` — diff live AppGet vs desired dict; plan_change / optional run_change
+`app_reconcile(desired, apply?=False, progress?=True)` — diff live AppGet vs desired dict; plan_change / optional run_change
 
 Returns: dict {markdown, fingerprints} on plan; None after apply
 
@@ -222,6 +415,10 @@ Returns: dict {markdown, fingerprints} on plan; None after apply
       "description": "name, version, kind?, install_trigger?, cache_trigger?, uninstall_trigger?, package_pattern?, title?, summary?, risk?, window?",
       "type": "object"
     },
+    "progress": {
+      "description": "Print lookup progress to stderr (default True): which cache/install policy, package pattern, and APIs",
+      "type": "boolean"
+    },
     "surface": {
       "description": "Session override",
       "type": "string"
@@ -240,6 +437,7 @@ Returns: dict {markdown, fingerprints} on plan; None after apply
 ```
 
 - Invented steps mirror install/cache change batches; single uses in-place upgrade_app.
+- Cache-kind pins the current cache policy ID (not the install policy) as the clone source; install-next is a separate step.
 - Fails if the app is missing (no greenfield create in v1). Uninstall is not mutated in v1.
 
 ## CLI
@@ -269,13 +467,14 @@ buddy [global-flags] app list [--filter=<keyword>]
 ```
 
 - Empty until apps are imported.
+- Prints the policy cache fetched date (fresh/stale/missing) before the table.
 
 ### app scan
 
-Heuristic discovery of [SS] policy apps (onboarding aid)
+Heuristic discovery of policy apps (onboarding aid)
 
 ```
-buddy [global-flags] app scan [--filter=<keyword>]
+buddy [global-flags] app scan [--filter=<keyword>] [--refresh]
 ```
 
 #### Parameters (JSON Schema)
@@ -287,6 +486,10 @@ buddy [global-flags] app scan [--filter=<keyword>]
     "filter": {
       "description": "Client-side substring on name, kind, version, trigger, or package",
       "type": "string"
+    },
+    "refresh": {
+      "description": "Rebuild the Classic policy cache, then scan it",
+      "type": "boolean"
     }
   },
   "title": "app scan",
@@ -294,7 +497,9 @@ buddy [global-flags] app scan [--filter=<keyword>]
 }
 ```
 
-- Approximate name-index; use import to curate real bindings.
+- Uses ~/.config/buddy/policy-cache/ when present (prints fetched date). No Jamf list call.
+- Missing cache falls back to a live policy list. --refresh rebuilds the cache first (same as app cache refresh).
+- Approximate; use import to curate real bindings.
 
 ### app get
 
@@ -322,6 +527,8 @@ buddy [global-flags] app get <name>
   "type": "object"
 }
 ```
+
+- Prints the policy cache fetched date before the JSON.
 
 ### app import
 
@@ -367,7 +574,7 @@ buddy [global-flags] app import [name] [--ss=<id>] [--install=…] [--cache=…]
 }
 ```
 
-- Ensures policy cache (prompts refresh if missing/stale > 3 days).
+- Prints the policy cache fetched date; prompts refresh if missing/stale > 3 days.
 - Writes apps/index.json and apps/<slug>.buddy.
 
 ### app cache
@@ -377,6 +584,9 @@ Show or rebuild the Classic policy payload cache
 ```
 buddy [global-flags] app cache <status|refresh>
 ```
+
+- status prints fetched date, age, tenant, and dir.
+- refresh prints the current fetched date, then rebuilds.
 
 ### app upgrade
 
@@ -414,22 +624,25 @@ buddy [global-flags] app upgrade <name> --version=<version> [--package-pattern=�
 }
 ```
 
+- Prints the policy cache fetched date before applying.
+
 ## Examples
 
 ```python
 def main():
+    st = app_cache()
+    scan = app_scan(filter="santa")
     rows = apps(filter="santa")
     if not rows:
-        return None
+        return {"cache": st, "scan": scan}
     detail = app(name=rows[0]["name"])
-    # Prefer: buddy app import santa
-    # Then edit VERSION and run the script (app_reconcile).
     return detail
 ```
 
 ```sh
 buddy app cache refresh
 buddy app scan --filter=santa
+buddy app scan --refresh
 buddy app import santa
 buddy app list
 buddy app get santa

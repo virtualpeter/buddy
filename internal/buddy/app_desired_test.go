@@ -61,7 +61,7 @@ func TestBuildAppReconcilePlanCacheBump(t *testing.T) {
 	live := &PolicyAppDetail{
 		PolicyAppSummary: PolicyAppSummary{
 			Name: "santa", Kind: PolicyAppCache, Version: "2026.2",
-			InstallTrigger: "install-santa-next", CachePolicyID: 1, SSPolicyID: 99,
+			InstallTrigger: "install-santa-next", CachePolicyID: 1, InstallPolicyID: 23, SSPolicyID: 99,
 		},
 		SSDescription: "Santa 2026.2",
 		CachePolicies: []PolicyAppRef{{ID: 1, Trigger: "cache-santa-2026.2", Enabled: true}},
@@ -82,8 +82,14 @@ func TestBuildAppReconcilePlanCacheBump(t *testing.T) {
 	if plan.Steps[0].Type != "set_package" || !plan.Steps[0].KeepSource || plan.Steps[0].FromTrigger != "cache-santa-2026.2" {
 		t.Fatalf("cache step=%+v", plan.Steps[0])
 	}
+	if plan.Steps[0].PolicyID != 1 {
+		t.Fatalf("cache step should pin cache policy ID 1, got %+v", plan.Steps[0])
+	}
 	if plan.Steps[1].Type != "set_package" || plan.Steps[1].FromTrigger != "install-santa-next" {
 		t.Fatalf("install step=%+v", plan.Steps[1])
+	}
+	if plan.Steps[1].PolicyID != 23 {
+		t.Fatalf("install step should pin install policy ID 23, got %+v", plan.Steps[1])
 	}
 	foundSS := false
 	for _, s := range plan.Steps {
@@ -93,6 +99,26 @@ func TestBuildAppReconcilePlanCacheBump(t *testing.T) {
 	}
 	if !foundSS {
 		t.Fatalf("expected set_ss step; steps=%+v", plan.Steps)
+	}
+}
+
+func TestBuildAppReconcilePlanCacheTriggerLooksLikeInstall(t *testing.T) {
+	live := &PolicyAppDetail{
+		PolicyAppSummary: PolicyAppSummary{
+			Name: "santa", Kind: PolicyAppCache, Version: "2026.2",
+			InstallTrigger: "install-santa-next", CachePolicyID: 1,
+		},
+		CachePolicies: []PolicyAppRef{{ID: 1, Trigger: "cache-santa-2026.2", Enabled: true}},
+	}
+	_, err := BuildAppReconcilePlan(live, AppDesired{
+		Name: "santa", Version: "2026.3", Kind: "cache",
+		CacheTrigger: "install-santa-next",
+	})
+	if err == nil {
+		t.Fatal("expected error when cache_trigger is an install trigger")
+	}
+	if !strings.Contains(err.Error(), "install trigger") {
+		t.Fatalf("err=%v", err)
 	}
 }
 

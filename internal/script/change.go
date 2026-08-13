@@ -288,7 +288,7 @@ func planChange(credName string, changeVal starlark.Value, stepVals []starlark.V
 	if err != nil {
 		return "", nil, err
 	}
-	opts := buddy.Opts{SkipConfirm: true, Verbose: scriptOpts.Verbose}
+	opts := buddy.Opts{SkipConfirm: true, Verbose: scriptOpts.Verbose, Progress: scriptOpts.Progress}
 	resolved, err := resolveChangeSteps(credName, steps, opts, logger)
 	if err != nil {
 		return "", nil, err
@@ -306,7 +306,7 @@ func runChange(credName string, changeVal starlark.Value, stepVals []starlark.Va
 	if err != nil {
 		return "", err
 	}
-	opts := buddy.Opts{SkipConfirm: true, Verbose: scriptOpts.Verbose}
+	opts := buddy.Opts{SkipConfirm: true, Verbose: scriptOpts.Verbose, Progress: scriptOpts.Progress}
 	resolved, err := resolveChangeSteps(credName, steps, opts, logger)
 	if err != nil {
 		return "", err

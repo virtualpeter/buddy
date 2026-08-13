@@ -22,6 +22,21 @@ type Opts struct {
 	SkipConfirm bool
 	Verbose     bool
 	Trace       bool // -t/--trace: HTTP request/response tracing
+	// Progress prints human lookup steps to stderr (API + what is being sought).
+	// Distinct from Verbose, which also dumps XML payloads.
+	Progress bool
+}
+
+func (o Opts) logProgress() bool { return o.Progress || o.Verbose }
+
+func progressf(opts Opts, format string, args ...interface{}) {
+	if !opts.logProgress() {
+		return
+	}
+	if !strings.HasSuffix(format, "\n") {
+		format += "\n"
+	}
+	fmt.Fprintf(os.Stderr, format, args...)
 }
 
 // PolicySS updates policy self_service_description and optionally scope.
@@ -536,11 +551,11 @@ type PolicyClonePlan struct {
 	DisableReason string
 	Actions       []string
 
-	sourcePolicy  *resourcePolicy
-	installPay    *policyInstallPayload
-	packagePay    *policyPackagePayload
-	paramIndices  []int
-	swapIdx       int
+	sourcePolicy *resourcePolicy
+	installPay   *policyInstallPayload
+	packagePay   *policyPackagePayload
+	paramIndices []int
+	swapIdx      int
 }
 
 // PolicyPackagePlan is a resolved set-package operation ready to confirm and apply.
@@ -718,10 +733,10 @@ func ApplyPolicyClonePlan(credName string, opts Opts, plan *PolicyClonePlan, log
 	policy := plan.sourcePolicy
 	trigger := plan.SourceTrigger
 	out := &PolicyMutationOutcome{
-		Kind:       "create",
-		PolicyName: plan.NewName,
-		Trigger:    trigger,
-		PackageID:  plan.PkgID,
+		Kind:        "create",
+		PolicyName:  plan.NewName,
+		Trigger:     trigger,
+		PackageID:   plan.PkgID,
 		PackageName: plan.PkgName,
 	}
 
@@ -921,24 +936,31 @@ func uniquePolicyName(credName string, baseName string, logger *slog.Logger) (st
 // required). name is the package name keyword used for the version search; when
 // empty it is derived from the source policy trigger (install-<name>-… etc.).
 func PlanPolicyPackage(credName string, opts Opts, name, newVersion string, policyIDOverride int, triggerOverride, packageOverride string, disableMode DisableSourceMode, logger *slog.Logger) (*PolicyPackagePlan, error) {
-	if triggerOverride != "" {
-		if opts.Verbose {
-			fmt.Fprintf(os.Stderr, "Resolving policy from trigger %q...\n", triggerOverride)
-		}
+	triggerOverride = strings.TrimSpace(triggerOverride)
+	if policyIDOverride <= 0 && triggerOverride != "" {
+		progressf(opts, "  finding source policy by trigger %q", triggerOverride)
+		progressf(opts, "    API: GET /api/v1/policies (name index), then Classic GET /JSSResource/policies/id/{id} for trigger_other")
 		id, err := PolicyFind(credName, opts, triggerOverride, logger)
 		if err != nil {
 			return nil, err
 		}
 		policyIDOverride = id
-		if opts.Verbose {
-			fmt.Fprintf(os.Stderr, "  -> policy ID %d\n", policyIDOverride)
+		progressf(opts, "    -> policy ID %d", policyIDOverride)
+	} else if policyIDOverride > 0 {
+		progressf(opts, "  using pinned source policy ID %d (skip trigger search)", policyIDOverride)
+		if triggerOverride != "" {
+			progressf(opts, "    expected trigger %q — will verify the source is the matching cache/install role", triggerOverride)
 		}
 	}
 	if policyIDOverride <= 0 {
 		return nil, fmt.Errorf("set package requires a policy id or trigger")
 	}
+	progressf(opts, "  GET Classic /JSSResource/policies/id/%d (packages + trigger_other)", policyIDOverride)
 	sourcePolicy, err := getPackageSourcePolicy(credName, name, policyIDOverride, opts, logger)
 	if err != nil {
+		return nil, err
+	}
+	if err := packageSourceRoleError(triggerOverride, sourcePolicy); err != nil {
 		return nil, err
 	}
 	if name == "" {
@@ -947,8 +969,17 @@ func PlanPolicyPackage(credName string, opts Opts, name, newVersion string, poli
 	if name == "" && packageOverride == "" {
 		return nil, fmt.Errorf("cannot derive a package name from trigger %q; pass a name or package pattern", sourcePolicy.General.TriggerOther)
 	}
-	if opts.Verbose {
-		fmt.Fprintf(os.Stderr, "Looking up package for %s %s...\n", name, newVersion)
+	curPkg := ""
+	if len(sourcePolicy.PackageConfiguration.Packages) > 0 {
+		curPkg = sourcePolicy.PackageConfiguration.Packages[0].Name
+	}
+	progressf(opts, "    source %q trigger=%q action=%s current package=%q",
+		sourcePolicy.General.Name, sourcePolicy.General.TriggerOther, getPackageAction(sourcePolicy), curPkg)
+	pattern := strings.TrimSpace(packageOverride)
+	if pattern == "" {
+		progressf(opts, "  looking up package via GET /api/v1/packages (packageName contains %q and version %q)", name, newVersion)
+	} else {
+		progressf(opts, "  looking up package via GET /api/v1/packages (pattern %q)", pattern)
 	}
 	pkgID, pkgName, err := findPackage(credName, name, newVersion, packageOverride, logger)
 	if err != nil {
@@ -957,6 +988,7 @@ func PlanPolicyPackage(credName string, opts Opts, name, newVersion string, poli
 	if pkgID == 0 {
 		return nil, fmt.Errorf("no package found for %s version %s", name, newVersion)
 	}
+	progressf(opts, "    found package %q (ID %d)", pkgName, pkgID)
 	action := getPackageAction(sourcePolicy)
 	if action == "" {
 		return nil, fmt.Errorf("source policy has no package or invalid action")
@@ -992,6 +1024,12 @@ func PlanPolicyPackage(credName string, opts Opts, name, newVersion string, poli
 
 	plan.DisableSource, plan.DisableReason = ResolvePackageDisable(isModify, plan.NewTrigger, plan.SourceTrigger, disableMode)
 	plan.Actions = buildPackagePlanActions(plan)
+	if plan.IsModify {
+		progressf(opts, "    plan: in-place update of %q → package %s", plan.NewName, plan.PkgName)
+	} else {
+		progressf(opts, "    plan: create %q with trigger %s, package %s (action %s)", plan.NewName, plan.NewTrigger, plan.PkgName, action)
+	}
+	progressf(opts, "    %s", FormatDisableAction(plan.DisableSource, plan.DisableReason))
 	return plan, nil
 }
 
@@ -1268,25 +1306,46 @@ func PolicyDelete(credName string, opts Opts, policyIDs []int, logger *slog.Logg
 
 // PolicyFind finds policy ID by trigger. Returns the ID or error.
 func PolicyFind(credName string, opts Opts, trigger string, logger *slog.Logger) (int, error) {
+	progressf(opts, "    GET /api/v1/policies (name index for trigger %q)", trigger)
 	policies, err := getPolicyList(credName, logger)
 	if err != nil {
 		return 0, err
 	}
 
+	nameHint, wantVer, _ := parseTrigger(trigger)
+	candidates := findCandidates(policies, trigger)
+	progressf(opts, "    %d policies listed; %d name candidates containing %q — Classic GET /JSSResource/policies/id/{id} for trigger_other",
+		len(policies), len(candidates), nameHint)
+
 	// Phase 1: exact trigger_other match by fetching detail for name-based candidates only.
 	triggerNorm := normalizeTriggerForMatch(trigger)
-	for _, c := range findCandidates(policies, trigger) {
+	for _, c := range candidates {
 		detail, err := policyGetByID(credName, c.ID)
 		if err == nil && normalizeTriggerForMatch(detail.General.TriggerOther) == triggerNorm {
+			progressf(opts, "    exact trigger_other match: ID %d %q", c.ID, detail.General.Name)
 			return c.ID, nil
 		}
 	}
 
 	// Phase 2: fall back to name-based heuristics.
+	progressf(opts, "    no exact trigger_other match; name/version heuristic (prefer %s in policy name, version %q)",
+		preferNameTokenForTrigger(trigger), wantVer)
 	id, ok := findByNameAndVersion(policies, trigger)
 	if !ok {
-		return 0, fmt.Errorf("no policy found for trigger %q", trigger)
+		hint := ""
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(trigger)), "cache-") {
+			hint = `; for a cache bump, look for a policy named like "Cache …" with trigger_other matching the cache trigger — not the Install policy`
+		}
+		return 0, fmt.Errorf("no policy found for trigger %q%s", trigger, hint)
 	}
+	var pickedName string
+	for _, p := range policies {
+		if p.ID == id {
+			pickedName = p.Name
+			break
+		}
+	}
+	progressf(opts, "    heuristic source: ID %d %q", id, pickedName)
 	return id, nil
 }
 
@@ -1400,7 +1459,6 @@ func replaceVersionInString(s, newVersion string) string {
 	verRe := regexp.MustCompile(`\d+\.\d+(?:\.\d+)*`)
 	return verRe.ReplaceAllString(s, newVersion)
 }
-
 
 // --- setss payloads ---
 
@@ -1940,15 +1998,58 @@ func getPackageSourcePolicy(credName, name string, policyID int, opts Opts, logg
 }
 
 func extractVersionFromTrigger(trigger, name string) string {
+	_, ver, _ := parseTrigger(strings.ToLower(strings.TrimSpace(trigger)))
+	if ver != "" {
+		return ver
+	}
 	if name == "" {
 		return ""
 	}
-	re := regexp.MustCompile(`(?:cache|install)-` + regexp.QuoteMeta(name) + `-(\d+\.\d+(?:\.\d+)?)`)
-	m := re.FindStringSubmatch(trigger)
+	re := regexp.MustCompile(`(?:cache|install)-` + regexp.QuoteMeta(strings.ToLower(name)) + `-(\d+\.\d+(?:\.\d+)?)`)
+	m := re.FindStringSubmatch(strings.ToLower(trigger))
 	if len(m) >= 2 {
 		return m[1]
 	}
 	return ""
+}
+
+// packageSourceRoleError fails when from_trigger is a cache/install selector but
+// the resolved source policy is clearly the other role (e.g. cache trigger → Install policy).
+func packageSourceRoleError(wantTrigger string, source *resourcePolicy) error {
+	wantTrigger = strings.TrimSpace(wantTrigger)
+	if wantTrigger == "" || source == nil {
+		return nil
+	}
+	wantCache := looksLikeCacheTrigger(wantTrigger)
+	wantInstall := looksLikeInstallTrigger(wantTrigger) && !wantCache
+	if !wantCache && !wantInstall {
+		return nil
+	}
+	gotCache := sourceLooksLikeCache(source)
+	action := getPackageAction(source)
+	if wantCache && !gotCache {
+		return fmt.Errorf("from_trigger %q is a cache selector, but source policy %q (ID %d) looks like an install policy (trigger %q, action %s); pin the cache policy id or set cache_trigger to the versioned cache policy",
+			wantTrigger, source.General.Name, source.General.ID, source.General.TriggerOther, action)
+	}
+	if wantInstall && gotCache {
+		return fmt.Errorf("from_trigger %q is an install selector, but source policy %q (ID %d) looks like a cache policy (trigger %q, action %s)",
+			wantTrigger, source.General.Name, source.General.ID, source.General.TriggerOther, action)
+	}
+	return nil
+}
+
+func sourceLooksLikeCache(p *resourcePolicy) bool {
+	if p == nil {
+		return false
+	}
+	if looksLikeCacheTrigger(p.General.TriggerOther) {
+		return true
+	}
+	n := strings.ToLower(p.General.Name)
+	if strings.Contains(n, "cache") && !strings.Contains(n, "install") {
+		return true
+	}
+	return strings.EqualFold(getPackageAction(p), "Cache")
 }
 
 // extractVersionFromPackageName extracts a dotted version from a package filename.
@@ -2023,13 +2124,15 @@ func replaceVersionInName(name, newVersion string) string {
 
 func buildNewPackagePolicy(source *resourcePolicy, name, newVersion string, pkgID int, pkgName string, isInstall bool) (*resourcePolicy, string, string) {
 	var newTrigger string
-	sourceTriggerVersion := extractVersionFromTrigger(strings.ToLower(source.General.TriggerOther), name)
+	srcTrig := strings.ToLower(source.General.TriggerOther)
+	sourceTriggerVersion := extractVersionFromTrigger(srcTrig, name)
 	if sourceTriggerVersion != "" {
-		// Source has version in trigger (e.g. install-example-7.29) - use versioned trigger for new policy
-		if isInstall {
-			newTrigger = fmt.Sprintf("install-%s-%s", name, newVersion)
-		} else {
+		// Source has version in trigger (e.g. cache-example-7.29) — versioned trigger for the new policy.
+		// Prefer the source trigger/action role over isInstall so a cache policy is never rewritten as install-*.
+		if looksLikeCacheTrigger(srcTrig) || sourceLooksLikeCache(source) || !isInstall {
 			newTrigger = fmt.Sprintf("cache-%s-%s", name, newVersion)
+		} else {
+			newTrigger = fmt.Sprintf("install-%s-%s", name, newVersion)
 		}
 	} else {
 		// Source trigger has no version (e.g. example-install) - keep same trigger for the replacement
@@ -2139,18 +2242,18 @@ func buildPolicyPackagePayloadFromScratch(name, trigger string, pkgID int, pkgNa
 
 // PolicyCreatePackagePlan is a resolved greenfield package policy create (no source policy).
 type PolicyCreatePackagePlan struct {
-	Name           string
-	Version        string
-	Action         string // "install" or "cache"
-	NewName        string
-	NewTrigger     string
-	PkgID          int
-	PkgName        string
-	ScopeAll       bool
-	ScopeGroupIDs  []int
-	Category       string
-	Actions        []string
-	createPayload  *policyPackagePayload
+	Name          string
+	Version       string
+	Action        string // "install" or "cache"
+	NewName       string
+	NewTrigger    string
+	PkgID         int
+	PkgName       string
+	ScopeAll      bool
+	ScopeGroupIDs []int
+	Category      string
+	Actions       []string
+	createPayload *policyPackagePayload
 }
 
 // PlanPolicyCreatePackage resolves package + unique name/trigger for a from-scratch create.
@@ -2430,10 +2533,10 @@ type policyListItem struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
 	// Optional fields from undocumented Pro GET /api/v1/policies (nil/empty on Classic list).
-	Enabled            *bool   `json:"enabled,omitempty"`
-	CategoryID         string  `json:"categoryId,omitempty"`
-	ExecutionFrequency string  `json:"executionFrequency,omitempty"`
-	TriggerCheckin     *bool   `json:"triggerCheckin,omitempty"`
+	Enabled            *bool  `json:"enabled,omitempty"`
+	CategoryID         string `json:"categoryId,omitempty"`
+	ExecutionFrequency string `json:"executionFrequency,omitempty"`
+	TriggerCheckin     *bool  `json:"triggerCheckin,omitempty"`
 	// TriggerManual is set (non-nil) only when the v1 list included triggerManual
 	// (often "" for Self Service / single policies). Classic list leaves it nil.
 	TriggerManual   *string `json:"triggerManual,omitempty"`
@@ -2571,18 +2674,38 @@ func findCandidates(policies []policyListItem, trigger string) []policyListItem 
 	return candidates
 }
 
+func preferNameTokenForTrigger(trigger string) string {
+	triggerLower := strings.ToLower(strings.TrimSpace(trigger))
+	if strings.HasPrefix(triggerLower, "cache-") || strings.HasSuffix(triggerLower, "-cache") {
+		return "cache"
+	}
+	if strings.HasPrefix(triggerLower, "install-") || strings.HasSuffix(strings.TrimSuffix(triggerLower, "-next"), "-install") {
+		return "install"
+	}
+	return ""
+}
+
 func findByNameAndVersion(policies []policyListItem, trigger string) (int, bool) {
 	triggerLower := strings.ToLower(strings.TrimSpace(trigger))
 	_, wantVersion, isNext := parseTrigger(trigger)
-	preferInName := ""
-	if strings.HasPrefix(triggerLower, "install-") && !strings.HasSuffix(triggerLower, "-next") {
-		preferInName = "install"
-	} else if strings.HasPrefix(triggerLower, "cache-") {
-		preferInName = "cache"
-	}
+	preferInName := preferNameTokenForTrigger(trigger)
 	candidates := findCandidates(policies, trigger)
 	if len(candidates) == 0 {
 		return 0, false
+	}
+	if preferInName != "" {
+		var roleHits []policyListItem
+		for _, p := range candidates {
+			if strings.Contains(strings.ToLower(p.Name), preferInName) {
+				roleHits = append(roleHits, p)
+			}
+		}
+		if len(roleHits) > 0 {
+			candidates = roleHits
+		} else if preferInName == "cache" {
+			// Never fall back to an Install policy when the selector is a cache trigger.
+			return 0, false
+		}
 	}
 	if len(candidates) == 1 && !isNext && wantVersion == "" {
 		return candidates[0].ID, true

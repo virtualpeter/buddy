@@ -2251,7 +2251,6 @@ func (e *ExitError) Error() string {
 	return "exit " + strconv.Itoa(e.Code)
 }
 
-
 // json_decode(json_str) → {ok, value: dict or list} or {ok: False, error: str}
 func jsonDecodeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var jsonStr starlark.String
@@ -2801,11 +2800,13 @@ func changeBatchBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 
 func stepSetPackageBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name, version, fromTrigger, packagePattern, note starlark.String
+	var policyID starlark.Int
 	disableSource := starlark.Value(starlark.None)
 	keepSource := starlark.Value(starlark.None)
 	if err := starlark.UnpackArgs("step_set_package", args, kwargs,
 		"name", &name, "version", &version, "from_trigger", &fromTrigger,
 		"package_pattern?", &packagePattern,
+		"policy_id?", &policyID,
 		"disable_source?", &disableSource, "keep_source?", &keepSource,
 		"note?", &note,
 	); err != nil {
@@ -2819,6 +2820,9 @@ func stepSetPackageBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 		"version", string(version),
 		"from_trigger", string(fromTrigger),
 	)
+	if pid, _ := policyID.Int64(); pid > 0 {
+		_ = d.SetKey(starlark.String("policy_id"), policyID)
+	}
 	if string(packagePattern) != "" {
 		_ = d.SetKey(starlark.String("package_pattern"), packagePattern)
 	}

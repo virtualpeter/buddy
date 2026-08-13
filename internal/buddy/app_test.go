@@ -244,6 +244,56 @@ func TestSummarizePolicyAppFromList(t *testing.T) {
 	}
 }
 
+func TestDiscoverPolicyAppsFromCacheSummaries(t *testing.T) {
+	sums := []PolicyCacheSummary{
+		{ID: 1, Name: "Install Santa", UseForSelfService: true, ScriptParams: []string{"install-santa-next"}},
+		{ID: 2, Name: "Install Santa Next", Trigger: "install-santa-next", Enabled: true, PackageNames: []string{"Santa-2026.2.pkg"}},
+		{ID: 3, Name: "Cache Santa 2026.2", Trigger: "cache-santa-2026.2", Enabled: true, PackageNames: []string{"Santa-2026.2.pkg"}},
+		{ID: 4, Name: "Update Inventory", UseForSelfService: true},
+	}
+	list := policyListFromCacheSummaries(sums)
+	ss := ssCandidatesFromCacheSummaries(sums, list)
+	if len(ss) != 2 {
+		t.Fatalf("ss candidates=%d, want 2 (UseForSelfService, including no [SS] marker)", len(ss))
+	}
+	apps := discoverPolicyApps(ss, list, "")
+	enrichScanPackagesFromCache(apps, sums)
+	var santa PolicyAppSummary
+	for _, a := range apps {
+		if a.Name == "santa" {
+			santa = a
+		}
+		if a.Name == "update-inventory" {
+			t.Fatalf("inventory stub should be excluded: %+v", a)
+		}
+	}
+	if santa.SSPolicyID != 1 || santa.Kind != PolicyAppCache {
+		t.Fatalf("santa=%+v", santa)
+	}
+	if santa.PackageName != "Santa-2026.2.pkg" {
+		t.Fatalf("package=%q", santa.PackageName)
+	}
+}
+
+func TestSelectCurrentCacheRef(t *testing.T) {
+	refs := []PolicyAppRef{
+		{ID: 10, Name: "Cache Santa 2026.1", Trigger: "cache-santa-2026.1", Enabled: true, Version: "2026.1"},
+		{ID: 11, Name: "Cache Santa 2026.2", Trigger: "cache-santa-2026.2", Enabled: true, Version: "2026.2"},
+	}
+	got := selectCurrentCacheRef(refs, "2026.2")
+	if got.ID != 11 {
+		t.Fatalf("prefer version: got %+v", got)
+	}
+	got = selectCurrentCacheRef(refs, "9.9")
+	if got.ID != 11 {
+		t.Fatalf("newest enabled when prefer missing: got %+v", got)
+	}
+	got = selectCurrentCacheRef(refs, "")
+	if got.ID != 11 {
+		t.Fatalf("latest enabled: got %+v", got)
+	}
+}
+
 func TestPolicyNameContainsAppSlug(t *testing.T) {
 	if !policyNameContainsAppSlug("Cache Santa 2026.2", "santa") {
 		t.Fatal("expected santa in Cache Santa")

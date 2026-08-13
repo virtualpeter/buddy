@@ -3,6 +3,7 @@ package buddy
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -54,6 +55,50 @@ func TestLookupAppIndexCompatible(t *testing.T) {
 	got, ok, err := LookupAppIndexEntry(appsDir, "cursor")
 	if err != nil || !ok || got.Name != "cursor-ide" {
 		t.Fatalf("got=%+v ok=%v err=%v", got, ok, err)
+	}
+}
+
+func TestPolicyCacheStatusInfo(t *testing.T) {
+	fetched := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	info := (PolicyCacheStatus{
+		Exists:    true,
+		Stale:     false,
+		Age:       90 * time.Minute,
+		Dir:       "/tmp/cache",
+		Manifest:  PolicyCacheManifest{FetchedAt: fetched, Count: 42, Tenant: "sandbox"},
+		Summaries: 42,
+	}).Info()
+	if !info.Exists || info.Stale || info.Count != 42 || info.FetchedAt != "2026-08-10T12:00:00Z" || info.Tenant != "sandbox" {
+		t.Fatalf("%+v", info)
+	}
+	if (PolicyCacheStatus{}).Info().Exists {
+		t.Fatal("missing cache should not exist")
+	}
+}
+
+func TestFormatPolicyCacheLine(t *testing.T) {
+	if got := FormatPolicyCacheLine(PolicyCacheStatus{}); got != "Policy cache: missing" {
+		t.Fatalf("missing: %q", got)
+	}
+	fetched := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	got := FormatPolicyCacheLine(PolicyCacheStatus{
+		Exists:   true,
+		Stale:    false,
+		Age:      90 * time.Minute,
+		Manifest: PolicyCacheManifest{FetchedAt: fetched, Count: 42},
+	})
+	want := "Policy cache: fresh (42 policies, fetched 2026-08-10T12:00:00Z, age 1h30m0s)"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+	got = FormatPolicyCacheLine(PolicyCacheStatus{
+		Exists:   true,
+		Stale:    true,
+		Age:      4 * 24 * time.Hour,
+		Manifest: PolicyCacheManifest{FetchedAt: fetched, Count: 10},
+	})
+	if !strings.Contains(got, "stale") || !strings.Contains(got, "fetched 2026-08-10T12:00:00Z") {
+		t.Fatalf("stale: %q", got)
 	}
 }
 

@@ -415,10 +415,10 @@ DECLARATIVE WORKFLOW (step constructors + executor)
   (human notes, markdown plan without predicted create IDs, outcomes after apply).
 
   step_set_package(name, version, from_trigger, package_pattern?,
-                   disable_source?, keep_source?, note?)
+                   policy_id?, disable_source?, keep_source?, note?)
       Params: name: str package name keyword; version: str; from_trigger: str
-        (required source selector); package_pattern?, disable_source?,
-        keep_source?, note?: optional. Returns: step dict.
+        (required source selector); policy_id?: int (pin source policy, skip trigger search);
+        package_pattern?, disable_source?, keep_source?, note?: optional. Returns: step dict.
   step_clone_policy(from_trigger, version, name?, old_version?,
                     package_pattern?, params?, keep_source?, note?)
       Params: from_trigger: str; version: str; name?, old_version?, package_pattern?,
@@ -553,4 +553,3 @@ var Builtins = builtinsHead +
 	RolesBuiltinsSection +
 	ClientsBuiltinsSection +
 	builtinsTail
-

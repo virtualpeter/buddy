@@ -19,31 +19,31 @@ const (
 
 // PolicyAppSummary is one discovered policy app (list row).
 type PolicyAppSummary struct {
-	Name           string     `json:"name"`
-	Kind           PolicyAppKind `json:"kind"`
-	Version        string     `json:"version,omitempty"`
-	SSPolicyID     int        `json:"ss_policy_id"`
-	SSPolicyName   string     `json:"ss_policy_name,omitempty"`
-	InstallTrigger string     `json:"install_trigger,omitempty"`
-	InstallPolicyID int       `json:"install_policy_id,omitempty"`
-	CachePolicyID  int        `json:"cache_policy_id,omitempty"`
-	PackageID      int        `json:"package_id,omitempty"`
-	PackageName    string     `json:"package_name,omitempty"`
+	Name            string        `json:"name"`
+	Kind            PolicyAppKind `json:"kind"`
+	Version         string        `json:"version,omitempty"`
+	SSPolicyID      int           `json:"ss_policy_id"`
+	SSPolicyName    string        `json:"ss_policy_name,omitempty"`
+	InstallTrigger  string        `json:"install_trigger,omitempty"`
+	InstallPolicyID int           `json:"install_policy_id,omitempty"`
+	CachePolicyID   int           `json:"cache_policy_id,omitempty"`
+	PackageID       int           `json:"package_id,omitempty"`
+	PackageName     string        `json:"package_name,omitempty"`
 }
 
 // PolicyAppDetail is AppGet output: summary plus linked policy IDs/names.
 type PolicyAppDetail struct {
 	PolicyAppSummary
-	SSDisplayName       string          `json:"ss_display_name,omitempty"`
-	SSDescription       string          `json:"ss_description,omitempty"`
-	InstallPolicyName   string          `json:"install_policy_name,omitempty"`
-	CachePolicyName     string          `json:"cache_policy_name,omitempty"`
-	UninstallTrigger    string          `json:"uninstall_trigger,omitempty"`
-	UninstallPolicyID   int             `json:"uninstall_policy_id,omitempty"`
-	UninstallPolicyName string          `json:"uninstall_policy_name,omitempty"`
-	CachePolicies       []PolicyAppRef  `json:"cache_policies,omitempty"`
-	InstallPolicies     []PolicyAppRef  `json:"install_policies,omitempty"`
-	UninstallPolicies   []PolicyAppRef  `json:"uninstall_policies,omitempty"`
+	SSDisplayName       string         `json:"ss_display_name,omitempty"`
+	SSDescription       string         `json:"ss_description,omitempty"`
+	InstallPolicyName   string         `json:"install_policy_name,omitempty"`
+	CachePolicyName     string         `json:"cache_policy_name,omitempty"`
+	UninstallTrigger    string         `json:"uninstall_trigger,omitempty"`
+	UninstallPolicyID   int            `json:"uninstall_policy_id,omitempty"`
+	UninstallPolicyName string         `json:"uninstall_policy_name,omitempty"`
+	CachePolicies       []PolicyAppRef `json:"cache_policies,omitempty"`
+	InstallPolicies     []PolicyAppRef `json:"install_policies,omitempty"`
+	UninstallPolicies   []PolicyAppRef `json:"uninstall_policies,omitempty"`
 }
 
 // PolicyAppRef is a short linked-policy row.
@@ -62,20 +62,130 @@ var (
 )
 
 // AppSearch discovers policy apps from Self Service policies whose name contains "[SS]".
-// Uses one hybrid policy list call and name-only heuristics (no per-policy Classic GETs).
+// Uses the on-disk policy cache when present (no Jamf call); otherwise one hybrid
+// policy list call and name-only heuristics (no per-policy Classic GETs).
 // Kind/version/trigger may be approximate; AppGet does full XML classify.
 // filter is an optional client-side substring on name / kind / version / trigger / package.
 func AppSearch(credName, filter string, logger *slog.Logger) ([]PolicyAppSummary, error) {
-	list, err := getPolicyList(credName, logger)
+	res, err := AppScan(credName, AppScanOpts{Filter: filter}, logger)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]PolicyAppSummary, 0)
-	seen := map[string]bool{}
+	return res.Apps, nil
+}
+
+// AppScanOpts configures buddy app scan.
+type AppScanOpts struct {
+	Filter  string
+	Refresh bool // rebuild the Classic policy cache, then scan it
+}
+
+// AppScanResult is a heuristic app discovery pass plus which source it used.
+type AppScanResult struct {
+	Apps   []PolicyAppSummary
+	Source string // "cache" or "live"
+	Cache  PolicyCacheStatus
+}
+
+// AppScan discovers policy apps for onboarding. Prefers the policy payload cache
+// (summaries.json) when present so a 1300-policy tenant is not listed live.
+// --refresh rebuilds that cache first. Missing cache falls back to a live list.
+func AppScan(credName string, opts AppScanOpts, logger *slog.Logger) (AppScanResult, error) {
+	if opts.Refresh {
+		if err := PolicyCacheRefresh(credName, logger); err != nil {
+			return AppScanResult{}, err
+		}
+	}
+	st, err := GetPolicyCacheStatus(credName)
+	if err != nil {
+		return AppScanResult{}, err
+	}
+	sums, err := LoadPolicyCacheSummaries(credName)
+	if err != nil {
+		return AppScanResult{}, err
+	}
+	if len(sums) > 0 {
+		list := policyListFromCacheSummaries(sums)
+		ss := ssCandidatesFromCacheSummaries(sums, list)
+		apps := discoverPolicyApps(ss, list, opts.Filter)
+		enrichScanPackagesFromCache(apps, sums)
+		return AppScanResult{Apps: apps, Source: "cache", Cache: st}, nil
+	}
+	list, err := getPolicyList(credName, logger)
+	if err != nil {
+		return AppScanResult{}, err
+	}
+	var ss []policyListItem
 	for _, c := range list {
-		if !ssNameMarkerRe.MatchString(c.Name) {
+		if ssNameMarkerRe.MatchString(c.Name) {
+			ss = append(ss, c)
+		}
+	}
+	apps := discoverPolicyApps(ss, list, opts.Filter)
+	return AppScanResult{Apps: apps, Source: "live", Cache: st}, nil
+}
+
+func policyListFromCacheSummaries(sums []PolicyCacheSummary) []policyListItem {
+	out := make([]policyListItem, 0, len(sums))
+	for _, s := range sums {
+		item := policyListItem{ID: s.ID, Name: s.Name}
+		en := s.Enabled
+		item.Enabled = &en
+		if t := strings.TrimSpace(s.Trigger); t != "" {
+			trig := t
+			item.TriggerManual = &trig
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func ssCandidatesFromCacheSummaries(sums []PolicyCacheSummary, list []policyListItem) []policyListItem {
+	byID := make(map[int]policyListItem, len(list))
+	for _, p := range list {
+		byID[p.ID] = p
+	}
+	var out []policyListItem
+	seen := map[int]bool{}
+	for _, s := range sums {
+		if !s.UseForSelfService && !ssNameMarkerRe.MatchString(s.Name) {
 			continue
 		}
+		p, ok := byID[s.ID]
+		if !ok || seen[s.ID] {
+			continue
+		}
+		seen[s.ID] = true
+		out = append(out, p)
+	}
+	return out
+}
+
+func enrichScanPackagesFromCache(apps []PolicyAppSummary, sums []PolicyCacheSummary) {
+	byID := make(map[int]PolicyCacheSummary, len(sums))
+	for _, s := range sums {
+		byID[s.ID] = s
+	}
+	for i := range apps {
+		if apps[i].PackageName != "" {
+			continue
+		}
+		for _, id := range []int{apps[i].InstallPolicyID, apps[i].CachePolicyID, apps[i].SSPolicyID} {
+			if id == 0 {
+				continue
+			}
+			if s, ok := byID[id]; ok && len(s.PackageNames) > 0 {
+				apps[i].PackageName = s.PackageNames[0]
+				break
+			}
+		}
+	}
+}
+
+func discoverPolicyApps(ssCandidates, list []policyListItem, filter string) []PolicyAppSummary {
+	out := make([]PolicyAppSummary, 0)
+	seen := map[string]bool{}
+	for _, c := range ssCandidates {
 		sum, ok := summarizePolicyAppFromList(c, list)
 		if !ok {
 			continue
@@ -93,7 +203,7 @@ func AppSearch(credName, filter string, logger *slog.Logger) ([]PolicyAppSummary
 	sort.Slice(out, func(i, j int) bool {
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
-	return out, nil
+	return out
 }
 
 // AppGet returns one policy app by app name (case-insensitive).
@@ -156,22 +266,29 @@ func AppGetFromIndex(credName string, e AppIndexEntry, logger *slog.Logger) (*Po
 			}
 		}
 	}
-	for i, id := range e.CachePolicyIDs {
+	for _, id := range e.CachePolicyIDs {
 		p, err := PolicyCacheGet(credName, id, logger)
 		if err != nil {
 			return nil, fmt.Errorf("cache policy %d: %w", id, err)
 		}
-		ref := refFromPolicy(p)
-		d.CachePolicies = append(d.CachePolicies, ref)
-		if i == 0 {
-			d.CachePolicyID = p.General.ID
-			d.CachePolicyName = p.General.Name
-			if d.Version == "" {
-				d.Version = policyAppVersion(p, nil)
-			}
-			if d.PackageID == 0 && len(p.PackageConfiguration.Packages) > 0 {
-				d.PackageID = p.PackageConfiguration.Packages[0].ID
-				d.PackageName = p.PackageConfiguration.Packages[0].Name
+		d.CachePolicies = append(d.CachePolicies, refFromPolicy(p))
+	}
+	if cur := selectCurrentCacheRef(d.CachePolicies, d.Version); cur.ID > 0 {
+		d.CachePolicyID = cur.ID
+		d.CachePolicyName = cur.Name
+		if d.Version == "" && cur.Version != "" {
+			d.Version = cur.Version
+		}
+		if d.PackageID == 0 {
+			for _, id := range e.CachePolicyIDs {
+				if id != cur.ID {
+					continue
+				}
+				if p, err := PolicyCacheGet(credName, id, logger); err == nil && len(p.PackageConfiguration.Packages) > 0 {
+					d.PackageID = p.PackageConfiguration.Packages[0].ID
+					d.PackageName = p.PackageConfiguration.Packages[0].Name
+				}
+				break
 			}
 		}
 	}
@@ -342,8 +459,9 @@ func upgradePolicyAppCache(credName string, opts Opts, d *PolicyAppDetail, versi
 	if d.CachePolicyID <= 0 {
 		return fmt.Errorf("app %q: no current cache policy to clone from", d.Name)
 	}
-	// Keep prior versioned cache for rollback.
-	if err := PolicyPackage(credName, opts, d.Name, version, d.CachePolicyID, "", packagePattern, DisableSourceKeep, logger); err != nil {
+	cacheTrig := cacheTriggerFromDetail(d)
+	// Keep prior versioned cache for rollback. Prefer pinned cache policy ID over trigger search.
+	if err := PolicyPackage(credName, opts, d.Name, version, d.CachePolicyID, cacheTrig, packagePattern, DisableSourceKeep, logger); err != nil {
 		return err
 	}
 	trigger := d.InstallTrigger
@@ -1032,6 +1150,43 @@ func pickCurrentCache(caches []*resourcePolicy, preferVersion string) *resourceP
 		}
 	}
 	return caches[0]
+}
+
+// selectCurrentCacheRef picks the live cache policy to clone from: matching
+// preferVersion, else newest enabled version, else newest version, else first enabled.
+func selectCurrentCacheRef(refs []PolicyAppRef, preferVersion string) PolicyAppRef {
+	if len(refs) == 0 {
+		return PolicyAppRef{}
+	}
+	if preferVersion != "" {
+		for _, r := range refs {
+			if r.Version != "" && CompareVersions(r.Version, preferVersion) == 0 {
+				return r
+			}
+		}
+	}
+	bestEnabled := PolicyAppRef{}
+	bestAny := PolicyAppRef{}
+	for _, r := range refs {
+		if r.Version != "" && (bestAny.Version == "" || CompareVersions(r.Version, bestAny.Version) > 0) {
+			bestAny = r
+		}
+		if r.Enabled && r.Version != "" && (bestEnabled.Version == "" || CompareVersions(r.Version, bestEnabled.Version) > 0) {
+			bestEnabled = r
+		}
+	}
+	if bestEnabled.ID != 0 {
+		return bestEnabled
+	}
+	if bestAny.ID != 0 {
+		return bestAny
+	}
+	for _, r := range refs {
+		if r.Enabled {
+			return r
+		}
+	}
+	return refs[0]
 }
 
 func policyAppVersion(p *resourcePolicy, ss *resourcePolicy) string {

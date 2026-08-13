@@ -13,18 +13,18 @@ import (
 
 // stepType constants identify each supported workflow step.
 const (
-	stepTypeSetPackage      = "set_package"
-	stepTypeClonePolicy     = "clone_policy"
-	stepTypeSetSS           = "set_ss"
-	stepTypeSetGroupVersion = "set_group_version"
-	stepTypeSetInstall      = "set_install"
-	stepTypeEnablePolicy    = "enable_policy"
-	stepTypeDisablePolicy   = "disable_policy"
-	stepTypeSetTrigger      = "set_trigger"
-	stepTypeSetScope        = "set_scope"
-	stepTypeSetScopeAll     = "set_scope_all"
-	stepTypeDeletePolicy    = "delete_policy"
-	stepTypeCreatePolicy    = "create_policy"
+	stepTypeSetPackage          = "set_package"
+	stepTypeClonePolicy         = "clone_policy"
+	stepTypeSetSS               = "set_ss"
+	stepTypeSetGroupVersion     = "set_group_version"
+	stepTypeSetInstall          = "set_install"
+	stepTypeEnablePolicy        = "enable_policy"
+	stepTypeDisablePolicy       = "disable_policy"
+	stepTypeSetTrigger          = "set_trigger"
+	stepTypeSetScope            = "set_scope"
+	stepTypeSetScopeAll         = "set_scope_all"
+	stepTypeDeletePolicy        = "delete_policy"
+	stepTypeCreatePolicy        = "create_policy"
 	stepTypeSetProfilePayload   = "set_profile_payload"
 	stepTypeSetProfileXML       = "set_profile_xml"
 	stepTypeCreatePackagePolicy = "create_package_policy"
@@ -94,12 +94,12 @@ type Step struct {
 
 // resolvedStep pairs a validated step with a pre-resolved plan (when applicable).
 type resolvedStep struct {
-	step           *Step
-	planLines      []string
-	pkgPlan        *buddy.PolicyPackagePlan
-	clonePlan      *buddy.PolicyClonePlan
-	createPkgPlan  *buddy.PolicyCreatePackagePlan
-	createProfile  *buddy.ProfileCreateSpec // filled at resolve for create_profile
+	step          *Step
+	planLines     []string
+	pkgPlan       *buddy.PolicyPackagePlan
+	clonePlan     *buddy.PolicyClonePlan
+	createPkgPlan *buddy.PolicyCreatePackagePlan
+	createProfile *buddy.ProfileCreateSpec // filled at resolve for create_profile
 }
 
 // planLine returns a human-readable description of the step for the plan output.
@@ -307,6 +307,9 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		}
 		if s.Name == "" || s.Version == "" || s.FromTrigger == "" {
 			return nil, fmt.Errorf("step_set_package requires name, version, from_trigger")
+		}
+		if s.PolicyID, _, err = getInt("policy_id"); err != nil {
+			return nil, err
 		}
 		s.PackagePattern, _, _ = getStr("package_pattern")
 		s.DisableMode, err = disableModeFromStepDict(d, true)
@@ -671,7 +674,7 @@ func runWorkflow(credName string, stepVals []starlark.Value, logger *slog.Logger
 		return fmt.Errorf("run_workflow: no steps provided")
 	}
 
-	opts := buddy.Opts{SkipConfirm: true, Verbose: scriptOpts.Verbose}
+	opts := buddy.Opts{SkipConfirm: true, Verbose: scriptOpts.Verbose, Progress: scriptOpts.Progress}
 
 	resolved := make([]resolvedStep, 0, len(steps))
 	for i, s := range steps {
@@ -713,11 +716,15 @@ func resolveWorkflowStep(credName string, s *Step, opts buddy.Opts, logger *slog
 	rs := resolvedStep{step: s}
 	switch s.Type {
 	case stepTypeSetPackage:
-		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, logger)
-		if err != nil {
-			return rs, fmt.Errorf("find source policy %q: %w", s.FromTrigger, err)
+		srcID := s.PolicyID
+		if srcID <= 0 {
+			var err error
+			srcID, err = buddy.PolicyFind(credName, opts, s.FromTrigger, logger)
+			if err != nil {
+				return rs, fmt.Errorf("find source policy %q: %w", s.FromTrigger, err)
+			}
 		}
-		plan, err := buddy.PlanPolicyPackage(credName, opts, s.Name, s.Version, srcID, "", s.PackagePattern, s.DisableMode, logger)
+		plan, err := buddy.PlanPolicyPackage(credName, opts, s.Name, s.Version, srcID, s.FromTrigger, s.PackagePattern, s.DisableMode, logger)
 		if err != nil {
 			return rs, err
 		}
@@ -815,11 +822,15 @@ func executeStep(credName string, s *Step, opts buddy.Opts, logger *slog.Logger)
 		return buddy.AppUpgrade(credName, opts, s.Name, s.Version, s.PackagePattern, logger)
 
 	case stepTypeSetPackage:
-		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, logger)
-		if err != nil {
-			return fmt.Errorf("find source policy %q: %w", s.FromTrigger, err)
+		srcID := s.PolicyID
+		if srcID <= 0 {
+			var err error
+			srcID, err = buddy.PolicyFind(credName, opts, s.FromTrigger, logger)
+			if err != nil {
+				return fmt.Errorf("find source policy %q: %w", s.FromTrigger, err)
+			}
 		}
-		return buddy.PolicyPackage(credName, opts, s.Name, s.Version, srcID, "", s.PackagePattern, s.DisableMode, logger)
+		return buddy.PolicyPackage(credName, opts, s.Name, s.Version, srcID, s.FromTrigger, s.PackagePattern, s.DisableMode, logger)
 
 	case stepTypeClonePolicy:
 		srcID, err := buddy.PolicyFind(credName, opts, s.FromTrigger, logger)

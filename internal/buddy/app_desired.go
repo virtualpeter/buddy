@@ -2,6 +2,7 @@ package buddy
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"text/template"
 )
@@ -24,14 +25,14 @@ type AppDesired struct {
 
 // AppReconcileStep is one change-batch step invented by reconcile (pre-starlark).
 type AppReconcileStep struct {
-	Type            string // note | set_package | upgrade_app | set_ss
-	Name            string
-	Version         string
-	FromTrigger     string
-	PackagePattern  string
-	Note            string
-	KeepSource      bool
-	PolicyID        int
+	Type           string // note | set_package | upgrade_app | set_ss
+	Name           string
+	Version        string
+	FromTrigger    string
+	PackagePattern string
+	Note           string
+	KeepSource     bool
+	PolicyID       int
 }
 
 // AppReconcilePlan is the change header + steps to reach desired from live.
@@ -93,6 +94,91 @@ func cacheTriggerFromDetail(d *PolicyAppDetail) string {
 		}
 	}
 	return ""
+}
+
+func cacheSourceFromLive(live *PolicyAppDetail, cacheTrigger string) (id int, trigger string) {
+	trigger = strings.TrimSpace(cacheTrigger)
+	if live == nil {
+		return 0, trigger
+	}
+	want := normalizeTriggerForMatch(trigger)
+	for _, c := range live.CachePolicies {
+		if want != "" && normalizeTriggerForMatch(c.Trigger) == want {
+			return c.ID, strings.TrimSpace(c.Trigger)
+		}
+	}
+	if live.CachePolicyID > 0 {
+		if trigger == "" {
+			trigger = cacheTriggerFromDetail(live)
+		}
+		return live.CachePolicyID, trigger
+	}
+	return 0, trigger
+}
+
+func installSourceID(live *PolicyAppDetail, installTrigger string) int {
+	if live == nil {
+		return 0
+	}
+	want := normalizeTriggerForMatch(installTrigger)
+	for _, p := range live.InstallPolicies {
+		if want != "" && normalizeTriggerForMatch(p.Trigger) == want {
+			return p.ID
+		}
+	}
+	return live.InstallPolicyID
+}
+
+// PrintAppReconcileProgress writes a live-vs-desired briefing to stderr
+// (which policies/packages will be looked up, and which APIs).
+func PrintAppReconcileProgress(live *PolicyAppDetail, desired AppDesired, plan *AppReconcilePlan) {
+	if live == nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "app_reconcile: %s  live=%s (%s) → desired=%s\n",
+		live.Name, live.Version, live.Kind, desired.Version)
+	fmt.Fprintf(os.Stderr, "  kind: %s\n", live.Kind)
+	switch live.Kind {
+	case PolicyAppCache:
+		fmt.Fprintf(os.Stderr, "  cache source: id=%d name=%q trigger=%q package=%q\n",
+			live.CachePolicyID, live.CachePolicyName, cacheTriggerFromDetail(live), live.PackageName)
+		if n := len(live.CachePolicies); n > 1 {
+			fmt.Fprintf(os.Stderr, "  linked cache policies (%d):\n", n)
+			for _, c := range live.CachePolicies {
+				en := "off"
+				if c.Enabled {
+					en = "on"
+				}
+				mark := ""
+				if c.ID == live.CachePolicyID {
+					mark = "  <- clone from"
+				}
+				fmt.Fprintf(os.Stderr, "    id=%d %q trigger=%q version=%s %s%s\n",
+					c.ID, c.Name, c.Trigger, c.Version, en, mark)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "  looking for: clone a new versioned cache policy from that source (keep prior cache enabled)\n")
+		fmt.Fprintf(os.Stderr, "  install source: id=%d name=%q trigger=%q\n",
+			live.InstallPolicyID, live.InstallPolicyName, live.InstallTrigger)
+		fmt.Fprintf(os.Stderr, "  looking for: replace the install-next policy package (disable prior install)\n")
+	case PolicyAppInstall:
+		fmt.Fprintf(os.Stderr, "  install source: id=%d name=%q trigger=%q package=%q\n",
+			live.InstallPolicyID, live.InstallPolicyName, live.InstallTrigger, live.PackageName)
+		fmt.Fprintf(os.Stderr, "  looking for: replace the install policy package (disable prior)\n")
+	case PolicyAppSingle:
+		fmt.Fprintf(os.Stderr, "  Self Service policy: id=%d name=%q package=%q\n",
+			live.SSPolicyID, live.SSPolicyName, live.PackageName)
+		fmt.Fprintf(os.Stderr, "  looking for: in-place package swap on the SS policy\n")
+	}
+	pattern := strings.TrimSpace(desired.PackagePattern)
+	if pattern == "" {
+		pattern = DefaultAppPackagePattern(live.Name, desired.Version)
+	}
+	fmt.Fprintf(os.Stderr, "  package pattern: %s\n", pattern)
+	fmt.Fprintf(os.Stderr, "  APIs: Classic GET /JSSResource/policies/id/{id} for source XML; GET /api/v1/packages for the new pkg\n")
+	if plan != nil && !plan.Noop {
+		fmt.Fprintf(os.Stderr, "  resolving %d change-batch step(s)…\n", len(plan.Steps))
+	}
 }
 
 // BuildAppReconcilePlan diffs live AppGet vs desired and invents change-batch steps.
@@ -182,21 +268,32 @@ func BuildAppReconcilePlan(live *PolicyAppDetail, desired AppDesired) (*AppRecon
 		if installTrigger == "" {
 			return nil, fmt.Errorf("app %q: missing install_trigger for install-kind bump", live.Name)
 		}
+		installID := installSourceID(live, installTrigger)
 		plan.Steps = []AppReconcileStep{{
 			Type:           "set_package",
 			Name:           live.Name,
 			Version:        desired.Version,
 			FromTrigger:    installTrigger,
 			PackagePattern: pattern,
+			PolicyID:       installID,
 			Note:           "Replace install policy; disable prior (same trigger).",
 		}}
 	case PolicyAppCache:
+		if looksLikeInstallTrigger(cacheTrigger) && !looksLikeCacheTrigger(cacheTrigger) {
+			return nil, fmt.Errorf("app %q: cache_trigger %q looks like an install trigger; set CACHE_TRIGGER to the versioned cache policy (e.g. cache-%s-%s), not the install-next policy",
+				live.Name, cacheTrigger, strings.ToLower(normalizeAppSlugKey(live.Name)), live.Version)
+		}
 		if cacheTrigger == "" {
 			return nil, fmt.Errorf("app %q: missing cache_trigger for cache-kind bump", live.Name)
+		}
+		cacheID, cacheTrigger := cacheSourceFromLive(live, cacheTrigger)
+		if cacheID == 0 && live.CachePolicyID > 0 {
+			cacheID = live.CachePolicyID
 		}
 		if installTrigger == "" {
 			installTrigger = "install-" + strings.ToLower(normalizeAppSlugKey(live.Name)) + "-next"
 		}
+		installID := installSourceID(live, installTrigger)
 		plan.Steps = []AppReconcileStep{
 			{
 				Type:           "set_package",
@@ -205,6 +302,7 @@ func BuildAppReconcilePlan(live *PolicyAppDetail, desired AppDesired) (*AppRecon
 				FromTrigger:    cacheTrigger,
 				PackagePattern: pattern,
 				KeepSource:     true,
+				PolicyID:       cacheID,
 				Note:           "Versioned cache; leave prior cache enabled for rollback.",
 			},
 			{
@@ -213,6 +311,7 @@ func BuildAppReconcilePlan(live *PolicyAppDetail, desired AppDesired) (*AppRecon
 				Version:        desired.Version,
 				FromTrigger:    installTrigger,
 				PackagePattern: pattern,
+				PolicyID:       installID,
 				Note:           "Unversioned install-next replacement; disable prior install policy.",
 			},
 		}

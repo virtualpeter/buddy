@@ -37,32 +37,32 @@ func TestResolvePackageDisable(t *testing.T) {
 		reason        string
 	}{
 		{
-			name: "modify in place",
+			name:     "modify in place",
 			isModify: true, newTrigger: "install-app", sourceTrigger: "install-app",
 			mode: DisableSourceAuto, disable: false, reason: "same version — in-place update",
 		},
 		{
-			name: "same trigger replacement",
+			name:     "same trigger replacement",
 			isModify: false, newTrigger: "install-app", sourceTrigger: "install-app",
 			mode: DisableSourceAuto, disable: true, reason: "same trigger — replacement",
 		},
 		{
-			name: "versioned trigger change",
+			name:     "versioned trigger change",
 			isModify: false, newTrigger: "cache-app-2.0", sourceTrigger: "cache-app-1.0",
 			mode: DisableSourceAuto, disable: false, reason: "trigger changes",
 		},
 		{
-			name: "force disable on versioned",
+			name:     "force disable on versioned",
 			isModify: false, newTrigger: "cache-app-2.0", sourceTrigger: "cache-app-1.0",
 			mode: DisableSourceForce, disable: true, reason: "disable-source",
 		},
 		{
-			name: "keep on same trigger",
+			name:     "keep on same trigger",
 			isModify: false, newTrigger: "install-app", sourceTrigger: "install-app",
 			mode: DisableSourceKeep, disable: false, reason: "keep-source",
 		},
 		{
-			name: "case insensitive trigger match",
+			name:     "case insensitive trigger match",
 			isModify: false, newTrigger: "Install-App", sourceTrigger: "install-app",
 			mode: DisableSourceAuto, disable: true, reason: "same trigger — replacement",
 		},
@@ -149,5 +149,52 @@ func TestLooksLikeTriggerKeyword(t *testing.T) {
 	}
 	if looksLikeTriggerKeyword("install") {
 		t.Fatal("bare install should not look like trigger")
+	}
+}
+
+func TestFindByNameAndVersionPrefersCachePolicy(t *testing.T) {
+	policies := []policyListItem{
+		{ID: 2, Name: "Install Santa 2026.3"},
+		{ID: 3, Name: "Cache Santa 2026.3"},
+		{ID: 21, Name: "Install Santa [SS]"},
+	}
+	id, ok := findByNameAndVersion(policies, "cache-santa-2026.3")
+	if !ok || id != 3 {
+		t.Fatalf("cache trigger picked ID %d ok=%v, want cache policy 3 (not install 2)", id, ok)
+	}
+	id, ok = findByNameAndVersion(policies, "install-santa-next")
+	if !ok || id != 2 {
+		t.Fatalf("install-next picked ID %d ok=%v, want install policy 2", id, ok)
+	}
+}
+
+func TestExtractVersionFromTriggerWithoutExactName(t *testing.T) {
+	if got := extractVersionFromTrigger("cache-santa-2026.3", "santa-daemon"); got != "2026.3" {
+		t.Fatalf("got %q, want 2026.3 from parseTrigger even when name does not match", got)
+	}
+	if got := extractVersionFromTrigger("install-santa-next", "santa"); got != "" {
+		t.Fatalf("unversioned install-next should have empty version, got %q", got)
+	}
+}
+
+func TestPackageSourceRoleError(t *testing.T) {
+	install := &resourcePolicy{}
+	install.General.ID = 23
+	install.General.Name = "Install Santa Next"
+	install.General.TriggerOther = "install-santa-next"
+	install.PackageConfiguration.Packages = []policySubsetPackageConfigurationPackage{{ID: 1, Name: "Santa-2026.2.pkg", Action: "Install"}}
+
+	err := packageSourceRoleError("cache-santa-2026.2", install)
+	if err == nil {
+		t.Fatal("expected error when cache trigger resolves to install policy")
+	}
+
+	cache := &resourcePolicy{}
+	cache.General.ID = 10
+	cache.General.Name = "Cache Santa 2026.2"
+	cache.General.TriggerOther = "cache-santa-2026.2"
+	cache.PackageConfiguration.Packages = []policySubsetPackageConfigurationPackage{{ID: 1, Name: "Santa-2026.2.pkg", Action: "Cache"}}
+	if err := packageSourceRoleError("cache-santa-2026.2", cache); err != nil {
+		t.Fatalf("cache→cache should be ok: %v", err)
 	}
 }

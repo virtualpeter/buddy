@@ -68,6 +68,17 @@ func TestStepFromStarlark_SetPackage_KeepSource(t *testing.T) {
 	}
 }
 
+func TestStepFromStarlark_SetPackage_PolicyID(t *testing.T) {
+	d := stepDict(stepTypeSetPackage, "name", "santa", "version", "2026.3", "from_trigger", "cache-santa-2026.2", "policy_id", 10)
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.PolicyID != 10 {
+		t.Fatalf("PolicyID = %d, want 10", s.PolicyID)
+	}
+}
+
 func TestStepFromStarlark_SetPackage_DisableSource(t *testing.T) {
 	d := stepDict(stepTypeSetPackage, "name", "MyApp", "version", "1.0.0", "from_trigger", "install-app")
 	_ = d.SetKey(starlark.String("disable_source"), starlark.True)

@@ -948,6 +948,17 @@ func truncatePad(s string, width int) string {
 	return s[:width-3] + "..."
 }
 
+func printAppScanSource(res buddy.AppScanResult) {
+	fmt.Println(buddy.FormatPolicyCacheLine(res.Cache))
+	if res.Source == "cache" {
+		if res.Cache.Stale {
+			fmt.Println("  Pass --refresh to rebuild, or: buddy app cache refresh")
+		}
+		return
+	}
+	fmt.Println("  Scanned live policy list. Faster next time: buddy app scan --refresh")
+}
+
 func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
 	if len(args) == 0 || args[0] == "help" {
 		fmt.Print(helpApp)
@@ -964,6 +975,7 @@ func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		if err := fs.Parse(args); err != nil {
 			return err
 		}
+		buddy.PrintPolicyCacheLine(credName)
 		apps, err := buddy.AppListImported(buddy.DefaultAppsDir(), filter)
 		if err != nil {
 			return err
@@ -1000,18 +1012,21 @@ func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		return nil
 	case "scan":
 		var filter string
+		var refresh bool
 		fs := flag.NewFlagSet("app scan", flag.ContinueOnError)
 		fs.StringVar(&filter, "filter", "", "substring matched against name, kind, version, trigger, or package")
+		fs.BoolVar(&refresh, "refresh", false, "rebuild the policy cache, then scan it")
 		if err := fs.Parse(args); err != nil {
 			return err
 		}
-		apps, err := buddy.AppSearch(credName, filter, log)
+		res, err := buddy.AppScan(credName, buddy.AppScanOpts{Filter: filter, Refresh: refresh}, log)
 		if err != nil {
 			return err
 		}
+		printAppScanSource(res)
 		fmt.Printf("%-30s  %-8s  %-12s  %-8s  %-24s  %s\n", "Name", "Kind", "Version", "SS ID", "Install trigger", "Package")
 		fmt.Printf("%-30s  %-8s  %-12s  %-8s  %-24s  %s\n", "------------------------------", "--------", "------------", "--------", "------------------------", "--------------------------------")
-		for _, a := range apps {
+		for _, a := range res.Apps {
 			fmt.Printf("%-30s  %-8s  %-12s  %-8d  %-24s  %s\n",
 				truncatePad(a.Name, 30), truncatePad(string(a.Kind), 8), truncatePad(a.Version, 12),
 				a.SSPolicyID, truncatePad(a.InstallTrigger, 24), a.PackageName)
@@ -1022,6 +1037,7 @@ func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		if len(args) < 1 {
 			return fmt.Errorf("missing app name; run 'buddy app help' for usage")
 		}
+		buddy.PrintPolicyCacheLine(credName)
 		d, err := buddy.AppGet(credName, args[0], log)
 		if err != nil {
 			return err
@@ -1047,6 +1063,7 @@ func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		if strings.TrimSpace(version) == "" {
 			return fmt.Errorf("--version is required; run 'buddy app help' for usage")
 		}
+		buddy.PrintPolicyCacheLine(credName)
 		return buddy.AppUpgrade(credName, opts, name, version, packagePattern, log)
 	case "import":
 		var name string
@@ -1109,6 +1126,7 @@ func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		case "status":
 			return buddy.PrintPolicyCacheStatus(credName)
 		case "refresh":
+			buddy.PrintPolicyCacheLine(credName)
 			return buddy.PolicyCacheRefresh(credName, log)
 		default:
 			return errUnknownSubcommand("app cache", args[0], []string{"status", "refresh"})

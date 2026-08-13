@@ -8,16 +8,36 @@ const AppsBuiltinsSection = `POLICY APPS (Self Service + packages)
   apps(filter?, tenant?, surface?, auth?)
       → value: list of summary dicts {name, kind, version, ss_policy_id, install_trigger, …}
       Params: filter?: str (client-side substring on name/kind/version/trigger/package).
-      Notes: Imported apps only (apps/index.json). Empty until buddy app import.
-             Heuristic discovery is CLI: buddy app scan.
+      Notes: Imported apps only (apps/index.json). Empty until app_import / buddy app import.
+             Heuristic discovery is app_scan(), not this builtin.
   app(name, tenant?, surface?, auth?) → value: dict (summary + linked install/cache/uninstall policies)
       Params: name: str (app identifier, e.g. santa, vscode).
       Notes: Uses apps/index.json when present; else Classic XML classify.
-  app_reconcile(desired, apply?=False, tenant?, surface?, auth?)
+  app_scan(filter?, refresh?, tenant?, surface?, auth?)
+      → value: dict {apps: list of summaries, source: "cache"|"live", cache: status dict}
+      Params: filter?: str; refresh?: bool (rebuild policy cache first).
+      Notes: Onboarding heuristic. Prefer apps() after import.
+  app_import(name, ss_policy_id, install_policy_ids?, cache_policy_ids?, uninstall_policy_ids?,
+             package_pattern?, install_trigger?, cache_trigger?, uninstall_trigger?, kind?,
+             version?, output?, tenant?, surface?, auth?)
+      → value: dict {name, kind, version, ss_policy_id, script}
+      Params: name: str; ss_policy_id: int (required; no TTY interview).
+             install_policy_ids?/cache_policy_ids?/uninstall_policy_ids?: list of int.
+             output?: str (default apps/<slug>.buddy).
+      Notes: Writes apps/index.json + desired .buddy. Missing/stale cache auto-refreshes.
+  app_cache(tenant?, surface?, auth?) → value: dict {exists, stale, fetched_at, age_seconds, count, tenant, dir}
+      Params: session overrides only.
+      Notes: No Jamf call. fetched_at is RFC3339 UTC when the cache exists.
+  app_cache_refresh(tenant?, surface?, auth?) → value: dict (same as app_cache, after rebuild)
+      Params: session overrides only.
+      Notes: GETs every Classic policy XML into ~/.config/buddy/policy-cache/.
+  app_reconcile(desired, apply?=False, progress?=True, tenant?, surface?, auth?)
       → value: dict {markdown, fingerprints} (plan) or None (after apply)
       Params: desired: dict (name, version required; kind?, install_trigger?, cache_trigger?,
-             uninstall_trigger?, package_pattern?, title?, summary?, risk?, window?); apply?: bool.
+             uninstall_trigger?, package_pattern?, title?, summary?, risk?, window?); apply?: bool;
+             progress?: bool (default True — stderr lookup progress: cache/install source, APIs).
       Notes: Diffs live AppGet vs desired; invents change-batch steps (or noop note).
+             Cache-kind clones from the pinned cache policy ID (not install-next).
              Package must already be READY. No greenfield create in v1. Uninstall not mutated in v1.
   app_upgrade(name, version, package_pattern?, tenant?, surface?, auth?) → None
       Params: name: str; version: str; package_pattern?: str (package name glob).
@@ -32,15 +52,19 @@ Usage:
 
 Subcommands:
   list [--filter=<keyword>]                              List imported apps (apps/index.json)
-  scan [--filter=<keyword>]                              Heuristic [SS] discovery (onboarding)
+  scan [--filter=<keyword>] [--refresh]                  Heuristic discovery (policy cache if present)
   get <name>                                             Show one policy app (index or classify)
   import [name] [--ss=<id>] [--install=…] [options]      Interview or flags → index + .buddy
   cache <status|refresh>                                 Classic policy payload cache
   upgrade <name> --version=<version> [--package-pattern=…]
                                                          One-shot bump by kind (prefer import + reconcile)
 
-Flags for 'list' / 'scan':
+Flags for 'list':
   --filter=<keyword>   Client-side substring on name, kind, version, trigger, or package
+
+Flags for 'scan':
+  --filter=<keyword>   Client-side substring on name, kind, version, trigger, or package
+  --refresh            Rebuild the policy cache, then scan it
 
 Flags for 'import':
   -o, --output=<path>       Output .buddy path (default apps/<slug>.buddy)
@@ -62,6 +86,9 @@ Flags for 'upgrade':
 Notes:
   Onboarding: buddy app cache refresh → scan → import. Import writes apps/index.json
   and apps/<slug>.buddy. List shows imported apps only; scan is heuristic only.
+  App commands print the policy cache fetched date (fresh/stale/missing). cache status
+  also prints tenant and dir. Scan uses the cache when present; --refresh rebuilds it
+  first. Missing cache falls back to a live policy list.
   Policy cache (~/.config/buddy/policy-cache/) stores Classic XML; import prompts to
   refresh when missing or older than 3 days. True Self Service uses use_for_self_service.
   Uninstall policies are part of the imported set; reconcile v1 does not mutate them.
