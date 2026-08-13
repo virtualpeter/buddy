@@ -1,27 +1,34 @@
 package buddy
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
 
-func TestProfile18PreparePayloadsAmpEntityCounts(t *testing.T) {
-	raw, err := os.ReadFile("/tmp/p18-live.xml")
-	if err != nil {
-		t.Skip("no fixture")
-	}
+func TestAmpFixturePreparePayloadsAmpEntityCounts(t *testing.T) {
+	raw := profileAmpersandFixture(t)
 	prepared, err := PrepareProfileXMLForCreate(raw, ProfilePrepareSpec{Name: "clone-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	srcEnc, _ := extractPayloadsEncodedFromProfileXML(raw)
-	dstEnc, _ := extractPayloadsEncodedFromProfileXML(prepared)
-	t.Logf("source: &amp;amp;=%d under-encoded=%v", strings.Count(srcEnc, "&amp;amp;"), hasUnderEncodedAmpersandsInEncodedPayloads(srcEnc))
-	t.Logf("prepared: &amp;amp;=%d under-encoded=%v", strings.Count(dstEnc, "&amp;amp;"), hasUnderEncodedAmpersandsInEncodedPayloads(dstEnc))
-	eligible, reason := ProfileACSWritePreferred(prepared)
-	if !eligible {
-		t.Skip("fixture not MCX ampersand profile:", reason)
+	srcEnc, err := extractPayloadsEncodedFromProfileXML(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dstEnc, err := extractPayloadsEncodedFromProfileXML(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcAmpAmp := strings.Count(srcEnc, "&amp;amp;")
+	dstAmpAmp := strings.Count(dstEnc, "&amp;amp;")
+	if srcAmpAmp < 1 {
+		t.Fatal("fixture outer payloads missing &amp;amp;")
+	}
+	if srcAmpAmp != dstAmpAmp {
+		t.Fatalf("prepare changed &amp;amp; count: source=%d prepared=%d", srcAmpAmp, dstAmpAmp)
+	}
+	if hasUnderEncodedAmpersandsInEncodedPayloads(srcEnc) || hasUnderEncodedAmpersandsInEncodedPayloads(dstEnc) {
+		t.Fatal("payloads under-encode nested plist ampersands")
 	}
 	if strings.Contains(dstEnc, "<string>") || strings.Contains(dstEnc, "<plist") {
 		t.Fatal("encoded payloads contains raw inner plist tags (not entity-encoded)")

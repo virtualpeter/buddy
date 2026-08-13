@@ -1,7 +1,6 @@
 package buddy
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -96,11 +95,8 @@ func TestProfileACSWritePreferred_NoMCX(t *testing.T) {
 	}
 }
 
-func TestProfile18LiveEligible(t *testing.T) {
-	raw, err := os.ReadFile("/tmp/p18-live.xml")
-	if err != nil {
-		t.Skip("no /tmp/p18-live.xml")
-	}
+func TestAmpFixtureBareAmpNotACSEligible(t *testing.T) {
+	raw := profileAmpersandFixture(t)
 	entries, err := listMCXPayloadEntries(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +111,7 @@ func TestProfile18LiveEligible(t *testing.T) {
 	}
 	if hasBare {
 		if err := rejectBareMCXAmpersandSettings(raw); err == nil {
-			t.Fatal("expected reject for bare MCX ampersand in live fixture")
+			t.Fatal("expected reject for bare MCX ampersand in fixture")
 		}
 		eligible, reason := ProfileACSWritePreferred(raw)
 		t.Logf("eligible=%v reason=%q (bare amp → reject, not ACS-eligible)", eligible, reason)

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<os_x_configuration_profile>
+  <general>
+    <id>0</id>
+    <name>Edge MCX ampersand fixture</name>
+    <uuid>11111111-1111-1111-1111-111111111111</uuid>
+    <payloads>&lt;?xml version="1.0" encoding="UTF-8"?&gt;&lt;!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"&gt;
+&lt;plist version="1"&gt;&lt;dict&gt;&lt;key&gt;PayloadUUID&lt;/key&gt;&lt;string&gt;11111111-1111-1111-1111-111111111111&lt;/string&gt;&lt;key&gt;PayloadType&lt;/key&gt;&lt;string&gt;Configuration&lt;/string&gt;&lt;key&gt;PayloadIdentifier&lt;/key&gt;&lt;string&gt;11111111-1111-1111-1111-111111111111&lt;/string&gt;&lt;key&gt;PayloadVersion&lt;/key&gt;&lt;integer&gt;1&lt;/integer&gt;&lt;key&gt;PayloadContent&lt;/key&gt;&lt;array&gt;&lt;dict&gt;&lt;key&gt;PayloadIdentifier&lt;/key&gt;&lt;string&gt;22222222-2222-2222-2222-222222222222&lt;/string&gt;&lt;key&gt;PayloadType&lt;/key&gt;&lt;string&gt;com.apple.ManagedClient.preferences&lt;/string&gt;&lt;key&gt;PayloadUUID&lt;/key&gt;&lt;string&gt;22222222-2222-2222-2222-222222222222&lt;/string&gt;&lt;key&gt;PayloadVersion&lt;/key&gt;&lt;integer&gt;1&lt;/integer&gt;&lt;key&gt;PayloadContent&lt;/key&gt;&lt;dict&gt;&lt;key&gt;com.microsoft.edge&lt;/key&gt;&lt;dict&gt;&lt;key&gt;Forced&lt;/key&gt;&lt;array&gt;&lt;dict&gt;&lt;key&gt;mcx_preference_settings&lt;/key&gt;&lt;dict&gt;&lt;key&gt;DefaultSearchProviderSearchURL&lt;/key&gt;&lt;string&gt;{google:baseURL}search?q={searchTerms}&amp;amp;{google:RLZ}{google:originalQueryForSuggestion}&lt;/string&gt;&lt;/dict&gt;&lt;/dict&gt;&lt;/array&gt;&lt;/dict&gt;&lt;/dict&gt;&lt;/dict&gt;&lt;/array&gt;&lt;/dict&gt;&lt;/plist&gt;</payloads>
+  </general>
+  <scope>
+  <all_computers>false</all_computers>
+  <all_jss_users>false</all_jss_users>
+  <computers/>
+  <buildings/>
+  <departments/>
+  <computer_groups/>
+  <jss_users/>
+  <jss_user_groups/>
+  <limitations>
+    <users/><user_groups/><network_segments/><ibeacons/>
+  </limitations>
+  <exclusions>
+    <computers/><buildings/><departments/><computer_groups/>
+    <users/><user_groups/><network_segments/><ibeacons/>
+    <jss_users/><jss_user_groups/>
+  </exclusions>
+</scope>
+</os_x_configuration_profile>

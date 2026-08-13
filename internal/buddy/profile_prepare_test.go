@@ -1,7 +1,6 @@
 package buddy
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -75,6 +74,49 @@ func TestRandomizeProfileUUIDs_AllPayloadUUIDsChange(t *testing.T) {
 	}
 	if len(ids) != 2 || ids[0] != "com.example.a" || ids[1] != "com.example.b" {
 		t.Fatalf("PayloadIdentifier changed: %v", ids)
+	}
+}
+
+func TestPrepareProfileXMLForCreate_ThenCategoryRemap(t *testing.T) {
+	src := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<os_x_configuration_profile>
+  <general>
+    <id>99</id>
+    <name>Source Profile</name>
+    <category><id>-1</id><name>No category assigned</name></category>
+    <uuid>11111111-1111-1111-1111-111111111111</uuid>
+    <payloads>` + "&lt;plist version=&quot;1.0&quot;&gt;&lt;dict&gt;&lt;key&gt;PayloadUUID&lt;/key&gt;&lt;string&gt;11111111-1111-1111-1111-111111111111&lt;/string&gt;&lt;/dict&gt;&lt;/plist&gt;" + `</payloads>
+  </general>
+  <scope>
+    <all_computers>true</all_computers>
+    <all_jss_users>false</all_jss_users>
+    <computers/>
+    <computer_groups/>
+  </scope>
+</os_x_configuration_profile>`)
+	prepared, err := PrepareProfileXMLForCreate(src, ProfilePrepareSpec{Name: "Cloned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := RemapPolicyCategoryOnDest("", prepared, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if strings.Contains(s, "<id>99</id>") {
+		t.Fatal("profile id should be stripped before remap")
+	}
+	if strings.Count(s, "<category>") != 1 || strings.Count(s, "</category>") != 1 {
+		t.Fatalf("clone path must keep one category block: %s", s)
+	}
+	if strings.Contains(s, "</category><id>") {
+		t.Fatalf("category remap leftover id: %s", s)
+	}
+	if !strings.Contains(s, "<name>Cloned</name>") {
+		t.Fatal("name")
+	}
+	if !strings.Contains(s, "<all_computers>false</all_computers>") {
+		t.Fatal("unassigned scope")
 	}
 }
 
@@ -265,14 +307,11 @@ func TestRandomizeProfileUUIDs_SyncsPayloadIdentifierWhenUUID(t *testing.T) {
 	}
 }
 
-func TestProfile18FixtureRandomizePreservesEncoding(t *testing.T) {
-	raw, err := os.ReadFile("/tmp/p18.xml")
-	if err != nil {
-		t.Skip("no /tmp/p18.xml fixture")
-	}
+func TestAmpFixtureRandomizePreservesEncoding(t *testing.T) {
+	raw := profileAmpersandFixture(t)
 	srcEnc, err := extractPayloadsEncodedFromProfileXML(raw)
 	if err != nil {
-		t.Skip("invalid /tmp/p18.xml fixture:", err)
+		t.Fatal(err)
 	}
 	out, err := RandomizeProfileUUIDs(raw)
 	if err != nil {
@@ -327,14 +366,8 @@ func TestRandomizeProfileUUIDs_EntityEncodedAmpersandsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestProfile18PreparedUUIDSync(t *testing.T) {
-	raw, err := os.ReadFile("/tmp/p18.xml")
-	if err != nil {
-		t.Skip("no /tmp/p18.xml")
-	}
-	if _, err := extractPayloadsEncodedFromProfileXML(raw); err != nil {
-		t.Skip("invalid /tmp/p18.xml fixture:", err)
-	}
+func TestAmpFixturePreparedUUIDSync(t *testing.T) {
+	raw := profileAmpersandFixture(t)
 	out, err := PrepareProfileXMLForCreate(raw, ProfilePrepareSpec{Name: "test-clone"})
 	if err != nil {
 		t.Fatal(err)
@@ -368,14 +401,8 @@ func TestProfile18PreparedUUIDSync(t *testing.T) {
 	}
 }
 
-func TestProfile18PreparedPayloadsParse(t *testing.T) {
-	raw, err := os.ReadFile("/tmp/p18.xml")
-	if err != nil {
-		t.Skip("no /tmp/p18.xml")
-	}
-	if _, err := extractPayloadsEncodedFromProfileXML(raw); err != nil {
-		t.Skip("invalid /tmp/p18.xml fixture:", err)
-	}
+func TestAmpFixturePreparedPayloadsParse(t *testing.T) {
+	raw := profileAmpersandFixture(t)
 	out, err := PrepareProfileXMLForCreate(raw, ProfilePrepareSpec{Name: "test-clone"})
 	if err != nil {
 		t.Fatal(err)
@@ -390,15 +417,12 @@ func TestProfile18PreparedPayloadsParse(t *testing.T) {
 	}
 }
 
-func TestProfile18PreparePreservesJamfAmpersandEncoding(t *testing.T) {
-	raw, err := os.ReadFile("/tmp/p18.xml")
-	if err != nil {
-		t.Skip("no /tmp/p18.xml fixture")
-	}
+func TestAmpFixturePreparePreservesJamfAmpersandEncoding(t *testing.T) {
+	raw := profileAmpersandFixture(t)
 	const needle = "search?q={searchTerms}"
 	srcEnc, err := extractPayloadsEncodedFromProfileXML(raw)
 	if err != nil {
-		t.Skip("invalid /tmp/p18.xml fixture:", err)
+		t.Fatal(err)
 	}
 	i := strings.Index(srcEnc, needle)
 	if i < 0 {
@@ -516,14 +540,8 @@ func TestPlistReencode_JamfDoubleAmpEncoding(t *testing.T) {
 	}
 }
 
-func TestProfile18FullPlistRoundTripPreservesJamfAmp(t *testing.T) {
-	raw, err := os.ReadFile("/tmp/p18-live.xml")
-	if err != nil {
-		raw, err = os.ReadFile("/tmp/p18.xml")
-	}
-	if err != nil {
-		t.Skip("no profile 18 fixture")
-	}
+func TestAmpFixtureFullPlistRoundTripPreservesJamfAmp(t *testing.T) {
+	raw := profileAmpersandFixture(t)
 	srcEnc, err := extractPayloadsEncodedFromProfileXML(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -550,7 +568,7 @@ func TestProfile18FullPlistRoundTripPreservesJamfAmp(t *testing.T) {
 	}
 	const needle = "search?q={searchTerms}"
 	if !strings.Contains(srcEnc, needle) {
-		t.Skip("needle missing")
+		t.Fatal("needle missing from fixture")
 	}
 	i, j := strings.Index(srcEnc, needle), strings.Index(gotEnc, needle)
 	if srcEnc[i:i+60] != gotEnc[j:j+60] {
@@ -558,14 +576,8 @@ func TestProfile18FullPlistRoundTripPreservesJamfAmp(t *testing.T) {
 	}
 }
 
-func TestProfile18MCXDictRoundTripPreservesJamfAmp(t *testing.T) {
-	raw, err := os.ReadFile("/tmp/p18-live.xml")
-	if err != nil {
-		raw, err = os.ReadFile("/tmp/p18.xml")
-	}
-	if err != nil {
-		t.Skip("no profile 18 fixture")
-	}
+func TestAmpFixtureMCXDictRoundTripPreservesJamfAmp(t *testing.T) {
+	raw := profileAmpersandFixture(t)
 	srcEnc, _ := extractPayloadsEncodedFromProfileXML(raw)
 	inner, err := extractPayloadsFromProfileXML(raw)
 	if err != nil {
@@ -592,13 +604,7 @@ func TestProfile18MCXDictRoundTripPreservesJamfAmp(t *testing.T) {
 }
 
 func TestPlistRemapPlusReplacePayloadsContent_BreaksJamfAmp(t *testing.T) {
-	raw, err := os.ReadFile("/tmp/p18-live.xml")
-	if err != nil {
-		raw, err = os.ReadFile("/tmp/p18.xml")
-	}
-	if err != nil {
-		t.Skip("no fixture")
-	}
+	raw := profileAmpersandFixture(t)
 	srcEnc, _ := extractPayloadsEncodedFromProfileXML(raw)
 	inner, err := extractPayloadsFromProfileXML(raw)
 	if err != nil {
@@ -616,7 +622,7 @@ func TestPlistRemapPlusReplacePayloadsContent_BreaksJamfAmp(t *testing.T) {
 	gotEnc, _ := extractPayloadsEncodedFromProfileXML(out)
 	const needle = "search?q={searchTerms}"
 	if !strings.Contains(srcEnc, needle) {
-		t.Skip("no needle")
+		t.Fatal("needle missing from fixture")
 	}
 	if srcEnc[strings.Index(srcEnc, needle):strings.Index(srcEnc, needle)+60] == gotEnc[strings.Index(gotEnc, needle):strings.Index(gotEnc, needle)+60] {
 		t.Skip("remap+replace preserved encoding in this case")
@@ -625,14 +631,8 @@ func TestPlistRemapPlusReplacePayloadsContent_BreaksJamfAmp(t *testing.T) {
 	t.Logf("after:  %q", gotEnc[strings.Index(gotEnc, needle):strings.Index(gotEnc, needle)+60])
 }
 
-func TestProfile18PatchPayloadPreservesJamfAmp(t *testing.T) {
-	raw, err := os.ReadFile("/tmp/p18-live.xml")
-	if err != nil {
-		raw, err = os.ReadFile("/tmp/p18.xml")
-	}
-	if err != nil {
-		t.Skip("no fixture")
-	}
+func TestAmpFixturePatchPayloadPreservesJamfAmp(t *testing.T) {
+	raw := profileAmpersandFixture(t)
 	srcEnc, _ := extractPayloadsEncodedFromProfileXML(raw)
 	inner, err := extractPayloadsFromProfileXML(raw)
 	if err != nil {
@@ -657,32 +657,29 @@ func TestProfile18PatchPayloadPreservesJamfAmp(t *testing.T) {
 	}
 	gotEnc, _ := extractPayloadsEncodedFromProfileXML(out)
 	const needle = "search?q={searchTerms}"
- si := strings.Index(srcEnc, needle)
- gi := strings.Index(gotEnc, needle)
- if si < 0 || gi < 0 {
-  t.Fatal("needle missing")
- }
- if srcEnc[si:si+60] != gotEnc[gi:gi+60] {
-  t.Fatalf("patch changed amp encoding\nbefore: %q\nafter:  %q", srcEnc[si:si+60], gotEnc[gi:gi+60])
- }
+	si := strings.Index(srcEnc, needle)
+	gi := strings.Index(gotEnc, needle)
+	if si < 0 || gi < 0 {
+		t.Fatal("needle missing")
+	}
+	if srcEnc[si:si+60] != gotEnc[gi:gi+60] {
+		t.Fatalf("patch changed amp encoding\nbefore: %q\nafter:  %q", srcEnc[si:si+60], gotEnc[gi:gi+60])
+	}
 }
 
-func TestProfile18ReplacePayloadPreservesJamfAmp(t *testing.T) {
-	raw, err := os.ReadFile("/tmp/p18-live.xml")
-	if err != nil {
-		raw, err = os.ReadFile("/tmp/p18.xml")
-	}
-	if err != nil {
-		t.Skip("no fixture")
-	}
+func TestAmpFixtureReplacePayloadPreservesJamfAmp(t *testing.T) {
+	raw := profileAmpersandFixture(t)
 	srcEnc, _ := extractPayloadsEncodedFromProfileXML(raw)
 	inner, err := extractPayloadsFromProfileXML(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ids, err := plistPayloadIdentifiers(inner)
-	if err != nil || len(ids) == 0 {
-		t.Skip("no payload ids")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) == 0 {
+		t.Fatal("fixture has no PayloadIdentifier values")
 	}
 	domain := ids[0]
 	payloadXML, err := plistGetPayloadByDomain(inner, domain)
@@ -704,11 +701,11 @@ func TestProfile18ReplacePayloadPreservesJamfAmp(t *testing.T) {
 	}
 	gotEnc, _ := extractPayloadsEncodedFromProfileXML(out)
 	const needle = "search?q={searchTerms}"
- si, gi := strings.Index(srcEnc, needle), strings.Index(gotEnc, needle)
- if si < 0 || gi < 0 {
-  t.Fatal("needle missing")
- }
- if srcEnc[si:si+60] != gotEnc[gi:gi+60] {
-  t.Fatalf("replace payload changed amp encoding\nbefore: %q\nafter:  %q", srcEnc[si:si+60], gotEnc[gi:gi+60])
- }
+	si, gi := strings.Index(srcEnc, needle), strings.Index(gotEnc, needle)
+	if si < 0 || gi < 0 {
+		t.Fatal("needle missing")
+	}
+	if srcEnc[si:si+60] != gotEnc[gi:gi+60] {
+		t.Fatalf("replace payload changed amp encoding\nbefore: %q\nafter:  %q", srcEnc[si:si+60], gotEnc[gi:gi+60])
+	}
 }
