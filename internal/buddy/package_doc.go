@@ -24,7 +24,7 @@ var PackagesTopic = docspec.Topic{
 	Summary: `Jamf Pro packages and Jamf Cloud Distribution Service (JCDS) readiness. Package **existence** is not the same as **READY** for attach/download.`,
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / load", BuddyScript: "`packages(filter=…)` / `package(id=…)`", CLI: "`buddy package list` / `get`", Notes: "Or `name=` + `version=`; bare filter → `packageName==\"*term*\"`"},
-		{Action: "Upload", BuddyScript: "`package_upload(file, …, wait_ready?, force?)`", CLI: "`buddy package upload [--wait-ready] [--force]`", Notes: "Create/update by fileName; optional wait until READY; --force re-uploads"},
+		{Action: "Upload", BuddyScript: "`package_upload(file, …, wait_ready?, force?)`", CLI: "`buddy package upload [--wait-ready] [--force]`", Notes: "Create/update by fileName; --wait-ready polls until READY (also if file already uploaded); --force re-uploads"},
 		{Action: "Scan issues", BuddyScript: "`packages_scan(class?=…)`", CLI: "`buddy package scan [--class=…]`", Notes: "failed-upload / pending / unusable-ready from list fields"},
 		{Action: "Wait READY", BuddyScript: "`package_wait_ready(id=…, timeout?=…)`", Notes: "Polls until READY and sha256 set (~10 min default)"},
 		{Action: "Check READY", BuddyScript: "`package_ready(id=…)`", Notes: "`true` only when READY + sha256; HTTP 404 → `false`"},
@@ -35,41 +35,42 @@ var PackagesTopic = docspec.Topic{
 	},
 	AgentNotes: []string{
 		"Prefer `package_ready` / `package_wait_ready` / `package_download` — do not hand-roll single GET “exists?”, treat blank sha256 as needs-upload while transfer is pending (hashValue set, usually SHA3), or save a raw JCDS URI without hash verify.",
-		"A package record with **no hashValue** (and no sha256/md5) usually means a failed upload — re-upload is appropriate. Mid-transfer has hashValue while sha256 is still empty.",
+		"A package record with **no hashValue** (and no sha256/md5) usually means a failed upload — re-upload is appropriate. Mid-transfer has hashValue while sha256 is still empty. `package_upload(..., wait_ready=True)` / `--wait-ready` on that pending record skips the file transfer and polls until READY (do not treat it as a failed upload).",
+		"After creating a new package record, upload waits until GET succeeds, then settles 5s before the multipart POST (Jamf Cloud often 500s if the file transfer starts immediately).",
 		"Use `packages_scan` / `buddy package scan` to find failed-upload, pending, and unusable-ready records from the list API.",
 		"Do not attach a package to a policy before READY.",
 		"Do not invent Classic/Pro package PUTs from jamf_schema when named builtins exist.",
 	},
 	Builtins: []docspec.Builtin{
-			{
-				Name: `packages`,
-				Summary: `List packages`,
-				Returns: `list of summary dicts`,
-				Params: []docspec.Param{
-					{Name: `filter`, Type: `string`, Required: false, Description: `filter`},
-				},
-			},
-			{
-				Name: `package`,
-				Summary: `Load one package`,
-				Returns: `dict`,
-			},
-			{
-				Name: `package_ready`,
-				Summary: `READY+sha256 check`,
-				Returns: `bool`,
-			},
-			{
-				Name: `package_wait_ready`,
-				Summary: `Poll until READY`,
-				Returns: `None`,
-			},
-			{
-				Name: `package_download`,
-				Summary: `JCDS download`,
-				Returns: `None`,
+		{
+			Name:    `packages`,
+			Summary: `List packages`,
+			Returns: `list of summary dicts`,
+			Params: []docspec.Param{
+				{Name: `filter`, Type: `string`, Required: false, Description: `filter`},
 			},
 		},
+		{
+			Name:    `package`,
+			Summary: `Load one package`,
+			Returns: `dict`,
+		},
+		{
+			Name:    `package_ready`,
+			Summary: `READY+sha256 check`,
+			Returns: `bool`,
+		},
+		{
+			Name:    `package_wait_ready`,
+			Summary: `Poll until READY`,
+			Returns: `None`,
+		},
+		{
+			Name:    `package_download`,
+			Summary: `JCDS download`,
+			Returns: `None`,
+		},
+	},
 	ExamplesBuddy: []string{
 		`def main():
     package_wait_ready(id="42")
@@ -115,7 +116,7 @@ var PackagesTopic = docspec.Topic{
       Params: file: str path (.pkg/.dmg); name?: display name (default basename);
         category_id?: str (default "-1"); priority?: int 1–20 (default 10);
         notes?/info?: str; reboot?: bool (default false);
-        wait_ready?: bool — poll until READY+sha256 after upload (default false);
+        wait_ready?: bool — poll until READY+sha256 (after upload, skip, or pending record; default false);
         wait_ready_timeout?: int seconds (default 600; implies wait_ready);
         force?: bool — re-upload even if checksums match or the record looks
         mid-transfer (default false); tenant?/surface?/auth?: str.
@@ -161,7 +162,8 @@ Flags for 'upload' / 'set':
   --reboot=true|false         rebootRequired flag (upload default: false)
 
 Flags for 'upload' only:
-  --wait-ready[=<seconds>]    After upload (or skip-if-unchanged), poll until
+  --wait-ready[=<seconds>]    After upload, skip-if-unchanged, or a pending
+                              (already uploaded) record, poll until
                               cloudTransferStatus=READY and sha256 is set
                               (default timeout 600s / 10 minutes)
   --wait-ready-timeout=<sec>  Same as --wait-ready=<sec> (implies --wait-ready)
@@ -178,9 +180,11 @@ Notes:
   only on match. JCDS only (Jamf Cloud). Default outfile is the package fileName.
   upload looks up fileName first: existing record → compare checksums and skip or
   replace the file (and apply attr flags when they differ); if comparable checksums
-  are empty, status is not READY, and hashValue is set, report not ready (do not
-  re-upload — wait with wait-ready); a record with no hashValue (failed upload)
-  is treated as needing re-upload; --force overrides skip/not-ready guards.
+  are empty, status is not READY, and hashValue is set, --wait-ready skips the file
+  transfer and polls until READY (re-run after an upload that omitted the flag);
+  without --wait-ready that case is an error (do not re-upload); a record with no
+  hashValue (failed upload) is treated as needing re-upload; --force overrides
+  skip/not-ready guards.
   New fileName → create metadata with attr flags (no y/N prompt), wait until
   readable, then upload.
   scan classifies from list fields: failed-upload (no hashValue / md5 / sha256),

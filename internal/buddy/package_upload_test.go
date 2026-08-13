@@ -63,6 +63,18 @@ func TestWaitUntilPackageReadable_ProbeError(t *testing.T) {
 	}
 }
 
+func TestSettleAfterPackageCreateSleepsFiveSeconds(t *testing.T) {
+	t.Parallel()
+	var got time.Duration
+	settleAfterPackageCreate("42", func(d time.Duration) { got = d })
+	if got != 5*time.Second {
+		t.Fatalf("slept %v, want 5s", got)
+	}
+	if packageUploadSettleAfterCreate != 5*time.Second {
+		t.Fatalf("packageUploadSettleAfterCreate = %v, want 5s", packageUploadSettleAfterCreate)
+	}
+}
+
 func TestPackageAttrsApplyAndDiffers(t *testing.T) {
 	t.Parallel()
 	name := "Chrome"
@@ -283,6 +295,27 @@ func TestPackageUploadShouldWaitNotReady(t *testing.T) {
 		HashValue:           "x",
 	}) {
 		t.Fatal("READY should not wait-not-ready")
+	}
+}
+
+func TestPackageUploadWaitOnly(t *testing.T) {
+	t.Parallel()
+	pending := &PackageRecord{
+		CloudTransferStatus: "PENDING",
+		HashType:            "SHA3_512",
+		HashValue:           "x",
+	}
+	if !packageUploadWaitOnly(PackageUploadOptions{WaitReady: true}, pending) {
+		t.Fatal("wait-ready on pending should skip file upload and wait")
+	}
+	if packageUploadWaitOnly(PackageUploadOptions{}, pending) {
+		t.Fatal("pending without wait-ready is not wait-only")
+	}
+	if packageUploadWaitOnly(PackageUploadOptions{WaitReady: true, Force: true}, pending) {
+		t.Fatal("force should re-upload, not wait-only")
+	}
+	if packageUploadWaitOnly(PackageUploadOptions{WaitReady: true}, &PackageRecord{}) {
+		t.Fatal("failed/empty upload should re-upload, not wait-only")
 	}
 }
 

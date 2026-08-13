@@ -56,7 +56,7 @@ type PackageRecord struct {
 	Sha3512              string `json:"sha3512,omitempty"`
 	HashType             string `json:"hashType,omitempty"`
 	HashValue            string `json:"hashValue,omitempty"`
-	Size                 string `json:"size,omitempty"` // server-managed, read-only
+	Size                 string `json:"size,omitempty"`                // server-managed, read-only
 	CloudTransferStatus  string `json:"cloudTransferStatus,omitempty"` // server-managed; READY when JCDS available
 	OsInstallerVersion   string `json:"osInstallerVersion,omitempty"`
 	Manifest             string `json:"manifest,omitempty"`
@@ -176,7 +176,7 @@ func PackageDelete(credName string, opts Opts, ids []string, logger *slog.Logger
 }
 
 func packageDeleteOne(credName, id string) error {
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/" + id)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/"+id)
 	if err != nil {
 		return err
 	}
@@ -466,6 +466,13 @@ func packageUploadShouldWaitNotReady(pkg *PackageRecord) bool {
 		!packageIsCloudReady(pkg) &&
 		!packageHasComparableChecksum(pkg) &&
 		packageHasPendingTransferEvidence(pkg)
+}
+
+// packageUploadWaitOnly is true when upload should skip the file transfer and
+// only poll until READY: --wait-ready on a mid-transfer record (hashValue set,
+// sha256 empty). Without WaitReady that same record is an error (do not re-upload).
+func packageUploadWaitOnly(upOpts PackageUploadOptions, pkg *PackageRecord) bool {
+	return upOpts.WaitReady && !upOpts.Force && packageUploadShouldWaitNotReady(pkg)
 }
 
 // Package issue classes returned by PackageScan / packages_scan.
@@ -1230,6 +1237,9 @@ const (
 	packageWaitInitialBackoff = 500 * time.Millisecond
 	packageWaitMaxBackoff     = 3 * time.Second
 	packageWaitAnnounceEvery  = 3 * time.Second
+	// GET 200 after create is not enough for POST .../upload on a loaded Jamf;
+	// starting the file transfer immediately often 500s.
+	packageUploadSettleAfterCreate = 5 * time.Second
 )
 
 // packageWaitReadable polls until GET /api/v1/packages/{id} succeeds.
@@ -1239,6 +1249,17 @@ func packageWaitReadable(credName, id string) (gets int, elapsed time.Duration, 
 	return waitUntilPackageReadable(id, func() (bool, error) {
 		return packageProbeReadable(credName, id)
 	}, packageWaitTimeout, packageWaitInitialBackoff, packageWaitMaxBackoff, time.Sleep)
+}
+
+// settleAfterPackageCreate pauses after the metadata record is GET-readable so
+// Jamf Cloud can finish wiring the upload endpoint (avoids 500 on POST .../upload).
+func settleAfterPackageCreate(id string, sleep func(time.Duration)) {
+	if sleep == nil {
+		sleep = time.Sleep
+	}
+	fmt.Printf("Waiting %s after create before file upload (package %s)…\n",
+		formatUploadDuration(packageUploadSettleAfterCreate), id)
+	sleep(packageUploadSettleAfterCreate)
 }
 
 // waitUntilPackageReadable runs probe until ready, deadline exceeded, or probe error.
@@ -1535,7 +1556,10 @@ type PackageUploadOptions struct {
 // when a server checksum matches the local file. attrs set metadata on create
 // and are applied to an existing record when they differ (even if the file is skipped).
 // When upOpts.WaitReady is set, polls until the package is READY (and sha256 set)
-// after a successful upload or when the file was already unchanged.
+// after a successful upload, skip-if-unchanged, or a mid-transfer record that
+// already has the file (hashValue set, sha256 empty) — that case does not re-upload.
+// On create, waits until GET /packages/{id} succeeds, then settles 5s before
+// the multipart upload (Jamf Cloud often 500s if the file POST starts immediately).
 func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAttrs, upOpts PackageUploadOptions, logger *slog.Logger) error {
 	if err := attrs.Validate(); err != nil {
 		return err
@@ -1615,6 +1639,27 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 		}
 		printPackageRecordSummary(pkg)
 
+		metaNeeded := attrs.AnySet() && attrs.DiffersFrom(pkg)
+		if packageUploadWaitOnly(upOpts, pkg) {
+			status := pkg.CloudTransferStatus
+			if status == "" {
+				status = "(empty)"
+			}
+			fmt.Printf("Package is not READY yet (cloudTransferStatus=%s) — skipping file upload, waiting until READY\n", status)
+			if metaNeeded {
+				fmt.Printf("Updating metadata: %s\n", strings.Join(attrs.summaryLines(pkg), ", "))
+				if !opts.SkipConfirm {
+					if !ConfirmPrompt(fmt.Sprintf("\nUpdate metadata for package %s (%q)?", id, pkg.PackageName), logger) {
+						return nil
+					}
+				}
+				if err := packageApplyAttrs(credName, id, opts, attrs, pkg, logger); err != nil {
+					return err
+				}
+			}
+			return maybeWaitPackageReady(credName, id, upOpts, logger)
+		}
+
 		fmt.Printf("Hashing local file (%s)…\n", formatBytes(info.Size()))
 		localHashes, err := hashPackageReader(file, info.Size())
 		if err != nil {
@@ -1624,7 +1669,6 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 		fmt.Printf("  local sha256: %s\n", localHashes.SHA256)
 
 		fileMatch, how := packageFileMatches(pkg, localHashes)
-		metaNeeded := attrs.AnySet() && attrs.DiffersFrom(pkg)
 
 		if fileMatch && !upOpts.Force {
 			if !metaNeeded {
@@ -1693,6 +1737,7 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 		}
 		fmt.Printf("Package record ready after %s in %s\n",
 			formatPackageGETCount(gets), formatUploadDuration(waitElapsed))
+		settleAfterPackageCreate(id, time.Sleep)
 	}
 	if _, err := file.Seek(0, 0); err != nil {
 		return fmt.Errorf("seek file for upload: %w", err)
@@ -1708,6 +1753,7 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 		}
 		fmt.Printf("Package record ready after %s in %s (upload retry)\n",
 			formatPackageGETCount(gets), formatUploadDuration(waitElapsed))
+		settleAfterPackageCreate(id, time.Sleep)
 		if _, seekErr := file.Seek(0, 0); seekErr != nil {
 			return fmt.Errorf("seek file for upload retry: %w", seekErr)
 		}
@@ -1908,7 +1954,7 @@ func PackageSetAttrs(credName, id string, opts Opts, attrs PackageAttrs, logger 
 // packageGetLatestHistory fetches the single most-recent history entry for a package.
 // Returns nil (no error) when no history entries exist.
 func packageGetLatestHistory(credName, id string) (*PackageHistoryEntry, error) {
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/" + id + "/history?sort=date:desc&page-size=1")
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/"+id+"/history?sort=date:desc&page-size=1")
 	if err != nil {
 		return nil, err
 	}
@@ -1985,4 +2031,3 @@ func truncatePkg(s string, n int) string {
 	}
 	return string(runes[:n-1]) + "…"
 }
-

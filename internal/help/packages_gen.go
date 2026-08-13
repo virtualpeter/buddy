@@ -38,7 +38,7 @@ const PackagesBuiltinsSection = `PACKAGE
       Params: file: str path (.pkg/.dmg); name?: display name (default basename);
         category_id?: str (default "-1"); priority?: int 1–20 (default 10);
         notes?/info?: str; reboot?: bool (default false);
-        wait_ready?: bool — poll until READY+sha256 after upload (default false);
+        wait_ready?: bool — poll until READY+sha256 (after upload, skip, or pending record; default false);
         wait_ready_timeout?: int seconds (default 600; implies wait_ready);
         force?: bool — re-upload even if checksums match or the record looks
         mid-transfer (default false); tenant?/surface?/auth?: str.
@@ -86,7 +86,8 @@ Flags for 'upload' / 'set':
   --reboot=true|false         rebootRequired flag (upload default: false)
 
 Flags for 'upload' only:
-  --wait-ready[=<seconds>]    After upload (or skip-if-unchanged), poll until
+  --wait-ready[=<seconds>]    After upload, skip-if-unchanged, or a pending
+                              (already uploaded) record, poll until
                               cloudTransferStatus=READY and sha256 is set
                               (default timeout 600s / 10 minutes)
   --wait-ready-timeout=<sec>  Same as --wait-ready=<sec> (implies --wait-ready)
@@ -103,9 +104,11 @@ Notes:
   only on match. JCDS only (Jamf Cloud). Default outfile is the package fileName.
   upload looks up fileName first: existing record → compare checksums and skip or
   replace the file (and apply attr flags when they differ); if comparable checksums
-  are empty, status is not READY, and hashValue is set, report not ready (do not
-  re-upload — wait with wait-ready); a record with no hashValue (failed upload)
-  is treated as needing re-upload; --force overrides skip/not-ready guards.
+  are empty, status is not READY, and hashValue is set, --wait-ready skips the file
+  transfer and polls until READY (re-run after an upload that omitted the flag);
+  without --wait-ready that case is an error (do not re-upload); a record with no
+  hashValue (failed upload) is treated as needing re-upload; --force overrides
+  skip/not-ready guards.
   New fileName → create metadata with attr flags (no y/N prompt), wait until
   readable, then upload.
   scan classifies from list fields: failed-upload (no hashValue / md5 / sha256),
