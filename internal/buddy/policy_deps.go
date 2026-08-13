@@ -9,7 +9,9 @@ import (
 )
 
 var (
-	policyCategoryBlockRe = regexp.MustCompile(`(?is)<category\s*/?>|<category>.*?</category>`)
+	// Self-closing must require the slash. `<category\s*/?>` also matches the opening
+	// `<category>` tag, which duplicated the block and left a stray `<id>` (Classic POST 400).
+	policyCategoryBlockRe = regexp.MustCompile(`(?is)<category\s*/>|<category>.*?</category>`)
 	policyScriptBlockRe   = regexp.MustCompile(`(?is)<script>(.*?)</script>`)
 	policyPackageBlockRe  = regexp.MustCompile(`(?is)<package>(.*?)</package>`)
 	policyChildIDRe       = regexp.MustCompile(`(?i)<id>\s*([^<]*?)\s*</id>`)

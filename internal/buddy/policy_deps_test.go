@@ -54,8 +54,46 @@ func TestRemapPolicyCategoryOnDest_sameSessionKeeps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), "<id>3</id>") || !strings.Contains(string(out), "Apps") {
+	s := string(out)
+	if !strings.Contains(s, "<id>3</id>") || !strings.Contains(s, "Apps") {
 		t.Fatalf("same-session should keep category: %s", out)
+	}
+	if strings.Count(s, "<category>") != 1 || strings.Count(s, "</category>") != 1 {
+		t.Fatalf("expected one well-formed category block: %s", s)
+	}
+}
+
+func TestRemapPolicyCategoryOnDest_uncategorizedIsOneBlock(t *testing.T) {
+	xml := []byte(`<os_x_configuration_profile><general><name>P</name><category><id>-1</id><name>No category assigned</name></category><uuid>u</uuid></general></os_x_configuration_profile>`)
+	out, err := RemapPolicyCategoryOnDest("", xml, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if strings.Count(s, "<category>") != 1 || strings.Count(s, "</category>") != 1 {
+		t.Fatalf("expected one category block, not a split leftover id: %s", s)
+	}
+	if strings.Contains(s, "</category><id>") {
+		t.Fatalf("opening-tag-only replace leftover: %s", s)
+	}
+	want := "<category><id>-1</id><name>No category assigned</name></category>"
+	if !strings.Contains(s, want) {
+		t.Fatalf("missing uncategorized block: %s", s)
+	}
+}
+
+func TestRemapPolicyCategoryOnDest_selfClosingCategory(t *testing.T) {
+	xml := []byte(`<policy><general><name>P</name><category/><uuid>u</uuid></general></policy>`)
+	out, err := RemapPolicyCategoryOnDest("", xml, "-1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if strings.Contains(s, "<category/>") {
+		t.Fatalf("self-closing category should be replaced: %s", s)
+	}
+	if strings.Count(s, "<category>") != 1 || strings.Count(s, "</category>") != 1 {
+		t.Fatalf("expected one category block: %s", s)
 	}
 }
 
