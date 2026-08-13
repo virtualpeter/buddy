@@ -168,6 +168,17 @@ func TestFindByNameAndVersionPrefersCachePolicy(t *testing.T) {
 	}
 }
 
+func TestFindByNameAndVersionCacheDoesNotFallBackToInstall(t *testing.T) {
+	policies := []policyListItem{
+		{ID: 2, Name: "Install Santa 2026.3"},
+		{ID: 21, Name: "Install Santa [SS]"},
+	}
+	id, ok := findByNameAndVersion(policies, "cache-santa-2026.3")
+	if ok || id != 0 {
+		t.Fatalf("cache trigger must not fall back to install policy, got id=%d ok=%v", id, ok)
+	}
+}
+
 func TestExtractVersionFromTriggerWithoutExactName(t *testing.T) {
 	if got := extractVersionFromTrigger("cache-santa-2026.3", "santa-daemon"); got != "2026.3" {
 		t.Fatalf("got %q, want 2026.3 from parseTrigger even when name does not match", got)
@@ -196,5 +207,43 @@ func TestPackageSourceRoleError(t *testing.T) {
 	cache.PackageConfiguration.Packages = []policySubsetPackageConfigurationPackage{{ID: 1, Name: "Santa-2026.2.pkg", Action: "Cache"}}
 	if err := packageSourceRoleError("cache-santa-2026.2", cache); err != nil {
 		t.Fatalf("cache→cache should be ok: %v", err)
+	}
+	if err := packageSourceRoleError("install-santa-next", cache); err == nil {
+		t.Fatal("expected error when install trigger resolves to cache policy")
+	}
+	if err := packageSourceRoleError("", install); err != nil {
+		t.Fatalf("empty trigger should skip role check: %v", err)
+	}
+}
+
+func TestReplaceVersionInName(t *testing.T) {
+	if got := replaceVersionInName("Cache Santa 2026.2", "2026.3"); got != "Cache Santa 2026.3" {
+		t.Fatalf("got %q", got)
+	}
+	if got := replaceVersionInName("Install Foo", "2.0"); got != "Install Foo" {
+		t.Fatalf("unversioned name should stay: %q", got)
+	}
+}
+
+func TestBuildNewPackagePolicyPreservesCacheRole(t *testing.T) {
+	cache := &resourcePolicy{}
+	cache.General.Name = "Cache Santa 2026.2"
+	cache.General.TriggerOther = "cache-santa-2026.2"
+	cache.PackageConfiguration.Packages = []policySubsetPackageConfigurationPackage{{Action: "Cache"}}
+	_, trig, name := buildNewPackagePolicy(cache, "santa", "2026.3", 1, "Santa-2026.3.pkg", true)
+	if trig != "cache-santa-2026.3" {
+		t.Fatalf("cache clone trigger=%q, must not become install-*", trig)
+	}
+	if name != "Cache Santa 2026.3" {
+		t.Fatalf("name=%q", name)
+	}
+
+	install := &resourcePolicy{}
+	install.General.Name = "Install Santa Next"
+	install.General.TriggerOther = "install-santa-next"
+	install.PackageConfiguration.Packages = []policySubsetPackageConfigurationPackage{{Action: "Install"}}
+	_, trig, _ = buildNewPackagePolicy(install, "santa", "2026.3", 1, "Santa-2026.3.pkg", true)
+	if trig != "install-santa-next" {
+		t.Fatalf("unversioned install-next should keep trigger, got %q", trig)
 	}
 }
