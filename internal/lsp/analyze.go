@@ -30,7 +30,7 @@ const (
 type AnalyzeMode int
 
 const (
-	// ModeFile is the default for .buddy / .star scripts (ExecFile dialect).
+	// ModeFile is the default for .buddy scripts (ExecFile dialect).
 	ModeFile AnalyzeMode = iota
 	// ModeCell allows top-level if/for and global reassign (notebook / -e).
 	ModeCell

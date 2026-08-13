@@ -1,15 +1,18 @@
 # buddy
 
-CLI tool for managing Jamf Pro policies and smart groups. Automates common tasks like version bumps, policy cloning, scope changes, and package updates via the Jamf Pro API.
+**buddy** is a Jamf Pro automation CLI. It covers Classic and Pro resources (policies, computer groups, configuration profiles, packages/JCDS, scripts, computers and MDM, API roles and clients) and the Platform API (blueprints, devices, device groups, DDM reporting, compliance benchmarks).
 
-Includes a buddyscript engine (Starlark-based) for composing multi-step workflows.
+Day-to-day work is **buddyscript** (Starlark): an interactive shell, `.buddy` files, a local docs UI with notebook and script IDE (`buddy serve`), and an MCP server for AI hosts (`buddy mcp`). Config is tenants + auths; secrets belong in Keychain or the file store — [docs/auth.md](docs/auth.md).
+
+New install: `make buddy` then [`buddy setup basic-setup`](docs/index.md). Builtin signatures always match the binary: `buddy help builtins`.
 
 ## Documentation
 
 | Resource | Description |
 |----------|-------------|
-| [AGENTS.md](AGENTS.md) | Agent/contributor context: auth, secrets, token caching, meliorate integration |
+| [AGENTS.md](AGENTS.md) | Contributor notes for AI agents (layout, conventions) |
 | [docs/index.md](docs/index.md) | Getting started: install, `buddy setup`, first commands |
+| [docs/auth.md](docs/auth.md) | Tenants, auths, secrets, and token caching |
 | [docs/reference-manual.md](docs/reference-manual.md) | Full reference: config, CLI, scripting, builtins overview, API doc link |
 | [docs/change-batches.md](docs/change-batches.md) | Plan → approve → apply change-record workflows |
 | [docs/mcp.md](docs/mcp.md) | MCP server setup for AI hosts |
@@ -18,8 +21,6 @@ Includes a buddyscript engine (Starlark-based) for composing multi-step workflow
 | [docs/editor.md](docs/editor.md) | `buddy lsp` + VS Code/Cursor extension (build & install VSIX) |
 | [docs/api-endpoints.md](docs/api-endpoints.md) | Jamf HTTP endpoints used by buddy |
 | [examples/](examples/) | Runnable `.buddy` examples and index |
-
-Complete builtin signatures always match your installed binary: `buddy help builtins`.
 
 ## Prerequisites
 
@@ -132,7 +133,7 @@ The role the script targets may include **destructive or high-impact privileges*
 
 ```
 buddy [flags]                              # interactive buddyscript shell
-buddy [flags] <script.buddy> [-- args...]  # run a script (.buddy preferred; .star still works)
+buddy [flags] <script.buddy> [-- args...]  # run a script
 buddy [flags] <command> <subcommand> [args...]
 ```
 
@@ -194,10 +195,10 @@ buddy runs **buddyscript** on a [Starlark](https://github.com/google/starlark-go
 
 ```sh
 buddy                              # interactive buddyscript shell
-buddy <script.buddy> [-- args...]  # .buddy preferred; any existing path (including .star) still runs
+buddy <script.buddy> [-- args...]
 ```
 
-Prefer the **`.buddy`** extension for scripts and stdlib modules (`load("stdlib/<name>.buddy", …)`) so the Cursor/VS Code extension language id applies. Existing `.star` paths still run. Editor support: [docs/editor.md](docs/editor.md) (`buddy lsp` + `make extension-package`).
+Scripts and stdlib modules use **`.buddy`** (`load("stdlib/<name>.buddy", …)`). Editor support: [docs/editor.md](docs/editor.md) (`buddy lsp` + `make extension-package`).
 
 **Built-in functions:** plural nouns enumerate (`policies`, `packages`, …); singular nouns load one resource (`policy(id=…)` / `policy(trigger=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). Optional `tenant=` / `surface=` / `auth=` last (`cred=` removed). Jamf-related builtins return **bare values** and **raise** on failure (MCP tools still wrap `{ok, value}` at the tool boundary). Canonical list: `buddy help builtins`; grammar overview: [docs/reference-manual.md](docs/reference-manual.md#built-in-functions).
 

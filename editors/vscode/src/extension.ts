@@ -11,21 +11,6 @@ let client: LanguageClient | undefined;
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const config = () => vscode.workspace.getConfiguration("buddy");
 
-  if (config().get<boolean>("associateStar")) {
-    context.subscriptions.push(
-      vscode.workspace.onDidOpenTextDocument(async (doc) => {
-        if (doc.uri.scheme === "file" && doc.fileName.endsWith(".star") && doc.languageId !== "buddy") {
-          await vscode.languages.setTextDocumentLanguage(doc, "buddy");
-        }
-      })
-    );
-    for (const doc of vscode.workspace.textDocuments) {
-      if (doc.uri.scheme === "file" && doc.fileName.endsWith(".star") && doc.languageId !== "buddy") {
-        void vscode.languages.setTextDocumentLanguage(doc, "buddy");
-      }
-    }
-  }
-
   const buddyPath = config().get<string>("path") || "buddy";
   const lspOverride = (config().get<string>("lsp.path") || "").trim();
   const cellMode = config().get<boolean>("cellMode") === true;

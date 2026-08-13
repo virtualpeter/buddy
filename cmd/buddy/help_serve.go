@@ -108,8 +108,7 @@ Notes:
   completions, hover, and signature help.
   Uses the same builtin catalog as 'buddy help builtins' and embedded stdlib/.
 
-  Prefer the .buddy file extension for user scripts. Embedded stdlib modules
-  and stdlib use .buddy (e.g. load("stdlib/<name>.buddy", …)). Existing .star paths still run.
+  Scripts and stdlib use .buddy (e.g. load("stdlib/<name>.buddy", …)).
 
   Optional initializationOptions.cellMode=true enables notebook/-e dialect
   (top-level if/for and global reassign).

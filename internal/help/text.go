@@ -6,7 +6,7 @@ const Root = `buddy - Jamf Pro management CLI
 
 Usage:
   buddy [global-flags]                              Interactive buddyscript shell
-  buddy [global-flags] <script.buddy> [-- args...]  Run a buddyscript script (.buddy preferred; .star still works)
+  buddy [global-flags] <script.buddy> [-- args...]  Run a buddyscript script
   buddy [global-flags] -e <code> [-- args...]       Eval a buddyscript one-liner
   buddy [global-flags] <command> [subcommand] [args...]
   buddy help [command] [subcommand]
@@ -63,7 +63,7 @@ Usage:
   buddy [global-flags] --eval=<code> [-- args...]
 
 Arguments:
-  <script.buddy>  Path to a buddyscript script (.buddy preferred; .star still works)
+  <script.buddy>  Path to a buddyscript script
   -e, --eval      buddyscript snippet to run (filename for errors: <eval>)
   [-- args...]    Optional arguments passed through to the script (available as args)
 

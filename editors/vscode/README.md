@@ -17,7 +17,6 @@ cursor --install-extension editors/vscode/buddy-0.1.1.vsix
 |---------|---------|-------------|
 | `buddy.path` | `buddy` | Path to the buddy executable |
 | `buddy.lsp.path` | _(empty)_ | Override LSP command |
-| `buddy.associateStar` | `false` | Treat `*.star` as buddy language |
 | `buddy.cellMode` | `false` | Notebook/`-e` dialect in the language server |
 | `buddy.trace.server` | `off` | LSP client/server trace level |
 

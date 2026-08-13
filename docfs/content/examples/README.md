@@ -7,7 +7,7 @@ These `.buddy` files are [Starlark](https://github.com/google/starlark-go) scrip
 buddy path/to/script.buddy [-- arguments passed to the script]
 ```
 
-User scripts start with `#!/usr/bin/env buddy` and are executable. Embedded stdlib modules omit the shebang (loaded via `load("stdlib/….buddy", …)`, not run as programs). Both use **`.buddy`** for the editor language id. Buddy still runs any existing file path (including legacy `.star` scripts).
+User scripts start with `#!/usr/bin/env buddy` and are executable. Embedded stdlib modules omit the shebang (loaded via `load("stdlib/….buddy", …)`, not run as programs). Both use **`.buddy`**.
 
 Arguments after `--` appear in the global `args` list inside the script.
 

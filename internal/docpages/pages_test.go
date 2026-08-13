@@ -18,7 +18,7 @@ func TestLoadHumanEmbedded(t *testing.T) {
 		"docs/profiles", "docs/packages", "docs/scripts", "docs/categories",
 		"docs/computers", "docs/mdm", "docs/api-roles", "docs/api-clients",
 		"docs/blueprints", "docs/devices", "docs/device-groups", "docs/ddm", "docs/benchmarks",
-		"docs/reference-manual", "docs/change-batches", "docs/api-endpoints",
+		"docs/auth", "docs/reference-manual", "docs/change-batches", "docs/api-endpoints",
 		"docs/mcp", "docs/mcp-tools", "docs/profile-payloads", "docs/editor",
 		"docs/apps", "docs/macapps",
 		"docs/buddyscript", "docs/buddyscript-syntax", "docs/buddyscript-stdlib", "builtins",

@@ -18,7 +18,7 @@ Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`)
 
 **Limitation (Classic / proclassic):** Buddy rewrites Classic paths for the gateway, but Jamf Account Platform integrations do not yet expose Classic permissions. In practice, Pro JSON and Blueprints work through the gateway when the integration is scoped correctly; Classic calls (`/JSSResource/…`, profiles, Classic policy XML, etc.) typically return `403 BAD_PERMISSIONS` until Jamf adds those privileges. Prefer an instance credential for Classic-heavy workflows for now.
 
-Authentication is config-driven per credential (command, basic, or OAuth). See `buddy auth help` and `buddy cred help`. For **basic** (username/password), buddy obtains a Bearer token via `POST /api/v1/auth/token` with Basic auth, then uses that token for all API requests. Platform credentials use **OAuth only** (`POST {gateway}/auth/token`, fallback `/oauth2/token`); there is no keep-alive.
+Authentication is config-driven per tenant + auth (command, basic, or OAuth). See **[Auth, secrets, and tokens](auth.md)**, `buddy auth help`, and `buddy cred help`. For **basic** (username/password), buddy obtains a Bearer token via `POST /api/v1/auth/token` with Basic auth, then uses that token for all API requests. Platform credentials use **OAuth only** (`POST {gateway}/auth/token`, fallback `/oauth2/token`); there is no keep-alive.
 
 ### Custom calls from buddyscript
 
@@ -375,6 +375,7 @@ Base path: `/api/v3/computer-groups`
 
 ### Notes
 
+- Computer groups use **v3** (`/api/v3/computer-groups/...`). Cloud schema deprecated v2 around 2026-05-28.
 - Both list endpoints are paginated (`page`, `page-size=200`) and support RSQL `filter` server-side. Bare `--filter` values become `name=="*term*"`.
 - Group `id` values are JSON strings (e.g. `"920"`), consistent with scripts and packages.
 - `GroupFindID` searches smart groups only (used for version/scope operations on smart groups).

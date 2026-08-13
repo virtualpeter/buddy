@@ -46,7 +46,7 @@ def main():
 }
 
 func TestAnalyzeInvalidLoad(t *testing.T) {
-	diags := Analyze("t.buddy", `load("nope.star", "x")
+	diags := Analyze("t.buddy", `load("nope.buddy", "x")
 `, ModeFile)
 	found := false
 	for _, d := range diags {

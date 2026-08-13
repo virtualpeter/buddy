@@ -22,7 +22,7 @@ done
 
 cp "$root/README.md" "$dest/README.md"
 
-for f in "$root"/examples/*.md "$root"/examples/*.buddy "$root"/examples/*.star "$root"/examples/*.json; do
+for f in "$root"/examples/*.md "$root"/examples/*.buddy "$root"/examples/*.json; do
 	cp "$f" "$dest/examples/"
 done
 

@@ -238,6 +238,8 @@ var curatedDocEntries = []curatedDoc{
 		keywords: []string{"stdlib", "load", "bump_release", "setup_app_classic", "release"}},
 
 	// Guides — cross-cutting
+	{id: "docs/auth", title: "Auth, secrets, and tokens", section: "Guides", file: "auth.md",
+		keywords: []string{"auth", "token", "tokens", "secret", "secrets", "keychain", "oauth", "tenant", "tenants", "channel", "channels", "credential"}},
 	{id: "docs/reference-manual", title: "Reference manual", section: "Guides", file: "reference-manual.md",
 		keywords: []string{"config", "credentials", "cli", "starlark", "buddyscript", "install"}},
 	{id: "docs/change-batches", title: "Change batches", section: "Guides", file: "change-batches.md",
@@ -282,7 +284,6 @@ func loadHumanFromDisk(docsRoot string) ([]Page, error) {
 
 func humanExampleID(id string) bool {
 	return strings.HasSuffix(id, ".buddy") ||
-		strings.HasSuffix(id, ".star") ||
 		strings.HasSuffix(id, ".md") ||
 		strings.HasSuffix(id, ".json")
 }
@@ -446,7 +447,7 @@ func loadExamplesDir(dir string) []Page {
 	var pages []Page
 	for _, ent := range ents {
 		name := ent.Name()
-		if ent.IsDir() || (!strings.HasSuffix(name, ".md") && !strings.HasSuffix(name, ".buddy") && !strings.HasSuffix(name, ".star") && !strings.HasSuffix(name, ".json")) {
+		if ent.IsDir() || (!strings.HasSuffix(name, ".md") && !strings.HasSuffix(name, ".buddy") && !strings.HasSuffix(name, ".json")) {
 			continue
 		}
 		path := filepath.Join(dir, name)
@@ -485,12 +486,10 @@ func examplePage(id, name, body, source string) Page {
 	switch {
 	case strings.HasSuffix(name, ".buddy"):
 		title = strings.TrimSuffix(name, ".buddy")
-	case strings.HasSuffix(name, ".star"):
-		title = strings.TrimSuffix(name, ".star")
 	}
 	md := body
 	switch {
-	case strings.HasSuffix(name, ".buddy"), strings.HasSuffix(name, ".star"):
+	case strings.HasSuffix(name, ".buddy"):
 		md = "```python\n" + body + "\n```"
 	case strings.HasSuffix(name, ".json"):
 		md = "```json\n" + body + "\n```"

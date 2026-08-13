@@ -5,7 +5,7 @@ Buddy scripts use the **`.buddy`** file extension. Editor support is two pieces:
 1. **`buddy lsp`** — language server over stdio (diagnostics, completions, hover, signature help)
 2. **BuddyScript** extension under [`editors/vscode`](../editors/vscode) — syntax highlighting + LSP client for VS Code and Cursor
 
-Prefer `.buddy` for new scripts and stdlib modules (`load("stdlib/<name>.buddy", …)`). Existing `.star` paths still run; optionally associate them via settings.
+Stdlib loads use `load("stdlib/<name>.buddy", …)`.
 
 ## What you get
 
@@ -82,7 +82,6 @@ Or Command Palette → **Extensions: Install from VSIX…**, same as Cursor.
 |---------|---------|-------------|
 | `buddy.path` | `buddy` | Path to the buddy executable (used to launch `buddy lsp`) |
 | `buddy.lsp.path` | _(empty)_ | Full override for the LSP command (e.g. `/path/to/buddy lsp`) |
-| `buddy.associateStar` | `false` | Also treat `*.star` as buddy language |
 | `buddy.cellMode` | `false` | Notebook / `-e` dialect in the language server |
 | `buddy.trace.server` | `off` | LSP client↔server trace (`off` / `messages` / `verbose`) |
 

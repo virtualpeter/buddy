@@ -184,7 +184,7 @@ dialog .row .spacer { flex: 1; }
     <div id="out"><span class="empty">No output yet</span></div>
   </div>
 </div>
-<input type="file" id="file-input" accept=".buddy,.star,text/plain">
+<input type="file" id="file-input" accept=".buddy,text/plain">
 <dialog id="dlg">
   <form method="dialog" id="dlg-form">
     <label for="dlg-path">Path relative to IDE root</label>
@@ -398,7 +398,7 @@ async function resetSession() {
 
 const pickerTypes = [{
   description: "Buddy scripts",
-  accept: { "text/plain": [".buddy", ".star"] },
+  accept: { "text/plain": [".buddy"] },
 }];
 
 async function openViaPicker() {

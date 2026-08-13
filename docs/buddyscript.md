@@ -2,7 +2,7 @@
 
 **buddyscript** is buddy’s scripting language: Starlark-based, Python-like, and extended with Jamf builtins, stdlib helpers, and CLI/notebook/IDE runners.
 
-Prefer the **`.buddy`** extension (editor language id + `buddy lsp`). Existing **`.star`** paths still run.
+Scripts use the **`.buddy`** extension (editor language id + `buddy lsp`).
 
 ## Where it runs
 

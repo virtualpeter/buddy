@@ -31,7 +31,7 @@ buddy --user <auth-name> auth test
 
 See `buddy setup help` for flags. After setup, review the Jamf API role and **drop privileges** you do not need (especially destructive MDM actions).
 
-Already have tenants/auths? Use `buddy cred …` and `buddy auth test` instead — details in the [reference manual](/docs/docs/reference-manual).
+Already have tenants/auths? Use `buddy cred …` and `buddy auth test` instead — details in the [reference manual](/docs/docs/reference-manual) and [Auth, secrets, and tokens](/docs/docs/auth).
 
 ## 3. Try it
 
@@ -77,6 +77,7 @@ In the notebook, open **Libraries** → **Getting started** for a short list of 
 
 | Guide | What it’s for |
 |-------|----------------|
+| [Auth, secrets, and tokens](/docs/docs/auth) | Tenants, auths, channel policy, secret stores, token cache |
 | [Reference manual](/docs/docs/reference-manual) | Config, credentials, CLI, buddyscript, environment |
 | [BuddyScript overview](/docs/docs/buddyscript) | Language, runners, conventions |
 | [BuddyScript syntax](/docs/docs/buddyscript-syntax) | Starlark subset + external spec links |

@@ -53,11 +53,6 @@
           "default": "",
           "description": "Optional override for the language server command. When empty, uses `${buddy.path} lsp`."
         },
-        "buddy.associateStar": {
-          "type": "boolean",
-          "default": false,
-          "description": "Also treat *.star files as buddy language (off by default to avoid clashing with Bazel)."
-        },
         "buddy.cellMode": {
           "type": "boolean",
           "default": false,

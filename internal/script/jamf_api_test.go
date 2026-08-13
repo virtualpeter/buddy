@@ -60,7 +60,7 @@ r = jamf_get("/api/v1/packages")
 status = r["status"]
 body = r["body"]
 `
-	globals, err := starlark.ExecFile(thread, "jamf_get_test.star", src, predeclared)
+	globals, err := starlark.ExecFile(thread, "jamf_get_test.buddy", src, predeclared)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestJamfGetClassicDefaultAccept(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = starlark.ExecFile(thread, "classic.star", `
+	_, err = starlark.ExecFile(thread, "classic.buddy", `
 r = jamf_get("/JSSResource/policies")
 `, predeclared)
 	if err != nil {

@@ -1,6 +1,6 @@
 # Buddy reference manual
 
-**buddy** is a command-line tool for [Jamf Pro](https://www.jamf.com/products/jamf-pro/) automation: policies, computer groups, configuration profiles, packages, scripts, computers / MDM, API roles, and API clients. It includes a **buddyscript** runtime (built on [Starlark](https://github.com/google/starlark-go)) so multi-step workflows can live in `.buddy` scripts (`.star` still works).
+**buddy** is a command-line tool for [Jamf Pro](https://www.jamf.com/products/jamf-pro/) automation: policies, computer groups, configuration profiles, packages, scripts, computers / MDM, API roles, and API clients. It includes a **buddyscript** runtime (built on [Starlark](https://github.com/google/starlark-go)) so multi-step workflows can live in `.buddy` scripts.
 
 **New install?** Start with [`buddy setup basic-setup`](#first-time-api-setup) (also covered in [Getting started](index.md)), then come back here for the full picture.
 
@@ -50,6 +50,8 @@ Or run `./buddy` from the build directory.
 Default config path: `~/.config/buddy/config.yaml` (override config root with `XDG_CONFIG_HOME`).
 
 Config is split into **tenant selection** (`tenant.default`), **channel policies** (`channels.cli|mcp|ide|notebook` with optional `access` / `tenant` / `tenants` / `deny_builtins`), **tenants** (instance URL and/or Platform `region`+`tenantId`), and **auths** (command/basic/oauth principals linked to one or more tenants). Optional auth `channels:` (`cli`/`mcp`/`ide`/`notebook`; omit = all) limits which buddy clients may use that auth. Legacy shapes migrate on load; `tenant.cli|mcp|serve|ide` and the `serve` client are removed (use `channels.*`).
+
+Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, secrets, and tokens](auth.md)**.
 
 - `buddy cred help` — set/list/get/delete tenants, auths, and channel policies; manage secrets; `cred use` / `cred set channel`
 - `buddy cred set secret <auth>` — store password/client secret in Keychain, file, or pass
@@ -127,7 +129,7 @@ buddy help [command] [subcommand]
 |---------|------|
 | `auth` | Test auth; print token material |
 | `cred` | Manage `config.yaml` tenants, auths, and platform secrets |
-| *(path)* | Execute a script: `buddy script.buddy` (`.buddy` preferred; `.star` still works) |
+| *(path)* | Execute a script: `buddy script.buddy` |
 | `policy` | Policies (get/set/clone/create/delete/find) |
 | `group` | Smart/static computer groups (list/get/create/delete; smart/static membership) |
 | `profile` | macOS configuration profiles |
@@ -215,7 +217,7 @@ buddy [global-flags] [--trace] <script.buddy> [-- args...]
 
 - With no arguments, buddy starts an interactive buddyscript REPL on stdin/stdout.
 - Scripts are **buddyscript** (Starlark-based — a deterministic Python-like language). See **Language** below.
-- Prefer the **`.buddy`** file extension for user scripts and stdlib modules (Cursor/VS Code language id + `buddy lsp`). Load with `load("stdlib/<name>.buddy", …)`. Existing **`.star`** paths still run.
+- Scripts and stdlib modules use **`.buddy`** (Cursor/VS Code language id + `buddy lsp`). Load with `load("stdlib/<name>.buddy", …)`.
 - `args` after `--` are available as the global list `args`.
 - The active tenant and auth pin are available as `tenant` and `auth` (override per builtin with `tenant=` / `surface=` / `auth=`).
 - The regex module is exposed as `re` (see `buddy help starlark` for what Starlark provides globally).
@@ -327,5 +329,6 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 
 - [README](../README.md) — quick start, configuration table, command cheat sheet
 - [`docs/index.md`](index.md) — Getting started (install, `buddy setup`, first commands)
+- [Auth, secrets, and tokens](auth.md) — tenants, auths, channel policy, secret stores, token cache
 - [Change batches howto](/docs/docs/change-batches) — plan / approve / apply for change records
 - [Editor / LSP](editor.md) — VS Code/Cursor extension and `buddy lsp`

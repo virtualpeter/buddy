@@ -104,7 +104,7 @@ func TestPlistEncodeDecode_SpecialCharsRoundTrip(t *testing.T) {
 
 func TestPlistEncode_NestedPayloadLike(t *testing.T) {
 	thread := &starlark.Thread{Name: "t"}
-	v, err := starlark.Eval(thread, "t.star", `
+	v, err := starlark.Eval(thread, "t.buddy", `
 {
   "PayloadContent": [
     {
@@ -141,7 +141,7 @@ func TestPlistEncode_NestedPayloadLike(t *testing.T) {
 
 func TestPlistEncode_ArrayRoot(t *testing.T) {
 	thread := &starlark.Thread{Name: "t"}
-	v, err := starlark.Eval(thread, "t.star", `["a&b", "<hi>", "]]>", ""]`, nil)
+	v, err := starlark.Eval(thread, "t.buddy", `["a&b", "<hi>", "]]>", ""]`, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

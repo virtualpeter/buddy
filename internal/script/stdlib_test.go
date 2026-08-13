@@ -19,7 +19,7 @@ func TestStdlibValidModule(t *testing.T) {
 		"stdlib/../release.buddy",
 		"stdlib/foo/bar.buddy",
 		"stdlib/Release.buddy",
-		"stdlib/release.star",
+		"stdlib/release.txt",
 		"release.buddy",
 		"re",
 	} {

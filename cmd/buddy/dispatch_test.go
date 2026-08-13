@@ -15,14 +15,14 @@ func TestIsKnownCommand(t *testing.T) {
 	if isKnownCommand("run") {
 		t.Error("run should not be a known command")
 	}
-	if isKnownCommand("deploy.star") {
+	if isKnownCommand("deploy.buddy") {
 		t.Error("script filename should not be a known command")
 	}
 }
 
 func TestIsScriptPath(t *testing.T) {
 	dir := t.TempDir()
-	file := filepath.Join(dir, "test.star")
+	file := filepath.Join(dir, "test.buddy")
 	if err := os.WriteFile(file, []byte("print(1)\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestIsScriptPath(t *testing.T) {
 	if isScriptPath(dir) {
 		t.Error("directory should not be a script path")
 	}
-	if isScriptPath(filepath.Join(dir, "missing.star")) {
+	if isScriptPath(filepath.Join(dir, "missing.buddy")) {
 		t.Error("missing file should not be a script path")
 	}
 }
@@ -48,34 +48,34 @@ func TestParseScriptInvocation(t *testing.T) {
 	}{
 		{
 			name:       "path only",
-			args:       []string{"deploy.star"},
-			wantPath:   "deploy.star",
+			args:       []string{"deploy.buddy"},
+			wantPath:   "deploy.buddy",
 			wantScript: nil,
 		},
 		{
 			name:       "trace and path",
-			args:       []string{"--trace", "deploy.star"},
+			args:       []string{"--trace", "deploy.buddy"},
 			wantTrace:  true,
-			wantPath:   "deploy.star",
+			wantPath:   "deploy.buddy",
 			wantScript: nil,
 		},
 		{
 			name:       "path with script args",
-			args:       []string{"deploy.star", "a", "b"},
-			wantPath:   "deploy.star",
+			args:       []string{"deploy.buddy", "a", "b"},
+			wantPath:   "deploy.buddy",
 			wantScript: []string{"a", "b"},
 		},
 		{
 			name:       "path with separator",
-			args:       []string{"deploy.star", "--", "a", "b"},
-			wantPath:   "deploy.star",
+			args:       []string{"deploy.buddy", "--", "a", "b"},
+			wantPath:   "deploy.buddy",
 			wantScript: []string{"a", "b"},
 		},
 		{
 			name:       "trace path separator args",
-			args:       []string{"--trace", "deploy.star", "--", "dry-run"},
+			args:       []string{"--trace", "deploy.buddy", "--", "dry-run"},
 			wantTrace:  true,
-			wantPath:   "deploy.star",
+			wantPath:   "deploy.buddy",
 			wantScript: []string{"dry-run"},
 		},
 	}
