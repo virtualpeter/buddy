@@ -37,7 +37,6 @@ func Run(ctx context.Context, o Options) error {
 	setChromeVersion(o.Version)
 	// Rebuild surfaces that bake chrome into a static HTML string at init.
 	ideHTML = buildIDEHTML()
-	notebookHTML = buildNotebookHTML()
 	host, _, err := net.SplitHostPort(o.Addr)
 	if err != nil {
 		return fmt.Errorf("addr: %w", err)
@@ -72,7 +71,7 @@ func Run(ctx context.Context, o Options) error {
 		serveDocsHTML(w, r, pages, md)
 	})
 	mux.HandleFunc("/notebook", func(w http.ResponseWriter, r *http.Request) {
-		serveNotebookHTML(w, r)
+		http.Redirect(w, r, "/ide", http.StatusFound)
 	})
 	mux.HandleFunc("/ide", func(w http.ResponseWriter, r *http.Request) {
 		serveIDEHTML(w, r)
@@ -114,7 +113,7 @@ func Run(ctx context.Context, o Options) error {
 	mux.HandleFunc("/api/creds", func(w http.ResponseWriter, r *http.Request) {
 		ch := r.URL.Query().Get("channel")
 		if ch == "" {
-			ch = buddy.ChannelNotebook
+			ch = buddy.ChannelIDE
 		}
 		writeJSON(w, http.StatusOK, sessionSelectionJSON(ch, o.TenantName, o.CredName))
 	})
@@ -137,8 +136,6 @@ func Run(ctx context.Context, o Options) error {
 			return
 		}
 		switch parts[1] {
-		case "eval":
-			store.handleEval(w, r, id)
 		case "run":
 			store.handleRun(w, r, id)
 		case "confirm":
@@ -147,6 +144,10 @@ func Run(ctx context.Context, o Options) error {
 			store.handleConfig(w, r, id)
 		case "globals":
 			store.handleGlobals(w, r, id)
+		case "stash":
+			store.handleStash(w, r, id)
+		case "drop":
+			store.handleDrop(w, r, id)
 		case "reset":
 			store.handleReset(w, r, id)
 		default:
@@ -167,7 +168,6 @@ func Run(ctx context.Context, o Options) error {
 	url := "http://" + o.Addr + "/docs/"
 	o.Logger.Info("buddy serve listening", "url", url, "docs", docsSource)
 	fmt.Printf("buddy serve: %s\n", url)
-	fmt.Printf("notebook:    http://%s/notebook\n", o.Addr)
 	fmt.Printf("ide:         http://%s/ide\n", o.Addr)
 
 	if o.Open {

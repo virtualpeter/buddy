@@ -17,7 +17,7 @@ func setChromeVersion(v string) {
 	chromeVersion = v
 }
 
-// Shared top chrome + light/dark theme for docs, notebook, and IDE.
+// Shared top chrome + light/dark theme for docs and IDE.
 
 const chromeCSS = `
 :root, html[data-theme="dark"] {
@@ -163,7 +163,7 @@ const chromeThemeToggleJS = `(function(){
   }catch(e){}
 })();`
 
-// sessionStorage helpers for IDE/notebook drafts and last-docs id.
+// sessionStorage helpers for IDE drafts and last-docs id.
 const chromePersistHelpersJS = `(function(){
   window.buddyServeStore = {
     get: function(k){ try{ var v=sessionStorage.getItem(k); return v?JSON.parse(v):null; }catch(e){ return null; } },
@@ -234,7 +234,7 @@ const chromeNamedTabFocusJS = `(function(){
   });
 })();`
 
-// Soft Tab/Shift+Tab: insert or remove 4 spaces (shared by IDE + notebook textareas).
+// Soft Tab/Shift+Tab: insert or remove 4 spaces (shared IDE textarea).
 const chromeSoftTabJS = `(function(){
   var INDENT = '    ';
   function lineStart(s, i){ while(i>0 && s[i-1]!=='\n') i--; return i; }
@@ -278,7 +278,7 @@ const chromeSoftTabJS = `(function(){
 })();`
 
 // chromeHeader builds the shared sticky top bar.
-// active is "docs", "notebook", or "ide".
+// active is "docs" or "ide".
 // sessionHTML typically holds tenant/user selects; actionsHTML page controls;
 // runHTML the primary run button (placed before the dark toggle).
 // Nav/brand links use named browsing contexts (target="buddy-*") so each
@@ -294,7 +294,7 @@ func chromeHeader(active, sessionHTML, actionsHTML, runHTML string) string {
 	var b strings.Builder
 	// Claim this tab's name so later chrome clicks from another surface find it
 	// even if the tab was opened via URL/bookmark rather than a named target.
-	if active == "docs" || active == "notebook" || active == "ide" {
+	if active == "docs" || active == "ide" {
 		b.WriteString(`<script>window.name="buddy-` + active + `";</script>`)
 	}
 	b.WriteString(`<header class="app-header">`)
@@ -302,7 +302,6 @@ func chromeHeader(active, sessionHTML, actionsHTML, runHTML string) string {
 	b.WriteString(`<span class="ver" title="buddy version">` + html.EscapeString(chromeVersion) + `</span></div>`)
 	b.WriteString(`<nav class="app-nav">`)
 	b.WriteString(nav("docs", "/docs/", "docs"))
-	b.WriteString(nav("notebook", "/notebook", "notebook"))
 	b.WriteString(nav("ide", "/ide", "ide"))
 	b.WriteString(`</nav>`)
 	if sessionHTML != "" {

@@ -27,7 +27,7 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) 
 	case "use":
 		return runCredUse(cfg, args[1:])
 	case "allow":
-		return fmt.Errorf("'cred allow' was removed; set auth channels with 'buddy cred set auth <name> --channels=cli,mcp,ide,notebook' (or --channels=all)")
+		return fmt.Errorf("'cred allow' was removed; set auth channels with 'buddy cred set auth <name> --channels=cli,mcp,ide' (or --channels=all)")
 	case "store":
 		return runCredStore()
 	case "clean":
@@ -58,7 +58,7 @@ func runCredGet(cfg *buddy.Config, args []string) error {
 		return runCredShowAuth(cfg, args[1])
 	case "channel":
 		if len(args) < 2 {
-			return fmt.Errorf("missing channel name (cli|mcp|ide|notebook)")
+			return fmt.Errorf("missing channel name (cli|mcp|ide)")
 		}
 		return runCredShowChannel(cfg, args[1])
 	case "secret":
@@ -138,7 +138,7 @@ func runCredUse(cfg *buddy.Config, args []string) error {
 		return nil
 	}
 	if len(rest) != 1 {
-		return fmt.Errorf("usage: buddy cred use [tenant] or buddy cred use --cli|--mcp|--ide|--notebook [tenant]")
+		return fmt.Errorf("usage: buddy cred use [tenant] or buddy cred use --cli|--mcp|--ide [tenant]")
 	}
 	name := rest[0]
 	if _, ok := cfg.Tenants[name]; !ok {
@@ -162,32 +162,33 @@ func runCredUse(cfg *buddy.Config, args []string) error {
 	return nil
 }
 
-// parseCredChannelFlags extracts --cli|--mcp|--ide|--notebook.
+// parseCredChannelFlags extracts --cli|--mcp|--ide (--notebook aliases --ide).
 func parseCredChannelFlags(args []string) (channel string, rest []string, err error) {
 	for _, a := range args {
 		switch a {
 		case "--cli":
 			if channel != "" {
-				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--notebook allowed")
+				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide allowed")
 			}
 			channel = buddy.ChannelCLI
 		case "--mcp":
 			if channel != "" {
-				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--notebook allowed")
+				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide allowed")
 			}
 			channel = buddy.ChannelMCP
 		case "--ide":
 			if channel != "" {
-				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--notebook allowed")
+				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide allowed")
 			}
 			channel = buddy.ChannelIDE
 		case "--notebook":
 			if channel != "" {
-				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide|--notebook allowed")
+				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide allowed")
 			}
-			channel = buddy.ChannelNotebook
+			fmt.Fprintln(os.Stderr, "warning: --notebook is deprecated; use --ide")
+			channel = buddy.ChannelIDE
 		case "--serve":
-			return "", nil, fmt.Errorf("--serve was removed; use --ide and/or --notebook")
+			return "", nil, fmt.Errorf("--serve was removed; use --ide")
 		default:
 			rest = append(rest, a)
 		}
@@ -195,13 +196,26 @@ func parseCredChannelFlags(args []string) (channel string, rest []string, err er
 	return channel, rest, nil
 }
 
-func runCredShowChannel(cfg *buddy.Config, name string) error {
+func resolveCredChannelName(name string) (string, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
-	switch name {
-	case buddy.ChannelCLI, buddy.ChannelMCP, buddy.ChannelIDE, buddy.ChannelNotebook:
-	default:
-		return fmt.Errorf("unknown channel %q (want cli, mcp, ide, or notebook)", name)
+	if name == buddy.ChannelNotebook {
+		fmt.Fprintln(os.Stderr, "warning: channel notebook is deprecated; using ide")
+		return buddy.ChannelIDE, nil
 	}
+	switch name {
+	case buddy.ChannelCLI, buddy.ChannelMCP, buddy.ChannelIDE:
+		return name, nil
+	default:
+		return "", fmt.Errorf("unknown channel %q (want cli, mcp, or ide)", name)
+	}
+}
+
+func runCredShowChannel(cfg *buddy.Config, name string) error {
+	resolved, err := resolveCredChannelName(name)
+	if err != nil {
+		return err
+	}
+	name = resolved
 	p := cfg.ChannelPolicy(name)
 	fmt.Printf("channel:  %s\n", name)
 	fmt.Printf("access:   %s\n", p.EffectiveAccess())
@@ -226,9 +240,12 @@ func runCredShowChannel(cfg *buddy.Config, name string) error {
 
 func runCredSetChannel(cfg *buddy.Config, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: buddy cred set channel <cli|mcp|ide|notebook> [--access=readonly|full] [--tenant=…] [--tenants=a,b] [--deny-builtins=a,b,jamf_*]")
+		return fmt.Errorf("usage: buddy cred set channel <cli|mcp|ide> [--access=readonly|full] [--tenant=…] [--tenants=a,b] [--deny-builtins=a,b,jamf_*]")
 	}
-	name := strings.ToLower(strings.TrimSpace(args[0]))
+	name, err := resolveCredChannelName(args[0])
+	if err != nil {
+		return err
+	}
 	var access, tenant, tenantsCSV, denyCSV string
 	var setAccess, setTenant, setTenants, setDeny bool
 	for _, a := range args[1:] {

@@ -13,7 +13,7 @@ def main():
     )
 ```
 
-Modules compose [builtins](/docs/builtins) (bare returns; failures raise). Browse the same catalog from the notebook **Libraries** drawer.
+Modules compose [builtins](/docs/builtins) (bare returns; failures raise). Browse the same catalog from the IDE **Libraries** sidebar.
 
 ## Modules
 
@@ -39,7 +39,7 @@ See [Change batches](/docs/docs/change-batches) and [`examples/setup-app-classic
 
 ## Tips
 
-- Prefer `load("stdlib/<name>.buddy", "symbol")` — same paths the notebook inserts.
+- Prefer `load("stdlib/<name>.buddy", "symbol")` — same paths the IDE Libraries sidebar inserts.
 - Keep fat one-off workflows in your own `.buddy` files; promote repeated patterns into stdlib only when shared.
 - Full Jamf primitive API: [Function index](/docs/builtins).
 

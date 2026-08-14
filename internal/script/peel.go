@@ -77,3 +77,16 @@ func peelLastExpr(f *syntax.File) syntax.Expr {
 	f.Stmts = append(f.Stmts[:i], f.Stmts[i+1:]...)
 	return expr
 }
+
+func fileDefinesMain(f *syntax.File) bool {
+	if f == nil {
+		return false
+	}
+	for _, stmt := range f.Stmts {
+		fn, ok := stmt.(*syntax.DefStmt)
+		if ok && fn.Name != nil && fn.Name.Name == "main" {
+			return true
+		}
+	}
+	return false
+}

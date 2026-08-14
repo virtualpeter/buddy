@@ -2,7 +2,7 @@
 
 **buddy** is a Jamf Pro automation CLI. It covers Classic and Pro resources (policies, computer groups, configuration profiles, packages/JCDS, scripts, computers and MDM, API roles and clients) and the Platform API (blueprints, devices, device groups, DDM reporting, compliance benchmarks).
 
-Day-to-day work is **buddyscript** (Starlark): an interactive shell, `.buddy` files, a local docs UI with notebook and script IDE (`buddy serve`), and an MCP server for AI hosts (`buddy mcp`). Config is tenants + auths; secrets belong in Keychain or the file store — [docs/auth.md](docs/auth.md).
+Day-to-day work is **buddyscript** (Starlark): an interactive shell, `.buddy` files, a local docs UI with script IDE (`buddy serve`), and an MCP server for AI hosts (`buddy mcp`). Config is tenants + auths; secrets belong in Keychain or the file store — [docs/auth.md](docs/auth.md).
 
 New install: `make buddy` then [`buddy setup basic-setup`](docs/index.md). Builtin signatures always match the binary: `buddy help builtins`.
 
@@ -53,8 +53,6 @@ channels:
     access: readonly               # clamp mutates on this client
     tenant: sandbox                # optional per-client default
     tenants: [sandbox]             # optional allowlist
-  notebook:
-    tenant: sandbox
   ide:
     tenant: sandbox
   # cli omitted → full access; default tenant = tenant.default
@@ -70,7 +68,7 @@ auths:
     type: oauth
     clientId: your_client_id
     tenants: [sandbox]
-    channels: [cli, ide]           # omit = all (cli/mcp/ide/notebook)
+    channels: [cli, ide]           # omit = all (cli/mcp/ide)
     # clientSecret: buddy cred set secret sandbox-admin --client-secret
   sandbox-platform-ro:
     type: oauth
@@ -78,7 +76,7 @@ auths:
     tenants: [sandbox]
     access: readonly
     surface: platform
-    channels: [mcp, notebook]      # restrict MCP/notebook to this readonly auth
+    channels: [mcp, ide]           # restrict MCP/IDE to this readonly auth
 ```
 
 **Storage:** Tenants hold host identity; auths hold type/username/clientId and link to tenants. Passwords and OAuth client secrets can stay inline for **dev/test**, or be stored outside the file (keyed by **auth name**):
@@ -92,7 +90,7 @@ auths:
 ```sh
 buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=us --tenant-id=…
 buddy cred set auth sandbox-admin --type=oauth --client-id=abc --tenants=sandbox --channels=cli,ide
-buddy cred set auth sandbox-platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp,notebook
+buddy cred set auth sandbox-platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp,ide
 buddy cred set channel mcp --access=readonly --tenant=sandbox
 buddy cred set channel mcp --deny-builtins=jamf_*,computer_erase
 buddy cred set secret sandbox-admin --client-secret
@@ -206,7 +204,7 @@ Scripts and stdlib modules use **`.buddy`** (`load("stdlib/<name>.buddy", …)`)
 buddy help starlark   # language subset
 buddy help builtins   # full builtin reference (canonical)
 buddy help lsp        # language server for the editor extension
-make docs-serve       # local docs + buddyscript notebook (buddy serve --open)
+make docs-serve       # local docs + script IDE (buddy serve --open)
 buddy mcp             # MCP stdio server for AI tools (see docs/mcp.md)
 buddy mcp setup       # discover/write well-known MCP host configs
 make gendocs          # regenerate dual docs/help from Go docspecs (Resources + Platform)

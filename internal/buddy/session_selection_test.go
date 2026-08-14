@@ -28,7 +28,7 @@ func TestSessionSelectionForMCP(t *testing.T) {
 				Tenants:  []string{"sandbox", "prod"},
 				Access:   "full",
 				Surface:  "instance",
-				Channels: []string{ChannelMCP, ChannelNotebook},
+				Channels: []string{ChannelMCP, ChannelIDE},
 			},
 		},
 	}

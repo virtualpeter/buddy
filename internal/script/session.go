@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -15,6 +16,8 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 )
+
+var stashIdentRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 const (
 	localStdout  = "buddy.stdout"
@@ -30,17 +33,18 @@ type EvalResult struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// Session is a persistent Starlark environment (REPL / notebook / MCP eval / IDE).
+// Session is a persistent Starlark environment (REPL / MCP eval / IDE).
 type Session struct {
-	mu       sync.Mutex
-	credName string
-	opts     buddy.Opts
-	logger   *slog.Logger
-	trace    bool
-	args     []string
-	thread   *starlark.Thread
-	globals  starlark.StringDict
-	confirm  *confirmBridge
+	mu        sync.Mutex
+	credName  string
+	opts      buddy.Opts
+	logger    *slog.Logger
+	trace     bool
+	args      []string
+	thread    *starlark.Thread
+	globals   starlark.StringDict
+	confirm   *confirmBridge
+	lastValue starlark.Value
 }
 
 // NewSession creates a Starlark session with buddy builtins.
@@ -119,10 +123,11 @@ func (s *Session) resetLocked() error {
 	thread.SetLocal(localSession, true)
 	s.thread = thread
 	s.globals = globals
+	s.lastValue = nil
 	return nil
 }
 
-// PendingConfirm returns the in-flight confirm prompt, if any (notebook/IDE poll).
+// PendingConfirm returns the in-flight confirm prompt, if any (IDE poll).
 func (s *Session) PendingConfirm() *PendingConfirm {
 	if s == nil {
 		return nil
@@ -209,7 +214,7 @@ func (s *Session) Eval(filename, src string) EvalResult {
 		}
 		if val != nil && val != starlark.None {
 			out.Result = FormatDisplayValue(val)
-			s.globals["_"] = val
+			s.rememberLastLocked(val)
 		}
 		return out
 	}
@@ -264,6 +269,7 @@ func (s *Session) callMainLocked(out EvalResult) EvalResult {
 	}
 	if val != nil && val != starlark.None {
 		out.Result = FormatDisplayValue(val)
+		s.rememberLastLocked(val)
 	}
 	return out
 }
@@ -301,6 +307,9 @@ func (s *Session) RunScript(filename, src string) (EvalResult, []GlobalVar) {
 		}
 	}
 
+	s.lastValue = nil
+	delete(s.globals, "_")
+
 	fileOpts := &syntax.FileOptions{} // file dialect (no top-level if/for)
 	f, err := fileOpts.Parse(filename, src, 0)
 	if err != nil {
@@ -308,14 +317,118 @@ func (s *Session) RunScript(filename, src string) (EvalResult, []GlobalVar) {
 		out.Error = formatEvalErr(err)
 		return out, s.inspectGlobalsLocked()
 	}
+	hasMain := fileDefinesMain(f)
+	var lastExpr syntax.Expr
+	if !hasMain {
+		lastExpr = peelLastExpr(f)
+	}
 	if err := starlark.ExecREPLChunk(f, s.thread, s.globals); err != nil {
 		finish()
 		out.Error = formatEvalErr(err)
 		return out, s.inspectGlobalsLocked()
 	}
+	if hasMain {
+		finish()
+		out = s.callMainLocked(out)
+		return out, s.inspectGlobalsLocked()
+	}
+	if lastExpr != nil {
+		val, err := starlark.EvalExprOptions(fileOpts, s.thread, lastExpr, s.globals)
+		finish()
+		if err != nil {
+			out.Error = formatEvalErr(err)
+			return out, s.inspectGlobalsLocked()
+		}
+		if val != nil && val != starlark.None {
+			out.Result = FormatDisplayValue(val)
+			s.rememberLastLocked(val)
+		}
+		return out, s.inspectGlobalsLocked()
+	}
 	finish()
-	out = s.callMainLocked(out)
 	return out, s.inspectGlobalsLocked()
+}
+
+func (s *Session) rememberLastLocked(val starlark.Value) {
+	if val == nil || val == starlark.None {
+		return
+	}
+	s.lastValue = val
+	s.globals["_"] = val
+}
+
+// HasLastValue reports whether the last successful run produced a stashable value.
+func (s *Session) HasLastValue() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastValue != nil && s.lastValue != starlark.None
+}
+
+// Stash copies the last live result into globals[name].
+func (s *Session) Stash(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	name = strings.TrimSpace(name)
+	if !validStashName(name) {
+		return fmt.Errorf("invalid name %q (want a Starlark identifier)", name)
+	}
+	if s.lastValue == nil || s.lastValue == starlark.None {
+		return fmt.Errorf("no value to stash")
+	}
+	if _, ok := starlark.Universe[name]; ok {
+		return fmt.Errorf("%q is a builtin", name)
+	}
+	if v, ok := s.globals[name]; ok {
+		if _, isB := v.(*starlark.Builtin); isB {
+			return fmt.Errorf("%q is a builtin", name)
+		}
+	}
+	s.globals[name] = s.lastValue
+	return nil
+}
+
+// Drop removes a user global. "_" also clears the last stashable value.
+func (s *Session) Drop(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	name = strings.TrimSpace(name)
+	if name == "" || name == "re" {
+		return fmt.Errorf("cannot drop %q", name)
+	}
+	if _, ok := starlark.Universe[name]; ok {
+		return fmt.Errorf("%q is a builtin", name)
+	}
+	v, ok := s.globals[name]
+	if !ok {
+		return fmt.Errorf("no variable %q", name)
+	}
+	if _, isB := v.(*starlark.Builtin); isB {
+		return fmt.Errorf("%q is a builtin", name)
+	}
+	if name == "_" {
+		s.lastValue = nil
+	}
+	if name == "args" {
+		s.args = nil
+		s.globals["args"] = listFromStrings(nil)
+		return nil
+	}
+	delete(s.globals, name)
+	return nil
+}
+
+func validStashName(name string) bool {
+	if !stashIdentRe.MatchString(name) {
+		return false
+	}
+	switch name {
+	case "and", "or", "not", "if", "else", "elif", "for", "while", "break", "continue",
+		"pass", "return", "def", "lambda", "load", "in", "is", "True", "False", "None",
+		"as", "assert", "class", "del", "except", "finally", "from", "global", "import",
+		"nonlocal", "raise", "try", "with", "yield":
+		return false
+	}
+	return true
 }
 
 // GlobalVar is one session global for the IDE variables panel.

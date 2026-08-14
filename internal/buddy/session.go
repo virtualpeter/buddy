@@ -35,7 +35,7 @@ var activeSelection struct {
 	mu         sync.RWMutex
 	tenant     string
 	authPin    string // empty = auto-pick
-	channel    string // cli | mcp | serve
+	channel    string // cli | mcp | ide
 }
 
 // SetActiveSelection sets the process default tenant and optional auth pin.
@@ -54,7 +54,7 @@ func ActiveSelection() (tenant, authPin string) {
 	return activeSelection.tenant, activeSelection.authPin
 }
 
-// SetActiveChannel sets the process buddy client channel (cli|mcp|ide|notebook) for
+// SetActiveChannel sets the process buddy client channel (cli|mcp|ide) for
 // tenant selection and auth channels enforcement.
 func SetActiveChannel(channel string) {
 	activeSelection.mu.Lock()

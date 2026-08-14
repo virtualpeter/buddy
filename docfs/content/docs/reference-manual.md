@@ -15,7 +15,7 @@ This manual describes how the pieces fit together. For behavior that must stay i
 3. [Configuration and credentials](#configuration-and-credentials)
 4. [First-time API setup](#first-time-api-setup)
 5. [CLI overview](#cli-overview)
-6. [Local docs, notebook, and script IDE](#local-docs-notebook-and-script-ide)
+6. [Local docs and script IDE](#local-docs-and-script-ide)
 7. [MCP server](#mcp-server)
 8. [buddyscript shell and scripts](#buddyscript-shell-and-scripts)
 9. [Built-in functions](#built-in-functions)
@@ -49,7 +49,7 @@ Or run `./buddy` from the build directory.
 
 Default config path: `~/.config/buddy/config.yaml` (override config root with `XDG_CONFIG_HOME`).
 
-Config is split into **tenant selection** (`tenant.default`), **channel policies** (`channels.cli|mcp|ide|notebook` with optional `access` / `tenant` / `tenants` / `deny_builtins`), **tenants** (instance URL and/or Platform `region`+`tenantId`), and **auths** (command/basic/oauth principals linked to one or more tenants). Optional auth `channels:` (`cli`/`mcp`/`ide`/`notebook`; omit = all) limits which buddy clients may use that auth. Legacy shapes migrate on load; `tenant.cli|mcp|serve|ide` and the `serve` client are removed (use `channels.*`).
+Config is split into **tenant selection** (`tenant.default`), **channel policies** (`channels.cli|mcp|ide` with optional `access` / `tenant` / `tenants` / `deny_builtins`), **tenants** (instance URL and/or Platform `region`+`tenantId`), and **auths** (command/basic/oauth principals linked to one or more tenants). Optional auth `channels:` (`cli`/`mcp`/`ide`; omit = all) limits which buddy clients may use that auth. Legacy shapes migrate on load; `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` client names are removed (use `channels.ide`).
 
 Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, secrets, and tokens](auth.md)**.
 
@@ -145,7 +145,7 @@ buddy help [command] [subcommand]
 | `ddm` | Platform DDM declaration reporting (read-only) |
 | `benchmark` | Platform compliance benchmarks (beta) |
 | `setup` | Generate setup scripts and OAuth config helpers |
-| `serve` | Local docs browser + buddyscript notebook + script IDE |
+| `serve` | Local docs browser + script IDE |
 | `mcp` | MCP stdio server for AI tools (`mcp setup` writes host configs) |
 | `lsp` | Language server for the Cursor/VS Code buddy extension |
 
@@ -163,7 +163,7 @@ Use these when unsure about positional arguments, flags, or subcommand names.
 
 ---
 
-## Local docs, notebook, and script IDE
+## Local docs and script IDE
 
 ```sh
 make docs-serve
@@ -174,11 +174,10 @@ buddy serve --addr=127.0.0.1:8742
 
 - Binds **localhost only** (default `127.0.0.1:8742`).
 - `/docs/` — Curated user guides (overview, reference, builtins, API, MCP, examples). Contributor/agent material (AGENTS, Cursor rules) is MCP-only.
-- `/notebook` — Interactive buddyscript cells against your configured credential (same builtins as the CLI/REPL).
-- `/ide` — Single-buffer script runner with open/save, args, optional `--script-trace`-style builtin tracing, Run (file dialect + call `main()` if present), and a post-run Variables panel. Open/save is limited to the process cwd or `BUDDY_IDE_ROOT`. Matches CLI file semantics; not a replacement for the notebook.
+- `/ide` — Single-buffer script runner with open/save, args, optional `--script-trace`-style builtin tracing, Run (file dialect + call `main()` if present), resizable output, copy/save/stash, and a Variables | Libraries sidebar. Open/save is limited to the process cwd or `BUDDY_IDE_ROOT`. Matches CLI file semantics. `/notebook` redirects here.
 - Line breakpoints and stepping are **not** available (Starlark-go has no pause/step API). A soft `breakpoint()` builtin that only stops when the script calls it may be added later.
 - Optional `--docs-root` / `BUDDY_DOCS_ROOT` to override embedded markdown with live files while editing.
-- Confirmations for `confirm()` and Jamf mutates open a dialog in the browser (notebook/IDE). Global `-y` skips them.
+- Confirmations for `confirm()` and Jamf mutates open a dialog in the browser. Global `-y` skips them. Serve sessions use the `ide` channel.
 
 Open the printed URL in Cursor’s Simple Browser for an in-editor experience.
 

@@ -19,7 +19,7 @@ type liveSession struct {
 	sess    *script.Session
 	tenant  string
 	auth    string // auth pin; empty = auto-pick
-	channel string // notebook | ide
+	channel string // ide
 }
 
 type sessionStore struct {
@@ -45,7 +45,7 @@ type createSessionReq struct {
 	Tenant    string
 	Cred      string // auth pin (empty = auto-pick for tenant)
 	Auth      string // alias of cred
-	Channel   string // notebook | ide
+	Channel   string // ide
 	Trace     bool
 	Args      []string
 	tenantSet bool
@@ -102,9 +102,8 @@ type createSessionResp struct {
 	Args   []string `json:"args"`
 }
 
-type evalReq struct {
-	Source string `json:"source"`
-	Cell   string `json:"cell"`
+type stashReq struct {
+	Name string `json:"name"`
 }
 
 type configSessionReq struct {
@@ -141,11 +140,12 @@ type runReq struct {
 }
 
 type runResp struct {
-	Stdout  string            `json:"stdout"`
-	Stderr  string            `json:"stderr"`
-	Result  string            `json:"result,omitempty"`
-	Error   string            `json:"error,omitempty"`
-	Globals []script.GlobalVar `json:"globals"`
+	Stdout    string             `json:"stdout"`
+	Stderr    string             `json:"stderr"`
+	Result    string             `json:"result,omitempty"`
+	Error     string             `json:"error,omitempty"`
+	Stashable bool               `json:"stashable"`
+	Globals   []script.GlobalVar `json:"globals"`
 }
 
 func (s *sessionStore) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -157,9 +157,9 @@ func (s *sessionStore) handleCreate(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	channel := strings.ToLower(strings.TrimSpace(req.Channel))
 	switch channel {
-	case buddy.ChannelIDE, buddy.ChannelNotebook:
+	case buddy.ChannelIDE:
 	default:
-		channel = buddy.ChannelNotebook
+		channel = buddy.ChannelIDE
 	}
 	tenant := s.tenant
 	if req.tenantSet {
@@ -224,7 +224,7 @@ func (s *sessionStore) activate(live *liveSession) {
 	buddy.SetActiveSelection(live.tenant, live.auth)
 }
 
-func (s *sessionStore) handleEval(w http.ResponseWriter, r *http.Request, id string) {
+func (s *sessionStore) handleStash(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -234,18 +234,46 @@ func (s *sessionStore) handleEval(w http.ResponseWriter, r *http.Request, id str
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 		return
 	}
-	var req evalReq
+	var req stashReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	cell := req.Cell
-	if cell == "" {
-		cell = "cell"
+	s.activate(live)
+	if err := live.sess.Stash(req.Name); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"globals": live.sess.InspectGlobals(),
+	})
+}
+
+func (s *sessionStore) handleDrop(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	live := s.get(id)
+	if live == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+	var req stashReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
 	}
 	s.activate(live)
-	result := live.sess.Eval(cell, req.Source)
-	writeJSON(w, http.StatusOK, result)
+	if err := live.sess.Drop(req.Name); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"globals": live.sess.InspectGlobals(),
+	})
 }
 
 func (s *sessionStore) handleConfirm(w http.ResponseWriter, r *http.Request, id string) {
@@ -302,7 +330,8 @@ func (s *sessionStore) handleRun(w http.ResponseWriter, r *http.Request, id stri
 	s.activate(live)
 	out, globals := live.sess.RunScript(filename, req.Source)
 	writeJSON(w, http.StatusOK, runResp{
-		Stdout: out.Stdout, Stderr: out.Stderr, Result: out.Result, Error: out.Error, Globals: globals,
+		Stdout: out.Stdout, Stderr: out.Stderr, Result: out.Result, Error: out.Error,
+		Stashable: live.sess.HasLastValue(), Globals: globals,
 	})
 }
 

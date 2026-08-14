@@ -32,7 +32,7 @@ Commands:
   client   Manage API integrations (list/get/create/update/delete/credentials/set)
   script   Manage Jamf scripts (list/get/create/upload/download/delete/set)
   setup    basic-setup (first tenant/auth); write-script; store-oauth (instance)
-  serve    Local docs + notebook + script IDE web UI
+  serve    Local docs + script IDE web UI
   mcp      MCP stdio server for AI tools (setup discovers host configs)
   lsp      Language server for buddyscript (editor integration)
   version  Print version and exit (same as --version)
@@ -79,7 +79,7 @@ Notes:
   -e / --eval runs a one-liner in the normal buddyscript environment (builtins,
   args, load("stdlib/…")). If main is defined, it is called (same as file scripts).
   If the last statement is an expression, its value is printed to stdout as
-  JSON-friendly text (same rendering as notebook Out), unless the expression
+  JSON-friendly text (same rendering as IDE result), unless the expression
   already wrote to stdout (e.g. unwrap or print).
 
   Global -y skips interactive confirmation for buddy CLI commands and makes confirm()
@@ -218,7 +218,7 @@ to_tenant?/to_surface?/to_auth? for destination (omit = same as source).
 Versioned release bumps use change batches (step_clone_policy), not a
 policy_clone builtin.
 
-In the notebook (or shell), evaluate a bare builtin name (no parentheses) to
+In the shell, evaluate a bare builtin name (no parentheses) to
 print its signature, returns, and params. Prefer change_batch + plan_change +
 run_change for multi-step Jamf changes (see CHANGE BATCH below).
 
@@ -241,7 +241,7 @@ STDLIB
 
   Modules compose the builtins below (bare returns; failures raise)
   (except setup_app_classic, which returns a list of step dicts for plan_change).
-  Browse modules and builtins in the notebook Libraries drawer (buddy serve → /notebook).
+  Browse modules and builtins in the IDE Libraries sidebar (buddy serve → /ide).
   Current modules: stdlib/release.buddy (bump_release), stdlib/app_setup.buddy
   (setup_app_classic).
 

@@ -7,25 +7,23 @@ import (
 )
 
 func TestChromeHeaderSlots(t *testing.T) {
-	h := chromeHeader("notebook",
+	h := chromeHeader("ide",
 		`<label>tenant <select id="tenant"></select></label><label>user <select id="auth"></select></label>`,
-		`<button id="addCell">Add cell</button>`,
-		`<button id="runAll" class="primary">Run all</button>`)
+		`<button id="btn-open">Open</button>`,
+		`<button id="btn-run" class="primary">Run</button>`)
 	for _, want := range []string{
 		`class="app-header"`,
 		`href="/docs/"`,
-		`href="/notebook"`,
 		`href="/ide"`,
 		`target="buddy-docs"`,
-		`target="buddy-notebook"`,
 		`target="buddy-ide"`,
-		`window.name="buddy-notebook"`,
+		`window.name="buddy-ide"`,
 		`class="ver"`,
-		`class="active">notebook</a>`,
+		`class="active">ide</a>`,
 		`id="tenant"`,
 		`id="auth"`,
-		`id="addCell"`,
-		`id="runAll"`,
+		`id="btn-open"`,
+		`id="btn-run"`,
 		`id="theme-dark"`,
 		`theme-toggle`,
 	} {
@@ -33,41 +31,40 @@ func TestChromeHeaderSlots(t *testing.T) {
 			t.Fatalf("header missing %q\n%s", want, h)
 		}
 	}
-	// Order: brand/nav, session, actions, spacer, run, dark
+	if strings.Contains(h, `href="/notebook"`) {
+		t.Fatal("header should not link to /notebook")
+	}
 	idxNav := strings.Index(h, `class="app-nav"`)
 	idxTenant := strings.Index(h, `id="tenant"`)
-	idxAdd := strings.Index(h, `id="addCell"`)
+	idxOpen := strings.Index(h, `id="btn-open"`)
 	idxSpacer := strings.Index(h, `class="spacer"`)
-	idxRun := strings.Index(h, `id="runAll"`)
+	idxRun := strings.Index(h, `id="btn-run"`)
 	idxDark := strings.Index(h, `id="theme-dark"`)
-	if !(idxNav < idxTenant && idxTenant < idxAdd && idxAdd < idxSpacer && idxSpacer < idxRun && idxRun < idxDark) {
-		t.Fatalf("slot order wrong: nav=%d tenant=%d add=%d spacer=%d run=%d dark=%d",
-			idxNav, idxTenant, idxAdd, idxSpacer, idxRun, idxDark)
+	if !(idxNav < idxTenant && idxTenant < idxOpen && idxOpen < idxSpacer && idxSpacer < idxRun && idxRun < idxDark) {
+		t.Fatalf("slot order wrong: nav=%d tenant=%d open=%d spacer=%d run=%d dark=%d",
+			idxNav, idxTenant, idxOpen, idxSpacer, idxRun, idxDark)
 	}
 }
 
 func TestChromeNamedTabs(t *testing.T) {
-	for _, surface := range []string{"docs", "notebook", "ide"} {
+	for _, surface := range []string{"docs", "ide"} {
 		h := chromeHeader(surface, "", "", "")
 		wantName := `window.name="buddy-` + surface + `"`
 		if !strings.Contains(h, wantName) {
 			t.Errorf("%s header missing %q", surface, wantName)
 		}
-		for _, id := range []string{"docs", "notebook", "ide"} {
+		for _, id := range []string{"docs", "ide"} {
 			want := `target="buddy-` + id + `"`
 			if !strings.Contains(h, want) {
 				t.Errorf("%s header missing %q", surface, want)
 			}
 		}
-	}
-	if !strings.Contains(notebookHTML, `target="buddy-notebook"`) {
-		t.Error("notebook HTML missing named notebook target")
+		if strings.Contains(h, `target="buddy-notebook"`) {
+			t.Errorf("%s header still has notebook target", surface)
+		}
 	}
 	if !strings.Contains(ideHTML, `target="buddy-ide"`) {
 		t.Error("ide HTML missing named ide target")
-	}
-	if !strings.Contains(notebookHTML, `window.name="buddy-notebook"`) {
-		t.Error("notebook HTML should claim window.name")
 	}
 	if !strings.Contains(ideHTML, `window.name="buddy-ide"`) {
 		t.Error("ide HTML should claim window.name")
@@ -79,7 +76,6 @@ func TestChromeVersion(t *testing.T) {
 	t.Cleanup(func() {
 		setChromeVersion(prev)
 		ideHTML = buildIDEHTML()
-		notebookHTML = buildNotebookHTML()
 	})
 	setChromeVersion("1.2.3-test")
 	h := chromeHeader("docs", "", "", "")
@@ -94,55 +90,50 @@ func TestChromeVersion(t *testing.T) {
 	setChromeVersion(`<script>x</script>`)
 	h3 := chromeHeader("docs", "", "", "")
 	if strings.Contains(h3, "<script>x</script>") || !strings.Contains(h3, html.EscapeString(`<script>x</script>`)) {
-		// EscapeString of that is &lt;script&gt;...
 		if !strings.Contains(h3, "&lt;script&gt;") {
 			t.Fatalf("version should be HTML-escaped: %s", h3)
 		}
 	}
 }
 
-func TestNotebookIDESharedChrome(t *testing.T) {
-	for name, html := range map[string]string{
-		"notebook": notebookHTML,
-		"ide":      ideHTML,
+func TestIDESharedChrome(t *testing.T) {
+	for _, want := range []string{
+		`buddy-serve-theme`,
+		`buddyServeStore`,
+		`buddyServeSoftTab`,
+		`prefers-color-scheme`,
+		`id="theme-dark"`,
+		`class="app-header"`,
+		`class="app-nav"`,
+		`id="tenant"`,
+		`id="auth"`,
+		`data-theme`,
+		`id="btn-run"`,
+		`buddy-serve-ide-draft`,
+		`id="btn-libs"`,
+		`id="btn-copy"`,
+		`id="btn-save-out"`,
+		`id="btn-stash"`,
+		`id="btn-clear-code"`,
+		`id="btn-clear-out"`,
+		`id="split-h"`,
+		`id="libBody"`,
+		`data-side="libs"`,
 	} {
-		for _, want := range []string{
-			`buddy-serve-theme`,
-			`buddyServeStore`,
-			`buddyServeSoftTab`,
-			`prefers-color-scheme`,
-			`id="theme-dark"`,
-			`class="app-header"`,
-			`class="app-nav"`,
-			`id="tenant"`,
-			`id="auth"`,
-			`data-theme`,
-		} {
-			if !strings.Contains(html, want) {
-				t.Errorf("%s missing %q", name, want)
-			}
+		if !strings.Contains(ideHTML, want) {
+			t.Errorf("ide missing %q", want)
 		}
 	}
-	if !strings.Contains(notebookHTML, `id="runAll"`) {
-		t.Error("notebook missing runAll")
-	}
-	if !strings.Contains(notebookHTML, `buddy-serve-notebook-draft`) {
-		t.Error("notebook missing draft key")
-	}
-	if !strings.Contains(ideHTML, `id="btn-run"`) {
-		t.Error("ide missing btn-run")
-	}
-	if !strings.Contains(ideHTML, `buddy-serve-ide-draft`) {
-		t.Error("ide missing draft key")
-	}
-	// Run should be in header (before runbar for IDE), not only in runbar
 	runIdx := strings.Index(ideHTML, `id="btn-run"`)
 	runbarIdx := strings.Index(ideHTML, `class="runbar"`)
-	if runIdx < 0 || runbarIdx < 0 || runIdx > runbarIdx {
-		t.Fatalf("IDE Run should appear in header before runbar (run=%d runbar=%d)", runIdx, runbarIdx)
+	if runIdx < 0 || runbarIdx < 0 || runIdx < runbarIdx {
+		t.Fatalf("IDE Run should appear in the runbar (run=%d runbar=%d)", runIdx, runbarIdx)
 	}
-	if strings.Contains(ideHTML, `class="runbar"`) && strings.Count(ideHTML, `id="btn-run"`) != 1 {
+	if strings.Count(ideHTML, `id="btn-run"`) != 1 {
 		t.Error("expected single btn-run")
+	}
+	if !strings.Contains(ideHTML, `id="btn-clear-code"`) || !strings.Contains(ideHTML, `id="btn-clear-out"`) {
+		t.Error("ide missing Clear code/output buttons")
 	}
 }
 

@@ -13,7 +13,7 @@ Human docs: [docs/index.md](docs/index.md). Auth/secrets/tokens: [docs/auth.md](
 | `internal/buddy/tokenauth/` | Token acquisition, cache, 401 refresh |
 | `internal/script/` | buddyscript (Starlark) builtins + session |
 | `internal/mcp/` | `buddy mcp` stdio server |
-| `internal/serve/` | `buddy serve` docs + notebook + `/ide` |
+| `internal/serve/` | `buddy serve` docs + `/ide` |
 | `internal/lsp/` | `buddy lsp` |
 | `stdlib/` | Embedded `.buddy` libraries |
 | `editors/vscode/` | Cursor/VS Code extension |

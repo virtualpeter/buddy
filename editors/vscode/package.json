@@ -56,7 +56,7 @@
         "buddy.cellMode": {
           "type": "boolean",
           "default": false,
-          "description": "Enable notebook/-e dialect (top-level if/for and global reassign) in the language server."
+          "description": "Enable -e / REPL dialect (top-level if/for and global reassign) in the language server."
         },
         "buddy.trace.server": {
           "type": "string",

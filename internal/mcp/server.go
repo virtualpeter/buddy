@@ -24,7 +24,7 @@ type ToolResult struct {
 }
 
 // withMCPOpts forces SkipConfirm. MCP has no interactive stdin / AnswerConfirm
-// path (unlike notebook/IDE); without this, Classic mutates such as
+// path (unlike the IDE); without this, Classic mutates such as
 // profile_put_xml block forever on the session confirm bridge and hosts time out.
 func withMCPOpts(opts buddy.Opts) buddy.Opts {
 	opts.SkipConfirm = true

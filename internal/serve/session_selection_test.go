@@ -31,7 +31,7 @@ func TestSessionSelectionJSON(t *testing.T) {
 		buddy.SetActiveSelection("", "")
 	})
 
-	got := sessionSelectionJSON(buddy.ChannelNotebook, "", "")
+	got := sessionSelectionJSON(buddy.ChannelIDE, "", "")
 	tenants, _ := got["tenants"].([]string)
 	if len(tenants) != 2 || tenants[0] != "prod" || tenants[1] != "sandbox" {
 		t.Fatalf("tenants=%v", tenants)
@@ -50,7 +50,7 @@ func TestSessionSelectionJSON(t *testing.T) {
 		t.Fatalf("auth names=%v %v", auths[0].Name, auths[1].Name)
 	}
 
-	got2 := sessionSelectionJSON(buddy.ChannelNotebook, "prod", "platform-ro")
+	got2 := sessionSelectionJSON(buddy.ChannelIDE, "prod", "platform-ro")
 	if got2["tenant"] != "prod" || got2["auth"] != "platform-ro" {
 		t.Fatalf("override got tenant=%v auth=%v", got2["tenant"], got2["auth"])
 	}
@@ -60,8 +60,8 @@ func TestSessionSelectionJSONChannelPolicy(t *testing.T) {
 	cfg := &buddy.Config{
 		Tenant: buddy.TenantSelection{Default: "sandbox"},
 		Channels: map[string]buddy.ChannelPolicy{
-			buddy.ChannelNotebook: {Tenant: "sandbox", Access: buddy.AccessReadonly},
-			buddy.ChannelIDE:      {Tenant: "prod"},
+			buddy.ChannelMCP: {Tenant: "sandbox", Access: buddy.AccessReadonly},
+			buddy.ChannelIDE: {Tenant: "prod"},
 		},
 		Tenants: map[string]buddy.TenantConfig{
 			"sandbox": {URL: "https://example.jamfcloud.com"},
@@ -78,7 +78,7 @@ func TestSessionSelectionJSONChannelPolicy(t *testing.T) {
 				Tenants:  []string{"sandbox", "prod"},
 				Access:   "readonly",
 				Surface:  "platform",
-				Channels: []string{buddy.ChannelNotebook, buddy.ChannelMCP},
+				Channels: []string{buddy.ChannelMCP},
 			},
 		},
 	}
@@ -90,7 +90,7 @@ func TestSessionSelectionJSONChannelPolicy(t *testing.T) {
 		buddy.SetActiveChannel("")
 	})
 
-	got := sessionSelectionJSON(buddy.ChannelNotebook, "", "")
+	got := sessionSelectionJSON(buddy.ChannelMCP, "", "")
 	if got["tenant"] != "sandbox" {
 		t.Fatalf("tenant=%v", got["tenant"])
 	}

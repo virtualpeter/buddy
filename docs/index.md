@@ -1,6 +1,6 @@
 # Getting started with buddy
 
-**buddy** is a Jamf Pro CLI and buddyscript tool: policies, groups, profiles, packages, scripts, computers/MDM, Platform API (blueprints, devices, …), plus a local docs UI, notebook, and script IDE.
+**buddy** is a Jamf Pro CLI and buddyscript tool: policies, groups, profiles, packages, scripts, computers/MDM, Platform API (blueprints, devices, …), plus a local docs UI and script IDE.
 
 ## 1. Install
 
@@ -37,12 +37,12 @@ Already have tenants/auths? Use `buddy cred …` and `buddy auth test` instead �
 
 ```sh
 buddy policy list                     # or: group list, package list, …
-buddy serve --open                    # docs + notebook + /ide in the browser
+buddy serve --open                    # docs + /ide in the browser
 buddy help                            # CLI overview
 buddy help builtins                   # buddyscript API reference
 ```
 
-In the notebook, open **Libraries** → **Getting started** for a short list of builtins to try in cells.
+In the IDE, open **Libraries** → **Getting started** for a short list of builtins to try.
 
 ## Resources (by object type)
 
@@ -89,5 +89,4 @@ In the notebook, open **Libraries** → **Getting started** for a short list of 
 | [MCP tools scorecard](/docs/docs/mcp-tools) | Agent tool priority and pathfinding |
 | [Editor / LSP](/docs/docs/editor) | `buddy lsp` + VS Code/Cursor extension (build & install VSIX) |
 | [Examples index](/docs/examples/README.md) | Runnable `.buddy` samples |
-| [Notebook](/notebook) | Interactive buddyscript against your tenant/auth |
-| [Script IDE](/ide) | Single-buffer runner (open/save, args, trace) |
+| [Script IDE](/ide) | Single-buffer runner (open/save, args, trace, Libraries) |

@@ -31,7 +31,7 @@ func sampleChannelConfig() *Config {
 				Tenants:  []string{"sandbox", "prod"},
 				Access:   AccessReadonly,
 				Surface:  SurfaceInstance,
-				Channels: []string{ChannelMCP, ChannelNotebook},
+				Channels: []string{ChannelMCP},
 			},
 		},
 	}
@@ -48,8 +48,8 @@ func TestDefaultTenantFromChannels(t *testing.T) {
 	if got := cfg.DefaultTenant(ChannelIDE); got != "prod" {
 		t.Fatalf("ide=%q", got)
 	}
-	if got := cfg.DefaultTenant(ChannelNotebook); got != "sandbox" {
-		t.Fatalf("notebook fallback default=%q", got)
+	if got := cfg.DefaultTenant(ChannelNotebook); got != "prod" {
+		t.Fatalf("notebook aliases ide default=%q", got)
 	}
 	cfg.Channels = nil
 	if got := cfg.DefaultTenant(ChannelCLI); got != "sandbox" {
@@ -66,14 +66,14 @@ func TestAuthAllowedAndFilter(t *testing.T) {
 		t.Fatal("sandbox-admin should not be allowed for mcp")
 	}
 	if cfg.AuthAllowed(ChannelIDE, "sandbox-ro") {
-		t.Fatal("ide should not share notebook/mcp-only auth")
+		t.Fatal("ide should not share mcp-only auth")
 	}
 	if !cfg.AuthAllowed(ChannelIDE, "sandbox-admin") {
 		t.Fatal("admin should be allowed for ide")
 	}
-	got := cfg.FilterAuths(ChannelNotebook, []string{"sandbox-admin", "sandbox-ro"})
-	if len(got) != 1 || got[0] != "sandbox-ro" {
-		t.Fatalf("filter notebook=%v", got)
+	got := cfg.FilterAuths(ChannelIDE, []string{"sandbox-admin", "sandbox-ro"})
+	if len(got) != 1 || got[0] != "sandbox-admin" {
+		t.Fatalf("filter ide=%v", got)
 	}
 	got = cfg.FilterAuths(ChannelMCP, []string{"sandbox-admin", "sandbox-ro"})
 	if len(got) != 1 || got[0] != "sandbox-ro" {
@@ -258,14 +258,70 @@ func TestTenantLegacyKeysRejected(t *testing.T) {
 func TestParseAuthChannels(t *testing.T) {
 	got, err := ParseAuthChannels("cli,mcp,ide,notebook")
 	if err != nil || got != nil {
-		t.Fatalf("all four should clear: %v %v", got, err)
+		t.Fatalf("all three after notebook→ide should clear: %v %v", got, err)
 	}
 	_, err = ParseAuthChannels("serve")
 	if err == nil || !strings.Contains(err.Error(), "removed") {
 		t.Fatalf("err=%v", err)
 	}
 	got, err = ParseAuthChannels("mcp,notebook")
-	if err != nil || len(got) != 2 {
+	if err != nil || len(got) != 2 || got[0] != ChannelIDE || got[1] != ChannelMCP {
 		t.Fatalf("got=%v err=%v", got, err)
+	}
+}
+
+func TestMigrateNotebookChannel(t *testing.T) {
+	cfg := &Config{
+		Tenant: TenantSelection{Default: "sandbox"},
+		Channels: map[string]ChannelPolicy{
+			ChannelNotebook: {Tenant: "sandbox", Access: AccessReadonly, Tenants: []string{"sandbox"}},
+			ChannelIDE:      {Tenant: "prod"},
+		},
+		Tenants: map[string]TenantConfig{
+			"sandbox": {URL: "https://example.jamfcloud.com"},
+			"prod":    {URL: "https://prod.example.jamfcloud.com"},
+		},
+		Auths: map[string]AuthEntry{
+			"ro": {
+				Type: "oauth", ClientID: "c1",
+				Tenants:  []string{"sandbox"},
+				Channels: []string{ChannelMCP, ChannelNotebook, ChannelIDE},
+			},
+		},
+	}
+	if !migrateNotebookChannel(cfg) {
+		t.Fatal("expected migration")
+	}
+	if _, ok := cfg.Channels[ChannelNotebook]; ok {
+		t.Fatal("notebook key should be dropped")
+	}
+	ide := cfg.Channels[ChannelIDE]
+	if ide.Tenant != "prod" {
+		t.Fatalf("ide tenant should stay prod, got %q", ide.Tenant)
+	}
+	if ide.EffectiveAccess() != AccessReadonly {
+		t.Fatalf("ide should inherit notebook access, got %q", ide.Access)
+	}
+	if len(ide.Tenants) != 1 || ide.Tenants[0] != "sandbox" {
+		t.Fatalf("ide tenants=%v", ide.Tenants)
+	}
+	got := cfg.Auths["ro"].Channels
+	hasMCP, hasIDE := false, false
+	for _, c := range got {
+		if c == ChannelMCP {
+			hasMCP = true
+		}
+		if c == ChannelIDE {
+			hasIDE = true
+		}
+		if c == ChannelNotebook {
+			t.Fatalf("notebook leftover in auth channels: %v", got)
+		}
+	}
+	if !hasMCP || !hasIDE || len(got) != 2 {
+		t.Fatalf("auth channels=%v", got)
+	}
+	if migrateNotebookChannel(cfg) {
+		t.Fatal("second migrate should be a no-op")
 	}
 }

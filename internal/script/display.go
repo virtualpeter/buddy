@@ -6,7 +6,7 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// FormatDisplayValue renders a Starlark value for notebook/REPL "Out" panels.
+// FormatDisplayValue renders a Starlark value for IDE/REPL result panels.
 // Dicts and lists (and nested structures) are shown as indented JSON with real
 // newlines — not Starlark's Python-like String()/repr, which looks JSON-ish but
 // is not JSON and escapes newlines inside strings.

@@ -110,7 +110,7 @@ scan-acs-profiles: $(BUILDTARGET)
 	./$(BUILDTARGET) -y scripts/scan_acs_profile_handling.buddy
 .PHONY: scan-acs-profiles
 
-# Local docs + notebook UI (opens browser)
+# Local docs + script IDE (opens browser)
 docs-serve: $(BUILDTARGET)
 	./$(BUILDTARGET) serve --open
 .PHONY: docs-serve
@@ -143,7 +143,7 @@ help:
 	@echo "  integration-test - Run Starlark integration tests against Jamf"
 	@echo "  integration-test-acs7 - ACS profile id=7 same-tenant mutate/restore suite"
 	@echo "  scan-acs-profiles - Read-only audit: profiles needing ACS hydrate/bind handling"
-	@echo "  docs-serve - Local docs + notebook (buddy serve --open)"
+	@echo "  docs-serve - Local docs + script IDE (buddy serve --open)"
 	@echo "  extension-package - Build editors/vscode VSIX (PUBLISHER=virtualpete)"
 	@echo "  clean   - Remove all built executables"
 	@echo "  help    - Show this help message"

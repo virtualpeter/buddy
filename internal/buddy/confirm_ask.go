@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-// ConfirmAskFunc handles a confirm prompt outside of stdin (e.g. notebook UI).
+// ConfirmAskFunc handles a confirm prompt outside of stdin (e.g. IDE UI).
 // It must return whether the user chose yes.
 type ConfirmAskFunc func(opts ConfirmOpts) bool
 
@@ -15,7 +15,7 @@ var confirmAskers sync.Map // goroutine id (uint64) → ConfirmAskFunc
 
 // PushConfirmAsk registers fn for the current goroutine so Confirm uses it
 // instead of stdin. Restore with the returned function (usually defer).
-// Used by buddy serve notebook/IDE sessions.
+// Used by buddy serve IDE sessions.
 func PushConfirmAsk(fn ConfirmAskFunc) (restore func()) {
 	if fn == nil {
 		return func() {}

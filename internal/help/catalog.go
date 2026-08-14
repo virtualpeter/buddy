@@ -4,7 +4,7 @@ import (
 	"strings"
 )
 
-// LibraryFunc is one browsable function for the notebook libraries API / LSP.
+// LibraryFunc is one browsable function for the IDE libraries API / LSP.
 type LibraryFunc struct {
 	Name      string `json:"name"`
 	Signature string `json:"signature"`
@@ -23,7 +23,7 @@ type LibrarySection struct {
 }
 
 // BuiltinsLibrary returns the builtins catalog parsed from Builtins help text,
-// then regrouped for notebook discoverability (Getting started / Advanced).
+// then regrouped for IDE discoverability (Getting started / Advanced).
 func BuiltinsLibrary() (sections []LibrarySection, flat []LibraryFunc) {
 	sections, flat = parseBuiltinsCatalog(Builtins)
 	return curateBuiltinsLibrary(sections, flat)
@@ -298,7 +298,7 @@ func LookupBuiltin(name string) (LibraryFunc, bool) {
 	return LibraryFunc{}, false
 }
 
-// FormatBuiltinHelp renders catalog help for a bare builtin name (notebook Out).
+// FormatBuiltinHelp renders catalog help for a bare builtin name (shell / IDE result).
 func FormatBuiltinHelp(f LibraryFunc) string {
 	var b strings.Builder
 	b.WriteString(f.Signature)

@@ -15,7 +15,7 @@ type AuthSummary struct {
 }
 
 // SessionSelection describes the active tenant/auth pin and available choices
-// for a buddy client channel (cli|mcp|ide|notebook).
+// for a buddy client channel (cli|mcp|ide).
 type SessionSelection struct {
 	Channel        string        `json:"channel"`
 	Tenant         string        `json:"tenant"`

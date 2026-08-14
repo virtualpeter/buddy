@@ -1,6 +1,6 @@
 package main
 
-const helpServe = `buddy serve - Local docs, notebook, and script IDE web UI
+const helpServe = `buddy serve - Local docs and script IDE web UI
 
 Usage:
   buddy [global-flags] serve [args...]
@@ -12,8 +12,9 @@ Flags for 'serve':
 
 Notes:
   Serves a curated user docs UI (guides, builtins, examples) plus:
-  /notebook — REPL-style buddyscript cells (explore builtins interactively)
-  /ide      — Single-buffer script runner (open/save, args, trace, Run as file)
+  /ide — Single-buffer script runner (open/save, args, trace, Run as file,
+         Variables/Libraries sidebar, copy/save/stash output)
+  /notebook redirects to /ide.
   AGENTS.md and Cursor rules stay in the repo for contributors; they are not
   listed in the HTML sidebar or embedded for MCP.
   When run from a checkout, serve prefers the repo docs/ tree so edits show
@@ -24,11 +25,10 @@ Notes:
   args from the form, optional builtin-call trace). Line breakpoints / stepping
   are not supported (Starlark-go has no pause API); a soft breakpoint() builtin
   may come later.
-  buddyscript cells and IDE runs use the same builtins as the CLI. Interactive
-  confirm() and Jamf mutate confirms open a dialog in the browser (not the
-  serve terminal). Global -y / --yes skips confirms entirely. Notebook and IDE
-  each use their own client channel (notebook / ide) with optional channels.*
-  policy for tenant and access.
+  IDE runs use the same builtins as the CLI. Interactive confirm() and Jamf
+  mutate confirms open a dialog in the browser (not the serve terminal).
+  Global -y / --yes skips confirms entirely. The IDE uses the ide client
+  channel with optional channels.ide policy for tenant and access.
   Bind address must be localhost (127.0.0.1, localhost, or ::1).
 
 Examples:
@@ -110,7 +110,7 @@ Notes:
 
   Scripts and stdlib use .buddy (e.g. load("stdlib/<name>.buddy", …)).
 
-  Optional initializationOptions.cellMode=true enables notebook/-e dialect
+  Optional initializationOptions.cellMode=true enables -e / REPL dialect
   (top-level if/for and global reassign).
 
 Examples:

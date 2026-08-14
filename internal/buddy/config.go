@@ -139,7 +139,7 @@ func (a AuthEntry) LinkedTo(tenantName string) bool {
 }
 
 // ChannelAllowed reports whether this auth may be used on channel.
-// Empty Channels means all buddy clients (cli/mcp/ide/notebook).
+// Empty Channels means all buddy clients (cli/mcp/ide).
 func (a AuthEntry) ChannelAllowed(channel string) bool {
 	channel = normalizeBuddyChannel(channel)
 	if channel == "" {
@@ -193,10 +193,13 @@ func ParseAuthChannels(s string) ([]string, error) {
 			continue
 		}
 		if p == "serve" {
-			return nil, fmt.Errorf("channel %q was removed; use ide and/or notebook (or all)", p)
+			return nil, fmt.Errorf("channel %q was removed; use ide (or all)", p)
+		}
+		if p == ChannelNotebook {
+			p = ChannelIDE
 		}
 		if !isBuddyChannel(p) {
-			return nil, fmt.Errorf("unknown channel %q (want cli, mcp, ide, notebook, or all)", p)
+			return nil, fmt.Errorf("unknown channel %q (want cli, mcp, ide, or all)", p)
 		}
 		if !seen[p] {
 			seen[p] = true
@@ -497,10 +500,10 @@ func (t *TenantSelection) UnmarshalYAML(value *yaml.Node) error {
 		switch k {
 		case "default":
 			t.Default = v
-		case "cli", "mcp", "ide", "notebook":
+		case "cli", "mcp", "ide":
 			return fmt.Errorf("tenant.%s is no longer supported; use channels.%s.tenant", k, k)
-		case "serve":
-			return fmt.Errorf("tenant.serve is no longer supported; use channels.notebook.tenant and/or channels.ide.tenant")
+		case "notebook", "serve":
+			return fmt.Errorf("tenant.%s is no longer supported; use channels.ide.tenant", k)
 		default:
 			return fmt.Errorf("tenant: unknown key %q (want default only)", k)
 		}
@@ -621,7 +624,7 @@ func (cfg *Config) AuthsForTenant(tenantName string) []string {
 	return out
 }
 
-// DefaultTenant returns the selected tenant for channel (cli|mcp|ide|notebook).
+// DefaultTenant returns the selected tenant for channel (cli|mcp|ide).
 func (cfg *Config) DefaultTenant(channel string) string {
 	if cfg == nil {
 		return DefaultTenant
@@ -694,10 +697,13 @@ func (cfg *Config) ValidateTenantSelectionAndChannels() error {
 	for ch, p := range cfg.Channels {
 		ch = strings.ToLower(strings.TrimSpace(ch))
 		if ch == "serve" {
-			return fmt.Errorf("channels.serve is no longer supported; use channels.ide and/or channels.notebook")
+			return fmt.Errorf("channels.serve is no longer supported; use channels.ide")
+		}
+		if ch == ChannelNotebook {
+			return fmt.Errorf("channels.notebook is no longer supported; use channels.ide")
 		}
 		if !isBuddyChannel(ch) {
-			return fmt.Errorf("channels: unknown channel %q (want cli, mcp, ide, or notebook)", ch)
+			return fmt.Errorf("channels: unknown channel %q (want cli, mcp, or ide)", ch)
 		}
 		switch strings.ToLower(strings.TrimSpace(p.Access)) {
 		case "", AccessFull, AccessReadonly:
@@ -726,10 +732,13 @@ func (cfg *Config) ValidateTenantSelectionAndChannels() error {
 				continue
 			}
 			if c == "serve" {
-				return fmt.Errorf("auth %q: channel %q was removed; use ide and/or notebook", name, c)
+				return fmt.Errorf("auth %q: channel %q was removed; use ide", name, c)
+			}
+			if c == ChannelNotebook {
+				return fmt.Errorf("auth %q: channel %q was removed; use ide", name, c)
 			}
 			if !isBuddyChannel(c) {
-				return fmt.Errorf("auth %q: unknown channel %q (want cli, mcp, ide, or notebook)", name, c)
+				return fmt.Errorf("auth %q: unknown channel %q (want cli, mcp, or ide)", name, c)
 			}
 		}
 	}
@@ -799,6 +808,9 @@ func LoadConfig() (*Config, error) {
 	if migrated := migrateLegacyTenantDefaultsAllow(cfg, stringTenant); migrated {
 		notes = append(notes, "tenant:/defaults:/allow_auths: to tenant: object + auth channels")
 	}
+	if migrateNotebookChannel(cfg) {
+		notes = append(notes, "channels.notebook to channels.ide")
+	}
 	if strings.TrimSpace(cfg.Tenant.Default) == "" {
 		if raw.Cred != "" && cfg.Tenants != nil {
 			if _, ok := cfg.Tenants[raw.Cred]; ok {
@@ -866,7 +878,7 @@ func migrateLegacyTenantDefaultsAllow(cfg *Config, stringTenant bool) bool {
 		if cfg.Channels == nil {
 			cfg.Channels = map[string]ChannelPolicy{}
 		}
-		for _, ch := range []string{ChannelCLI, ChannelMCP, ChannelIDE, ChannelNotebook} {
+		for _, ch := range []string{ChannelCLI, ChannelMCP, ChannelIDE} {
 			if v := strings.TrimSpace(cfg.Defaults[ch]); v != "" {
 				p := cfg.Channels[ch]
 				if strings.TrimSpace(p.Tenant) == "" {
@@ -875,13 +887,13 @@ func migrateLegacyTenantDefaultsAllow(cfg *Config, stringTenant bool) bool {
 				}
 			}
 		}
-		// Legacy defaults.serve → notebook + ide when unset.
-		if v := strings.TrimSpace(cfg.Defaults["serve"]); v != "" {
-			for _, ch := range []string{ChannelNotebook, ChannelIDE} {
-				p := cfg.Channels[ch]
+		// Legacy defaults.notebook / defaults.serve → ide when unset.
+		for _, key := range []string{ChannelNotebook, "serve"} {
+			if v := strings.TrimSpace(cfg.Defaults[key]); v != "" {
+				p := cfg.Channels[ChannelIDE]
 				if strings.TrimSpace(p.Tenant) == "" {
 					p.Tenant = v
-					cfg.Channels[ch] = p
+					cfg.Channels[ChannelIDE] = p
 				}
 			}
 		}
@@ -894,6 +906,61 @@ func migrateLegacyTenantDefaultsAllow(cfg *Config, stringTenant bool) bool {
 	return true
 }
 
+// migrateNotebookChannel folds channels.notebook onto channels.ide and rewrites
+// auth channels: […, notebook] → ide (deduped). Returns true when a rewrite is needed.
+func migrateNotebookChannel(cfg *Config) bool {
+	if cfg == nil {
+		return false
+	}
+	changed := false
+	if cfg.Channels != nil {
+		if nb, ok := cfg.Channels[ChannelNotebook]; ok {
+			cfg.Channels[ChannelIDE] = mergeChannelPolicyEmpty(cfg.Channels[ChannelIDE], nb)
+			delete(cfg.Channels, ChannelNotebook)
+			changed = true
+		}
+	}
+	for name, a := range cfg.Auths {
+		var out []string
+		seen := map[string]bool{}
+		mutated := false
+		for _, c := range a.Channels {
+			c2 := strings.ToLower(strings.TrimSpace(c))
+			if c2 == ChannelNotebook {
+				c2 = ChannelIDE
+				mutated = true
+			}
+			if c2 == "" || seen[c2] {
+				continue
+			}
+			seen[c2] = true
+			out = append(out, c2)
+		}
+		if mutated {
+			a.Channels = out
+			cfg.Auths[name] = a
+			changed = true
+		}
+	}
+	return changed
+}
+
+func mergeChannelPolicyEmpty(dst, src ChannelPolicy) ChannelPolicy {
+	if strings.TrimSpace(dst.Access) == "" {
+		dst.Access = src.Access
+	}
+	if strings.TrimSpace(dst.Tenant) == "" {
+		dst.Tenant = src.Tenant
+	}
+	if len(dst.Tenants) == 0 && len(src.Tenants) > 0 {
+		dst.Tenants = append([]string(nil), src.Tenants...)
+	}
+	if len(dst.DenyBuiltins) == 0 && len(src.DenyBuiltins) > 0 {
+		dst.DenyBuiltins = append([]string(nil), src.DenyBuiltins...)
+	}
+	return dst
+}
+
 func applyAllowAuthsToChannels(cfg *Config, allow map[string][]string) {
 	if cfg == nil || len(allow) == 0 {
 		return
@@ -902,8 +969,11 @@ func applyAllowAuthsToChannels(cfg *Config, allow map[string][]string) {
 	allowSets := map[string]map[string]bool{}
 	for _, s := range surfaces {
 		list := allow[s]
-		if s == ChannelNotebook || s == ChannelIDE {
-			// Legacy allow_auths.serve applies to both notebook and ide.
+		if s == ChannelIDE {
+			// Legacy allow_auths.notebook / allow_auths.serve apply to ide.
+			if len(list) == 0 {
+				list = allow[ChannelNotebook]
+			}
 			if len(list) == 0 {
 				list = allow["serve"]
 			}

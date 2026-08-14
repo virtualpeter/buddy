@@ -7,15 +7,16 @@ import (
 
 // Buddy client channel names (distinct from Jamf auth surface).
 const (
-	ChannelCLI      = "cli"
-	ChannelMCP      = "mcp"
-	ChannelIDE      = "ide"
+	ChannelCLI  = "cli"
+	ChannelMCP  = "mcp"
+	ChannelIDE  = "ide"
+	// ChannelNotebook is a legacy name. LoadConfig migrates it onto ChannelIDE.
 	ChannelNotebook = "notebook"
 )
 
 // AllBuddyChannels is the closed set of buddy client channels.
 func AllBuddyChannels() []string {
-	return []string{ChannelCLI, ChannelMCP, ChannelIDE, ChannelNotebook}
+	return []string{ChannelCLI, ChannelMCP, ChannelIDE}
 }
 
 // ChannelPolicy is per-client policy under top-level channels:.
@@ -55,7 +56,7 @@ func (cfg *Config) SetChannelPolicy(channel string, access, tenant string, tenan
 	}
 	channel = normalizeBuddyChannel(channel)
 	if !isBuddyChannel(channel) {
-		return fmt.Errorf("unknown channel %q (want cli, mcp, ide, or notebook)", channel)
+		return fmt.Errorf("unknown channel %q (want cli, mcp, or ide)", channel)
 	}
 	if cfg.Channels == nil {
 		cfg.Channels = map[string]ChannelPolicy{}
@@ -109,7 +110,7 @@ func normalizeNameList(names []string) []string {
 
 func isBuddyChannel(channel string) bool {
 	switch channel {
-	case ChannelCLI, ChannelMCP, ChannelIDE, ChannelNotebook:
+	case ChannelCLI, ChannelMCP, ChannelIDE:
 		return true
 	default:
 		return false
@@ -118,8 +119,8 @@ func isBuddyChannel(channel string) bool {
 
 func normalizeBuddyChannel(channel string) string {
 	channel = strings.ToLower(strings.TrimSpace(channel))
-	if isBuddyChannel(channel) {
-		return channel
+	if channel == ChannelNotebook {
+		return ChannelIDE
 	}
 	return channel
 }

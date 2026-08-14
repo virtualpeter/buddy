@@ -50,7 +50,7 @@ func TestSessionConfirmBridge_BrowserAsk(t *testing.T) {
 	}
 }
 
-// Without SkipConfirm, Session.Eval installs the notebook confirm bridge. MCP has
+// Without SkipConfirm, Session.Eval installs the browser confirm bridge. MCP has
 // no AnswerConfirm path, so Classic mutates (e.g. profile_put_xml) hang until the
 // host times out — mcp.Run forces SkipConfirm to avoid this.
 func TestSessionConfirmBridge_ProfilePutXMLPendingWithoutSkip(t *testing.T) {

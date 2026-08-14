@@ -1,6 +1,6 @@
 package serve
 
-// Shared notebook/IDE JS for polling browser confirms while eval/run is in flight.
+// Shared IDE JS for polling browser confirms while run is in flight.
 const confirmPollJS = `
 function buddyConfirmDialog(p) {
   return new Promise((resolve) => {

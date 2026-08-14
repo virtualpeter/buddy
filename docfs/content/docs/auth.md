@@ -22,7 +22,7 @@ Optional auth fields:
 
 - `access`: `full` (default) or `readonly` — readonly auths are preferred for reads; mutates need `full`.
 - `surface`: `any` (default), `platform`, or `instance` — which Jamf API surface this auth may use.
-- `channels:` — which buddy clients may use this auth (`cli`, `mcp`, `ide`, `notebook`). Omit the list to allow all.
+- `channels:` — which buddy clients may use this auth (`cli`, `mcp`, `ide`). Omit the list to allow all.
 
 Legacy config shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auths:`) migrate automatically on load. Only the new form is written back.
 
@@ -33,7 +33,7 @@ Legacy config shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auth
 | Mechanism | Effect |
 |-----------|--------|
 | `tenant.default` | Global fallback tenant |
-| `channels.<cli\|mcp\|ide\|notebook>.tenant` | Per-client default |
+| `channels.<cli\|mcp\|ide>.tenant` | Per-client default |
 | `--tenant` | Select tenant (auto-picks an auth for the operation) |
 | `--user` / `--auth` | Pin a specific auth |
 | buddyscript / MCP `tenant=` / `surface=` / `auth=` | Per-call override (`cred=` was removed) |
@@ -52,7 +52,7 @@ Top-level `channels.<client>` can clamp what that client is allowed to do:
 - `tenant` / `tenants` — default and allowlist for that client.
 - `deny_builtins` — exact builtin names or trailing-`*` globs (for example `jamf_*`). Blocked builtins raise; they are a gap, not a cue to invent HTTP from the schema.
 
-Notebook and IDE are separate clients (there is no shared `serve` channel).
+The IDE uses the `ide` client channel (there is no shared `serve` channel). Legacy `channels.notebook` migrates onto `channels.ide` on load.
 
 ```sh
 buddy cred set channel mcp --access=readonly --tenant=sandbox

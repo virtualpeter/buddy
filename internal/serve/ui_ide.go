@@ -21,8 +21,9 @@ func buildIDEHTML() string {
   <button type="button" id="btn-save-as">Save As</button>
   <span id="path" title="">(untitled)</span>
   <button type="button" id="btn-reset">Reset</button>
+  <button type="button" id="btn-libs">Libraries</button>
   <span id="status"></span>`
-	run := `<button type="button" class="primary" id="btn-run">Run</button>`
+	run := ``
 
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -69,10 +70,11 @@ label.chk { display: flex; align-items: center; gap: .35rem; color: var(--muted)
   font-family: var(--mono);
 }
 .layout {
+  --out-h: 40%;
   flex: 1 1 auto;
   display: grid;
   grid-template-columns: 1fr minmax(14rem, 22rem);
-  grid-template-rows: minmax(0, 1fr) minmax(8rem, 28vh);
+  grid-template-rows: minmax(0, 1fr) 6px var(--out-h);
   min-height: 0;
   height: 0; /* force flex child to use remaining viewport height */
 }
@@ -103,32 +105,88 @@ label.chk { display: flex; align-items: center; gap: .35rem; color: var(--muted)
 }
 #editor:focus { outline: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); outline-offset: -1px; }
 .side {
-  grid-column: 2; grid-row: 1 / span 2;
+  grid-column: 2; grid-row: 1 / span 3;
   display: flex; flex-direction: column; min-height: 0;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
 }
-.side h2 {
-  margin: 0; padding: .5rem .75rem; font-size: .7rem; letter-spacing: .06em;
-  text-transform: uppercase; color: var(--muted);
-  border-bottom: 1px solid var(--line);
+.side-tabs {
+  display: flex; gap: .25rem; padding: .35rem .5rem; border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
 }
+.side-tabs button { font-size: .7rem; padding: .2rem .45rem; }
+.side-tabs button.on { border-color: var(--accent); color: var(--accent); }
+.side-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.side-pane[hidden] { display: none !important; }
 #vars {
   flex: 1; overflow: auto; margin: 0; padding: .5rem .75rem;
   font-size: .78rem; list-style: none;
 }
 #vars li { margin-bottom: .55rem; }
-#vars .n { color: var(--accent); }
+#vars .var-head { display: flex; align-items: baseline; gap: .35rem; }
+#vars .n { color: var(--accent); cursor: pointer; }
+#vars .n:hover { text-decoration: underline; }
 #vars .t { color: var(--muted); font-size: .7rem; }
 #vars .v { white-space: pre-wrap; word-break: break-word; color: var(--ok); margin-top: .15rem; }
 #vars .empty { color: var(--hint); }
-.out-panel {
+#vars .drop {
+  margin-left: auto; font-size: .65rem; padding: .1rem .35rem;
+  flex-shrink: 0;
+}
+.lib-search {
+  margin: .45rem .5rem 0; width: calc(100% - 1rem);
+}
+.lib-body { flex: 1; overflow: auto; padding: .5rem .6rem 1.5rem; font-size: .78rem; }
+.lib-group { margin-bottom: .75rem; }
+.lib-group > summary {
+  cursor: pointer; color: var(--muted); font-size: .72rem;
+  text-transform: uppercase; letter-spacing: .04em; list-style: none;
+  padding: .25rem 0;
+}
+.lib-group > summary::-webkit-details-marker { display: none; }
+.lib-group[open] > summary { color: var(--accent); }
+.fn {
+  display: block; width: 100%; text-align: left;
+  background: transparent; border: 0; border-radius: 4px;
+  padding: .35rem .4rem; color: var(--ink); cursor: pointer;
+  font: inherit; font-size: .78rem;
+}
+.fn:hover { background: var(--surface-2); }
+.fn .name { color: var(--ok); }
+.fn .sig { display: block; color: var(--muted); font-size: .68rem; margin-top: .1rem; font-family: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fn .sum { display: block; color: var(--muted); font-size: .7rem; margin-top: .15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fn-detail {
+  margin: .15rem .4rem .5rem; padding: .45rem .55rem; border-radius: 4px;
+  background: var(--detail-bg); border: 1px solid var(--line); font-size: .72rem; color: var(--muted);
+  white-space: pre-wrap; font-family: inherit;
+}
+.fn-detail .actions { margin-top: .4rem; display: flex; gap: .4rem; flex-wrap: wrap; }
+.fn-detail button {
+  font: inherit; font-size: .72rem; padding: .2rem .5rem; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); cursor: pointer;
+}
+.fn-detail button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.fn-detail a.docs-link {
+  font: inherit; font-size: .72rem; padding: .2rem .5rem; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); text-decoration: none;
+  display: inline-block;
+}
+.fn-detail a.docs-link:hover { border-color: var(--accent); color: var(--accent); }
+.drawer-empty { color: var(--muted); padding: .5rem; }
+.split-h {
   grid-column: 1; grid-row: 2;
-  border-top: 1px solid var(--line); background: var(--panel);
+  cursor: ns-resize; background: var(--line);
+  touch-action: none;
+}
+.split-h:hover, .split-h.dragging { background: var(--accent); }
+.out-panel {
+  grid-column: 1; grid-row: 3;
+  background: var(--panel);
   display: flex; flex-direction: column; min-height: 0;
 }
-.out-tabs { display: flex; gap: .25rem; padding: .35rem .5rem; border-bottom: 1px solid var(--line); }
+.out-tabs { display: flex; gap: .25rem; align-items: center; padding: .35rem .5rem; border-bottom: 1px solid var(--line); }
 .out-tabs button { font-size: .7rem; padding: .2rem .45rem; }
 .out-tabs button.on { border-color: var(--accent); color: var(--accent); }
+.out-tabs .spacer { flex: 1; }
 #out {
   flex: 1; overflow: auto; padding: .6rem .75rem;
   font-size: .82rem; white-space: pre-wrap; word-break: break-word;
@@ -149,8 +207,10 @@ dialog .row { display: flex; gap: .5rem; justify-content: flex-end; align-items:
 dialog .row .spacer { flex: 1; }
 #file-input { display: none; }
 @media (max-width: 900px) {
-  .layout { grid-template-columns: 1fr; grid-template-rows: 1fr 12rem auto; }
-  .side { grid-column: 1; grid-row: 3; max-height: 40vh; border-top: 1px solid var(--line); }
+  .layout { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) 6px var(--out-h) auto; }
+  .side { grid-column: 1; grid-row: 4; max-height: 40vh; border-top: 1px solid var(--line); }
+  .split-h { grid-column: 1; grid-row: 2; }
+  .out-panel { grid-column: 1; grid-row: 3; }
   .editor-wrap { border-right: 0; }
   #args { max-width: none; }
 }
@@ -160,10 +220,12 @@ dialog .row .spacer { flex: 1; }
 <body>
 ` + chromeHeader("ide", session, actions, run) + `
 <div class="runbar">
+  <button type="button" class="primary" id="btn-run">Run</button>
   <label for="args">args</label>
   <input type="text" id="args" placeholder='space-separated or ["a","b"]' autocomplete="off">
   <span class="hint">like CLI after --</span>
   <label class="chk"><input type="checkbox" id="trace"> trace</label>
+  <button type="button" id="btn-clear-code">Clear code</button>
 </div>
 <div class="layout">
   <div class="editor-wrap">
@@ -171,15 +233,30 @@ dialog .row .spacer { flex: 1; }
       placeholder="#!/usr/bin/env buddy&#10;&#10;def main():&#10;    print(args)"></textarea>
   </div>
   <aside class="side">
-    <h2>Variables</h2>
-    <ul id="vars"><li class="empty">Run a script to inspect globals</li></ul>
+    <div class="side-tabs">
+      <button type="button" class="on" data-side="vars">Variables</button>
+      <button type="button" data-side="libs">Libraries</button>
+    </div>
+    <div class="side-pane" id="vars-pane">
+      <ul id="vars"><li class="empty">Run a script to inspect globals</li></ul>
+    </div>
+    <div class="side-pane" id="libs-pane" hidden>
+      <input type="search" class="lib-search" id="libSearch" placeholder="Filter…" autocomplete="off">
+      <div class="lib-body" id="libBody"><div class="drawer-empty">Loading…</div></div>
+    </div>
   </aside>
+  <div class="split-h" id="split-h" role="separator" aria-orientation="horizontal" title="Drag to resize output"></div>
   <div class="out-panel">
     <div class="out-tabs">
       <button type="button" class="on" data-tab="all">All</button>
       <button type="button" data-tab="stdout">stdout</button>
       <button type="button" data-tab="stderr">stderr</button>
       <button type="button" data-tab="result">result</button>
+      <span class="spacer"></span>
+      <button type="button" id="btn-copy" disabled>Copy</button>
+      <button type="button" id="btn-save-out" disabled>Save</button>
+      <button type="button" id="btn-stash" disabled>Stash as…</button>
+      <button type="button" id="btn-clear-out" disabled>Clear</button>
     </div>
     <div id="out"><span class="empty">No output yet</span></div>
   </div>
@@ -206,6 +283,8 @@ const state = {
   dirty: false,
   last: { stdout: "", stderr: "", result: "", error: "" },
   tab: "all",
+  side: "vars",
+  stashable: false,
   dlgMode: "open",
   fileHandle: null, // File System Access API handle when available
   localOnly: false, // opened via <input type=file>; Save needs Save As / picker
@@ -325,6 +404,25 @@ async function applyConfig() {
   });
 }
 
+function currentTabText() {
+  const L = state.last;
+  const tab = state.tab;
+  const parts = [];
+  if ((tab === "all" || tab === "stdout") && L.stdout) parts.push(L.stdout);
+  if ((tab === "all" || tab === "stderr") && L.stderr) parts.push(L.stderr);
+  if ((tab === "all" || tab === "result") && L.result) parts.push(L.result);
+  if (L.error) parts.push(L.error);
+  return parts.join("");
+}
+
+function updateOutActions() {
+  const empty = !currentTabText();
+  document.getElementById("btn-copy").disabled = empty;
+  document.getElementById("btn-save-out").disabled = empty;
+  document.getElementById("btn-clear-out").disabled = empty;
+  document.getElementById("btn-stash").disabled = !state.stashable;
+}
+
 function renderOut() {
   const L = state.last;
   const el = document.getElementById("out");
@@ -343,6 +441,7 @@ function renderOut() {
     parts.push('<div class="error">' + escapeHtml(L.error) + '</div>');
   }
   el.innerHTML = parts.length ? parts.join("\n") : '<span class="empty">No output</span>';
+  updateOutActions();
 }
 
 function renderVars(globals) {
@@ -352,9 +451,25 @@ function renderVars(globals) {
     return;
   }
   ul.innerHTML = globals.map(g =>
-    '<li><div><span class="n">' + escapeHtml(g.name) + '</span> <span class="t">' +
-    escapeHtml(g.type) + '</span></div><div class="v">' + escapeHtml(g.value || "") + '</div></li>'
+    '<li><div class="var-head"><span class="n" title="Insert at cursor">' + escapeHtml(g.name) + '</span> <span class="t">' +
+    escapeHtml(g.type) + '</span><button type="button" class="drop" data-drop="' + escAttr(g.name) +
+    '" title="Clear ' + escAttr(g.name) + '">Clear</button></div><div class="v">' +
+    escapeHtml(g.value || "") + '</div></li>'
   ).join("");
+}
+
+function insertAtCursor(text) {
+  const ta = document.getElementById("editor");
+  if (!ta) return;
+  const start = ta.selectionStart ?? ta.value.length;
+  const end = ta.selectionEnd ?? start;
+  const before = ta.value.slice(0, start);
+  const after = ta.value.slice(end);
+  ta.value = before + text + after;
+  const pos = (before + text).length;
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = pos;
+  markDirty(true);
 }
 
 function escapeHtml(s) {
@@ -377,23 +492,68 @@ async function run() {
       });
     })());
     state.last = { stdout: res.stdout || "", stderr: res.stderr || "", result: res.result || "", error: res.error || "" };
+    state.stashable = !!res.stashable && !res.error;
     renderOut();
     renderVars(res.globals || []);
     setStatus(res.error ? "error" : "ok");
   } catch (e) {
     state.last = { stdout: "", stderr: "", result: "", error: String(e.message || e) };
+    state.stashable = false;
     renderOut();
     setStatus("error");
   }
 }
 
 async function resetSession() {
-  if (!state.sessionId) return;
-  await jfetch("/api/session/" + state.sessionId + "/reset", { method: "POST" });
-  renderVars([]);
+  let globals = [];
+  if (state.sessionId) {
+    const res = await jfetch("/api/session/" + state.sessionId + "/reset", { method: "POST" });
+    globals = res.globals || [];
+  }
+  document.getElementById("editor").value = "";
+  document.getElementById("args").value = "";
+  state.fileHandle = null;
+  state.localOnly = false;
+  state.path = "";
+  setPath("");
+  markDirty(false);
+  state.last = { stdout: "", stderr: "", result: "", error: "" };
+  state.stashable = false;
+  renderOut();
+  renderVars(globals);
+  saveDraft();
+  setStatus("reset");
+  focusEditor();
+}
+
+function clearCode() {
+  document.getElementById("editor").value = "";
+  if (state.path) markDirty(true);
+  else markDirty(false);
+  saveDraft();
+  setStatus("cleared code");
+  focusEditor();
+}
+
+function clearOutput() {
   state.last = { stdout: "", stderr: "", result: "", error: "" };
   renderOut();
-  setStatus("reset");
+  setStatus("cleared output");
+}
+
+async function dropVar(name) {
+  const id = await ensureSession(false);
+  const res = await jfetch("/api/session/" + id + "/drop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  renderVars(res.globals || []);
+  if (name === "_") {
+    state.stashable = false;
+    updateOutActions();
+  }
+  setStatus("cleared " + name);
 }
 
 const pickerTypes = [{
@@ -640,8 +800,217 @@ window.addEventListener("storage", (e) => {
   consumeTryPayload();
 });
 
+async function copyOutput() {
+  const text = currentTabText();
+  if (!text) return;
+  await navigator.clipboard.writeText(text);
+  setStatus("copied");
+}
+
+async function saveOutput() {
+  const text = currentTabText();
+  if (!text) return;
+  const suggested = (state.tab === "all" ? "output" : state.tab) + ".txt";
+  if (canSaveFile) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: suggested,
+        types: [{ description: "Text", accept: { "text/plain": [".txt"] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(text);
+      await writable.close();
+      setStatus("saved output");
+      return;
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+    }
+  }
+  const path = window.prompt("Save output as (relative to IDE root)", suggested);
+  if (!path) return;
+  await jfetch("/api/fs/write", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, content: text }),
+  });
+  setStatus("saved output");
+}
+
+async function stashAs() {
+  if (!state.stashable || !state.sessionId) return;
+  const name = window.prompt("Stash last result as", "");
+  if (!name) return;
+  const res = await jfetch("/api/session/" + state.sessionId + "/stash", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  renderVars(res.globals || []);
+  setStatus("stashed as " + name);
+}
+
+const OUT_H_KEY = "buddy-serve-ide-out-h";
+function applyOutH(h) {
+  document.querySelector(".layout").style.setProperty("--out-h", h);
+}
+function restoreOutH() {
+  try {
+    const h = sessionStorage.getItem(OUT_H_KEY);
+    if (h) applyOutH(h);
+  } catch (_) {}
+}
+function initSplitter() {
+  const handle = document.getElementById("split-h");
+  const layout = document.querySelector(".layout");
+  handle.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    handle.classList.add("dragging");
+    handle.setPointerCapture(e.pointerId);
+    const onMove = (ev) => {
+      const rect = layout.getBoundingClientRect();
+      const min = 8 * 16;
+      const side = document.querySelector(".side");
+      const stacked = window.matchMedia("(max-width: 900px)").matches;
+      const sideH = stacked && side ? side.getBoundingClientRect().height : 0;
+      const max = Math.max(min, rect.height - sideH - min);
+      let h = rect.bottom - sideH - ev.clientY;
+      h = Math.max(min, Math.min(max, h));
+      const val = h + "px";
+      applyOutH(val);
+      try { sessionStorage.setItem(OUT_H_KEY, val); } catch (_) {}
+    };
+    const onUp = () => {
+      handle.classList.remove("dragging");
+      handle.releasePointerCapture(e.pointerId);
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+  });
+}
+
+const SIDE_TAB_KEY = "buddy-serve-ide-side-tab";
+function setSideTab(tab, persist) {
+  state.side = tab === "libs" ? "libs" : "vars";
+  document.querySelectorAll(".side-tabs button").forEach(b => {
+    b.classList.toggle("on", b.dataset.side === state.side);
+  });
+  document.getElementById("vars-pane").hidden = state.side !== "vars";
+  document.getElementById("libs-pane").hidden = state.side !== "libs";
+  document.getElementById("btn-libs").classList.toggle("active", state.side === "libs");
+  if (state.side === "libs") renderLibraries();
+  if (persist !== false) {
+    try { sessionStorage.setItem(SIDE_TAB_KEY, state.side); } catch (_) {}
+  }
+}
+function toggleLibraries() {
+  setSideTab(state.side === "libs" ? "vars" : "libs");
+}
+
+const libCache = {};
+let libDetailEl = null;
+async function fetchLibrary(id) {
+  if (libCache[id]) return libCache[id];
+  const r = await fetch("/api/libraries/" + encodeURIComponent(id));
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || "library failed");
+  libCache[id] = data;
+  return data;
+}
+function fnMatches(fn, q) {
+  if (!q) return true;
+  const hay = (fn.name + " " + (fn.signature || "") + " " + (fn.summary || "") + " " +
+    (fn.params || "") + " " + (fn.returns || "") + " " + (fn.section || "") + " " + (fn.group || "")).toLowerCase();
+  return hay.includes(q);
+}
+async function renderLibraries() {
+  const body = document.getElementById("libBody");
+  const q = (document.getElementById("libSearch").value || "").trim().toLowerCase();
+  libDetailEl = null;
+  try {
+    const listR = await fetch("/api/libraries");
+    const list = await listR.json();
+    if (!listR.ok) throw new Error(list.error || "list failed");
+    const parts = [];
+    for (const item of list) {
+      const detail = await fetchLibrary(item.id);
+      if (detail.kind === "builtins" && detail.sections) {
+        for (const sec of detail.sections) {
+          const fns = (sec.functions || []).filter(f => fnMatches(f, q));
+          if (!fns.length) continue;
+          const open = sec.title === "Getting started" || !!q;
+          parts.push(renderGroup(sec.title, fns, open));
+        }
+      } else {
+        const fns = (detail.functions || []).filter(f => fnMatches(f, q));
+        if (!fns.length) continue;
+        const title = item.kind === "stdlib" ? "stdlib / " + item.title : item.title;
+        parts.push(renderGroup(title, fns, true));
+      }
+    }
+    body.innerHTML = parts.join("") || '<div class="drawer-empty">No matches</div>';
+    body.querySelectorAll(".fn").forEach(btn => {
+      btn.onclick = () => showFnDetail(btn);
+    });
+  } catch (e) {
+    body.innerHTML = '<div class="drawer-empty">' + escapeHtml(String(e)) + '</div>';
+  }
+}
+function showFnDetail(btn) {
+  if (libDetailEl) libDetailEl.remove();
+  const insert = btn.dataset.insert || (btn.dataset.name + "()");
+  const sig = btn.dataset.sig || "";
+  const ret = btn.dataset.returns || "";
+  const params = btn.dataset.params || "";
+  const sum = btn.dataset.summary || "";
+  let body = "";
+  if (sig) body += escapeHtml(sig) + "\n";
+  if (ret) body += "→ " + escapeHtml(ret) + "\n";
+  if (params) body += "Params: " + escapeHtml(params) + "\n";
+  if (!ret && !params && sum) body += escapeHtml(sum) + "\n";
+  if (!body.trim()) body = "(no documentation)";
+  const div = document.createElement("div");
+  div.className = "fn-detail";
+  const name = btn.dataset.name || "";
+  const docsHref = name ? ("/docs/builtins#" + encodeURIComponent(name)) : "/docs/builtins";
+  div.innerHTML = "<div>" + body.trimEnd().replace(/\n/g, "<br>") + "</div>" +
+    '<div class="actions">' +
+    '<button type="button" class="primary" data-act="insert">Insert</button>' +
+    (name ? '<a class="docs-link" href="' + docsHref + '">Docs</a>' : "") +
+    '<button type="button" data-act="close">Close</button>' +
+    "</div>";
+  btn.after(div);
+  libDetailEl = div;
+  div.querySelector("[data-act=insert]").onclick = () => insertAtCursor(insert);
+  div.querySelector("[data-act=close]").onclick = () => { div.remove(); libDetailEl = null; };
+}
+function renderGroup(title, fns, open) {
+  const items = fns.map(f => {
+    const insert = f.insert || (f.name + "()");
+    const sumText = f.returns || f.summary || "";
+    const sum = sumText ? '<span class="sum">' + escapeHtml(sumText) + "</span>" : "";
+    const sig = f.signature ? '<span class="sig">' + escapeHtml(f.signature) + "</span>" : "";
+    return '<button type="button" class="fn" data-insert="' + escAttr(insert) + '" data-name="' + escAttr(f.name) +
+      '" data-sig="' + escAttr(f.signature || "") + '" data-returns="' + escAttr(f.returns || "") +
+      '" data-params="' + escAttr(f.params || "") + '" data-summary="' + escAttr(f.summary || "") + '">' +
+      '<span class="name">' + escapeHtml(f.name) + "</span>" + sig + sum + "</button>";
+  }).join("");
+  const openAttr = open ? " open" : "";
+  return '<details class="lib-group"' + openAttr + "><summary>" + escapeHtml(title) + "</summary>" + items + "</details>";
+}
+function escAttr(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
 document.getElementById("btn-run").onclick = () => run();
 document.getElementById("btn-reset").onclick = () => resetSession().catch(e => setStatus(e.message));
+document.getElementById("btn-clear-code").onclick = () => clearCode();
+document.getElementById("btn-clear-out").onclick = () => clearOutput();
+document.getElementById("btn-libs").onclick = () => toggleLibraries();
+document.getElementById("btn-copy").onclick = () => copyOutput().catch(e => setStatus(e.message));
+document.getElementById("btn-save-out").onclick = () => saveOutput().catch(e => setStatus(e.message));
+document.getElementById("btn-stash").onclick = () => stashAs().catch(e => setStatus(e.message));
 document.getElementById("btn-open").onclick = () => openFile().catch(e => setStatus(e.message));
 document.getElementById("btn-save").onclick = () => save().catch(e => setStatus(e.message));
 document.getElementById("btn-save-as").onclick = () => saveAs().catch(e => setStatus(e.message));
@@ -671,13 +1040,30 @@ document.getElementById("trace").addEventListener("change", () => {
   scheduleDraftSave();
   applyConfig().catch(e => setStatus(e.message));
 });
-document.querySelectorAll(".out-tabs button").forEach(btn => {
+document.querySelectorAll(".out-tabs button[data-tab]").forEach(btn => {
   btn.onclick = () => {
-    document.querySelectorAll(".out-tabs button").forEach(b => b.classList.remove("on"));
+    document.querySelectorAll(".out-tabs button[data-tab]").forEach(b => b.classList.remove("on"));
     btn.classList.add("on");
     state.tab = btn.dataset.tab;
     renderOut();
   };
+});
+document.querySelectorAll(".side-tabs button").forEach(btn => {
+  btn.onclick = () => setSideTab(btn.dataset.side);
+});
+document.getElementById("vars").addEventListener("click", (e) => {
+  const drop = e.target.closest("[data-drop]");
+  if (drop) {
+    e.preventDefault();
+    dropVar(drop.dataset.drop).catch(err => setStatus(err.message));
+    return;
+  }
+  const n = e.target.closest(".n");
+  if (!n) return;
+  insertAtCursor(n.textContent);
+});
+document.getElementById("libSearch").addEventListener("input", () => {
+  if (state.side === "libs") renderLibraries();
 });
 document.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -695,8 +1081,14 @@ document.addEventListener("keydown", (e) => {
 });
 window.addEventListener("beforeunload", () => saveDraft());
 
+restoreOutH();
 restoreDraft();
+try {
+  const side = sessionStorage.getItem(SIDE_TAB_KEY);
+  if (side === "libs" || side === "vars") setSideTab(side, false);
+} catch (_) {}
 consumeTryPayload(); // docs "Try it" wins over restored draft when present
+initSplitter();
 loadCreds().then(() => ensureSession(true)).then(() => focusEditor()).catch(e => setStatus(e.message));
 </script>
 ` + chromeToggleScript() + `

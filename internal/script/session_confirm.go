@@ -8,7 +8,7 @@ import (
 	"buddy/internal/buddy"
 )
 
-// PendingConfirm is the JSON shape exposed to the notebook/IDE while a confirm waits.
+// PendingConfirm is the JSON shape exposed to the IDE while a confirm waits.
 type PendingConfirm struct {
 	Question string `json:"question"`
 	Yes      string `json:"yes"`

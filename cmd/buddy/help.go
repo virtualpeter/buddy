@@ -68,12 +68,12 @@ Subcommands:
   list                              List tenants, auths, and channel policies
   get tenant <name>                 Show tenant details
   get auth <name>                   Show auth details (secrets redacted)
-  get channel <cli|mcp|ide|notebook>
+  get channel <cli|mcp|ide>
                                     Show channel policy
   get secret <auth>                 Show where secrets are stored (values hidden)
   set tenant <name> [args...]       Add or update a tenant
   set auth <name> [args...]         Add or update an auth (link to tenants)
-  set channel <cli|mcp|ide|notebook> [args...]
+  set channel <cli|mcp|ide> [args...]
                                     Set channel access / tenant / tenants allowlist
   set secret <auth> [args...]       Store password / client secret in the secure store
   delete tenant|auth|secret <name>  Remove a tenant (cascades sole-linked auths+secrets),
@@ -81,7 +81,7 @@ Subcommands:
   clean secrets                     Review secret-store entries; prompt to delete orphans
   clean tokens                      Delete expired/corrupt files under ~/.config/buddy/tokens/
   use [tenant]                      Show or set tenant.default
-  use --cli|--mcp|--ide|--notebook [tenant]
+  use --cli|--mcp|--ide [tenant]
                                     Show or set channels.<client>.tenant
   store                             Show the active secret backend
   migrate [auth]                    Move inline config.yaml secrets into the secure store
@@ -96,7 +96,7 @@ Flags for 'set auth':
   --tenants=<a,b>                   Comma-separated tenant names this auth may use (required)
   --access=full|readonly            Default full; readonly preferred for reads
   --surface=any|platform|instance   Jamf API surface (default any; platform requires oauth)
-  --channels=cli,mcp,ide,notebook|all
+  --channels=cli,mcp,ide|all
                                     Buddy clients that may use this auth (default all)
   --run=<cmd>                       Command auth
   --username=<user>                 Basic auth
@@ -119,14 +119,14 @@ Flags for 'set secret':
   A platform clientId may list multiple tenants under --tenants.
   Old credentials: / string tenant: / defaults: / allow_auths: migrate on load.
   tenant.cli|mcp|serve|ide and the serve client channel are removed — use
-  channels.<cli|mcp|ide|notebook> instead.
+  channels.<cli|mcp|ide> instead.
   Secrets are keyed by auth name in the platform store.
   Deleting an auth also removes its password/client-secret from the store.
   Deleting a tenant deletes auths linked only to that tenant (with secrets) and
   unlinks multi-tenant auths; use 'buddy cred clean secrets' for leftover orphans.
   Token files under ~/.config/buddy/tokens/ are purged when expired (or via
   'buddy cred clean tokens'); still-valid entries are reused across CLI runs.
-  Auth channels (cli/mcp/ide/notebook) default to all. Channel policy access and
+  Auth channels (cli/mcp/ide) default to all. Channel policy access and
   auth access both clamp mutates (most restrictive wins). Restrict MCP e.g.:
   channels.mcp.access=readonly and/or auth channels excluding mcp from full auths.
   channels.mcp.deny_builtins blocks named builtins (exact or trailing-* glob, e.g.
@@ -135,7 +135,7 @@ Flags for 'set secret':
 
 Examples:
   buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=apac --tenant-id=…
-  buddy cred set auth platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp,notebook
+  buddy cred set auth platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp,ide
   buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox --surface=instance --channels=cli,ide
   buddy cred set channel mcp --access=readonly --tenant=sandbox --tenants=sandbox
   buddy cred set channel mcp --deny-builtins=jamf_*,computer_erase
