@@ -331,8 +331,12 @@ func (s *Server) onCompletion(msg *message) error {
 	for _, sym := range syms {
 		kind := completionItemFunction
 		switch sym.Kind {
-		case "predeclared", "universe":
+		case "predeclared":
 			kind = completionItemVariable
+		case "universe":
+			if !strings.Contains(sym.Signature, "(") {
+				kind = completionItemVariable
+			}
 		case "stdlib":
 			kind = completionItemModule
 		}

@@ -259,8 +259,13 @@ func callAt(src string, line, character int) (fnName string, argIndex int, ok bo
 }
 
 func hoverMarkdown(sym Symbol) string {
-	if sym.Kind == "builtin" {
+	switch sym.Kind {
+	case "builtin":
 		if fn, ok := help.LookupBuiltin(sym.Name); ok {
+			return help.FormatBuiltinHoverMarkdown(fn)
+		}
+	case "universe":
+		if fn, ok := help.LookupStarlarkUniverse(sym.Name); ok {
 			return help.FormatBuiltinHoverMarkdown(fn)
 		}
 	}

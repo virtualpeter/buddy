@@ -3,6 +3,10 @@ package lsp
 import (
 	"strings"
 	"testing"
+
+	"buddy/internal/help"
+
+	"go.starlark.net/starlark"
 )
 
 func TestAnalyzeSyntaxError(t *testing.T) {
@@ -149,6 +153,44 @@ func TestHoverMarkdownMatchesFunctionIndexCard(t *testing.T) {
 	}
 	if strings.Contains(md, "```starlark") {
 		t.Fatalf("builtin hover should match the Function index card, not a code fence:\n%s", md)
+	}
+}
+
+func TestHoverMarkdownStarlarkLen(t *testing.T) {
+	md := hoverMarkdown(Symbol{Name: "len", Kind: "universe"})
+	for _, want := range []string{
+		"**len**(x)",
+		"Return the number of elements in x.",
+		"**Returns:** int",
+		"**Params:**",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("missing %q in:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "Starlark universe") {
+		t.Fatalf("len hover still generic:\n%s", md)
+	}
+}
+
+func TestUniverseHelpCoversStarlarkUniverse(t *testing.T) {
+	cat, err := getCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name := range starlark.Universe {
+		if _, ok := help.LookupStarlarkUniverse(name); !ok {
+			t.Errorf("missing help for Universe %q", name)
+		}
+		sym, ok := cat.lookup(name)
+		if !ok {
+			t.Errorf("catalog missing %q", name)
+			continue
+		}
+		md := hoverMarkdown(sym)
+		if strings.TrimSpace(md) == "" || strings.Contains(md, "Starlark universe\n") {
+			t.Errorf("generic/empty hover for %q (%s):\n%s", name, sym.Kind, md)
+		}
 	}
 }
 

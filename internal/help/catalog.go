@@ -315,7 +315,7 @@ func FormatBuiltinHoverMarkdown(f LibraryFunc) string {
 func formatSignatureMarkdown(name, sig string) string {
 	bold := "**" + name + "**"
 	sig = strings.TrimSpace(sig)
-	if sig == "" {
+	if sig == "" || sig == name {
 		return bold
 	}
 	token := name + "("

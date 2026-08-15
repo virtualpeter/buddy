@@ -115,15 +115,28 @@ func buildCatalog() (*catalog, error) {
 
 	for name := range starlark.Universe {
 		c.predeclared[name] = true
-		if _, ok := c.byName[name]; !ok {
-			c.byName[name] = Symbol{
-				Name:      name,
-				Signature: name,
-				Detail:    "Starlark universe",
-				Insert:    name,
-				Kind:      "universe",
+		if _, ok := c.byName[name]; ok {
+			continue
+		}
+		fn, hasHelp := help.LookupStarlarkUniverse(name)
+		sig := name
+		detail := "Starlark universe"
+		insert := name
+		if hasHelp {
+			sig = fn.Signature
+			if strings.Contains(sig, "(") {
+				insert = name + "("
 			}
 		}
+		sym := Symbol{
+			Name:      name,
+			Signature: sig,
+			Detail:    detail,
+			Insert:    insert,
+			Kind:      "universe",
+		}
+		c.byName[name] = sym
+		c.completion = append(c.completion, sym)
 	}
 
 	c.loadModules = []string{"re"}

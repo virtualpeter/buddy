@@ -198,3 +198,16 @@ func TestFormatBuiltinHoverMarkdown(t *testing.T) {
 		t.Fatalf("returns still has value: prefix:\n%s", md)
 	}
 }
+
+func TestStarlarkUniverseHelpUniqueAndComplete(t *testing.T) {
+	seen := map[string]bool{}
+	for _, f := range StarlarkUniverseHelp() {
+		if f.Name == "" || f.Summary == "" {
+			t.Fatalf("incomplete entry %+v", f)
+		}
+		if seen[f.Name] {
+			t.Fatalf("duplicate %q", f.Name)
+		}
+		seen[f.Name] = true
+	}
+}
