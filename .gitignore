@@ -4,6 +4,7 @@
 /buddy-linux-amd64
 /buddy-windows-amd64.exe
 /buddy-Darwin-arm64
+/docfs/content
 
 # Go
 *.exe
