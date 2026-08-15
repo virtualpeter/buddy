@@ -84,51 +84,62 @@ var PackagesTopic = docspec.Topic{
 	HelpExport: `packages`,
 	BuiltinsHelp: `PACKAGE
   packages(filter?, page?, page_size?, tenant?, surface?, auth?)
+      Does: List package records from Jamf Pro.
       → value: list of {id, packageName, fileName}
-      Params: filter?: bare term → packageName=="*term*", or full RSQL.
+      Params: filter?: bare term → packageName=="*term*", or full RSQL. page?: int (omit = all);
+        page_size?: int (default 200).
   package(id=?) | package(name=, version=, pattern?=, tenant?, surface?, auth?)
+      Does: Load one package by id, or resolve {id, name} by name+version.
       → value: full package dict (id=) or {id, name} (name+version)
       Params: id=: str — GET full record (checksums, size, cloudTransferStatus,
         flags, …). Or name=+version= to resolve by name keyword. pattern?:
         optional package name glob/regex override.
-  package_ready(id=, tenant?, surface?, auth?) → value: bool
-      Params: id=: package id; tenant?/surface?/auth?: str.
-      Returns: True iff the package exists, cloudTransferStatus is "READY", and
+  package_ready(id=, tenant?, surface?, auth?)
+      Does: Check whether a package is JCDS READY with a sha256 checksum.
+      → value: bool
+      Params: id=: package id.
+      Notes: True iff the package exists, cloudTransferStatus is "READY", and
         sha256 is non-empty; False if missing or not ready. API errors raise.
-  package_wait_ready(id=, timeout?, tenant?, surface?, auth?) → value: None
-      Params: id=: package id; timeout?: int seconds (default 600); tenant?/surface?/auth?: str.
-      Polls until cloudTransferStatus is READY and sha256 is set (nudges JCDS
-      refresh-inventory). Prefer after package_upload before attaching to a policy.
-  package_download(id=, path?, tenant?, surface?, auth?) → value: None
-      Params: id=: package id; path?: local outfile (default fileName); tenant?/surface?/auth?: str.
-      Waits READY+sha256, streams JCDS pre-signed URI to temp while hashing
-      SHA-256, renames only on match. JCDS only.
+  package_wait_ready(id=, timeout?, tenant?, surface?, auth?)
+      Does: Poll until the package is READY with sha256 set (nudges JCDS refresh-inventory).
+      → None
+      Params: id=: package id; timeout?: int seconds (default 600).
+      Notes: Prefer after package_upload before attaching to a policy.
+  package_download(id=, path?, tenant?, surface?, auth?)
+      Does: Download a JCDS package to disk after READY+sha256, verifying the hash.
+      → None
+      Params: id=: package id; path?: local outfile (default fileName).
+      Notes: Streams JCDS pre-signed URI to temp while hashing SHA-256; renames only on match. JCDS only.
   packages_scan(class?, filter?, tenant?, surface?, auth?)
+      Does: Scan the packages list for incomplete or unusable records.
       → value: list of {id, packageName, fileName, cloudTransferStatus, class, …}
       Params: class?: "failed-upload" | "pending" | "unusable-ready" | "all" (default)
-        or comma-separated; filter?: bare term or RSQL (same as packages);
-        tenant?/surface?/auth?: str.
-      Scans the packages list for incomplete/bad records: failed-upload (no
-        hashValue and no md5/sha256), pending (hashValue set, not READY),
+        or comma-separated; filter?: bare term or RSQL (same as packages).
+      Notes: failed-upload (no hashValue and no md5/sha256), pending (hashValue set, not READY),
         unusable-ready (READY but sha256 empty).
   package_upload(file, name?, category_id?, priority?, notes?, info?, reboot?, wait_ready?, wait_ready_timeout?, force?, tenant?, surface?, auth?)
-      → value: None
+      Does: Create or update a package record and stream the file to JCDS.
+      → None
       Params: file: str path (.pkg/.dmg); name?: display name (default basename);
         category_id?: str (default "-1"); priority?: int 1–20 (default 10);
         notes?/info?: str; reboot?: bool (default false);
         wait_ready?: bool — poll until READY+sha256 (after upload, skip, or pending record; default false);
         wait_ready_timeout?: int seconds (default 600; implies wait_ready);
         force?: bool — re-upload even if checksums match or the record looks
-        mid-transfer (default false); tenant?/surface?/auth?: str.
-        Same fileName → update path (GET + checksum compare; skip upload if match;
+        mid-transfer (default false).
+      Notes: Same fileName → update path (GET + checksum compare; skip upload if match;
         if hashes blank, status not READY, and hashValue set, raise not-ready —
         wait instead of re-uploading; no hashValue → treat as failed upload
         and re-upload; apply metadata flags when they differ). New fileName →
         create with flags (no confirm), wait until readable, then stream upload.
-  package_delete(ids) → None
-  package_put(package_id, dict, tenant?, surface?, auth?) → value: dict
-      Params: package_id: str; dict: full package body; tenant?/surface?/auth?: str.
-      Returns: value: updated package dict. PUT omits server-managed size.
+  package_delete(ids)
+      Does: Delete one or more package records.
+      → None
+      Params: ids: str/int or list of package IDs.
+  package_put(package_id, dict, tenant?, surface?, auth?)
+      Does: PUT a full package JSON body (omits server-managed size).
+      → value: dict (updated package record)
+      Params: package_id: str; dict: full package body.
 
 `,
 	CLIHelp: `buddy package - Manage Jamf Pro package records

@@ -5,15 +5,40 @@ package help
 
 // BenchmarksBuiltinsSection is spliced into Builtins.
 const BenchmarksBuiltinsSection = `COMPLIANCE BENCHMARK (beta Platform API)
-  benchmarks(tenant?, surface?, auth?) → value: JSON
-  benchmark(id=, tenant?, surface?, auth?) → value: dict
-  benchmark_create(body, tenant?, surface?, auth?) → value: dict
-  benchmark_delete(benchmark_id, tenant?, surface?, auth?) → None
-  benchmark_baselines(tenant?, surface?, auth?) → value: JSON
-  benchmark_catalog_rules(baseline?, tenant?, surface?, auth?) → value: JSON
-  benchmark_compliance_percentage(benchmark_id, tenant?, surface?, auth?) → value: JSON
-  benchmark_report_devices(benchmark_id, tenant?, surface?, auth?) → value: JSON
-  benchmark_report_rules(benchmark_id, tenant?, surface?, auth?) → value: JSON
+  benchmarks(tenant?, surface?, auth?)
+      Does: List tenant compliance benchmarks.
+      → value: JSON (benchmark list)
+  benchmark(id=, tenant?, surface?, auth?)
+      Does: Fetch one compliance benchmark.
+      → value: dict (benchmark record)
+      Params: id=: str (benchmark ID).
+  benchmark_create(body, tenant?, surface?, auth?)
+      Does: Create a compliance benchmark from a JSON body.
+      → value: dict (created benchmark)
+      Params: body: dict (create JSON).
+  benchmark_delete(benchmark_id, tenant?, surface?, auth?)
+      Does: Delete a compliance benchmark.
+      → None
+      Params: benchmark_id: str.
+  benchmark_baselines(tenant?, surface?, auth?)
+      Does: List mSCP baselines available to the tenant.
+      → value: JSON (baseline list)
+  benchmark_catalog_rules(baseline?, tenant?, surface?, auth?)
+      Does: List catalog rules, optionally for one baseline.
+      → value: JSON (rule catalog)
+      Params: baseline?: str (baseline ID).
+  benchmark_compliance_percentage(benchmark_id, tenant?, surface?, auth?)
+      Does: Return overall compliance percentage for a benchmark.
+      → value: JSON (percentage report)
+      Params: benchmark_id: str.
+  benchmark_report_devices(benchmark_id, tenant?, surface?, auth?)
+      Does: Report devices covered by a benchmark.
+      → value: JSON (device report)
+      Params: benchmark_id: str.
+  benchmark_report_rules(benchmark_id, tenant?, surface?, auth?)
+      Does: Report per-rule stats for a benchmark.
+      → value: JSON (rules report)
+      Params: benchmark_id: str.
 
 `
 

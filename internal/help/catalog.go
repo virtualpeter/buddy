@@ -8,9 +8,10 @@ import (
 type LibraryFunc struct {
 	Name      string `json:"name"`
 	Signature string `json:"signature"`
-	Summary   string `json:"summary,omitempty"`
+	Summary   string `json:"summary,omitempty"` // Does: purpose sentence
 	Params    string `json:"params,omitempty"`
 	Returns   string `json:"returns,omitempty"`
+	Notes     string `json:"notes,omitempty"`
 	Insert    string `json:"insert"`
 	Section   string `json:"section,omitempty"`
 	Group     string `json:"group,omitempty"` // getting-started | advanced | "" (resource section title)
@@ -67,77 +68,32 @@ func parseBuiltinsCatalog(src string) (sections []LibrarySection, flat []Library
 			i++
 			continue
 		}
-		if m := builtinsFuncRE.FindStringSubmatch(line); m != nil {
+		if name, sigLines, next, ok := consumeBuiltinSignature(lines, i); ok {
 			if cur == nil {
 				cur = &LibrarySection{Title: "BUILTINS"}
 			}
-			name := m[1]
-			sigLines := []string{strings.TrimSpace(line)}
-			i++
-			for i < len(lines) {
-				cont := lines[i]
-				trim := strings.TrimSpace(cont)
-				if trim == "" {
-					break
-				}
-				if isBuiltinsSection(cont) || builtinsFuncRE.MatchString(cont) {
-					break
-				}
-				left := strings.TrimLeft(cont, " ")
-				if strings.HasPrefix(left, "→") || strings.HasPrefix(left, "Params:") {
-					break
-				}
-				if strings.HasPrefix(cont, "                ") || (strings.HasPrefix(cont, "  ") && !strings.HasPrefix(cont, "      ")) {
-					sigLines = append(sigLines, left)
-					i++
-					continue
-				}
-				if strings.HasPrefix(cont, "      ") {
-					break
-				}
-				sigLines = append(sigLines, left)
-				i++
-				continue
-			}
-			var ret, params string
-			for i < len(lines) {
-				cont := lines[i]
-				trim := strings.TrimSpace(cont)
-				if trim == "" {
-					i++
-					break
-				}
-				if isBuiltinsSection(cont) || builtinsFuncRE.MatchString(cont) {
-					break
-				}
-				left := strings.TrimLeft(cont, " ")
-				if strings.HasPrefix(left, "→") {
-					ret = strings.TrimSpace(strings.TrimPrefix(left, "→"))
-					i++
-					continue
-				}
-				if strings.HasPrefix(left, "Params:") {
-					params = strings.TrimSpace(strings.TrimPrefix(left, "Params:"))
-					i++
-					continue
-				}
-				break
-			}
+			i = next
+			fields, next := consumeBuiltinFields(lines, i)
+			i = next
 			sig := strings.Join(sigLines, " ")
 			sig, inlineRet := splitInlineReturn(sig)
-			if ret == "" {
-				ret = inlineRet
+			if fields.Returns == "" {
+				fields.Returns = inlineRet
 			}
-			summary := ret
+			summary := fields.Does
 			if summary == "" {
-				summary = params
+				summary = fields.Returns
+			}
+			if summary == "" {
+				summary = fields.Params
 			}
 			fn := LibraryFunc{
 				Name:      name,
 				Signature: sig,
 				Summary:   summary,
-				Params:    params,
-				Returns:   ret,
+				Params:    fields.Params,
+				Returns:   fields.Returns,
+				Notes:     fields.Notes,
 				Insert:    defaultInsert(name),
 				Section:   cur.Title,
 			}
@@ -302,6 +258,10 @@ func LookupBuiltin(name string) (LibraryFunc, bool) {
 func FormatBuiltinHelp(f LibraryFunc) string {
 	var b strings.Builder
 	b.WriteString(f.Signature)
+	if f.Summary != "" {
+		b.WriteString("\nDoes: ")
+		b.WriteString(f.Summary)
+	}
 	if f.Returns != "" {
 		b.WriteString("\n→ ")
 		b.WriteString(f.Returns)
@@ -309,9 +269,10 @@ func FormatBuiltinHelp(f LibraryFunc) string {
 	if f.Params != "" {
 		b.WriteString("\nParams: ")
 		b.WriteString(f.Params)
-	} else if f.Summary != "" && f.Summary != f.Returns {
-		b.WriteString("\n")
-		b.WriteString(f.Summary)
+	}
+	if f.Notes != "" {
+		b.WriteString("\nNotes: ")
+		b.WriteString(f.Notes)
 	}
 	return b.String()
 }

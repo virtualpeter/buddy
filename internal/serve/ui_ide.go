@@ -921,7 +921,8 @@ async function fetchLibrary(id) {
 function fnMatches(fn, q) {
   if (!q) return true;
   const hay = (fn.name + " " + (fn.signature || "") + " " + (fn.summary || "") + " " +
-    (fn.params || "") + " " + (fn.returns || "") + " " + (fn.section || "") + " " + (fn.group || "")).toLowerCase();
+    (fn.params || "") + " " + (fn.returns || "") + " " + (fn.notes || "") + " " +
+    (fn.section || "") + " " + (fn.group || "")).toLowerCase();
   return hay.includes(q);
 }
 async function renderLibraries() {
@@ -964,11 +965,13 @@ function showFnDetail(btn) {
   const ret = btn.dataset.returns || "";
   const params = btn.dataset.params || "";
   const sum = btn.dataset.summary || "";
+  const notes = btn.dataset.notes || "";
   let body = "";
   if (sig) body += escapeHtml(sig) + "\n";
+  if (sum) body += "Does: " + escapeHtml(sum) + "\n";
   if (ret) body += "→ " + escapeHtml(ret) + "\n";
   if (params) body += "Params: " + escapeHtml(params) + "\n";
-  if (!ret && !params && sum) body += escapeHtml(sum) + "\n";
+  if (notes) body += "Notes: " + escapeHtml(notes) + "\n";
   if (!body.trim()) body = "(no documentation)";
   const div = document.createElement("div");
   div.className = "fn-detail";
@@ -988,12 +991,13 @@ function showFnDetail(btn) {
 function renderGroup(title, fns, open) {
   const items = fns.map(f => {
     const insert = f.insert || (f.name + "()");
-    const sumText = f.returns || f.summary || "";
+    const sumText = f.summary || f.returns || "";
     const sum = sumText ? '<span class="sum">' + escapeHtml(sumText) + "</span>" : "";
     const sig = f.signature ? '<span class="sig">' + escapeHtml(f.signature) + "</span>" : "";
     return '<button type="button" class="fn" data-insert="' + escAttr(insert) + '" data-name="' + escAttr(f.name) +
       '" data-sig="' + escAttr(f.signature || "") + '" data-returns="' + escAttr(f.returns || "") +
-      '" data-params="' + escAttr(f.params || "") + '" data-summary="' + escAttr(f.summary || "") + '">' +
+      '" data-params="' + escAttr(f.params || "") + '" data-summary="' + escAttr(f.summary || "") +
+      '" data-notes="' + escAttr(f.notes || "") + '">' +
       '<span class="name">' + escapeHtml(f.name) + "</span>" + sig + sum + "</button>";
   }).join("");
   const openAttr = open ? " open" : "";

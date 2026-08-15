@@ -55,16 +55,20 @@ func buildCatalog() (*catalog, error) {
 			continue
 		}
 		seen[fn.Name] = true
-		detail := fn.Summary
+		var parts []string
+		if fn.Summary != "" {
+			parts = append(parts, fn.Summary)
+		}
 		if fn.Returns != "" {
-			detail = fn.Returns
+			parts = append(parts, "→ "+fn.Returns)
 		}
 		if fn.Params != "" {
-			if detail != "" {
-				detail += " — "
-			}
-			detail += fn.Params
+			parts = append(parts, "Params: "+fn.Params)
 		}
+		if fn.Notes != "" {
+			parts = append(parts, "Notes: "+fn.Notes)
+		}
+		detail := strings.Join(parts, "\n")
 		sym := Symbol{
 			Name:      fn.Name,
 			Signature: fn.Signature,

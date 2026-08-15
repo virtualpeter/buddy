@@ -6,36 +6,76 @@ package help
 // ProfilesBuiltinsSection is spliced into Builtins.
 const ProfilesBuiltinsSection = `PROFILE
   profiles(filter?)
+      Does: List macOS configuration profiles.
       → value: list of {id, name}
+      Params: filter?: str (client-side name substring).
   profile(id=?) | profile(name=?, tenant?, surface?, auth?)
+      Does: Load one profile as XML (id=) or resolve {id, name} (name=).
       → value: XML str (id=) or {id, name} (name=)
-  profile_xml(id, tenant?, surface?, auth?) → value: str (raw profile XML)
+      Params: pass either id= or name=, not both.
+  profile_xml(id, tenant?, surface?, auth?)
+      Does: Fetch the raw Classic profile XML (preserves outer UUID).
+      → value: str (raw profile XML)
+      Params: id: int/str.
   profile_create(name, payloads_plist_str?, content?, category?,
                  scope_all?, scope_group_ids?, redeploy_on_update?, tenant?, surface?, auth?)
+      Does: Create a macOS configuration profile (Classic POST).
       → value: int (new profile ID)
       Params: name: str; pass payloads_plist_str and/or content (list of payload
-        dicts). scope_all defaults true when scope_group_ids omitted. Classic POST.
-  profile_clone(profile_id, name, tenant?, surface?, auth?) → value: dict {id, name}
-      Params: Alias of profile_copy without to_* (same-session UUID remap).
+        dicts). category?: str. scope_all defaults true when scope_group_ids omitted.
+        redeploy_on_update?: bool.
+  profile_clone(profile_id, name, tenant?, surface?, auth?)
+      Does: Clone a profile in the same session (UUID remap, unassigned scope).
+      → value: dict {id, name}
+      Params: profile_id: int/str; name: str (new profile name).
+      Notes: Alias of profile_copy without to_* (same-session UUID remap).
   profile_copy(profile_id, name?, category_id?, scope_all?, scope_group_ids?, upsert?=False,
-               tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name} or +created
-      Params: Source = tenant?/auth?; dest = to_* (omit = same session). UUID remap + unassigned scope.
-        upsert=True: upsert by exact name (name optional → source name).
-  profile_migrate(...) → same as profile_copy(..., upsert=True)
-  profile_create_xml(xml_str, name?, tenant?, surface?, auth?) → value: dict {id, name}
-      Params: POST prepared XML (after profile_xml_prepare_for_create).
-  profile_delete(profile_id, tenant?, surface?, auth?) → None
-  profile_redeploy(profile_id, tenant?, surface?, auth?) → None
-  profile_acs_bind_uuid(profile_id, payload_uuid) → None
-      Params: Seeds process cache classic id → ACS payload UUID (FIELD_EXTERNAL_CONFIGPROFILE_ID).
-        Needed when API-token clients cannot scrape legacy HTML; enables read hydrate + ACS writes.
-  profile_get_payloads(profile_id) → value: str
-  profile_get_payload(profile_id, domain) → value: str
-      Params: domain is PayloadIdentifier (PayloadContent only; not MCX — use payloads_get_mcx_dict offline).
-  profile_list_payloads(profile_id) → value: list of str
-      Params: PayloadIdentifier list (PayloadContent only).
-  profile_set_payload(profile_id, domain, dict_file, redeploy?, tenant?, surface?, auth?) → None
-      Params: PayloadContent merge or MCX settings dict (same as profile_xml_patch_payload).
+               tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
+      Does: Copy a profile to another (or the same) session with new UUIDs and unassigned scope.
+      → value: dict {id, name} or +created when upsert
+      Params: profile_id: source. name?: dest name (optional → source name on upsert).
+        category_id?: dest category. scope_all?/scope_group_ids?: dest scope.
+        upsert?: bool. Source = tenant?/auth?; dest = to_* (omit = same session).
+      Notes: upsert=True: upsert by exact name.
+  profile_migrate(...)
+      Does: Alias of profile_copy with upsert=True.
+      → value: dict {id, name, created?}
+  profile_create_xml(xml_str, name?, tenant?, surface?, auth?)
+      Does: POST prepared profile XML to create a profile.
+      → value: dict {id, name}
+      Params: xml_str: str (after profile_xml_prepare_for_create); name?: override name.
+  profile_delete(profile_id, tenant?, surface?, auth?)
+      Does: Delete a configuration profile.
+      → None
+      Params: profile_id: int/str.
+  profile_redeploy(profile_id, tenant?, surface?, auth?)
+      Does: Redeploy the profile to all currently assigned devices.
+      → None
+      Params: profile_id: int/str.
+  profile_acs_bind_uuid(profile_id, payload_uuid)
+      Does: Seed process cache of Classic id → ACS payload UUID when HTML scrape is unavailable.
+      → None
+      Params: profile_id: int/str; payload_uuid: str.
+      Notes: Needed when API-token clients cannot scrape legacy HTML; enables read hydrate + ACS writes.
+  profile_get_payloads(profile_id)
+      Does: Return the payloads plist XML embedded in the profile.
+      → value: str (payloads plist XML)
+      Params: profile_id: int/str.
+  profile_get_payload(profile_id, domain)
+      Does: Return one PayloadContent payload dict as plist XML.
+      → value: str (plist <dict> fragment)
+      Params: profile_id: int/str; domain: str (PayloadIdentifier).
+      Notes: PayloadContent only; not MCX — use payloads_get_mcx_dict offline.
+  profile_list_payloads(profile_id)
+      Does: List PayloadIdentifier values under PayloadContent.
+      → value: list of str
+      Params: profile_id: int/str.
+  profile_set_payload(profile_id, domain, dict_file, redeploy?, tenant?, surface?, auth?)
+      Does: Merge-patch one payload (PayloadContent keys or MCX settings) and PUT the profile.
+      → None
+      Params: profile_id: int/str; domain: str; dict_file: str (path to dict/plist);
+        redeploy?: bool (set redeploy_on_update=All).
+      Notes: Same merge rules as profile_xml_patch_payload.
 
 `
 

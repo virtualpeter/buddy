@@ -17,7 +17,7 @@ func TestVersionSectionMarkdown(t *testing.T) {
 		t.Fatal("VERSION heading should not call out offline")
 	}
 	for _, name := range []string{"version_extract", "version_compare", "version_sort"} {
-		want := `<h3 id="` + name + `"><code>` + name + `</code></h3>`
+		want := `<h3 id="` + name + `"><code class="fn-sig"><b class="fn-name">` + name + `</b>`
 		if !strings.Contains(md, want) {
 			t.Fatalf("missing %s", want)
 		}
@@ -33,8 +33,14 @@ func TestVersionSectionMarkdown(t *testing.T) {
 	if strings.Contains(chunk, "```\n        extracted") || strings.Contains(chunk, "```\n                extracted") {
 		t.Fatalf("version_extract params were split into a code fence:\n%s", chunk)
 	}
-	if !strings.Contains(chunk, "Returns extracted dotted version, or \"\" if none.") {
-		t.Fatalf("expected single-line params prose:\n%s", chunk)
+	if !strings.Contains(chunk, "Extract a dotted-numeric version") {
+		t.Fatalf("expected Does paragraph:\n%s", chunk)
+	}
+	if !strings.Contains(chunk, "<dt>Params</dt>") || !strings.Contains(chunk, "<code>s</code>") {
+		t.Fatalf("expected Params definition:\n%s", chunk)
+	}
+	if !strings.Contains(chunk, `class="fn-entry"`) {
+		t.Fatalf("expected fn-entry card:\n%s", chunk)
 	}
 
 	sections, _ := BuiltinsLibrary()

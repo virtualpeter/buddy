@@ -218,8 +218,9 @@ Versioned release bumps use change batches (step_clone_policy), not a
 policy_clone builtin.
 
 In the shell, evaluate a bare builtin name (no parentheses) to
-print its signature, returns, and params. Prefer change_batch + plan_change +
-run_change for multi-step Jamf changes (see CHANGE BATCH below).
+print its signature, Does sentence, returns, and params. Prefer
+change_batch + plan_change + run_change for multi-step Jamf changes
+(see CHANGE BATCH below).
 
 Paginated list builtins accept page? (0-based) and page_size? (default 200).
 Omit page to fetch every page and return the full result set.
@@ -227,11 +228,12 @@ Plural list value is usually a list of summary dicts {id, name, ...};
 use ids=True on policies/computers for a bare ID list. policies() with no
 keywords returns every Classic policy summary.
 
-Each builtin lists its signature, then → value (or None). Indented "Params:"
-lines describe arguments; "Returns:" states the value shape on success.
+Each builtin lists its signature, a Does: purpose sentence, then → value
+(or None). Indented "Params:" lines describe arguments; optional "Notes:"
+cover aliases, upsert, READY gates, and other behavior.
 
 STDLIB
-  load("stdlib/<name>.buddy", …) is reserved for shared modules. None are
+  Shared modules use load("stdlib/<name>.buddy", …). None are
   embedded yet. Multi-step recipes live in examples/ (copy and adapt):
   bump-release.buddy, setup-app-classic.buddy. Browse builtins in the IDE
   Libraries sidebar (buddy serve → /ide).
@@ -247,21 +249,33 @@ const builtinsTail = `JAMF API
   On non-2xx: raises with status/path (and a short body preview).
 
   jamf_get(path, accept?, parse?=True, tenant?, surface?, auth?)
+      Does: Authenticated GET against the Jamf host.
       → value: {status, body, content_type}
-      Params: path: str; accept?: str; parse?: bool (JSON→dict/list when possible).
+      Params: path: str (must start with /); accept?: str; parse?: bool (JSON→dict/list when possible).
   jamf_post(path, body?, content_type?, accept?, parse?=True, tenant?, surface?, auth?)
+      Does: Authenticated POST against the Jamf host.
       → value: {status, body, content_type}
-      Params: body?: str|bytes|dict|list (dict/list JSON-encoded).
+      Params: path: str; body?: str|bytes|dict|list (dict/list JSON-encoded);
+        content_type?: str; accept?: str; parse?: bool.
   jamf_put(path, body?, content_type?, accept?, parse?=True, tenant?, surface?, auth?)
+      Does: Authenticated PUT against the Jamf host.
       → value: {status, body, content_type}
+      Params: path: str; body?: str|bytes|dict|list; content_type?: str; accept?: str; parse?: bool.
   jamf_patch(path, body?, content_type?, accept?, parse?=True, tenant?, surface?, auth?)
+      Does: Authenticated PATCH against the Jamf host.
       → value: {status, body, content_type}
+      Params: path: str; body?: str|bytes|dict|list; content_type?: str; accept?: str; parse?: bool.
   jamf_delete(path, accept?, parse?=True, tenant?, surface?, auth?)
+      Does: Authenticated DELETE against the Jamf host.
       → value: {status, body, content_type}
+      Params: path: str; accept?: str; parse?: bool.
   jamf_request(method, path, body?, content_type?, accept?, parse?=True, tenant?, surface?, auth?)
+      Does: Authenticated HTTP with an explicit method.
       → value: {status, body, content_type}
-      Params: method: GET|POST|PUT|PATCH|DELETE|HEAD.
+      Params: method: GET|POST|PUT|PATCH|DELETE|HEAD; path: str; body?: str|bytes|dict|list;
+        content_type?: str; accept?: str; parse?: bool.
   jamf_schema(api?="all", filter?="", full?=False, tenant?, surface?, auth?)
+      Does: Search Jamf OpenAPI/Swagger operations (Pro, Classic, and/or embedded Platform).
       → value: {api, count, operations, source?, title?, pro?, classic?, platform?, document?}
       Params: api?: "pro" (/api/schema OpenAPI), "classic" (/classicapi/doc/swagger.yaml),
         "platform" (embedded Platform API Gateway specs; no cred needed), "both"
@@ -269,9 +283,9 @@ const builtinsTail = `JAMF API
         space-separated terms AND-matched against path, method, tags, summary, operationId,
         description. full?: include filtered schema document(s) (large). Default is a
         compact operations catalog only.
-      Note: no schema requires authentication — Pro/Classic schema docs are public on the
+      Notes: No schema requires authentication — Pro/Classic schema docs are public on the
         Jamf host (cred is only used to resolve the base URL) and Platform specs are embedded.
-      Returns: operations is a list of {api?, path, method, summary?, operationId?, tags?}.
+        operations is a list of {api?, path, method, summary?, operationId?, tags?}.
 
 SERIALIZATION
   Data flow (important):
@@ -286,40 +300,49 @@ SERIALIZATION
       stdout bytes for tools.
 
   unwrap(result, pretty?=True)
-      → prints JSON of result to stdout and returns result
-      Params: result: any buddyscript value. Optional CLI/jq helper.
-        Legacy {"ok","value"/"error"} envelopes are peeled; ok=false raises.
-        pretty?=True indents; pretty=False for compact jq input.
+      Does: Print JSON of result to stdout (for jq / piping) and return the same value.
+      → value: result (after printing JSON to stdout)
+      Params: result: any buddyscript value. pretty?: bool (True indents; False for compact jq input).
+      Notes: Legacy {"ok","value"/"error"} envelopes are peeled; ok=false raises.
   attempt(fn)
-      → {"ok": bool, "value": …, "error": str}
-      Params: fn: zero-arg callable. Soft wrapper — returns ok=false instead of raising.
-        Prefer bare builtin calls; use attempt only for expected-reject / optional paths.
+      Does: Call a zero-arg function and catch failure as an envelope instead of raising.
+      → value: {"ok": bool, "value": …, "error": str}
+      Params: fn: zero-arg callable.
+      Notes: Prefer bare builtin calls; use attempt only for expected-reject / optional paths.
   json_decode(json_str)
+      Does: Parse a JSON string into a dict or list.
       → value: dict or list
-      Params: json_str: str. Returns: dict/list from JSON.
+      Params: json_str: str.
   json_encode(value)
+      Does: Encode a value as compact JSON (not printed).
       → value: str (JSON)
-      Params: value: dict, list, or primitive. Returns: compact JSON string
-      (not printed). Prefer unwrap for stdout.
+      Params: value: dict, list, or primitive. Prefer unwrap for stdout.
   json_pretty(value)
+      Does: Encode a value as indented JSON (not printed).
       → value: str (indented JSON)
-      Params: value: dict, list, or primitive. Returns indented JSON string
-      (not printed). Prefer unwrap(result) to print real newlines to stdout.
+      Params: value: dict, list, or primitive. Prefer unwrap(result) to print real newlines to stdout.
   plist_decode(plist_xml_str)
+      Does: Parse plist XML into a dict or list.
       → value: dict or list
-      Params: plist_xml_str: str (plist XML). Returns: dict/list.
+      Params: plist_xml_str: str (plist XML).
   plist_encode(value)
+      Does: Encode a value as plist XML.
       → value: str (plist XML)
-      Params: value: dict, list, or primitive. Returns: plist XML string.
-  uuid_new() → value: str
-      Params: Offline; random RFC 4122 UUID (for payload builders).
+      Params: value: dict, list, or primitive.
+  uuid_new()
+      Does: Generate a random RFC 4122 UUID (for payload builders).
+      → value: str
+      Params: none (offline).
   xml_escape(s)
+      Does: Entity-encode & < > for nesting text inside XML element content.
       → value: str
-      Params: s: str. Entity-encodes & < > for nesting text (XML/JSON/plist) inside an XML element.
+      Params: s: str.
   xml_unescape(s)
+      Does: Reverse XML/HTML character entities (&amp; &lt; &gt; &quot; &#39; and numeric).
       → value: str
-      Params: s: str. Reverses XML/HTML character entities (&amp; &lt; &gt; &quot; &#39; and numeric).
+      Params: s: str.
   xml_sort(xml_str, element?, key?, attr?, only?, order?, ignore_case?, numeric?, recursive?)
+      Does: Sort child elements of an XML document or fragment.
       → value: str (sorted XML)
       Params: xml_str: str; element?: str (parent tag or path; default document root);
         key?: str (child tag text, or plist <key>/<string> pair); attr?: str (sort by attribute);
@@ -328,74 +351,98 @@ SERIALIZATION
 
 VERSION — dotted-numeric compare / extract / sort
   version_extract(s)
-      → value: str
-      Params: s: str (bare version or freeform text like a package name). Returns extracted dotted version, or "" if none.
+      Does: Extract a dotted-numeric version from freeform text (package name, trigger, …).
+      → value: str (extracted version, or "" if none)
+      Params: s: str (bare version or freeform text).
   version_compare(a, b)
+      Does: Compare two dotted-numeric versions.
       → value: int (-1, 0, 1)
       Params: a, b: str (bare versions or freeform). Missing/empty versions sort lowest.
   version_sort(items, key?, order?)
-      → value: list
-      Params: items: list of str or list of dict; key?: str (required for dicts — field to extract from, e.g. "packageName"); order?: "asc"|"desc" (default asc). Unversioned items sort after versioned (asc) / before (desc).
+      Does: Sort strings or dicts by extracted dotted-numeric version.
+      → value: list (same element type as items)
+      Params: items: list of str or list of dict; key?: str (required for dicts — field to extract from, e.g. "packageName");
+        order?: "asc"|"desc" (default asc). Unversioned items sort after versioned (asc) / before (desc).
 
 RSQL — filter builders for Jamf list/find APIs
   rsql_escape(s)
+      Does: Escape \ and " for use inside an RSQL quoted value.
       → value: str
-      Params: s: str. Escapes \ and " for use inside an RSQL quoted value.
+      Params: s: str.
   rsql_quote(s)
+      Does: Escape and wrap a string in double quotes for RSQL.
       → value: str
-      Params: s: str. Escapes and wraps in double quotes.
+      Params: s: str.
   rsql_eq(field, value)
+      Does: Build field==value (strings quoted; numbers/bools unquoted).
       → value: str (clause)
       Params: field: str; value: str (quoted), int/float/bool (unquoted).
   rsql_ne(field, value)
+      Does: Build field!=value (same quoting as rsql_eq).
       → value: str (clause)
-      Params: same as rsql_eq.
+      Params: field: str; value: str/int/float/bool.
   rsql_lt(field, value)
+      Does: Build field=lt=value (strings left unquoted — use for ISO datetimes).
       → value: str (clause)
-      Params: field: str; value: str/int/float (strings left unquoted — use for ISO datetimes).
+      Params: field: str; value: str/int/float.
   rsql_gt(field, value)
+      Does: Build field=gt=value (strings left unquoted — use for ISO datetimes).
       → value: str (clause)
-      Params: same as rsql_lt.
+      Params: field: str; value: str/int/float.
   rsql_le(field, value)
+      Does: Build field=le=value (strings left unquoted — use for ISO datetimes).
       → value: str (clause)
-      Params: same as rsql_lt.
+      Params: field: str; value: str/int/float.
   rsql_ge(field, value)
+      Does: Build field=ge=value (strings left unquoted — use for ISO datetimes).
       → value: str (clause)
-      Params: same as rsql_lt.
+      Params: field: str; value: str/int/float.
   rsql_contains(field, substring)
+      Does: Build field=="*substring*" (substring quote-escaped; * remains a wildcard).
       → value: str (field=="*substring*")
-      Params: field: str; substring: str (quote-escaped; * remains a wildcard).
+      Params: field: str; substring: str.
   rsql_in(field, values)
+      Does: Build field=in=(…).
       → value: str (field=in=(...))
       Params: field: str; values: list of str/int/float/bool.
   rsql_and(clauses)
+      Does: Join RSQL clauses with ";" (AND).
       → value: str
-      Params: clauses: list of str (joined with ";").
+      Params: clauses: list of str.
   rsql_or(clauses)
+      Does: Join RSQL clauses with "," (OR).
       → value: str
-      Params: clauses: list of str (joined with ",").
+      Params: clauses: list of str.
   rsql_datetime(year, month, day, hour?, minute?, second?)
+      Does: Format a UTC ISO-8601 timestamp for RSQL datetime filters.
       → value: str (UTC ISO-8601, e.g. 2024-01-15T00:00:00Z)
       Params: year/month/day: int; hour?/minute?/second?: int (default 0).
   rsql_now()
+      Does: Current UTC time as ISO-8601 for RSQL filters.
       → value: str (current UTC ISO-8601)
   rsql_days_ago(days)
+      Does: UTC timestamp that many days before now (ISO-8601).
       → value: str (UTC ISO-8601)
       Params: days: int or float.
   rsql_hours_ago(hours)
+      Does: UTC timestamp that many hours before now (ISO-8601).
       → value: str (UTC ISO-8601)
       Params: hours: int or float.
 
 FILE I/O — local filesystem
   file_read(path)
-      → value: str (file contents as UTF-8 text)
-      Params: path: str (filesystem path). Returns: full file contents. Fails if the file is not valid UTF-8 (use file_read_bytes).
+      Does: Read a local file as UTF-8 text.
+      → value: str (file contents)
+      Params: path: str (filesystem path).
+      Notes: Fails if the file is not valid UTF-8 (use file_read_bytes).
   file_read_bytes(path)
+      Does: Read a local file as raw bytes.
       → value: bytes
-      Params: path: str. Returns: raw file contents as bytes.
+      Params: path: str.
   file_write(path, data)
+      Does: Create or overwrite a local file (mode 0644).
       → None
-      Params: path: str; data: str or bytes (written as UTF-8 bytes for str). Creates or overwrites the file with mode 0644.
+      Params: path: str; data: str or bytes (written as UTF-8 bytes for str).
 
 DECLARATIVE WORKFLOW (step constructors + executor)
   Build a list of steps then pass to run_workflow(). Each step_* returns a step dict.
@@ -407,120 +454,172 @@ DECLARATIVE WORKFLOW (step constructors + executor)
 
   step_set_package(name, version, from_trigger, package_pattern?,
                    policy_id?, disable_source?, keep_source?, note?)
+      Does: Step: attach a package version to an Install/Cache policy (from a source trigger).
+      → value: step dict
       Params: name: str package name keyword; version: str; from_trigger: str
         (required source selector); policy_id?: int (pin source policy, skip trigger search);
-        package_pattern?, disable_source?, keep_source?, note?: optional. Returns: step dict.
+        package_pattern?, disable_source?, keep_source?, note?: optional.
   step_clone_policy(from_trigger, version, name?, old_version?,
                     package_pattern?, params?, keep_source?, note?)
+      Does: Step: clone a policy for a new version (versioned release bump).
+      → value: step dict
       Params: from_trigger: str; version: str; name?, old_version?, package_pattern?,
-        params?, keep_source?, note?: optional. Returns: step dict.
-  step_note(note) → step dict (prose-only; no Jamf write)
-  step_with_note(step, note) → step dict (attach note to any step)
+        params?, keep_source?, note?: optional.
+  step_note(note)
+      Does: Step: prose-only note (no Jamf write).
+      → value: step dict
+      Params: note: str.
+  step_with_note(step, note)
+      Does: Attach a human note to any step dict.
+      → value: step dict
+      Params: step: step dict; note: str.
   step_set_ss(policy_id, version, group_ids?)
-      Params: policy_id: int; version?: str; group_ids?: list of int. Returns: step dict.
+      Does: Step: update Self Service display fields on a policy.
+      → value: step dict
+      Params: policy_id: int; version?: str; group_ids?: list of int.
   step_set_group_version(group_id, version)
-      Params: group_id: int or str; version: str. Returns: step dict.
+      Does: Step: set a smart group's version criterion.
+      → value: step dict
+      Params: group_id: int or str; version: str.
   step_set_install(policy_id, version, params?)
-      Params: policy_id: int; version: str; params?: dict. Returns: step dict.
+      Does: Step: point an Install policy at a package version.
+      → value: step dict
+      Params: policy_id: int; version: str; params?: dict.
   step_enable_policy(policy_id)
-      Params: policy_id: int. Returns: step dict.
+      Does: Step: enable a policy.
+      → value: step dict
+      Params: policy_id: int.
   step_disable_policy(policy_id)
-      Params: policy_id: int. Returns: step dict.
+      Does: Step: disable a policy.
+      → value: step dict
+      Params: policy_id: int.
   step_set_trigger(policy_id, trigger)
-      Params: policy_id: int; trigger: str. Returns: step dict.
+      Does: Step: set a policy's custom trigger.
+      → value: step dict
+      Params: policy_id: int; trigger: str.
   step_set_scope(policy_id, group_ids)
-      Params: policy_id: int; group_ids: list of int. Returns: step dict.
+      Does: Step: set a policy's computer-group scope.
+      → value: step dict
+      Params: policy_id: int; group_ids: list of int.
   step_set_scope_all(policy_id)
-      Params: policy_id: int. Returns: step dict.
+      Does: Step: set a policy's scope to all computers.
+      → value: step dict
+      Params: policy_id: int.
   step_delete_policy(policy_ids)
-      Params: policy_ids: list of int. Returns: step dict.
+      Does: Step: delete one or more policies.
+      → value: step dict
+      Params: policy_ids: list of int.
   step_set_profile_payload(profile_id, domain, dict_file, redeploy?)
-      Params: profile_id: int; domain: str; dict_file: str; redeploy?: bool. Returns: step dict.
+      Does: Step: merge-patch a profile payload from a dict file.
+      → value: step dict
+      Params: profile_id: int; domain: str; dict_file: str; redeploy?: bool.
   step_set_profile_xml(profile_id, xml_file, redeploy?)
-      Params: profile_id: int; xml_file: str; redeploy?: bool. Returns: step dict.
+      Does: Step: PUT a profile from a local XML file.
+      → value: step dict
+      Params: profile_id: int; xml_file: str; redeploy?: bool.
   step_create_package_policy(name, version, action?, scope_all?, scope_group_ids?,
                              category?, package_pattern?, note?)
-      Params: name/version: str; action?: "install"|"cache". Plan resolves package;
-        created policy ID only in Outcomes. Returns: step dict.
+      Does: Step: create an Install or Cache policy for a package version.
+      → value: step dict
+      Params: name/version: str; action?: "install"|"cache"; scope_all?: bool;
+        scope_group_ids?: list of int; category?: str; package_pattern?: str; note?: str.
+      Notes: Plan resolves the package; created policy ID only in Outcomes.
   step_create_profile(name, payloads_plist_str?, content?, category?,
                       scope_all?, scope_group_ids?, redeploy_on_update?, note?)
-      Params: name: str; payloads_plist_str and/or content. Plan lists payload
-        domains (no new profile ID). Returns: step dict.
+      Does: Step: create a configuration profile from payloads/content.
+      → value: step dict
+      Params: name: str; payloads_plist_str and/or content; category?: str;
+        scope_all?: bool; scope_group_ids?: list of int; redeploy_on_update?: bool; note?: str.
+      Notes: Plan lists payload domains (no new profile ID until apply).
   step_create_ss(trigger, display_name, category?, scope_group_id?, script_id?, note?)
-      Params: trigger: str (script parameter4); display_name: str. Returns: step dict.
+      Does: Step: create a Self Service script policy (parameter4 = trigger).
+      → value: step dict
+      Params: trigger: str; display_name: str; category?: str; scope_group_id?: int;
+        script_id?: int/str; note?: str.
   step_create_policy(template, version)
-      Params: template: dict (from policy_template); version: str. Returns: step dict.
+      Does: Step: create a policy from a policy_template dict.
+      → value: step dict
+      Params: template: dict (from policy_template); version: str.
 
   policy_template(name, trigger, script_id, script_priority?,
                   params?, frequency?, category?,
                   scope_group_ids?, scope_all?,
                   recon?, distribution_point?)
-      → value: template dict for use with step_create_policy()
-      Params: name: str; trigger: str; script_id: str; script_priority?, params?, frequency?, category?, scope_group_ids?, scope_all?, recon?, distribution_point?: optional.
+      Does: Build a template dict for step_create_policy.
+      → value: template dict
+      Params: name: str; trigger: str; script_id: str; script_priority?, params?, frequency?,
+        category?, scope_group_ids?, scope_all?, recon?, distribution_point?: optional.
 
   run_workflow(steps)
-      → value: None on success; on failure returns {ok: False, error: str}
-      Params: steps: list of step dicts. Resolves package/clone plans first, prints
-        a detailed plan, then one Proceed? confirm (skipped with -y). Executes in
-        order; stops on first failure.
+      Does: Resolve, confirm, and execute a list of step dicts (stops on first failure).
+      → None on success; on failure returns {ok: False, error: str}
+      Params: steps: list of step dicts.
+      Notes: Resolves package/clone plans first, prints a detailed plan, then one Proceed?
+        confirm (skipped with -y). Prefer change_batch + plan_change + run_change for CAB.
 
 CHANGE BATCH (plan document + apply with outcomes)
   Prefer this over ad-hoc mutates when applying several related Jamf changes.
   change_batch(title, summary?, risk?, window?)
+      Does: Create a change-record dict (title and optional metadata).
       → value: change dict
       Params: title: str (required); summary?/risk?/window?: optional str metadata
         for the change record markdown.
   plan_change(change, steps)
+      Does: Resolve steps against Jamf (no writes) and print a markdown plan.
       → value: {markdown: str, fingerprints: list[str]}
       Params: change: from change_batch; steps: list of step dicts.
-        Resolves against Jamf (no writes). Prints markdown. Created policy/profile
-        IDs are NOT predicted (unknown until apply). Pass the return value to
-        run_change as planned= for drift detection. See docs/change-batches.md for
-        version-bump vs Classic new-app setup.
+      Notes: Created policy/profile IDs are NOT predicted (unknown until apply). Pass the
+        return value to run_change as planned= for drift detection. See docs/change-batches.md
+        for version-bump vs Classic new-app setup.
   run_change(change, steps, planned?)
+      Does: Re-resolve, confirm, apply steps, and append Outcomes (created/updated IDs).
       → value: str (full markdown: plan + outcomes)
-      Params: planned?: dict from plan_change. Re-resolves; if planned fingerprints
-        differ, warns and confirms (warn+confirm). Then confirms apply, executes,
-        and appends Outcomes with created/updated policy and profile IDs.
+      Params: change: from change_batch; steps: list of step dicts; planned?: dict from plan_change.
+      Notes: If planned fingerprints differ, warns and confirms (warn+confirm), then confirms apply.
 
 MISC
   auth(renew?=False, tenant?, surface?, auth?)
+      Does: Report the active session (whoami) without returning the bearer token.
       → value: dict {cred, url, authType, authenticationType, username, accessLevel,
         privilegeSet, privilegeCount, sites, expiresAt?, renewed}
       Params: renew?: bool — if True, discard cached token and obtain a fresh one first.
-        tenant?/surface?/auth?: str. Uses GET /api/v1/auth; does not return the raw bearer token.
+        tenant?/surface?/auth?: str.
+      Notes: Uses GET /api/v1/auth.
   error(*args, sep?)
-      → None (writes to stderr like print)
+      Does: Print values to stderr (same as print, but stderr).
+      → None
       Params: *args: values to print; sep?: str (default " ").
   confirm(msg?, default?, yes?, no?)
+      Does: Prompt on stdin and return True/False (skipped as True when buddy -y).
       → value: bool
       Params: msg?: str — prompt question (default "Proceed?");
                yes?: str — accept token for yes (default "y");
                no?: str — accept token for no (default "n");
                default?: str — Enter alone selects this; must be yes or no (default = no).
-      Prompt looks like "<msg> [y/N]: " (default token uppercased). Example:
+      Notes: Prompt looks like "<msg> [y/N]: " (default token uppercased). Example:
         confirm("Wipe disks?", yes="confirm", no="abort")           # [confirm/ABORT]
         confirm("Wipe disks?", yes="confirm", no="abort", default="confirm")  # [CONFIRM/abort]
-      Returns True for the yes token (or Enter when default is yes), False for no / Enter-default-no.
-      Invalid input re-prompts. buddy prints "Aborted." when the answer is no.
-      If buddy was run with global -y, returns True without prompting (same SkipConfirm behavior as buddy CLI confirms).
-      To stop the script when the user declines, use: if not confirm("..."): exit(1).
+        Returns True for the yes token (or Enter when default is yes), False for no / Enter-default-no.
+        Invalid input re-prompts. buddy prints "Aborted." when the answer is no.
+        If buddy was run with global -y, returns True without prompting.
+        To stop the script when the user declines, use: if not confirm("..."): exit(1).
   exit(code?)
-      Does not return; exits the script immediately.
+      Does: Exit the script immediately (does not return).
+      → does not return
       Params: code?: int (exit code, default 0).
 
 EXAMPLE — imperative style
-  policy_id = policy(trigger="install-chrome")["id"]
-  policy_set_install(policy_id=policy_id, version="130.0", auth="default")
+    policy_id = policy(trigger="install-chrome")["id"]
+    policy_set_install(policy_id=policy_id, version="130.0", auth="default")
 
 EXAMPLE — declarative workflow
-  steps = [
-      step_set_package(name="Google Chrome", version="130.0",
-                       from_trigger="install-chrome"),
-      step_set_group_version(group_id=42, version="130.0"),
-      step_enable_policy(policy_id=101),
-  ]
-  run_workflow(steps)
+    steps = [
+        step_set_package(name="Google Chrome", version="130.0",
+                         from_trigger="install-chrome"),
+        step_set_group_version(group_id=42, version="130.0"),
+        step_enable_policy(policy_id=101),
+    ]
+    run_workflow(steps)
 `
 
 // Builtins is the buddyscript help text (resource sections from *_gen.go).

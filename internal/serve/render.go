@@ -19,6 +19,7 @@ import (
 
 var headingRE = regexp.MustCompile(`(?m)^(#{1,3})\s+(.+)$`)
 var htmlHeadingRE = regexp.MustCompile(`(?is)<h([23])\s+[^>]*id="([^"]+)"[^>]*>(.*?)</h[23]>`)
+var fnNameClassRE = regexp.MustCompile(`(?is)<(?:b|span) class="fn-name">([^<]*)</(?:b|span)>`)
 var mdLinkRE = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 var builtinsFnHeadingRE = regexp.MustCompile(`(?i)<h3\s+[^>]*id="([a-z_][a-z0-9_]*)"[^>]*>`)
 var builtinIdentRE = regexp.MustCompile(`^([a-z_][a-z0-9_]*)`)
@@ -411,7 +412,7 @@ func extractTOC(markdown string) []tocEntry {
 			level = 3
 		}
 		id := m[2]
-		text := strings.TrimSpace(stripHTMLTags(m[3]))
+		text := htmlHeadingDisplayText(m[3], id)
 		out = append(out, tocEntry{Level: level, ID: id, Text: text})
 	}
 	return out
@@ -419,6 +420,19 @@ func extractTOC(markdown string) []tocEntry {
 
 func stripMDCode(s string) string {
 	return strings.Trim(strings.TrimSpace(s), "`")
+}
+
+func htmlHeadingDisplayText(inner, id string) string {
+	if m := fnNameClassRE.FindStringSubmatch(inner); m != nil {
+		if name := strings.TrimSpace(m[1]); name != "" {
+			return name
+		}
+	}
+	text := strings.TrimSpace(stripHTMLTags(inner))
+	if text == "" {
+		return id
+	}
+	return text
 }
 
 func stripHTMLTags(s string) string {
@@ -478,8 +492,8 @@ func searchPages(pages []DocPage, q string, limit int) []searchHit {
 			fnHits := 0
 			for _, m := range htmlHeadingRE.FindAllStringSubmatch(p.Markdown, -1) {
 				name := m[2]
-				text := strings.TrimSpace(stripHTMLTags(m[3]))
-				if !strings.Contains(strings.ToLower(name+" "+text), q) {
+				text := htmlHeadingDisplayText(m[3], name)
+				if !strings.Contains(strings.ToLower(name+" "+stripHTMLTags(m[3])), q) {
 					continue
 				}
 				title := text

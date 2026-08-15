@@ -291,42 +291,55 @@ buddy apps/santa.buddy -- apply`},
 	HelpExport: "apps",
 	BuiltinsHelp: `POLICY APPS (Self Service + packages)
   apps(filter?, tenant?, surface?, auth?)
+      Does: List imported policy apps from apps/index.json.
       → value: list of summary dicts {name, kind, version, ss_policy_id, install_trigger, …}
       Params: filter?: str (client-side substring on name/kind/version/trigger/package).
       Notes: Imported apps only (apps/index.json). Empty until app_import / buddy app import.
              Heuristic discovery is app_scan(), not this builtin.
-  app(name, tenant?, surface?, auth?) → value: dict (summary + linked install/cache/uninstall policies)
+  app(name, tenant?, surface?, auth?)
+      Does: Load one policy app (index bindings, else Classic XML classify).
+      → value: dict (summary + linked install/cache/uninstall policies)
       Params: name: str (app identifier, e.g. santa, vscode).
       Notes: Uses apps/index.json when present; else Classic XML classify.
   app_scan(filter?, refresh?, tenant?, surface?, auth?)
+      Does: Heuristic discovery of Self Service + install/cache policies (onboarding).
       → value: dict {apps: list of summaries, source: "cache"|"live", cache: status dict}
       Params: filter?: str; refresh?: bool (rebuild policy cache first).
       Notes: Onboarding heuristic. Prefer apps() after import.
   app_import(name, ss_policy_id, install_policy_ids?, cache_policy_ids?, uninstall_policy_ids?,
              package_pattern?, install_trigger?, cache_trigger?, uninstall_trigger?, kind?,
              version?, output?, tenant?, surface?, auth?)
+      Does: Bind policies into apps/index.json and write a desired-state .buddy script.
       → value: dict {name, kind, version, ss_policy_id, script}
       Params: name: str; ss_policy_id: int (required; no TTY interview).
              install_policy_ids?/cache_policy_ids?/uninstall_policy_ids?: list of int.
+             package_pattern?/install_trigger?/cache_trigger?/uninstall_trigger?/kind?/version?: str.
              output?: str (default apps/<slug>.buddy).
       Notes: Writes apps/index.json + desired .buddy. Missing/stale cache auto-refreshes.
-  app_cache(tenant?, surface?, auth?) → value: dict {exists, stale, fetched_at, age_seconds, count, tenant, dir}
+  app_cache(tenant?, surface?, auth?)
+      Does: Return Classic policy payload cache status (no Jamf call).
+      → value: dict {exists, stale, fetched_at, age_seconds, count, tenant, dir}
       Params: session overrides only.
-      Notes: No Jamf call. fetched_at is RFC3339 UTC when the cache exists.
-  app_cache_refresh(tenant?, surface?, auth?) → value: dict (same as app_cache, after rebuild)
+      Notes: fetched_at is RFC3339 UTC when the cache exists.
+  app_cache_refresh(tenant?, surface?, auth?)
+      Does: Rebuild the Classic policy XML cache under ~/.config/buddy/policy-cache/.
+      → value: dict (same as app_cache, after rebuild)
       Params: session overrides only.
-      Notes: GETs every Classic policy XML into ~/.config/buddy/policy-cache/.
+      Notes: GETs every Classic policy XML. Local files only (not a Jamf mutate).
   app_reconcile(desired, apply?=False, progress?=True, tenant?, surface?, auth?)
+      Does: Diff live app state vs a desired dict and plan (or apply) a change batch.
       → value: dict {markdown, fingerprints} (plan) or None (after apply)
       Params: desired: dict (name, version required; kind?, install_trigger?, cache_trigger?,
              uninstall_trigger?, package_pattern?, title?, summary?, risk?, window?); apply?: bool;
              progress?: bool (default True — stderr lookup progress: cache/install source, APIs).
-      Notes: Diffs live AppGet vs desired; invents change-batch steps (or noop note).
-             Cache-kind clones from the pinned cache policy ID (not install-next).
-             Package must already be READY. No greenfield create in v1. Uninstall not mutated in v1.
-  app_upgrade(name, version, package_pattern?, tenant?, surface?, auth?) → None
+      Notes: Invents change-batch steps (or a noop note). Cache-kind clones from the pinned
+             cache policy ID (not install-next). Package must already be READY. No greenfield
+             create in v1. Uninstall not mutated in v1.
+  app_upgrade(name, version, package_pattern?, tenant?, surface?, auth?)
+      Does: One-shot bump of an app to a new package version by kind.
+      → None
       Params: name: str; version: str; package_pattern?: str (package name glob).
-      Notes: One-shot imperative by kind. Prefer import + app_reconcile for CAB bumps.
+      Notes: Prefer import + app_reconcile for CAB bumps.
 `,
 	CLIHelp: `buddy app - Manage policy apps (Self Service + packages)
 

@@ -5,11 +5,20 @@ package help
 
 // DdmBuiltinsSection is spliced into Builtins.
 const DdmBuiltinsSection = `DDM REPORT (read-only Platform declaration reporting)
-  ddm_declaration_devices(declaration_id, filter?, sort?, page?, page_size?, tenant?, surface?, auth?) → value: JSON
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  ddm_device_declarations(device_id, filter?, sort?, page?, page_size?, tenant?, surface?, auth?) → value: JSON
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  ddm_device_channels(device_id, tenant?, surface?, auth?) → value: JSON
+  ddm_declaration_devices(declaration_id, filter?, sort?, page?, page_size?, tenant?, surface?, auth?)
+      Does: List devices reporting a given DDM declaration.
+      → value: JSON (device report list)
+      Params: declaration_id: str; filter?: bare term → name=="*term*", or full RSQL;
+        sort?: str; page?: int (omit = all); page_size?: int.
+  ddm_device_declarations(device_id, filter?, sort?, page?, page_size?, tenant?, surface?, auth?)
+      Does: List DDM declarations reported for a Platform device.
+      → value: JSON (declaration report list)
+      Params: device_id: str; filter?: bare term → name=="*term*", or full RSQL;
+        sort?: str; page?: int (omit = all); page_size?: int.
+  ddm_device_channels(device_id, tenant?, surface?, auth?)
+      Does: List DDM channels available for a Platform device.
+      → value: JSON (channel list)
+      Params: device_id: str.
 
 `
 

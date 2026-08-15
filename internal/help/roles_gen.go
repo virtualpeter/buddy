@@ -5,13 +5,26 @@ package help
 
 // RolesBuiltinsSection is spliced into Builtins.
 const RolesBuiltinsSection = `ROLE
-  role_privileges(tenant?, surface?, auth?) → value: list of str
+  role_privileges(tenant?, surface?, auth?)
+      Does: List all available Jamf Pro API privilege names.
+      → value: list of str
   roles(filter?, full?=False, page?, page_size?, tenant?, surface?, auth?)
+      Does: List API roles.
       → value: list of {id, display_name} (or full JSON list if full=True)
-      Params: filter?: bare term → displayName=="*term*", or full RSQL.
-  role(id, tenant?, surface?, auth?) → value: dict
-  role_put(role_id, dict, tenant?, surface?, auth?) → value: dict
-  role_create(display_name, privileges, tenant?, surface?, auth?) → value: str (role ID)
+      Params: filter?: bare term → displayName=="*term*", or full RSQL. full?: bool.
+        page?: int (omit = all); page_size?: int.
+  role(id, tenant?, surface?, auth?)
+      Does: Load one API role JSON document.
+      → value: dict (full role record)
+      Params: id: str/int (role ID).
+  role_put(role_id, dict, tenant?, surface?, auth?)
+      Does: PUT a full API role JSON body (name and privileges).
+      → value: dict (updated role)
+      Params: role_id: str/int; dict: full role body.
+  role_create(display_name, privileges, tenant?, surface?, auth?)
+      Does: Create an API role with the given privilege names.
+      → value: str (new role ID)
+      Params: display_name: str; privileges: list of str.
 
 `
 

@@ -90,26 +90,72 @@ var ComputersTopic = docspec.Topic{
 	HelpExport: `computers`,
 	BuiltinsHelp: `COMPUTER
   computers(filter?, ids?=False, page?, page_size?, tenant?, surface?, auth?)
+      Does: List computers from Pro inventory v3.
       → value: list of summary dicts (or list of int if ids=True)
-      Params: filter?: bare term → general.name=="*term*", or full RSQL.
+      Params: filter?: bare term → general.name=="*term*", or full RSQL. ids?: bool.
+        page?: int (omit = all); page_size?: int (default 200).
   computer(id, section?, tenant?, surface?, auth?)
-      → value: dict (full GET /api/v3/computers-inventory/{id} JSON)
-      Params: section?: string or list → ?section= (omit = Jamf GENERAL default).
+      Does: Load one computer's inventory JSON (requested sections).
+      → value: dict (GET /api/v3/computers-inventory/{id} JSON)
+      Params: id: str; section?: string or list → ?section= (omit = Jamf GENERAL default).
   computer_detail(id, tenant?, surface?, auth?)
-      → value: dict (full GET /api/v3/computers-inventory-detail/{id} JSON; all sections)
-  computer_send_mdm_command(computer_ids, command_type, command_data?, tenant?, surface?, auth?) → None
-  computer_reboot(computer_ids, tenant?, surface?, auth?) → None
-  computer_redeploy(computer_ids, tenant?, surface?, auth?) → None
-  computer_shutdown(computer_ids, tenant?, surface?, auth?) → None
-  computer_lock(computer_ids, message?, phone?, pin?, tenant?, surface?, auth?) → None
-  computer_logout(computer_ids, tenant?, surface?, auth?) → None
-  computer_erase(computer_ids, pin?, obliteration?, tenant?, surface?, auth?) → None
-  computer_device_info(computer_ids, queries?, tenant?, surface?, auth?) → value: dict or list
-  computer_device_location(computer_ids, tenant?, surface?, auth?) → value: dict or list
-  computer_security_info(computer_ids, tenant?, surface?, auth?) → value: dict or list
-  computer_installed_apps(computer_ids, identifiers?, tenant?, surface?, auth?) → value: dict or list
-  computer_managed_apps(computer_ids, identifiers?, tenant?, surface?, auth?) → value: dict or list
-  computer_certificates(computer_ids, tenant?, surface?, auth?) → value: dict or list
+      Does: Load one computer with all inventory sections.
+      → value: dict (GET /api/v3/computers-inventory-detail/{id} JSON)
+      Params: id: str.
+  computer_send_mdm_command(computer_ids, command_type, command_data?, tenant?, surface?, auth?)
+      Does: Queue a named MDM command on one or more computers.
+      → None
+      Params: computer_ids: list of int/str; command_type: str (Jamf MDM command name);
+        command_data?: dict (command payload when required).
+  computer_reboot(computer_ids, tenant?, surface?, auth?)
+      Does: Queue RESTART_DEVICE on the given computers.
+      → None
+      Params: computer_ids: list of int/str.
+  computer_redeploy(computer_ids, tenant?, surface?, auth?)
+      Does: Trigger Jamf management framework redeploy on the given computers.
+      → None
+      Params: computer_ids: list of int/str.
+  computer_shutdown(computer_ids, tenant?, surface?, auth?)
+      Does: Queue SHUT_DOWN_DEVICE on the given computers.
+      → None
+      Params: computer_ids: list of int/str.
+  computer_lock(computer_ids, message?, phone?, pin?, tenant?, surface?, auth?)
+      Does: Queue DEVICE_LOCK (extra confirm) on the given computers.
+      → None
+      Params: computer_ids: list of int/str; message?/phone?: str shown on lock screen;
+        pin?: str (6-digit PIN when required).
+  computer_logout(computer_ids, tenant?, surface?, auth?)
+      Does: Queue LOG_OUT_USER on the given computers.
+      → None
+      Params: computer_ids: list of int/str.
+  computer_erase(computer_ids, pin?, obliteration?, tenant?, surface?, auth?)
+      Does: Queue ERASE_DEVICE (type 'erase' to confirm) on the given computers.
+      → None
+      Params: computer_ids: list of int/str; pin?: str; obliteration?: str (obliteration behavior).
+  computer_device_info(computer_ids, queries?, tenant?, surface?, auth?)
+      Does: Queue DEVICE_INFORMATION MDM (results arrive later in command history).
+      → None
+      Params: computer_ids: list of int/str; queries?: list of str (e.g. DeviceName).
+  computer_device_location(computer_ids, tenant?, surface?, auth?)
+      Does: Queue DEVICE_LOCATION MDM (results arrive later in command history).
+      → None
+      Params: computer_ids: list of int/str.
+  computer_security_info(computer_ids, tenant?, surface?, auth?)
+      Does: Queue SECURITY_INFO MDM (results arrive later in command history).
+      → None
+      Params: computer_ids: list of int/str.
+  computer_installed_apps(computer_ids, identifiers?, tenant?, surface?, auth?)
+      Does: Queue INSTALLED_APPLICATION_LIST MDM (results arrive later in command history).
+      → None
+      Params: computer_ids: list of int/str; identifiers?: list of str (bundle IDs to query).
+  computer_managed_apps(computer_ids, identifiers?, tenant?, surface?, auth?)
+      Does: Queue MANAGED_APPLICATION_LIST MDM (results arrive later in command history).
+      → None
+      Params: computer_ids: list of int/str; identifiers?: list of str (bundle IDs to query).
+  computer_certificates(computer_ids, tenant?, surface?, auth?)
+      Does: Queue CERTIFICATE_LIST MDM (results arrive later in command history).
+      → None
+      Params: computer_ids: list of int/str.
 
 `,
 	CLIHelp: `buddy computer - Manage computers and send MDM commands

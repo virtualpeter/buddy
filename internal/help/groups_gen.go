@@ -6,42 +6,104 @@ package help
 // GroupsBuiltinsSection is spliced into Builtins.
 const GroupsBuiltinsSection = `GROUP
   smart_groups(filter?, page?, page_size?, tenant?, surface?, auth?)
+      Does: List smart computer groups (criteria-based).
       → value: list of {id, name, description}
-      Params: filter?: bare term → name=="*term*", or full RSQL.
+      Params: filter?: bare term → name=="*term*", or full RSQL. page?: int (omit = all);
+        page_size?: int (default 200).
   static_groups(filter?, page?, page_size?, tenant?, surface?, auth?)
+      Does: List static computer groups (explicit membership).
       → value: list of {id, name, description}
-      Params: filter?: bare term → name=="*term*", or full RSQL.
+      Params: filter?: bare term → name=="*term*", or full RSQL. page?: int (omit = all);
+        page_size?: int (default 200).
   smart_group(id=?) | smart_group(name=?, tenant?, surface?, auth?)
+      Does: Load one smart computer group (full JSON: name, criteria, siteId, …).
       → value: dict (full smart-group JSON)
+      Params: pass either id= (str) or name= (str), not both.
   static_group(id, tenant?, surface?, auth?)
+      Does: Load one static computer group summary.
       → value: dict {id, name, description}
-  smart_group_get_version(group_id, tenant?, surface?, auth?) → value: str
-  smart_group_set_version(group_id, version, tenant?, surface?, auth?) → None
-  group_delete(group_id, tenant?, surface?, auth?) → None
-  smart_group_create(body, tenant?, surface?, auth?) → value: dict {"id", "href"?}
-  smart_group_clone(group_id, name, site_id?, tenant?, surface?, auth?) → value: dict {"id", "href"?}
-      Params: Alias of smart_group_copy without to_* (same-session).
+      Params: id: str (group ID).
+  smart_group_get_version(group_id, tenant?, surface?, auth?)
+      Does: Read the current version criterion value from a smart group.
+      → value: str
+      Params: group_id: str.
+  smart_group_set_version(group_id, version, tenant?, surface?, auth?)
+      Does: Set matching version criteria on a smart group to a new value.
+      → None
+      Params: group_id: str; version: str.
+  group_delete(group_id, tenant?, surface?, auth?)
+      Does: Delete a smart computer group.
+      → None
+      Params: group_id: str.
+  smart_group_create(body, tenant?, surface?, auth?)
+      Does: Create a smart computer group from a JSON body.
+      → value: dict {"id", "href"?}
+      Params: body: dict (name required; criteria optional; id: -1 optional create convention).
+  smart_group_clone(group_id, name, site_id?, tenant?, surface?, auth?)
+      Does: Clone a smart group in the same session (alias of smart_group_copy without to_*).
+      → value: dict {"id", "href"?}
+      Params: group_id: str; name: str (new group name); site_id?: str.
+      Notes: Alias of smart_group_copy without to_* (same-session).
   smart_group_copy(group_id, name?, site_id?, upsert?=False,
                    tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
+      Does: Copy a smart group's criteria/description to another (or the same) session.
       → value: dict {"id", "href"?} or +name/created when upsert
-      Params: Copy criteria/description; clears siteId unless site_id set.
+      Params: group_id: str; name?: dest name (optional → source name on upsert);
+        site_id?: dest site (clears siteId unless set). upsert?: bool.
         Source = tenant?/auth?; dest = to_* (omit = same session).
-        upsert=True: upsert by exact name (name optional → source name).
-  smart_group_migrate(...) → same as smart_group_copy(..., upsert=True)
-  smart_group_put(group_id, body, tenant?, surface?, auth?) → None
-  smart_group_get_criteria(group_id, tenant?, surface?, auth?) → value: list[dict]
-  smart_group_set_criteria(group_id, criteria, tenant?, surface?, auth?) → None
-  smart_group_find_criteria(group_id, name_substring, tenant?, surface?, auth?) → value: list[dict]
-  smart_group_update_criterion_value(group_id, name_substring, new_value, tenant?, surface?, auth?) → None
+      Notes: upsert=True: upsert by exact name.
+  smart_group_migrate(...)
+      Does: Alias of smart_group_copy with upsert=True.
+      → value: dict {"id", "href"?, "name"?, "created"?}
+  smart_group_put(group_id, body, tenant?, surface?, auth?)
+      Does: Replace a smart group's full JSON document (name, criteria, siteId, …).
+      → None
+      Params: group_id: str; body: dict (same shape as smart_group(id=…)).
+      Notes: PUT /api/v3/computer-groups/smart-groups/{id}. SkipConfirm.
+  smart_group_get_criteria(group_id, tenant?, surface?, auth?)
+      Does: Return the criteria array from a smart group (or [] if missing).
+      → value: list of dict {name, priority, andOr, searchType, value, openingParen?, closingParen?}
+      Params: group_id: str.
+  smart_group_set_criteria(group_id, criteria, tenant?, surface?, auth?)
+      Does: Replace a smart group's criteria array, preserving other fields.
+      → None
+      Params: group_id: str; criteria: list of criteria dicts (same keys as get_criteria).
+  smart_group_find_criteria(group_id, name_substring, tenant?, surface?, auth?)
+      Does: Find criteria whose name contains a substring (case-insensitive).
+      → value: list of matching criteria dicts
+      Params: group_id: str; name_substring: str.
+  smart_group_update_criterion_value(group_id, name_substring, new_value, tenant?, surface?, auth?)
+      Does: Set value= on every criterion whose name contains name_substring.
+      → None
+      Params: group_id: str; name_substring: str; new_value: str.
+      Notes: Raises if no criteria match.
   smart_group_list_computers(group_id, filter?, tenant?, surface?, auth?)
+      Does: List effective smart-group membership (Pro IDs).
       → value: list of {id, name, serial}
-      Params: Pro GET smart-group-membership; name/serial empty (IDs only).
+      Params: group_id: str; filter?: client-side substring on id/name/serial.
+      Notes: Pro GET smart-group-membership; name/serial empty (IDs only).
   static_group_list_computers(group_id, filter?, tenant?, surface?, auth?)
+      Does: List computers assigned to a static group.
       → value: list of {id, name, serial}
-  static_group_create(body, tenant?, surface?, auth?) → value: dict {"id", "href"?}
-  static_group_add_computers(group_id, computer_ids, tenant?, surface?, auth?) → None
-  static_group_remove_computers(group_id, computer_ids, tenant?, surface?, auth?) → None
-  static_group_set_computers(group_id, computer_ids, tenant?, surface?, auth?) → None
+      Params: group_id: str; filter?: client-side substring on id/name/serial.
+      Notes: name may be empty when the API returns only assignment IDs.
+  static_group_create(body, tenant?, surface?, auth?)
+      Does: Create a static computer group.
+      → value: dict {"id", "href"?}
+      Params: body: dict (name required; assignments optional list of computer id strings;
+        description?/siteId? optional).
+  static_group_add_computers(group_id, computer_ids, tenant?, surface?, auth?)
+      Does: Merge computer IDs into a static group's membership (no-op if already members).
+      → None
+      Params: group_id: str; computer_ids: list of int or str.
+  static_group_remove_computers(group_id, computer_ids, tenant?, surface?, auth?)
+      Does: Remove computer IDs from a static group's membership (no-op if none match).
+      → None
+      Params: group_id: str; computer_ids: list of int or str.
+  static_group_set_computers(group_id, computer_ids, tenant?, surface?, auth?)
+      Does: Replace a static group's entire membership list.
+      → None
+      Params: group_id: str; computer_ids: list of int or str.
 
 `
 

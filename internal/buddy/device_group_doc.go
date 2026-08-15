@@ -61,14 +61,35 @@ var DeviceGroupsTopic = docspec.Topic{
 	},
 	HelpExport: `device_groups`,
 	BuiltinsHelp: `PLATFORM DEVICE GROUP (not Pro smart/static computer groups)
-  device_groups(filter?, page?, page_size?, tenant?, surface?, auth?) → value: list of {id, name, …}
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  device_group(id=, tenant?, surface?, auth?) → value: dict
-  device_group_create(body, tenant?, surface?, auth?) → value: dict
-  device_group_set(group_id, body, tenant?, surface?, auth?) → None
-  device_group_delete(group_id, tenant?, surface?, auth?) → None
-  device_group_members(group_id, tenant?, surface?, auth?) → value: JSON
-  device_group_set_members(group_id, body, tenant?, surface?, auth?) → None
+  device_groups(filter?, page?, page_size?, tenant?, surface?, auth?)
+      Does: List Platform API device groups.
+      → value: list of {id, name, …}
+      Params: filter?: bare term → name=="*term*", or full RSQL. page?: int (omit = all);
+        page_size?: int.
+  device_group(id=, tenant?, surface?, auth?)
+      Does: Fetch one Platform device group JSON document.
+      → value: dict (full group record)
+      Params: id=: str (group UUID).
+  device_group_create(body, tenant?, surface?, auth?)
+      Does: Create a Platform device group from a JSON body.
+      → value: dict (created group, including id)
+      Params: body: dict (create JSON).
+  device_group_set(group_id, body, tenant?, surface?, auth?)
+      Does: PATCH a Platform device group with a JSON body.
+      → None
+      Params: group_id: str; body: dict (merge-patch JSON).
+  device_group_delete(group_id, tenant?, surface?, auth?)
+      Does: Delete a Platform device group.
+      → None
+      Params: group_id: str.
+  device_group_members(group_id, tenant?, surface?, auth?)
+      Does: List members of a Platform device group.
+      → value: JSON (membership document)
+      Params: group_id: str.
+  device_group_set_members(group_id, body, tenant?, surface?, auth?)
+      Does: PATCH static Platform device-group membership.
+      → None
+      Params: group_id: str; body: dict (membership JSON).
 
 `,
 	CLIHelp: `buddy device-group - Manage Jamf Platform API device groups

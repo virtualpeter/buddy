@@ -201,6 +201,14 @@ func TestExtractTOCHTMLHeadings(t *testing.T) {
 	}
 }
 
+func TestExtractTOCFnNameNotFullSignature(t *testing.T) {
+	md := `<h3 id="policy_set_ss"><code class="fn-sig"><b class="fn-name">policy_set_ss</b>(policy_id, version?)</code></h3>`
+	toc := extractTOC(md)
+	if len(toc) != 1 || toc[0].ID != "policy_set_ss" || toc[0].Text != "policy_set_ss" {
+		t.Fatalf("toc=%+v", toc)
+	}
+}
+
 func TestSlugify(t *testing.T) {
 	if got := slugify("Hello World!"); got != "hello-world" {
 		t.Fatalf("got %q", got)
@@ -242,7 +250,7 @@ func TestLoadDocPages(t *testing.T) {
 		t.Fatal("missing examples/README.md")
 	}
 	builtins := pageByID(pages, "builtins")
-	if !strings.Contains(builtins.Markdown, `<h3 id="policy"><code>policy</code></h3>`) {
+	if !strings.Contains(builtins.Markdown, `<h3 id="policy">`) {
 		t.Fatal("builtins page not structured")
 	}
 	if pageByID(pages, "agents") != nil {

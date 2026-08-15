@@ -51,9 +51,10 @@ var MdmTopic = docspec.Topic{
 	HelpExport: `mdm`,
 	BuiltinsHelp: `MDM
   mdm_commands(filter, sort?, page?, page_size?, limit?, tenant?, surface?, auth?)
+      Does: Query Jamf Pro MDM command history (not send commands).
       → value: list of MDM command dicts
       Params: filter: str required — bare term → status=="term" (exact), or full RSQL;
-        sort?: str; page?: int (omit = all); page_size?; limit?: int.
+        sort?: str; page?: int (omit = all); page_size?: int; limit?: int (0 = no cap).
 
 `,
 	CLIHelp: `buddy mdm - Query MDM commands from Jamf Pro

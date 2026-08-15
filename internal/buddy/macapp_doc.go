@@ -90,14 +90,20 @@ var MacappsTopic = docspec.Topic{
 	HelpExport: `macapps`,
 	BuiltinsHelp: `MAC APP STORE (Classic macapplications)
   macapps(filter?, tenant?, surface?, auth?)
+      Does: List Classic Mac App Store app records.
       → value: list of {id, name, version, bundle_id}
       Params: filter?: str (client-side substring on name/version/bundle_id); Classic list has no RSQL.
-  macapp(id=?) | macapp(name=?, tenant?, surface?, auth?) → value: dict (full resource)
-      Params: Pass either id or name, not both. Returns general/scope/self_service plus flat fields.
+  macapp(id=?) | macapp(name=?, tenant?, surface?, auth?)
+      Does: Load one Mac App Store app by id or exact name.
+      → value: dict (full resource: general/scope/self_service plus flat fields)
+      Params: Pass either id or name, not both.
   macapp_create(name, version, bundle_id, url, free?=False, category?, tenant?, surface?, auth?)
+      Does: Create a Classic Mac App Store app record.
       → value: dict {id, name}
       Params: name/version/bundle_id/url: str (required); free?: bool; category?: str (exact category name).
-  macapp_delete(macapp_id, tenant?, surface?, auth?) → None
+  macapp_delete(macapp_id, tenant?, surface?, auth?)
+      Does: Delete a Classic Mac App Store app record.
+      → None
       Params: macapp_id: int or str.
 
 `,

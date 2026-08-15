@@ -62,6 +62,108 @@ func TestLookupBuiltinAndFormatHelp(t *testing.T) {
 	}
 }
 
+func TestParseDoesNotesAndWrappedParams(t *testing.T) {
+	src := `SAMPLE
+  sample_put(group_id, body, tenant?, surface?, auth?)
+      Does: Replace a smart group's full JSON document.
+      → None
+      Params: group_id: str; body: dict (same shape as
+        smart_group(id=…)); tenant?/surface?/auth?: session overrides.
+      Notes: PUT /api/v3/computer-groups/smart-groups/{id}.
+        SkipConfirm.
+`
+	_, flat := parseBuiltinsCatalog(src)
+	if len(flat) != 1 {
+		t.Fatalf("got %d funcs", len(flat))
+	}
+	fn := flat[0]
+	if fn.Name != "sample_put" {
+		t.Fatalf("name = %q", fn.Name)
+	}
+	if fn.Summary != "Replace a smart group's full JSON document." {
+		t.Fatalf("summary = %q", fn.Summary)
+	}
+	if fn.Returns != "None" {
+		t.Fatalf("returns = %q", fn.Returns)
+	}
+	if !strings.Contains(fn.Params, "same shape as smart_group") {
+		t.Fatalf("params should join wrap: %q", fn.Params)
+	}
+	if !strings.Contains(fn.Notes, "SkipConfirm") {
+		t.Fatalf("notes should join wrap: %q", fn.Notes)
+	}
+	help := FormatBuiltinHelp(fn)
+	for _, want := range []string{"Does:", "→ None", "Params:", "Notes:"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("FormatBuiltinHelp missing %q:\n%s", want, help)
+		}
+	}
+}
+
+func TestBuiltinsMarkdownRendersDoesNotCodeFence(t *testing.T) {
+	src := `SAMPLE
+  sample_put(group_id, body)
+      Does: Replace a smart group's full JSON document.
+      → None
+      Params: group_id: str; body: dict.
+      Notes: PUT the full document.
+`
+	md := formatBuiltinsMarkdown(src)
+	if !strings.Contains(md, "Replace a smart group's full JSON document.") {
+		t.Fatalf("missing Does paragraph:\n%s", md)
+	}
+	if !strings.Contains(md, "<dt>Returns</dt>") || !strings.Contains(md, "<dd>None</dd>") {
+		t.Fatalf("missing returns:\n%s", md)
+	}
+	if !strings.Contains(md, "<dt>Params</dt>") ||
+		!strings.Contains(md, "<code>group_id</code>") ||
+		!strings.Contains(md, "<code>body</code>") {
+		t.Fatalf("missing params:\n%s", md)
+	}
+	if !strings.Contains(md, "<dt>Notes</dt>") || !strings.Contains(md, "PUT the full document.") {
+		t.Fatalf("missing notes:\n%s", md)
+	}
+	if !strings.Contains(md, `<article class="fn-entry">`) {
+		t.Fatalf("missing fn-entry card:\n%s", md)
+	}
+	if strings.Contains(md, "```\n      Does:") || strings.Contains(md, "```\n      Notes:") {
+		t.Fatalf("Does/Notes dumped as code fence:\n%s", md)
+	}
+}
+
+func TestSmartGroupPutHasDoes(t *testing.T) {
+	fn, ok := LookupBuiltin("smart_group_put")
+	if !ok {
+		t.Fatal("smart_group_put missing")
+	}
+	if fn.Summary == "" || fn.Summary == "None" {
+		t.Fatalf("expected Does sentence, summary=%q returns=%q", fn.Summary, fn.Returns)
+	}
+	if !strings.Contains(strings.ToLower(fn.Summary), "smart group") {
+		t.Fatalf("summary = %q", fn.Summary)
+	}
+	if fn.Returns != "None" {
+		t.Fatalf("returns = %q", fn.Returns)
+	}
+	help := FormatBuiltinHelp(fn)
+	if !strings.Contains(help, "Does:") || !strings.Contains(help, "Params:") {
+		t.Fatalf("help = %q", help)
+	}
+}
+
+func TestEveryBuiltinHasDoes(t *testing.T) {
+	_, flat := parseBuiltinsCatalog(Builtins)
+	var missing []string
+	for _, f := range flat {
+		if f.Summary == "" || f.Summary == f.Returns {
+			missing = append(missing, f.Name+" summary="+f.Summary+" returns="+f.Returns)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("%d builtins missing Does: (summary fell back to returns):\n  %s", len(missing), strings.Join(missing, "\n  "))
+	}
+}
+
 func TestChangeBatchInsertStub(t *testing.T) {
 	fn, ok := LookupBuiltin("change_batch")
 	if !ok {

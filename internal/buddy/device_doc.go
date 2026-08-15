@@ -62,18 +62,48 @@ var DevicesTopic = docspec.Topic{
 	},
 	HelpExport: `devices`,
 	BuiltinsHelp: `PLATFORM DEVICE (Platform gateway; distinct from computer/Pro inventory)
-  devices(filter?, sort?, page?, page_size?, tenant?, surface?, auth?) → value: list of {id, name, serialNumber?, …}
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  device(id=, tenant?, surface?, auth?) → value: dict
-  device_set(device_id, body, tenant?, surface?, auth?) → None
-  device_delete(device_id, tenant?, surface?, auth?) → None
-  device_applications(device_id, filter?, page?, page_size?, tenant?, surface?, auth?) → value: list[dict]
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  device_check_in(device_id, tenant?, surface?, auth?) → None
-  device_restart(device_id, tenant?, surface?, auth?) → None
-  device_shutdown(device_id, tenant?, surface?, auth?) → None
-  device_erase(device_id, tenant?, surface?, auth?) → None
-  device_unmanage(device_id, tenant?, surface?, auth?) → None
+  devices(filter?, sort?, page?, page_size?, tenant?, surface?, auth?)
+      Does: List Platform API devices (not Pro computer inventory).
+      → value: list of {id, name, serialNumber?, …}
+      Params: filter?: bare term → name=="*term*", or full RSQL. sort?: str.
+        page?: int (omit = all); page_size?: int.
+  device(id=, tenant?, surface?, auth?)
+      Does: Fetch one Platform device JSON document.
+      → value: dict (full device record)
+      Params: id=: str (device UUID).
+  device_set(device_id, body, tenant?, surface?, auth?)
+      Does: PATCH a Platform device with a JSON body.
+      → None
+      Params: device_id: str; body: dict (merge-patch JSON).
+  device_delete(device_id, tenant?, surface?, auth?)
+      Does: Delete a Platform device record.
+      → None
+      Params: device_id: str.
+  device_applications(device_id, filter?, page?, page_size?, tenant?, surface?, auth?)
+      Does: List applications installed on a Platform device.
+      → value: list of dicts
+      Params: device_id: str; filter?: bare term → name=="*term*", or full RSQL.
+        page?: int (omit = all); page_size?: int.
+  device_check_in(device_id, tenant?, surface?, auth?)
+      Does: Request a Platform device check-in.
+      → None
+      Params: device_id: str.
+  device_restart(device_id, tenant?, surface?, auth?)
+      Does: Restart a Platform device.
+      → None
+      Params: device_id: str.
+  device_shutdown(device_id, tenant?, surface?, auth?)
+      Does: Shut down a Platform device.
+      → None
+      Params: device_id: str.
+  device_erase(device_id, tenant?, surface?, auth?)
+      Does: Erase a Platform device.
+      → None
+      Params: device_id: str.
+  device_unmanage(device_id, tenant?, surface?, auth?)
+      Does: Remove remote management from a Platform device.
+      → None
+      Params: device_id: str.
 
 `,
 	CLIHelp: `buddy device - Manage Jamf Platform API devices (inventory + actions)

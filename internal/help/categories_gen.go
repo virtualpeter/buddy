@@ -6,14 +6,28 @@ package help
 // CategoriesBuiltinsSection is spliced into Builtins.
 const CategoriesBuiltinsSection = `CATEGORY (Jamf Pro categories)
   categories(filter?, page?, page_size?, tenant?, surface?, auth?)
+      Does: List Jamf Pro categories.
       → value: list of {id, name, priority}
-      Params: filter?: bare term → name=="*term*", or full RSQL.
-  category(id=?) | category(name=?, tenant?, surface?, auth?) → value: dict {id, name, priority}
-  category_clone(category_id, name, priority?, tenant?, surface?, auth?) → value: dict {id, name, priority?}
-      Params: Alias of category_copy without to_*.
+      Params: filter?: bare term → name=="*term*", or full RSQL. page?: int (omit = all);
+        page_size?: int (default 200).
+  category(id=?) | category(name=?, tenant?, surface?, auth?)
+      Does: Load one category by id or exact name.
+      → value: dict {id, name, priority}
+      Params: pass either id= or name=, not both.
+  category_clone(category_id, name, priority?, tenant?, surface?, auth?)
+      Does: Clone a category in the same session (alias of category_copy without to_*).
+      → value: dict {id, name, priority?}
+      Params: category_id: str; name: str; priority?: int 1–20.
   category_copy(category_id, name?, priority?, upsert?=False,
-                tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict …
-  category_migrate(...) → same as category_copy(..., upsert=True)
+                tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
+      Does: Copy a category {name, priority} to another (or the same) session.
+      → value: dict {id, name, priority?} or +created when upsert
+      Params: category_id: source. name?: dest name. priority?: int. upsert?: bool.
+        Source = tenant?/auth?; dest = to_* (omit = same).
+      Notes: upsert=True: upsert by exact name.
+  category_migrate(...)
+      Does: Alias of category_copy with upsert=True.
+      → value: dict {id, name, priority?, created?}
 
 `
 

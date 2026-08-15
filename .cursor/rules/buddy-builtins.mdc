@@ -76,11 +76,13 @@ Prefer plural/singular nouns over `*_list` / `*_find_ids` / `*_fetch` / `*_get_i
 
 ## Help text
 
-In `cmd/buddy/help.go`, document every builtin with the same parameter names and order (resource IDs first, tenant?/surface?/auth? last). Keep the "Conventions" note that states resource IDs come first and tenant/surface/auth are always last.
+Edit `BuiltinsHelp` on the topic in `internal/buddy/*_doc.go` (then `make gendocs`), or `builtinsHead` / `builtinsTail` in `internal/help/text.go` for offline helpers. Document every builtin with the same parameter names and order (resource IDs first, tenant?/surface?/auth? last). Keep the "Conventions" note that states resource IDs come first and tenant/surface/auth are always last.
 
 Each builtin entry must include:
-- **Parameter descriptions**: a short description per parameter (type or meaning, optional vs required). Use an indented "Params: ..." line after the signature.
-- **Return description**: the bare return value on success (e.g. "dict (full resource JSON)", "None", "list of int"), or state that the function does not return (e.g. exit). Use "→ value: ..." or "→ None" on the signature line and add "Returns: ..." in the Params line when helpful.
+- **Does:** one sentence describing what the call does (side effect when the return is `None`).
+- **Return description:** the bare return value on success (e.g. "dict (full resource JSON)", "None", "list of int"), or state that the function does not return (e.g. exit). Use an indented `→ value: ...` or `→ None` line (or inline on the signature).
+- **Params:** a short description per parameter (type or meaning, optional vs required). Session kwargs can be a short “omit for process defaults”.
+- **Notes:** optional; aliases, upsert, READY gates, IDs-only membership, and other non-obvious behavior.
 
 ## Groups / Smart groups
 

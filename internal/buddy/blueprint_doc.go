@@ -65,22 +65,45 @@ var BlueprintsTopic = docspec.Topic{
 	HelpExport: `blueprints`,
 	BuiltinsHelp: `BLUEPRINT (Platform API Gateway credential required)
   blueprints(search?, page?, page_size?, tenant?, surface?, auth?)
+      Does: List Platform blueprints.
       → value: list of {id, name, description?, created?, updated?}
-      Params: search?: str; page?: int (omit = all); page_size?; tenant?/surface?/auth?.
+      Params: search?: str; page?: int (omit = all); page_size?: int.
   blueprint(id=, tenant?, surface?, auth?)
+      Does: Fetch one blueprint JSON document.
       → value: dict (full blueprint JSON)
-      Params: id: str (blueprint UUID); tenant?/surface?/auth?.
-  blueprint_create(body, tenant?, surface?, auth?) → value: dict
-      Params: body: dict (create JSON); tenant?/surface?/auth?.
-  blueprint_set(blueprint_id, body, tenant?, surface?, auth?) → None
-      Params: blueprint_id: str; body: dict (merge-patch JSON); tenant?/surface?/auth?.
-  blueprint_delete(blueprint_id, tenant?, surface?, auth?) → None
-  blueprint_deploy(blueprint_id, tenant?, surface?, auth?) → None
-  blueprint_undeploy(blueprint_id, tenant?, surface?, auth?) → None
-  blueprint_status(blueprint_id, tenant?, surface?, auth?) → value: dict (status report)
-  blueprint_components(page?, page_size?, tenant?, surface?, auth?) → value: list[dict]
-  blueprint_component(id=, tenant?, surface?, auth?) → value: dict
-      Params: id: str (component identifier); tenant?/surface?/auth?.
+      Params: id: str (blueprint UUID).
+  blueprint_create(body, tenant?, surface?, auth?)
+      Does: Create a blueprint from a JSON body.
+      → value: dict (created blueprint, including id)
+      Params: body: dict (create JSON).
+  blueprint_set(blueprint_id, body, tenant?, surface?, auth?)
+      Does: Merge-patch a blueprint.
+      → None
+      Params: blueprint_id: str; body: dict (merge-patch JSON).
+  blueprint_delete(blueprint_id, tenant?, surface?, auth?)
+      Does: Delete a blueprint.
+      → None
+      Params: blueprint_id: str.
+  blueprint_deploy(blueprint_id, tenant?, surface?, auth?)
+      Does: Deploy a blueprint to assigned devices.
+      → None
+      Params: blueprint_id: str.
+  blueprint_undeploy(blueprint_id, tenant?, surface?, auth?)
+      Does: Undeploy a blueprint.
+      → None
+      Params: blueprint_id: str.
+  blueprint_status(blueprint_id, tenant?, surface?, auth?)
+      Does: Fetch the blueprint deployment status report.
+      → value: dict (status report)
+      Params: blueprint_id: str.
+  blueprint_components(page?, page_size?, tenant?, surface?, auth?)
+      Does: List available blueprint components.
+      → value: list of dicts
+      Params: page?: int (omit = all); page_size?: int.
+  blueprint_component(id=, tenant?, surface?, auth?)
+      Does: Fetch one blueprint component by identifier.
+      → value: dict (component JSON)
+      Params: id: str (component identifier).
 
 `,
 	CLIHelp: `buddy blueprint - Manage Jamf Platform API Blueprints

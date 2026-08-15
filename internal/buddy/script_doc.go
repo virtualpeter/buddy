@@ -71,19 +71,39 @@ var ScriptsTopic = docspec.Topic{
 	HelpExport: `scripts`,
 	BuiltinsHelp: `SCRIPT (Jamf Pro scripts)
   scripts(filter?, page?, page_size?, tenant?, surface?, auth?)
+      Does: List Jamf Pro scripts.
       → value: list of {id, name, categoryId, categoryName}
-      Params: filter?: bare term → name=="*term*", or full RSQL.
+      Params: filter?: bare term → name=="*term*", or full RSQL. page?: int (omit = all);
+        page_size?: int (default 200).
   script(id=?) | script(name=?, tenant?, surface?, auth?)
+      Does: Load one script by id (full record) or resolve id by exact name.
       → value: full script dict (id=) or id string (name=)
-  script_get_contents(script_id, tenant?, surface?, auth?) → value: str
-  script_update(script_id, file, tenant?, surface?, auth?) → None
-  script_put(script_id, dict, tenant?, surface?, auth?) → value: dict
-  script_clone(script_id, name, category_id?, tenant?, surface?, auth?) → value: dict {id, name}
-      Params: Alias of script_copy without to_*.
+      Params: pass either id= or name=, not both.
+  script_get_contents(script_id, tenant?, surface?, auth?)
+      Does: Return the raw script body only.
+      → value: str
+      Params: script_id: str/int.
+  script_update(script_id, file, tenant?, surface?, auth?)
+      Does: Replace a script's body from a local file.
+      → None
+      Params: script_id: str/int; file: str (filesystem path).
+  script_put(script_id, dict, tenant?, surface?, auth?)
+      Does: PUT a full script JSON record.
+      → value: dict (updated script)
+      Params: script_id: str/int; dict: full script body.
+  script_clone(script_id, name, category_id?, tenant?, surface?, auth?)
+      Does: Clone a script in the same session (alias of script_copy without to_*).
+      → value: dict {id, name}
+      Params: script_id: str/int; name: str; category_id?: str.
   script_copy(script_id, name?, category_id?, upsert?=False,
-              tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name} or +created
-      Params: Source = tenant?/auth?; dest = to_* (omit = same). upsert=True upserts by name.
-  script_migrate(...) → same as script_copy(..., upsert=True)
+              tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
+      Does: Copy a script to another (or the same) session, remapping category by name.
+      → value: dict {id, name} or +created when upsert
+      Params: script_id: source. name?: dest name. category_id?: dest category.
+        upsert?: bool (upsert by exact name). Source = tenant?/auth?; dest = to_* (omit = same).
+  script_migrate(...)
+      Does: Alias of script_copy with upsert=True.
+      → value: dict {id, name, created?}
 
 `,
 	CLIHelp: `buddy script - Manage Jamf Pro scripts

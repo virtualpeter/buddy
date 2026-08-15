@@ -6,54 +6,86 @@ package help
 // PoliciesBuiltinsSection is spliced into Builtins.
 const PoliciesBuiltinsSection = `POLICY
   policies(keywords?, exclude_ids?, ids?=False, tenant?, surface?, auth?)
+      Does: List Classic policies, optionally filtered by name/trigger keywords.
       → value: list of {id, name} (or list of int if ids=True)
       Params: keywords?: str or list of str — omit or empty to list all Classic
         policies; otherwise filter by name/trigger keywords. exclude_ids?: list of
-        int; ids?: bool.
+        int (drop those IDs). ids?: bool (return bare IDs). tenant?/surface?/auth?:
+        session overrides.
   policy(id=?) | policy(trigger=?, tenant?, surface?, auth?)
+      Does: Load one Classic policy by id or custom trigger.
       → value: details dict (id, name, enabled, trigger, frequency, scope, packages, scripts)
       Params: pass either id= (int/str) or trigger= (str), not both.
   policy_xml(id, tenant?, surface?, auth?)
+      Does: Fetch the raw Classic policy XML document.
       → value: str (raw policy XML)
+      Params: id: int/str (policy ID).
   policy_set(policy_id, enable?=, name?=, trigger?=, frequency?=, tenant?, surface?, auth?)
+      Does: Patch general policy fields (enable, name, trigger, frequency).
       → None
-      Params: at least one of enable/name/trigger/frequency.
+      Params: policy_id: int/str; at least one of enable?/name?/trigger?/frequency?.
   policy_put_xml(policy_id, xml_str, tenant?, surface?, auth?)
+      Does: Replace a policy by PUTting full Classic XML.
       → None
+      Params: policy_id: int/str; xml_str: str (full policy XML).
   policy_copy(policy_id, name?, trigger?, category_id?, match_trigger?, upsert?=False,
               scope_all?, scope_group_ids?,
               tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
+      Does: Copy a policy to another (or the same) session, remapping category/scripts/packages by name.
       → value: dict {id, name, trigger} or {id, name, trigger, created} when upsert
-      Params: Source session = tenant?/auth?/surface? (or process default).
+      Params: policy_id: source policy. name?/trigger?: dest identity. category_id?: dest category.
+        match_trigger?: bool (upsert match on trigger_other). upsert?: bool.
+        scope_all?/scope_group_ids?: dest scope (default unassigned).
+        Source session = tenant?/auth?/surface? (or process default).
         Destination = to_tenant?/to_auth?/to_surface? (omit = same as source).
-        Default unassigned scope. Remaps category/scripts/packages by name on dest
-        (missing scripts/packages fail; missing category → uncategorized).
+      Notes: Missing scripts/packages on dest fail; missing category → uncategorized.
         upsert=True: upsert by exact name (or trigger_other when match_trigger=True);
         name optional (defaults to source name). Alias: policy_migrate(...).
-  policy_migrate(...) → same as policy_copy(..., upsert=True)
+  policy_migrate(...)
+      Does: Alias of policy_copy with upsert=True.
+      → value: dict {id, name, trigger, created}
   policy_set_ss(policy_id, version?, group_ids?, display_name?,
                 description?, install_text?, reinstall_text?,
                 force_view?, feature?, self_service?, tenant?, surface?, auth?)
+      Does: Update a policy's Self Service display (name, description, buttons, feature, scope groups).
       → None
-  policy_set_install(policy_id, version, tenant?, surface?, auth?) → None
+      Params: policy_id: int; version?: str (shown in Self Service); group_ids?: list of int
+        (Self Service group scope); display_name?/description?/install_text?/reinstall_text?: str;
+        force_view?/feature?/self_service?: bool.
+  policy_set_install(policy_id, version, tenant?, surface?, auth?)
+      Does: Point an Install policy at the package matching name+version (after READY).
+      → None
+      Params: policy_id: int; version: str (package version to attach).
   policy_set_package(name, version, policy_id?, trigger?, package_pattern?,
-                     disable_source?, keep_source?, tenant?, surface?, auth?) → None
+                     disable_source?, keep_source?, tenant?, surface?, auth?)
+      Does: Attach a package to an Install/Cache policy, optionally cloning a same-trigger replacement.
+      → None
       Params: name: str package name keyword ("" to derive from the source
-        trigger); pass trigger= or policy_id= for the source Install/Cache
-        policy (one is required). disable_source?/keep_source?: optional bool
-        overrides (mutually exclusive). Default: disable source only when
-        creating a same-trigger replacement.
-  policy_set_scope_all(policy_id, tenant?, surface?, auth?) → None
+        trigger); version: str; pass trigger= or policy_id= for the source Install/Cache
+        policy (one is required). package_pattern?: package name glob.
+        disable_source?/keep_source?: optional bool overrides (mutually exclusive).
+      Notes: Default: disable source only when creating a same-trigger replacement.
+  policy_set_scope_all(policy_id, tenant?, surface?, auth?)
+      Does: Set the policy scope to all computers (unrestricted).
+      → None
+      Params: policy_id: int/str.
   policy_create_ss(trigger, display_name, category?, scope_group_id?, script_id?, tenant?, surface?, auth?)
+      Does: Create a Self Service policy that runs a script (parameter4 = trigger).
       → value: int (new policy ID)
+      Params: trigger: str; display_name: str; category?: str; scope_group_id?: int;
+        script_id?: int/str.
   policy_create_package(name, version, action?, scope_all?, scope_group_ids?,
                         category?, package_pattern?, tenant?, surface?, auth?)
+      Does: Create an Install or Cache policy for a named package version.
       → value: dict {id, name, trigger}
-      Params: name: str package name keyword. action?: "install" (default) or
-        "cache". Defaults match CLI triggers: install-<name>-next /
-        cache-<name>-<version>. scope_all defaults true when
-        no scope_group_ids. package_pattern?: optional package name glob.
-  policy_delete(policy_ids, tenant?, surface?, auth?) → None
+      Params: name: str package name keyword. version: str. action?: "install" (default) or
+        "cache". scope_all?: bool (defaults true when no scope_group_ids).
+        scope_group_ids?: list of int. category?: str. package_pattern?: package name glob.
+      Notes: Default triggers: install-<name>-next / cache-<name>-<version>.
+  policy_delete(policy_ids, tenant?, surface?, auth?)
+      Does: Delete one or more Classic policies.
+      → None
+      Params: policy_ids: int/str or list of int/str.
 
 `
 

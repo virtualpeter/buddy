@@ -5,11 +5,23 @@ package help
 
 // ClientsBuiltinsSection is spliced into Builtins.
 const ClientsBuiltinsSection = `CLIENT
-  clients(filter?, page?, page_size?, tenant?, surface?, auth?) → value: list of dicts
-      Params: filter?: bare term → displayName=="*term*", or full RSQL.
-  client(id, tenant?, surface?, auth?) → value: dict
-  client_put(client_id, dict, tenant?, surface?, auth?) → value: dict
-  client_create(display_name, scopes, tenant?, surface?, auth?) → value: dict {id, client_id}
+  clients(filter?, page?, page_size?, tenant?, surface?, auth?)
+      Does: List Jamf Pro API integrations (oauth clients).
+      → value: list of dicts (id, displayName, …)
+      Params: filter?: bare term → displayName=="*term*", or full RSQL. page?: int (omit = all);
+        page_size?: int.
+  client(id, tenant?, surface?, auth?)
+      Does: Load one API integration JSON document.
+      → value: dict (full client record)
+      Params: id: str/int (integration ID).
+  client_put(client_id, dict, tenant?, surface?, auth?)
+      Does: PUT a full API integration JSON body (name and role scopes).
+      → value: dict (updated client)
+      Params: client_id: str/int; dict: full client body.
+  client_create(display_name, scopes, tenant?, surface?, auth?)
+      Does: Create an API integration with the given role scopes.
+      → value: dict {id, client_id}
+      Params: display_name: str; scopes: list of str (role display names or IDs).
 
 `
 

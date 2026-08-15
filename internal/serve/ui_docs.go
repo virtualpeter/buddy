@@ -251,7 +251,7 @@ a:hover { text-decoration: underline; }
 main { padding: 1.5rem 2rem 3rem; max-width: 52rem; }
 main > h1:first-child { margin-top: 0; }
 h1,h2,h3 { line-height: 1.25; }
-main h2 { margin: 1.75rem 0 .75rem; font-size: 1.15rem; }
+main h2 { margin: 2rem 0 .85rem; padding-bottom: .35rem; border-bottom: 1px solid var(--line); font-size: 1.15rem; }
 main h3 { margin: 1.35rem 0 .55rem; font-size: 1.02rem; }
 main p { margin: 0 0 .9rem; max-width: 42rem; }
 main ul, main ol {
@@ -304,6 +304,72 @@ main td:first-child { white-space: nowrap; font-weight: 600; width: 7.5rem; }
 main td:nth-child(2), main td:nth-child(3) { width: 28%; }
 main td code { white-space: break-spaces; }
 pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow: auto; border-radius: 4px; }
+.fn-entry {
+  margin: 0 0 1.15rem;
+  padding: .9rem 1.05rem 1rem 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--bg));
+}
+.fn-entry h3 {
+  margin: 0 0 .7rem;
+  padding-bottom: .55rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.45;
+  scroll-margin-top: 1.25rem;
+}
+.fn-entry h3 .fn-sig {
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  font-size: .95em;
+  font-weight: 400;
+  white-space: break-spaces;
+}
+.fn-entry h3 .fn-name {
+  color: var(--ink);
+  font-weight: 700;
+}
+.fn-entry > p {
+  margin: 0 0 .7rem;
+  max-width: none;
+}
+.fn-entry .fn-meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 5.25rem 1fr;
+  column-gap: .9rem;
+  row-gap: .45rem;
+  font-size: .9rem;
+}
+.fn-entry .fn-meta dt {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: .68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding-top: .15rem;
+}
+.fn-entry .fn-meta dd {
+  margin: 0;
+  line-height: 1.5;
+}
+.fn-entry .fn-params {
+  margin: 0;
+  padding-left: 1.15rem;
+}
+.fn-entry .fn-params li {
+  margin: 0 0 .35rem;
+  padding-left: .1rem;
+}
+.fn-entry .fn-params li:last-child { margin-bottom: 0; }
+.fn-entry .fn-meta dd > code {
+  font-weight: 600;
+}
 .code-try { position: relative; margin: 0 0 1.15rem; }
 .code-try > pre { margin: 0; padding-top: 2.1rem; }
 .code-try .try-it {
@@ -446,19 +512,31 @@ if (pageFilter) {
       }
       return;
     }
-    // Function blocks
-    for (let i = 0; i < els.length; i++) {
-      const el = els[i];
-      if (el.tagName !== 'H3' || !el.id) continue;
-      const show = !q || (el.id + ' ' + el.textContent).toLowerCase().includes(q);
-      setHidden(el, !show);
-      let j = i + 1;
-      while (j < els.length && els[j].tagName !== 'H2' && els[j].tagName !== 'H3') {
-        setHidden(els[j], !show);
-        j++;
+    // Function blocks (article cards on the Function index, else bare h3)
+    const entries = [...main.querySelectorAll('.fn-entry')];
+    if (entries.length) {
+      for (const art of entries) {
+        const h = art.querySelector('h3[id]');
+        const hay = ((h && h.id) || '') + ' ' + art.textContent;
+        const show = !q || hay.toLowerCase().includes(q);
+        setHidden(art, !show);
+        const tocFn = h && tocLinks.find(a => a.getAttribute('data-toc-id') === h.id);
+        if (tocFn) setHidden(tocFn, !show);
       }
-      const tocFn = tocLinks.find(a => a.getAttribute('data-toc-id') === el.id);
-      if (tocFn) setHidden(tocFn, !show);
+    } else {
+      for (let i = 0; i < els.length; i++) {
+        const el = els[i];
+        if (el.tagName !== 'H3' || !el.id) continue;
+        const show = !q || (el.id + ' ' + el.textContent).toLowerCase().includes(q);
+        setHidden(el, !show);
+        let j = i + 1;
+        while (j < els.length && els[j].tagName !== 'H2' && els[j].tagName !== 'H3') {
+          setHidden(els[j], !show);
+          j++;
+        }
+        const tocFn = tocLinks.find(a => a.getAttribute('data-toc-id') === el.id);
+        if (tocFn) setHidden(tocFn, !show);
+      }
     }
     // Sections
     for (let i = 0; i < els.length; i++) {
@@ -466,7 +544,7 @@ if (pageFilter) {
       let j = i + 1;
       let hasFn = false, hasVisible = false;
       while (j < els.length && els[j].tagName !== 'H2') {
-        if (els[j].tagName === 'H3' && els[j].id) {
+        if (els[j].classList.contains('fn-entry') || (els[j].tagName === 'H3' && els[j].id)) {
           hasFn = true;
           if (!els[j].classList.contains('fn-hidden')) hasVisible = true;
         }
@@ -474,9 +552,9 @@ if (pageFilter) {
       }
       const showSec = !q || !hasFn || hasVisible || els[i].textContent.toLowerCase().includes(q);
       setHidden(els[i], !showSec);
-      // Section intro (before first h3)
+      // Section intro (before first function)
       let k = i + 1;
-      while (k < els.length && els[k].tagName !== 'H2' && els[k].tagName !== 'H3') {
+      while (k < els.length && els[k].tagName !== 'H2' && els[k].tagName !== 'H3' && !els[k].classList.contains('fn-entry')) {
         setHidden(els[k], !showSec);
         k++;
       }
