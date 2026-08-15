@@ -58,22 +58,26 @@ func CLIMarkdown() string {
 	b.WriteString("# Command index\n\n")
 	b.WriteString("Canonical reference for buddy’s CLI commands ")
 	b.WriteString("(same text as `buddy help` and `buddy help <command>`, rendered for browsing).\n\n")
-	for _, c := range CommandCatalog() {
-		tag := "h2"
-		if c.Level == 3 {
-			tag = "h3"
+	cat := CommandCatalog()
+	for i := 0; i < len(cat); {
+		c := cat[i]
+		j := i + 1
+		if c.Level == 2 {
+			for j < len(cat) && cat[j].Level == 3 {
+				j++
+			}
+			if j > i+1 {
+				b.WriteString(`<h2 id="section-`)
+				b.WriteString(htmlEscapeText(c.ID))
+				b.WriteString(`">`)
+				b.WriteString(htmlEscapeText(c.Title))
+				b.WriteString("</h2>\n\n")
+			}
 		}
-		b.WriteString("<")
-		b.WriteString(tag)
-		b.WriteString(" id=\"")
-		b.WriteString(c.ID)
-		b.WriteString("\"><code>")
-		b.WriteString(htmlEscapeText(c.Title))
-		b.WriteString("</code></")
-		b.WriteString(tag)
-		b.WriteString(">\n\n```\n")
-		b.WriteString(strings.TrimSpace(c.Body))
-		b.WriteString("\n```\n\n")
+		for _, item := range cat[i:j] {
+			b.WriteString(renderCLIEntryHTML(item))
+		}
+		i = j
 	}
 	return b.String()
 }

@@ -492,6 +492,9 @@ func searchPages(pages []DocPage, q string, limit int) []searchHit {
 			fnHits := 0
 			for _, m := range htmlHeadingRE.FindAllStringSubmatch(p.Markdown, -1) {
 				name := m[2]
+				if strings.HasPrefix(name, "section-") {
+					continue
+				}
 				text := htmlHeadingDisplayText(m[3], name)
 				if !strings.Contains(strings.ToLower(name+" "+stripHTMLTags(m[3])), q) {
 					continue

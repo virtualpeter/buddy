@@ -339,7 +339,7 @@ pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow
 .fn-entry .fn-meta {
   margin: 0;
   display: grid;
-  grid-template-columns: 5.25rem 1fr;
+  grid-template-columns: 7.25rem 1fr;
   column-gap: .9rem;
   row-gap: .45rem;
   font-size: .9rem;
@@ -369,6 +369,15 @@ pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow
 .fn-entry .fn-params li:last-child { margin-bottom: 0; }
 .fn-entry .fn-meta dd > code {
   font-weight: 600;
+}
+.fn-entry .fn-pre {
+  margin: 0;
+  padding: .45rem .6rem;
+  background: color-mix(in srgb, var(--code-bg) 50%, var(--panel));
+  border-radius: 4px;
+  font-size: .82em;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 .code-try { position: relative; margin: 0 0 1.15rem; }
 .code-try > pre { margin: 0; padding-top: 2.1rem; }
@@ -441,7 +450,7 @@ pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow
     <input class="page-filter" id="pageFilter" type="search" data-filter="h3" placeholder="Filter builtins on this page…" autocomplete="off">
     {{end}}
     {{if eq .ActiveID "cli"}}
-    <input class="page-filter" id="pageFilter" type="search" data-filter="h2" placeholder="Filter commands on this page…" autocomplete="off">
+    <input class="page-filter" id="pageFilter" type="search" data-filter="h3" placeholder="Filter commands on this page…" autocomplete="off">
     {{end}}
     {{.Body}}
   </main>
