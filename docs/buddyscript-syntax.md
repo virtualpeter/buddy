@@ -43,7 +43,7 @@ def main():
 
 Supported: `if` / `elif` / `else`, `for`, `break`, `continue`, `pass`, `def`, `return`, `*args` / `**kwargs`.
 
-**Not in Starlark (vs Python):** `import`, `class`, `try`/`except`, `while`, `lambda`, `yield`, `global`/`nonlocal`, `set`, `is` / `is not` (use `==` / `!=`), file/`os`/`sys` modules. Use `load()` for `re` and buddy stdlib — not Python `import`.
+**Not in Starlark (vs Python):** `import`, `class`, `try`/`except`, `while`, `lambda`, `yield`, `global`/`nonlocal`, `set`, `is` / `is not` (use `==` / `!=`), file/`os`/`sys` modules. Use `load()` for `re` — not Python `import`.
 
 ## Strings, lists, dicts
 
@@ -53,10 +53,9 @@ Familiar methods: `s.split`, `s.format`, `l.append`, `d.get`, `d.keys`, slicing,
 
 ```python
 load("re", "match")
-load("stdlib/release.buddy", "bump_release")
 ```
 
-`re` is also predeclared. Stdlib details: [Stdlib](buddyscript-stdlib.md).
+`re` is also predeclared. The `load("stdlib/….buddy", …)` path is reserved and currently empty; recipes live in [`examples/`](../examples/). See [Stdlib](buddyscript-stdlib.md).
 
 ## Buddy additions (not stock Starlark)
 

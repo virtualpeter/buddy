@@ -178,5 +178,5 @@ func validLoadModule(module string) bool {
 	if module == "re" {
 		return true
 	}
-	return stdlib.ValidModule(module)
+	return stdlib.HasModule(module)
 }

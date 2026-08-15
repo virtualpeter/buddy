@@ -53,7 +53,7 @@ var AppsTopic = docspec.Topic{
 		"**List** is the curated registry only. **Scan** is approximate heuristics for finding candidates — not for day-to-day inventory. Scan uses the policy cache when present (prints fetched date); `--refresh` rebuilds it first.",
 		"Policy payload cache (age > 3 days prompts refresh) is how import knows true Self Service (`use_for_self_service`), not `[SS]` name markers alone.",
 		"Uninstall policies are recorded in the index/interview set; reconcile v1 does not auto-mutate uninstall on version bumps.",
-		"Desired-state scripts declare name/kind/version/triggers/package_pattern. Edit `VERSION` then re-run to plan a bump. v1 does not greenfield-create a missing app — use `setup_app_classic` for that.",
+		"Desired-state scripts declare name/kind/version/triggers/package_pattern. Edit `VERSION` then re-run to plan a bump. v1 does not greenfield-create a missing app — see `examples/setup-app-classic.buddy` for that.",
 		"Wait until the target package is READY (`package_wait_ready` / `package_ready`) before apply/upgrade.",
 	},
 	AgentNotes: []string{

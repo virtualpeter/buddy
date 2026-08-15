@@ -145,7 +145,7 @@ func loadDiagnostics(f *syntax.File) []Diagnostic {
 		}
 		module := load.Module.Value.(string)
 		if !validLoadModule(module) {
-			msg := fmt.Sprintf("unknown module %q (try load(\"stdlib/<name>.buddy\", ...) or load(\"re\", \"re\"))", module)
+			msg := fmt.Sprintf("unknown module %q (try load(\"re\", \"re\"))", module)
 			diags = append(diags, posDiag(load.Module.TokenPos, msg, severityError))
 		}
 		return true

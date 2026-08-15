@@ -20,11 +20,14 @@ func stdlibLoader(reModule, predeclared starlark.StringDict) func(*starlark.Thre
 		if module == "re" {
 			return reModule, nil
 		}
-		if !stdlib.ValidModule(module) {
+		if !stdlib.HasModule(module) {
 			if strings.HasPrefix(module, "stdlib/") {
-				return nil, fmt.Errorf("invalid stdlib module %q (want stdlib/<name>.buddy)", module)
+				if !stdlib.ValidModule(module) {
+					return nil, fmt.Errorf("invalid stdlib module %q (want stdlib/<name>.buddy)", module)
+				}
+				return nil, fmt.Errorf("unknown module: %s (no embedded stdlib modules)", module)
 			}
-			return nil, fmt.Errorf("unknown module: %s (try load(\"stdlib/release.buddy\", ...) or load(\"re\", ...))", module)
+			return nil, fmt.Errorf("unknown module: %s (try load(\"re\", ...))", module)
 		}
 
 		mu.Lock()

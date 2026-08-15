@@ -15,7 +15,7 @@ Human docs: [docs/index.md](docs/index.md). Auth/secrets/tokens: [docs/auth.md](
 | `internal/mcp/` | `buddy mcp` stdio server |
 | `internal/serve/` | `buddy serve` docs + `/ide` |
 | `internal/lsp/` | `buddy lsp` |
-| `stdlib/` | Embedded `.buddy` libraries |
+| `stdlib/` | Reserved `load("stdlib/….buddy")` modules (currently empty) |
 | `editors/vscode/` | Cursor/VS Code extension |
 | `docs/` | User-facing docs (`docs/generated/` is from `make gendocs`) |
 | `.cursor/rules/` | CLI, builtins, and auth conventions |
@@ -29,7 +29,7 @@ Resource cookbooks: edit `internal/buddy/*_doc.go`, then `make gendocs` (writes 
 - CLI help: `.cursor/rules/buddy-cli.mdc`
 - Builtins: `.cursor/rules/buddy-builtins.mdc` — plural/singular grammar, resource IDs first, `tenant?`/`surface?`/`auth?` last. Do not reintroduce removed aliases (`package_list`, `policy_find_ids`, …).
 - Auth/secrets: `.cursor/rules/buddy-auth-secrets.mdc` and [docs/auth.md](docs/auth.md)
-- Scripts and stdlib use `.buddy` (`load("stdlib/….buddy", …)`).
+- Scripts use `.buddy`. `load("stdlib/….buddy", …)` is reserved (no modules yet; recipes live in `examples/`).
 - Prefer named builtins over inventing Classic PUTs from `jamf_schema`.
 - MCP: `get_instructions` first; `docs` → named builtins via `buddyscript` → `jamf_*` last. Envelope `{ok, value}` is MCP-only; builtins return bare values and raise.
 - Tests that need a secret store: `secrets.SetStore(mock)`.

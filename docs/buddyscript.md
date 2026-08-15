@@ -1,6 +1,6 @@
 # BuddyScript overview
 
-**buddyscript** is buddy’s scripting language: Starlark-based, Python-like, and extended with Jamf builtins, stdlib helpers, and CLI/IDE runners.
+**buddyscript** is buddy’s scripting language: Starlark-based, Python-like, and extended with Jamf builtins and CLI/IDE runners.
 
 Scripts use the **`.buddy`** extension (editor language id + `buddy lsp`).
 
@@ -34,7 +34,7 @@ def main():
 | Page | Contents |
 |------|----------|
 | [Syntax](buddyscript-syntax.md) | Types, control flow, what Starlark omits vs Python, links to the Starlark spec |
-| [Stdlib](buddyscript-stdlib.md) | `load("stdlib/….buddy", …)` modules |
+| [Stdlib](buddyscript-stdlib.md) | Reserved `load("stdlib/….buddy", …)` path (empty; recipes in `examples/`) |
 | [Function index](/docs/builtins) | Every builtin (signatures, params, returns) |
 
 Also: [Editor / LSP](editor.md), [Change batches](/docs/docs/change-batches), [Reference manual](reference-manual.md).

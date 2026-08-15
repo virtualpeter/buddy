@@ -201,27 +201,7 @@ On success, markdown continues with **## Outcomes**, for example:
 
 ### New app setup (Classic)
 
-For a brand-new app, compose a greenfield batch with **two profiles** (prefs and PPPC are separate) plus cache/install policies. Prefer the stdlib helper so callers always go through `plan_change` / `run_change` (it returns steps; it does not write):
-
-```python
-load("stdlib/app_setup.buddy", "setup_app_classic")
-
-prefs = prefs_payload(domain = "com.example.app", settings = {"Foo": True})
-fda = pppc_fda(
-    bundle_id = "com.example.app",
-    code_requirement = 'identifier "com.example.app" and anchor apple generic',
-)
-
-steps = setup_app_classic(
-    name = "example",
-    version = "1.0.0",
-    prefs_content = [prefs],
-    pppc_services = {"SystemPolicyAllFiles": [fda]},
-    package_pattern = "*example*1.0.0*",
-    create_ss = False,
-    scope_all = True,
-)
-```
+For a brand-new app, compose a greenfield batch with **two profiles** (prefs and PPPC are separate) plus cache/install policies. See [`examples/setup-app-classic.buddy`](../examples/setup-app-classic.buddy) for a full recipe that builds steps for `plan_change` / `run_change` (it does not write until apply).
 
 Or build steps by hand with `step_create_profile` / `step_create_package_policy` / `step_create_ss`. Scope defaults to **all computers** on creates (override with `scope_group_ids`).
 

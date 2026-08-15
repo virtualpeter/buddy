@@ -81,7 +81,7 @@ In the IDE, open **Libraries** → **Getting started** for a short list of built
 | [Reference manual](/docs/docs/reference-manual) | Config, credentials, CLI, buddyscript, environment |
 | [BuddyScript overview](/docs/docs/buddyscript) | Language, runners, conventions |
 | [BuddyScript syntax](/docs/docs/buddyscript-syntax) | Starlark subset + external spec links |
-| [BuddyScript stdlib](/docs/docs/buddyscript-stdlib) | `load("stdlib/….buddy", …)` |
+| [BuddyScript stdlib](/docs/docs/buddyscript-stdlib) | Reserved `load("stdlib/….buddy", …)` path (empty; recipes in `examples/`) |
 | [Function index](/docs/builtins) | Every builtin (signatures, params, returns) |
 | [Change batches](/docs/docs/change-batches) | Plan → approve → apply workflows |
 | [API endpoints](/docs/docs/api-endpoints) | Jamf HTTP APIs buddy calls |

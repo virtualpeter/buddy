@@ -106,9 +106,9 @@ Notes:
   Speaks LSP over stdin/stdout for the Cursor/VS Code buddy extension.
   Provides parse diagnostics, undefined-name checks, invalid load() modules,
   completions, hover, and signature help.
-  Uses the same builtin catalog as 'buddy help builtins' and embedded stdlib/.
+  Uses the same builtin catalog as 'buddy help builtins'.
 
-  Scripts and stdlib use .buddy (e.g. load("stdlib/<name>.buddy", …)).
+  Scripts use .buddy. load("stdlib/<name>.buddy", …) is reserved (no modules yet).
 
   Optional initializationOptions.cellMode=true enables -e / REPL dialect
   (top-level if/for and global reassign).

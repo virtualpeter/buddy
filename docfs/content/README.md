@@ -196,7 +196,7 @@ buddy                              # interactive buddyscript shell
 buddy <script.buddy> [-- args...]
 ```
 
-Scripts and stdlib modules use **`.buddy`** (`load("stdlib/<name>.buddy", …)`). Editor support: [docs/editor.md](docs/editor.md) (`buddy lsp` + `make extension-package`).
+Scripts use **`.buddy`**. Editor support: [docs/editor.md](docs/editor.md) (`buddy lsp` + `make extension-package`).
 
 **Built-in functions:** plural nouns enumerate (`policies`, `packages`, …); singular nouns load one resource (`policy(id=…)` / `policy(trigger=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). Optional `tenant=` / `surface=` / `auth=` last (`cred=` removed). Jamf-related builtins return **bare values** and **raise** on failure (MCP tools still wrap `{ok, value}` at the tool boundary). Canonical list: `buddy help builtins`; grammar overview: [docs/reference-manual.md](docs/reference-manual.md#built-in-functions).
 

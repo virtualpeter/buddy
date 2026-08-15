@@ -13,7 +13,10 @@ import (
 
 func TestStdlibValidModule(t *testing.T) {
 	if !stdlib.ValidModule("stdlib/release.buddy") {
-		t.Fatal("expected release.buddy valid")
+		t.Fatal("expected well-formed stdlib/release.buddy path")
+	}
+	if stdlib.HasModule("stdlib/release.buddy") {
+		t.Fatal("expected no embedded modules")
 	}
 	for _, bad := range []string{
 		"stdlib/../release.buddy",
@@ -29,65 +32,29 @@ func TestStdlibValidModule(t *testing.T) {
 	}
 }
 
-func TestStdlibListContainsRelease(t *testing.T) {
+func TestStdlibListEmpty(t *testing.T) {
 	mods, err := stdlib.List()
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
-	for _, m := range mods {
-		if m == "stdlib/release.buddy" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("List() = %v, want stdlib/release.buddy", mods)
+	if len(mods) != 0 {
+		t.Fatalf("List() = %v, want empty", mods)
 	}
 }
 
-func TestLoadStdlibReleaseExports(t *testing.T) {
+func TestLoadMissingStdlibModule(t *testing.T) {
 	thread, predeclared, err := newThread("default", buddy.Opts{}, slog.Default(), false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	src := `
+	_, err = starlark.ExecFile(thread, "test_missing.buddy", `
 load("stdlib/release.buddy", "bump_release")
-result = type(bump_release)
-`
-	globals, err := starlark.ExecFile(thread, "test_load.buddy", src, predeclared)
-	if err != nil {
-		t.Fatalf("ExecFile: %v", err)
-	}
-	got := globals["result"].(starlark.String)
-	if string(got) != "function" {
-		t.Fatalf("type(bump_release) = %q, want function", got)
-	}
-	// Private helpers must not be loadable.
-	_, err = starlark.ExecFile(thread, "test_priv.buddy", `
-load("stdlib/release.buddy", "_ok")
 `, predeclared)
 	if err == nil {
-		t.Fatal("expected error loading private _ok")
+		t.Fatal("expected error loading missing stdlib module")
 	}
-}
-
-func TestLoadStdlibCache(t *testing.T) {
-	thread, predeclared, err := newThread("default", buddy.Opts{}, slog.Default(), false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := `
-load("stdlib/release.buddy", "bump_release")
-load("stdlib/release.buddy", bump2 = "bump_release")
-same = bump_release == bump2
-`
-	globals, err := starlark.ExecFile(thread, "test_cache.buddy", src, predeclared)
-	if err != nil {
-		t.Fatalf("ExecFile: %v", err)
-	}
-	if globals["same"] != starlark.True {
-		t.Fatal("expected cached module to return same function object")
+	if !strings.Contains(err.Error(), "unknown module") {
+		t.Fatalf("error = %v, want unknown module", err)
 	}
 }
 
@@ -111,16 +78,16 @@ func TestFilterStdlibExports(t *testing.T) {
 		"auth":   starlark.String("x"),
 	}
 	globals := starlark.StringDict{
-		"policy":       starlark.None,
-		"auth":         starlark.String("x"),
-		"_ok":          starlark.None,
-		"bump_release": starlark.True,
+		"policy": starlark.None,
+		"auth":   starlark.String("x"),
+		"_ok":    starlark.None,
+		"helper": starlark.True,
 	}
 	got := filterStdlibExports(globals, pre)
-	if _, ok := got["bump_release"]; !ok {
-		t.Fatal("missing bump_release")
+	if _, ok := got["helper"]; !ok {
+		t.Fatal("missing helper")
 	}
 	if len(got) != 1 {
-		t.Fatalf("exports = %v, want only bump_release", got)
+		t.Fatalf("exports = %v, want only helper", got)
 	}
 }

@@ -77,7 +77,7 @@ Notes:
   With no arguments, buddy starts an interactive buddyscript REPL on stdin/stdout.
 
   -e / --eval runs a one-liner in the normal buddyscript environment (builtins,
-  args, load("stdlib/…")). If main is defined, it is called (same as file scripts).
+  args, load("re", …)). If main is defined, it is called (same as file scripts).
   If the last statement is an expression, its value is printed to stdout as
   JSON-friendly text (same rendering as IDE result), unless the expression
   already wrote to stdout (e.g. unwrap or print).
@@ -191,13 +191,12 @@ BUILT-IN FUNCTIONS
 
 MODULES
   load("re", "match")                      # starlib regex (also predeclared as re)
-  load("stdlib/release.buddy", "bump_release")  # buddy stdlib (see help builtins)
 
 WHAT IS NOT IN STARLARK (vs Python)
   No:  import  class  try/except  while  lambda  yield  global  nonlocal
   No:  set  frozenset  bytearray  file I/O  os/sys modules
   No:  is  is not  (use == != instead)
-  Use load() for buddy stdlib / re — not Python import.
+  Use load() for re — not Python import.
 
 Use 'buddy help builtins' for buddy-specific functions.
 `
@@ -232,18 +231,10 @@ Each builtin lists its signature, then → value (or None). Indented "Params:"
 lines describe arguments; "Returns:" states the value shape on success.
 
 STDLIB
-  Complex CLI-style workflows live in embedded buddyscript modules under stdlib/.
-  Load them with load() (same mechanism as load("re", ...)):
-
-    load("stdlib/release.buddy", "bump_release")
-    out = bump_release(trigger_prefix="install-example-", name="example", version="1.2.3")
-    # out is {"policy_id": int}; builtin failures raise
-
-  Modules compose the builtins below (bare returns; failures raise)
-  (except setup_app_classic, which returns a list of step dicts for plan_change).
-  Browse modules and builtins in the IDE Libraries sidebar (buddy serve → /ide).
-  Current modules: stdlib/release.buddy (bump_release), stdlib/app_setup.buddy
-  (setup_app_classic).
+  load("stdlib/<name>.buddy", …) is reserved for shared modules. None are
+  embedded yet. Multi-step recipes live in examples/ (copy and adapt):
+  bump-release.buddy, setup-app-classic.buddy. Browse builtins in the IDE
+  Libraries sidebar (buddy serve → /ide).
 
 `
 
@@ -485,7 +476,7 @@ CHANGE BATCH (plan document + apply with outcomes)
         Resolves against Jamf (no writes). Prints markdown. Created policy/profile
         IDs are NOT predicted (unknown until apply). Pass the return value to
         run_change as planned= for drift detection. See docs/change-batches.md for
-        version-bump vs Classic new-app setup (setup_app_classic).
+        version-bump vs Classic new-app setup.
   run_change(change, steps, planned?)
       → value: str (full markdown: plan + outcomes)
       Params: planned?: dict from plan_change. Re-resolves; if planned fingerprints

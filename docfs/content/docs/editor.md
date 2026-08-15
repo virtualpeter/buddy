@@ -5,7 +5,7 @@ Buddy scripts use the **`.buddy`** file extension. Editor support is two pieces:
 1. **`buddy lsp`** — language server over stdio (diagnostics, completions, hover, signature help)
 2. **BuddyScript** extension under [`editors/vscode`](../editors/vscode) — syntax highlighting + LSP client for VS Code and Cursor
 
-Stdlib loads use `load("stdlib/<name>.buddy", …)`.
+`load("stdlib/<name>.buddy", …)` is reserved (no modules yet). `load("re", …)` is the shipped module.
 
 ## What you get
 
@@ -14,7 +14,7 @@ Stdlib loads use `load("stdlib/<name>.buddy", …)`.
 | Syntax highlighting | TextMate grammar in the extension |
 | Parse / undefined-name diagnostics | `buddy lsp` |
 | Completions, hover, signature help | `buddy lsp` (same catalog as `buddy help builtins`) |
-| `load("stdlib/…")` checks | `buddy lsp` |
+| `load()` module checks | `buddy lsp` |
 
 The language server is usually started by the extension, not by hand. See `buddy help lsp` for the CLI surface.
 

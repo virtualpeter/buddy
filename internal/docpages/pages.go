@@ -235,7 +235,7 @@ var curatedDocEntries = []curatedDoc{
 	{id: "docs/buddyscript-syntax", title: "Syntax", section: "BuddyScript", file: "buddyscript-syntax.md",
 		keywords: []string{"syntax", "starlark", "python", "types", "load", "spec", "while"}},
 	{id: "docs/buddyscript-stdlib", title: "Stdlib", section: "BuddyScript", file: "buddyscript-stdlib.md",
-		keywords: []string{"stdlib", "load", "bump_release", "setup_app_classic", "release"}},
+		keywords: []string{"stdlib", "load", "examples"}},
 
 	// Guides — cross-cutting
 	{id: "docs/auth", title: "Auth, secrets, and tokens", section: "Guides", file: "auth.md",

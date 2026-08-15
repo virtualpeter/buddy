@@ -1,46 +1,20 @@
 # BuddyScript stdlib
 
-Multi-step helpers live as embedded **`.buddy`** modules. Load them like `re`:
+`load("stdlib/<name>.buddy", …)` is reserved for shared modules shipped with the binary. **There are no modules yet.**
+
+Compose [builtins](/docs/builtins) in your own `.buddy` files (bare returns; failures raise). Copy a recipe from [`examples/`](../examples/) when you want a starting point:
+
+| Example | Role |
+|---------|------|
+| [`examples/bump-release.buddy`](../examples/bump-release.buddy) | Resolve a policy by trigger, then set package / install / Self Service (optional smart-group version) |
+| [`examples/setup-app-classic.buddy`](../examples/setup-app-classic.buddy) | Build `step_*` dicts (prefs + PPPC profiles, cache/install, optional SS) for `plan_change` / `run_change` |
 
 ```python
-load("stdlib/release.buddy", "bump_release")
-
-def main():
-    return bump_release(
-        trigger_prefix = "install-app-",
-        name = "app",
-        version = "1.2.3",
-    )
+load("re", "match")  # starlib regex; also predeclared as re
 ```
 
-Modules compose [builtins](/docs/builtins) (bare returns; failures raise). Browse the same catalog from the IDE **Libraries** sidebar.
+Promote a pattern into `stdlib/` only when it is shared enough to ship with the binary. Until then, keep workflows in `examples/` or your own scripts.
 
-## Modules
-
-### `stdlib/release.buddy`
-
-Release / version bump helpers.
-
-| Symbol | Role |
-|--------|------|
-| `bump_release` | Resolve policy by trigger, set package / install / self-service, optional smart-group version |
-
-Returns e.g. `{"policy_id": int}`.
-
-### `stdlib/app_setup.buddy`
-
-Classic greenfield “new app” step builders for change batches (does **not** write to Jamf by itself).
-
-| Symbol | Role |
-|--------|------|
-| `setup_app_classic` | Build a list of `step_*` dicts (prefs + PPPC profiles, cache/install policies, optional SS) for `plan_change` / `run_change` |
-
-See [Change batches](/docs/docs/change-batches) and [`examples/setup-app-classic.buddy`](../examples/setup-app-classic.buddy).
-
-## Tips
-
-- Prefer `load("stdlib/<name>.buddy", "symbol")` — same paths the IDE Libraries sidebar inserts.
-- Keep fat one-off workflows in your own `.buddy` files; promote repeated patterns into stdlib only when shared.
-- Full Jamf primitive API: [Function index](/docs/builtins).
+Full Jamf primitive API: [Function index](/docs/builtins).
 
 Next: [Syntax](buddyscript-syntax.md) · [Overview](buddyscript.md) · [Function index](/docs/builtins)

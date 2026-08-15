@@ -60,17 +60,32 @@ func TestAnalyzeInvalidLoad(t *testing.T) {
 	}
 }
 
-func TestAnalyzeValidStdlibLoad(t *testing.T) {
+func TestAnalyzeValidReLoad(t *testing.T) {
 	diags := Analyze("t.buddy", `
-load("stdlib/release.buddy", "bump_release")
+load("re", "re")
 
 def main():
-    return bump_release
+    return re
 `, ModeFile)
 	for _, d := range diags {
 		if d.Severity == severityError {
 			t.Fatalf("unexpected error: %s", d.Message)
 		}
+	}
+}
+
+func TestAnalyzeMissingStdlibLoad(t *testing.T) {
+	diags := Analyze("t.buddy", `load("stdlib/release.buddy", "bump_release")
+`, ModeFile)
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "unknown module") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected unknown stdlib module diagnostic, got %#v", diags)
 	}
 }
 

@@ -21,9 +21,9 @@ type FuncInfo struct {
 
 // ModuleInfo is a browsable stdlib module.
 type ModuleInfo struct {
-	ID        string // e.g. stdlib/release
-	Title     string // e.g. release
-	Path      string // e.g. stdlib/release.buddy
+	ID        string // e.g. stdlib/demo
+	Title     string // e.g. demo
+	Path      string // e.g. stdlib/demo.buddy
 	Functions []FuncInfo
 }
 

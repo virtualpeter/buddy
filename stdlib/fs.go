@@ -15,7 +15,10 @@ import (
 	"strings"
 )
 
-//go:embed *.buddy
+// README keeps the embed FS non-empty while no modules exist
+// (go:embed rejects a zero-match *.buddy). Add //go:embed *.buddy when
+// a module is added.
+//go:embed README.md
 var content embed.FS
 
 var moduleNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*\.buddy$`)
@@ -48,6 +51,23 @@ func Read(module string) ([]byte, error) {
 		return nil, fmt.Errorf("stdlib module %s: %w", module, err)
 	}
 	return data, nil
+}
+
+// HasModule reports whether module is an embedded stdlib load path.
+func HasModule(module string) bool {
+	if !ValidModule(module) {
+		return false
+	}
+	mods, err := List()
+	if err != nil {
+		return false
+	}
+	for _, m := range mods {
+		if m == module {
+			return true
+		}
+	}
+	return false
 }
 
 // List returns sorted load paths for all embedded stdlib modules.

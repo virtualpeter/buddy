@@ -5,57 +5,35 @@ import (
 	"testing"
 )
 
-func TestCatalogRelease(t *testing.T) {
+func TestCatalogEmpty(t *testing.T) {
 	mods, err := Catalog()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var release *ModuleInfo
-	for i := range mods {
-		if mods[i].ID == "stdlib/release" {
-			release = &mods[i]
-			break
-		}
-	}
-	if release == nil {
-		t.Fatalf("missing stdlib/release in %#v", mods)
-	}
-	if len(release.Functions) != 1 || release.Functions[0].Name != "bump_release" {
-		t.Fatalf("functions = %#v, want bump_release only", release.Functions)
-	}
-	fn := release.Functions[0]
-	if fn.Summary == "" {
-		t.Fatal("expected summary")
-	}
-	if !strings.Contains(fn.Insert, `load("stdlib/release.buddy", "bump_release")`) ||
-		!strings.Contains(fn.Insert, "bump_release(") {
-		t.Fatalf("insert = %q", fn.Insert)
+	if len(mods) != 0 {
+		t.Fatalf("Catalog() = %#v, want empty", mods)
 	}
 }
 
-func TestCatalogAppSetup(t *testing.T) {
-	mods, err := Catalog()
-	if err != nil {
-		t.Fatal(err)
+func TestParseModuleFuncs(t *testing.T) {
+	src := `# helper — does a thing
+def helper(x, y = 1):
+    """Does a thing."""
+    return x
+
+def _priv():
+    pass
+`
+	fns := parseModuleFuncs("stdlib/demo.buddy", src)
+	if len(fns) != 1 || fns[0].Name != "helper" {
+		t.Fatalf("functions = %#v, want helper only", fns)
 	}
-	var mod *ModuleInfo
-	for i := range mods {
-		if mods[i].ID == "stdlib/app_setup" {
-			mod = &mods[i]
-			break
-		}
+	fn := fns[0]
+	if fn.Summary != "does a thing" {
+		t.Fatalf("summary = %q", fn.Summary)
 	}
-	if mod == nil {
-		t.Fatalf("missing stdlib/app_setup in %#v", mods)
-	}
-	if len(mod.Functions) != 1 || mod.Functions[0].Name != "setup_app_classic" {
-		t.Fatalf("functions = %#v, want setup_app_classic only", mod.Functions)
-	}
-	fn := mod.Functions[0]
-	if fn.Summary == "" {
-		t.Fatal("expected summary")
-	}
-	if !strings.Contains(fn.Insert, `load("stdlib/app_setup.buddy", "setup_app_classic")`) {
+	if !strings.Contains(fn.Insert, `load("stdlib/demo.buddy", "helper")`) ||
+		!strings.Contains(fn.Insert, "helper(") {
 		t.Fatalf("insert = %q", fn.Insert)
 	}
 }

@@ -216,7 +216,7 @@ buddy [global-flags] [--trace] <script.buddy> [-- args...]
 
 - With no arguments, buddy starts an interactive buddyscript REPL on stdin/stdout.
 - Scripts are **buddyscript** (Starlark-based — a deterministic Python-like language). See **Language** below.
-- Scripts and stdlib modules use **`.buddy`** (Cursor/VS Code language id + `buddy lsp`). Load with `load("stdlib/<name>.buddy", …)`.
+- Scripts use **`.buddy`** (Cursor/VS Code language id + `buddy lsp`). `load("stdlib/<name>.buddy", …)` is reserved (no modules yet).
 - `args` after `--` are available as the global list `args`.
 - The active tenant and auth pin are available as `tenant` and `auth` (override per builtin with `tenant=` / `surface=` / `auth=`).
 - The regex module is exposed as `re` (see `buddy help starlark` for what Starlark provides globally).
@@ -239,7 +239,7 @@ See the **BuddyScript** docs section:
 
 - [Overview](buddyscript.md) — runners, `main()`, return contract
 - [Syntax](buddyscript-syntax.md) — Starlark subset + [language spec](https://github.com/bazelbuild/starlark/blob/master/spec.md)
-- [Stdlib](buddyscript-stdlib.md) — `load("stdlib/….buddy", …)`
+- [Stdlib](buddyscript-stdlib.md) — reserved `load("stdlib/….buddy", …)` path (empty; recipes in `examples/`)
 - [Function index](/docs/builtins) — every builtin (`buddy help builtins`)
 
 Compact terminal cheat sheet:
