@@ -3,13 +3,14 @@
 GO := go
 GOFLAGS := -v -buildvcs=false
 # Default builds are CGO-free (Keychain uses security(1)).
-# make buddy-signed is Darwin-only: CGO + Security.framework + Developer ID.
+# make buddy-darwin-arm64 is Darwin/arm64-only: CGO + Security.framework + Developer ID.
 CGO_ENABLED ?= 0
 export CGO_ENABLED
 # Signed release: codesign identity is required. Identifier must stay stable across releases.
 BUDDY_CODESIGN_IDENTIFIER ?= virtualpete.buddy.cli
 
 BUILDTARGET := buddy
+SIGNED_TARGET := buddy-darwin-arm64
 
 # Find all Go files with package main
 GO_MAIN_FILES := $(shell find . -name "*.go" -type f -exec grep -l "^package main" {} \; | grep -v vendor | grep -v ".git" | sort)
@@ -67,21 +68,22 @@ buddy-lite: sync-docfs
 	$(GO) build $(GOFLAGS) -tags 'noserve,nomcp,nolsp' -ldflags "-X main.Version=$(BUDDY_VERSION)" -o buddy-lite ./cmd/buddy
 	@ls -lh buddy-lite
 
-# Darwin release binary: Security.framework Keychain (service buddy-signed).
+# Darwin/arm64 release binary: Security.framework Keychain (service virtualpete.buddy.cli, label Buddy).
 # Requires BUDDY_CODESIGN_IDENTITY (Developer ID Application). Does not clobber ./buddy.
-.PHONY: buddy-signed
-buddy-signed: sync-docfs
-	@test "$$(uname -s)" = Darwin || { echo "make buddy-signed is macOS-only"; exit 1; }
+.PHONY: $(SIGNED_TARGET)
+$(SIGNED_TARGET): sync-docfs
+	@test "$$(uname -s)" = Darwin || { echo "make $(SIGNED_TARGET) is macOS-only"; exit 1; }
+	@test "$$(uname -m)" = arm64 || { echo "make $(SIGNED_TARGET) is arm64-only"; exit 1; }
 	@test -n "$(BUDDY_CODESIGN_IDENTITY)" || { echo "BUDDY_CODESIGN_IDENTITY is required (Developer ID Application)"; exit 1; }
-	@echo "Building buddy-signed (version $(BUDDY_VERSION)$(if $(TAGS), tags=secitem,$(TAGS), tags=secitem), CGO_ENABLED=1)..."
-	CGO_ENABLED=1 $(GO) build $(GOFLAGS) -tags 'secitem$(if $(TAGS),$(comma)$(TAGS))' -ldflags "-X main.Version=$(BUDDY_VERSION)" -o buddy-signed ./cmd/buddy
-	codesign --force --sign "$(BUDDY_CODESIGN_IDENTITY)" --identifier "$(BUDDY_CODESIGN_IDENTIFIER)" buddy-signed
-	@info=$$(codesign -dv --verbose=2 buddy-signed 2>&1); \
+	@echo "Building $(SIGNED_TARGET) (version $(BUDDY_VERSION)$(if $(TAGS), tags=secitem,$(TAGS), tags=secitem), CGO_ENABLED=1)..."
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) -tags 'secitem$(if $(TAGS),$(comma)$(TAGS))' -ldflags "-X main.Version=$(BUDDY_VERSION)" -o $(SIGNED_TARGET) ./cmd/buddy
+	codesign --force --sign "$(BUDDY_CODESIGN_IDENTITY)" --identifier "$(BUDDY_CODESIGN_IDENTIFIER)" $(SIGNED_TARGET)
+	@info=$$(codesign -dv --verbose=2 $(SIGNED_TARGET) 2>&1); \
 	printf '%s\n' "$$info"; \
-	case "$$info" in *Signature=adhoc*) echo "buddy-signed: ad-hoc signature rejected; use a Developer ID"; exit 1;; esac; \
-	case "$$info" in *TeamIdentifier=not\ set*) echo "buddy-signed: TeamIdentifier not set"; exit 1;; esac; \
-	echo "$$info" | grep -E 'TeamIdentifier=[A-Z0-9]+' >/dev/null || { echo "buddy-signed: missing TeamIdentifier"; exit 1; }
-	@ls -lh buddy-signed
+	case "$$info" in *Signature=adhoc*) echo "$(SIGNED_TARGET): ad-hoc signature rejected; use a Developer ID"; exit 1;; esac; \
+	case "$$info" in *TeamIdentifier=not\ set*) echo "$(SIGNED_TARGET): TeamIdentifier not set"; exit 1;; esac; \
+	echo "$$info" | grep -E 'TeamIdentifier=[A-Z0-9]+' >/dev/null || { echo "$(SIGNED_TARGET): missing TeamIdentifier"; exit 1; }
+	@ls -lh $(SIGNED_TARGET)
 
 # Cross-compile Linux amd64 (pure Go; no CGO).
 .PHONY: buddy-linux
@@ -106,6 +108,12 @@ install: $(BUILDTARGET)
 	rm -f ~/go/bin/$(BUILDTARGET)
 	cp $(BUILDTARGET) ~/go/bin/$(BUILDTARGET)
 .PHONY: install
+
+# Install the signed Darwin/arm64 binary as ~/go/bin/buddy (replaces an unsigned install).
+install-signed: $(SIGNED_TARGET)
+	rm -f ~/go/bin/$(BUILDTARGET)
+	cp $(SIGNED_TARGET) ~/go/bin/$(BUILDTARGET)
+.PHONY: install-signed
 
 # Run unit tests (default Keychain: security(1) on Darwin, CGO off).
 test: sync-docfs
@@ -146,7 +154,7 @@ docs-serve: $(BUILDTARGET)
 # Clean all built executables
 clean:
 	@echo "Cleaning executables..."
-	@rm -f $(BUILDTARGET) buddy-signed buddy-lite buddy-linux-amd64 buddy-windows-amd64.exe
+	@rm -f $(BUILDTARGET) $(SIGNED_TARGET) buddy-signed buddy-lite buddy-linux-amd64 buddy-windows-amd64.exe
 .PHONY: clean
 
 # Help target
@@ -155,7 +163,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  $(BUILDTARGET)   - Sync embedded docs + build $(BUILDTARGET) CLI"
-	@echo "  buddy-signed - Darwin release: -tags secitem + Developer ID → ./buddy-signed"
+	@echo "  $(SIGNED_TARGET) - Darwin/arm64 release: -tags secitem + Developer ID → ./$(SIGNED_TARGET)"
 	@echo "  buddy-lite - Build with TAGS=noserve,nomcp,nolsp → ./buddy-lite"
 	@echo "  buddy-linux - Cross-compile linux/amd64 → ./buddy-linux-amd64"
 	@echo "  buddy-windows - Cross-compile windows/amd64 → ./buddy-windows-amd64.exe"
@@ -163,6 +171,7 @@ help:
 	@echo "  sync-docfs - Copy docs/AGENTS/examples/rules into docfs/content for go:embed"
 	@echo "  sync-platform-schema - Refresh vendored Jamf Platform API OpenAPI specs"
 	@echo "  install   - Install $(BUILDTARGET) CLI to ~/go/bin/"
+	@echo "  install-signed - Build $(SIGNED_TARGET) and install as ~/go/bin/$(BUILDTARGET)"
 	@echo "  test      - Run unit tests (default Keychain / CGO off)"
 	@echo "  test-signed - Darwin: unit tests with -tags secitem (Security.framework, CGO)"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"
@@ -174,5 +183,5 @@ help:
 	@echo ""
 	@echo "Build tags (TAGS=…): noserve, nomcp, nolsp — omit optional features"
 	@echo "CGO_ENABLED=$(CGO_ENABLED) by default (set CGO_ENABLED=1 to override)"
-	@echo "buddy-signed: BUDDY_CODESIGN_IDENTITY required; BUDDY_CODESIGN_IDENTIFIER=$(BUDDY_CODESIGN_IDENTIFIER)"
+	@echo "$(SIGNED_TARGET): BUDDY_CODESIGN_IDENTITY required; BUDDY_CODESIGN_IDENTIFIER=$(BUDDY_CODESIGN_IDENTIFIER)"
 .PHONY: help

@@ -7,8 +7,11 @@ import (
 )
 
 const (
-	keychainServiceCLI    = "buddy"
-	keychainServiceSigned = "buddy-signed"
+	keychainServiceCLI = "buddy"
+	// Matches the default codesign identifier (BUDDY_CODESIGN_IDENTIFIER).
+	// Hardcoded: a custom identifier at sign time does not change this string.
+	keychainServiceSigned = "virtualpete.buddy.cli"
+	keychainLabelSigned   = "Buddy"
 	// security -i truncates around this size (same limit go-keyring documents).
 	securityInteractiveMax = 4096
 )

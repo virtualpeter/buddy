@@ -45,11 +45,20 @@ func TestSecurityAddInteractiveLineTooLarge(t *testing.T) {
 	}
 }
 
+func TestKeychainSignedServiceAndLabel(t *testing.T) {
+	if keychainServiceSigned != "virtualpete.buddy.cli" {
+		t.Fatalf("keychainServiceSigned = %q", keychainServiceSigned)
+	}
+	if keychainLabelSigned != "Buddy" {
+		t.Fatalf("keychainLabelSigned = %q", keychainLabelSigned)
+	}
+}
+
 func TestParseKeychainDumpForService(t *testing.T) {
 	dump := `
 class: "genp"
 attributes:
-    "svce"<blob>="buddy-signed"
+    "svce"<blob>="virtualpete.buddy.cli"
     "acct"<blob>="rel-admin/password"
 class: "genp"
 attributes:

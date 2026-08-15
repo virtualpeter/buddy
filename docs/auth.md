@@ -71,7 +71,7 @@ Resolution order: **inline config → platform store → error**. Store keys are
 | `BUDDY_SECRET_STORE` | Platform | Location |
 |----------------------|----------|----------|
 | (default) | macOS (`make buddy`) | Keychain, service `buddy`, via `security(1)` |
-| (default) | macOS (`make buddy-signed`) | Keychain, service `buddy-signed`, via Security.framework |
+| (default) | macOS (`make buddy-darwin-arm64`) | Keychain, service `virtualpete.buddy.cli` (label Buddy), via Security.framework |
 | (default) | Linux / Windows | `~/.config/buddy/secrets/<auth>.json` (mode `0600`; Windows: `%APPDATA%\buddy\secrets\`) |
 | `file` | any | Same as the Linux file store |
 | `pass` | Unix | `buddy/<auth>/password` and `buddy/<auth>/client-secret` |
@@ -79,9 +79,9 @@ Resolution order: **inline config → platform store → error**. Store keys are
 
 The default Darwin binary writes Keychain items with `security -i` (secret on stdin, not argv) under service `buddy`. That is convenient for development (no CGO, survives `go build`), but the ACL is on `/usr/bin/security`, so any process running as you can read the same items.
 
-The signed release binary (`make buddy-signed`, build tag `secitem`) uses Security.framework so the ACL is buddy’s Developer ID: only that signed binary can read without a prompt, and upgrades keep working as long as the Team ID and identifier stay the same. It uses a **different** service (`buddy-signed`) so the two never share ACL or items. A signed binary does not see secrets stored by `./buddy`; run `buddy cred set secret` (or `buddy cred migrate`) again against `./buddy-signed`.
+The signed release binary (`make buddy-darwin-arm64`, build tag `secitem`) uses Security.framework so the ACL is buddy’s Developer ID: only that signed binary can read without a prompt, and upgrades keep working as long as the Team ID and identifier stay the same. It uses a **different** service (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) so the two never share ACL or items. A signed binary does not see secrets stored by `./buddy`; run `buddy cred set secret` (or `buddy cred migrate`) again against `./buddy-darwin-arm64`. `make install-signed` copies that binary to `~/go/bin/buddy`.
 
-`make buddy-signed` requires `BUDDY_CODESIGN_IDENTITY` (a Developer ID Application identity). The identifier defaults to `dev.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) and must stay stable across releases so Keychain ACLs survive rebuilds. Ad-hoc signatures are rejected.
+`make buddy-darwin-arm64` requires Darwin/arm64 and `BUDDY_CODESIGN_IDENTITY` (a Developer ID Application identity). The identifier defaults to `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) and must stay stable across releases so Keychain ACLs survive rebuilds. The Keychain service is hardcoded to that same reverse-DNS string (not read from the running binary), so overriding the identifier at sign time still stores items under `virtualpete.buddy.cli`. Ad-hoc signatures are rejected.
 
 ```sh
 buddy cred set secret sandbox-admin                  # password (basic)

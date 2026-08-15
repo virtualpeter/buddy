@@ -3,13 +3,14 @@
 package secrets
 
 import (
-	"strings"
+	"fmt"
 	"testing"
 )
 
 func TestKeychainSecItemDescription(t *testing.T) {
 	d := NewKeychainStore().Description()
-	if !strings.Contains(d, keychainServiceSigned) || !strings.Contains(d, "Security.framework") {
+	want := fmt.Sprintf("macOS Keychain (service %q, Security.framework)", keychainServiceSigned)
+	if d != want {
 		t.Fatalf("description: %s", d)
 	}
 }

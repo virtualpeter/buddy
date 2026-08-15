@@ -3,7 +3,9 @@
 /buddy-lite
 /buddy-linux-amd64
 /buddy-windows-amd64.exe
+/buddy-darwin-arm64
 /buddy-Darwin-arm64
+/buddy-signed
 /docfs/content
 
 # Go

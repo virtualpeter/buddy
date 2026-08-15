@@ -73,7 +73,7 @@ buddy cred set auth gateway --type=oauth --client-id=<client-id> --tenants=gatew
 
 Classic (`/JSSResource/…`) calls are rewritten for the gateway, but Jamf does not yet expose Classic permissions to Platform integrations — expect `403` on Classic until it does. Prefer an instance-surface auth for Classic-heavy work.
 
-**Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate`). macOS defaults to Keychain (service `buddy` via `security(1)`, or service `buddy-signed` on `make buddy-signed`); Linux defaults to `~/.config/buddy/secrets/`. Override with `BUDDY_SECRET_STORE=file|pass|keychain`. Never commit secrets to source control.
+**Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate`). macOS defaults to Keychain (service `buddy` via `security(1)`, or service `virtualpete.buddy.cli` / label Buddy on `make buddy-darwin-arm64`); Linux defaults to `~/.config/buddy/secrets/`. Override with `BUDDY_SECRET_STORE=file|pass|keychain`. Never commit secrets to source control.
 
 Full YAML shape and field descriptions are in the [README](../README.md#configuration).
 

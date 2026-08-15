@@ -71,23 +71,38 @@ int buddy_secitem_get(const char *service, const char *account, char **out, size
 	return 0;
 }
 
-int buddy_secitem_set(const char *service, const char *account, const char *value, size_t value_len) {
+int buddy_secitem_set(const char *service, const char *account, const char *label, const char *value, size_t value_len) {
 	CFStringRef svc = cfstr(service);
 	CFStringRef acct = cfstr(account);
+	CFStringRef lbl = cfstr(label);
 	CFDataRef data = CFDataCreate(NULL, (const UInt8 *)value, (CFIndex)value_len);
 
 	const void *qkeys[] = {kSecClass, kSecAttrService, kSecAttrAccount};
 	const void *qvals[] = {kSecClassGenericPassword, svc, acct};
 	CFDictionaryRef query = CFDictionaryCreate(NULL, qkeys, qvals, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-	const void *akey = kSecValueData;
-	const void *aval = data;
-	CFDictionaryRef attrs = CFDictionaryCreate(NULL, &akey, &aval, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	CFDictionaryRef attrs;
+	if (lbl != NULL) {
+		const void *akeys[] = {kSecValueData, kSecAttrLabel};
+		const void *avals[] = {data, lbl};
+		attrs = CFDictionaryCreate(NULL, akeys, avals, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	} else {
+		const void *akey = kSecValueData;
+		const void *aval = data;
+		attrs = CFDictionaryCreate(NULL, &akey, &aval, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	}
 	OSStatus st = SecItemUpdate(query, attrs);
 	CFRelease(attrs);
 	if (st == errSecItemNotFound) {
-		const void *ikeys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecValueData};
-		const void *ivals[] = {kSecClassGenericPassword, svc, acct, data};
-		CFDictionaryRef item = CFDictionaryCreate(NULL, ikeys, ivals, 4, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		CFDictionaryRef item;
+		if (lbl != NULL) {
+			const void *ikeys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecAttrLabel, kSecValueData};
+			const void *ivals[] = {kSecClassGenericPassword, svc, acct, lbl, data};
+			item = CFDictionaryCreate(NULL, ikeys, ivals, 5, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		} else {
+			const void *ikeys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecValueData};
+			const void *ivals[] = {kSecClassGenericPassword, svc, acct, data};
+			item = CFDictionaryCreate(NULL, ikeys, ivals, 4, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		}
 		st = SecItemAdd(item, NULL);
 		CFRelease(item);
 	}
@@ -95,6 +110,9 @@ int buddy_secitem_set(const char *service, const char *account, const char *valu
 	CFRelease(data);
 	CFRelease(svc);
 	CFRelease(acct);
+	if (lbl != NULL) {
+		CFRelease(lbl);
+	}
 	return (int)st;
 }
 
@@ -223,7 +241,9 @@ func (k *KeychainStore) Set(credName string, kind Kind, value string) error {
 		cVal = (*C.char)(C.CBytes([]byte(value)))
 		defer C.free(unsafe.Pointer(cVal))
 	}
-	st := C.buddy_secitem_set(cSvc, cAcct, cVal, C.size_t(len(value)))
+	cLbl := C.CString(keychainLabelSigned)
+	defer C.free(unsafe.Pointer(cLbl))
+	st := C.buddy_secitem_set(cSvc, cAcct, cLbl, cVal, C.size_t(len(value)))
 	return secitemError(st)
 }
 
