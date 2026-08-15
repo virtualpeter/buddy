@@ -14,11 +14,6 @@
 # OS
 .DS_Store
 
-# Editor extension build artifacts
-editors/vscode/node_modules/
-editors/vscode/out/
-editors/vscode/*.vsix
-
 #random junk
 /*.xml
 /*.json

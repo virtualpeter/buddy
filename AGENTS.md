@@ -16,7 +16,6 @@ Human docs: [docs/index.md](docs/index.md). Auth/secrets/tokens: [docs/auth.md](
 | `internal/serve/` | `buddy serve` docs + `/ide` |
 | `internal/lsp/` | `buddy lsp` |
 | `stdlib/` | Reserved `load("stdlib/….buddy")` modules (currently empty) |
-| `editors/vscode/` | Cursor/VS Code extension |
 | `docs/` | User-facing docs (`docs/generated/` is from `make gendocs`) |
 | `.cursor/rules/` | CLI, builtins, and auth conventions |
 

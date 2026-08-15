@@ -149,11 +149,6 @@ clean:
 	@rm -f $(BUILDTARGET) buddy-signed buddy-lite buddy-linux-amd64 buddy-windows-amd64.exe
 .PHONY: clean
 
-# Package Cursor/VS Code extension VSIX (PUBLISHER=virtualpete by default)
-extension-package:
-	cd editors/vscode && npm install && PUBLISHER=$(or $(PUBLISHER),virtualpete) npm run package
-.PHONY: extension-package
-
 # Help target
 help:
 	@echo "Generic Go Build Makefile"
@@ -174,7 +169,6 @@ help:
 	@echo "  integration-test-acs7 - ACS profile id=7 same-tenant mutate/restore suite"
 	@echo "  scan-acs-profiles - Read-only audit: profiles needing ACS hydrate/bind handling"
 	@echo "  docs-serve - Local docs + script IDE (buddy serve --open)"
-	@echo "  extension-package - Build editors/vscode VSIX (PUBLISHER=virtualpete)"
 	@echo "  clean   - Remove all built executables"
 	@echo "  help    - Show this help message"
 	@echo ""

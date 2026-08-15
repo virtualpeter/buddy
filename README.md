@@ -18,7 +18,7 @@ New install: `make buddy` then [`buddy setup basic-setup`](docs/index.md). Built
 | [docs/mcp.md](docs/mcp.md) | MCP server setup for AI hosts |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | MCP tool scorecard and agent priority |
 | [docs/profile-payloads.md](docs/profile-payloads.md) | Profile payload dissect/assemble |
-| [docs/editor.md](docs/editor.md) | `buddy lsp` + VS Code/Cursor extension (build & install VSIX) |
+| [docs/editor.md](docs/editor.md) | `buddy lsp`; VSIX is the sibling [buddy-extension](../buddy-extension) checkout |
 | [docs/api-endpoints.md](docs/api-endpoints.md) | Jamf HTTP endpoints used by buddy |
 | [examples/](examples/) | Runnable `.buddy` examples and index |
 
@@ -214,7 +214,7 @@ buddy                              # interactive buddyscript shell
 buddy <script.buddy> [-- args...]
 ```
 
-Scripts use **`.buddy`**. Editor support: [docs/editor.md](docs/editor.md) (`buddy lsp` + `make extension-package`).
+Scripts use **`.buddy`**. Editor support: [docs/editor.md](docs/editor.md) (`buddy lsp`; VSIX in sibling `buddy-extension`).
 
 **Built-in functions:** plural nouns enumerate (`policies`, `packages`, …); singular nouns load one resource (`policy(id=…)` / `policy(trigger=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). Optional `tenant=` / `surface=` / `auth=` last (`cred=` removed). Jamf-related builtins return **bare values** and **raise** on failure (MCP tools still wrap `{ok, value}` at the tool boundary). Canonical list: `buddy help builtins`; grammar overview: [docs/reference-manual.md](docs/reference-manual.md#built-in-functions).
 
@@ -296,7 +296,6 @@ buddy/
 │   │   └── script_jamf.go
 │   ├── script/         # buddyscript runner and builtins
 │   └── lsp/            # buddy lsp (editor language server)
-├── editors/vscode/      # Cursor/VS Code extension (.buddy)
 ├── scripts/
 │   └── integration_test.buddy  # Broad Jamf integration harness (non-production)
 ├── examples/            # Runnable .buddy samples (see examples/README.md)

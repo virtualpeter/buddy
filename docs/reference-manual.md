@@ -230,7 +230,7 @@ Full howto (local VSIX build, install into Cursor or VS Code, settings): **[Edit
 
 ```sh
 buddy lsp
-make extension-package   # → editors/vscode/buddy-*.vsix (PUBLISHER=virtualpete by default)
+# VSIX: sibling checkout ../buddy-extension → make package
 ```
 
 ### Language

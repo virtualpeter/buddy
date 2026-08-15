@@ -88,6 +88,6 @@ In the IDE, open **Libraries** → **Getting started** for a short list of built
 | [API endpoints](/docs/docs/api-endpoints) | Jamf HTTP APIs buddy calls |
 | [MCP for AI tools](/docs/docs/mcp) | buddy as an MCP server (Cursor, Claude Desktop, …) |
 | [MCP tools scorecard](/docs/docs/mcp-tools) | Agent tool priority and pathfinding |
-| [Editor / LSP](/docs/docs/editor) | `buddy lsp` + VS Code/Cursor extension (build & install VSIX) |
+| [Editor / LSP](/docs/docs/editor) | `buddy lsp`; VSIX is the sibling `buddy-extension` checkout |
 | [Examples index](/docs/examples/README.md) | Runnable `.buddy` samples |
 | [Script IDE](/ide) | Single-buffer runner (open/save, args, trace, Libraries) |

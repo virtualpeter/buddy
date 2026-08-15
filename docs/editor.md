@@ -2,8 +2,8 @@
 
 Buddy scripts use the **`.buddy`** file extension. Editor support is two pieces:
 
-1. **`buddy lsp`** — language server over stdio (diagnostics, completions, hover, signature help)
-2. **BuddyScript** extension under [`editors/vscode`](../editors/vscode) — syntax highlighting + LSP client for VS Code and Cursor
+1. **`buddy lsp`** — language server over stdio (diagnostics, completions, hover, signature help). Lives in this repo.
+2. **BuddyScript** extension — syntax highlighting + LSP client for VS Code and Cursor. Lives in the sibling repo `buddy-extension` (next to this repo): [virtualpeter/buddy-extension](https://github.com/virtualpeter/buddy-extension).
 
 `load("stdlib/<name>.buddy", …)` is reserved (no modules yet). `load("re", …)` is the shipped module.
 
@@ -11,7 +11,7 @@ Buddy scripts use the **`.buddy`** file extension. Editor support is two pieces:
 
 | Feature | Source |
 |---------|--------|
-| Syntax highlighting | TextMate grammar in the extension |
+| Syntax highlighting | TextMate grammar in buddy-extension |
 | Parse / undefined-name diagnostics | `buddy lsp` |
 | Completions, hover, signature help | `buddy lsp` (same catalog as `buddy help builtins`) |
 | `load()` module checks | `buddy lsp` |
@@ -20,7 +20,7 @@ The language server is usually started by the extension, not by hand. See `buddy
 
 ## Prerequisites
 
-1. Build and install buddy so `buddy lsp` works:
+Build and install buddy so `buddy lsp` works:
 
 ```sh
 make buddy
@@ -28,53 +28,23 @@ make install    # optional: puts buddy on PATH via ~/go/bin
 buddy lsp       # should wait on stdin (Ctrl-C to quit) — confirms the command exists
 ```
 
-2. Node.js + npm (for packaging the extension).
+The extension execs `buddy` (or `buddy.path`) and does not embed this binary.
 
-## Build the VSIX (local)
+## Build and install the VSIX
 
-From the repo root:
-
-```sh
-make extension-package
-# → editors/vscode/buddy-0.1.1.vsix
-# extension id: virtualpete.buddy  (PUBLISHER defaults to virtualpete)
-```
-
-Or from the extension folder:
+The extension is not packaged from this repo. From the sibling folder:
 
 ```sh
-cd editors/vscode
-npm install
-npm run package
-# PUBLISHER=otherorg npm run package   # optional alternate publisher id
+cd ../buddy-extension
+make                 # → buddy-0.1.1.vsix
+# make package PUBLISHER=otherorg
+cursor --install-extension buddy-0.1.1.vsix
+# or: code --install-extension buddy-0.1.1.vsix
 ```
 
-The package script bundles the extension with esbuild (including `vscode-languageclient`) and runs `vsce package`. The VSIX lands next to `package.json` as `buddy-<version>.vsix`.
-
-## Install into Cursor
-
-**CLI** (from the repo root, adjust the version if needed):
-
-```sh
-cursor --install-extension editors/vscode/buddy-0.1.1.vsix
-```
-
-**UI:**
-
-1. Open Cursor
-2. Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) → **Extensions: Install from VSIX…**
-3. Choose `editors/vscode/buddy-0.1.1.vsix`
-4. Reload the window if prompted
+Or Command Palette → **Extensions: Install from VSIX…**
 
 Open a `.buddy` file — status bar language should show **BuddyScript**. Completions/hover require a working `buddy` on `PATH` (or set `buddy.path` below).
-
-## Install into VS Code
-
-```sh
-code --install-extension editors/vscode/buddy-0.1.1.vsix
-```
-
-Or Command Palette → **Extensions: Install from VSIX…**, same as Cursor.
 
 ## Settings
 
@@ -102,21 +72,13 @@ Example (User Settings JSON) when buddy is not on `PATH`:
 
 If nothing happens, set `buddy.trace.server` to `verbose` and check the **Output** / **Buddy Language Server** channel; confirm `buddy.path` points at a binary that includes `lsp`.
 
-## Extension development (optional)
+## Extension development
 
-Without packaging a VSIX:
-
-```sh
-cd editors/vscode
-npm install
-npm run compile
-```
-
-Open the `editors/vscode` folder in VS Code or Cursor and press **F5** to launch an Extension Development Host.
+Open `../buddy-extension` in VS Code or Cursor, run `make compile`, and press **F5**.
 
 ## Related
 
 - `buddy help lsp` — CLI notes for the language server
 - [Reference manual](reference-manual.md) — scripting overview
 - [Getting started](index.md) — install buddy and connect to Jamf
-- Repo folder: [`editors/vscode/README.md`](../editors/vscode/README.md)
+- Extension: [buddy-extension](https://github.com/virtualpeter/buddy-extension) (sibling folder `../buddy-extension`)
