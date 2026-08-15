@@ -33,11 +33,28 @@ New install: `make buddy` then [`buddy setup basic-setup`](docs/index.md). Built
 make buddy
 ```
 
-The binary is built to `./buddy`.
+The binary is built to `./buddy` (`CGO_ENABLED=0`). On macOS that binary stores secrets in Keychain via `security(1)` under service `buddy` (writes use `security -i` so the secret is not on argv). Linux/Windows use the file store. See [docs/auth.md](docs/auth.md).
+
+`security(1)` is rebuild-stable and needs no CGO, but Keychain ACLs attach to `/usr/bin/security`, not to buddy. Any process running as you can read those items the same way. The **signed release** calls Security.framework instead so the ACL is the creating app: only a binary signed with the same Developer ID and identifier can read secrets without a prompt. Rebuilds and upgrades keep working because the designated requirement is the Team ID, not the binary hash (ad-hoc / unsigned `go build` output would prompt on every rebuild — that is why this path requires a stable Developer ID).
+
+The signed binary uses a **different Keychain service** (`buddy-signed`) so it never shares items or ACLs with the CLI store. Development can keep using `./buddy`; production uses `./buddy-signed` after `cred set secret` (or migrate) against that binary.
 
 ```sh
-make clean    # remove built binary
-make help     # show all targets
+BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make buddy-signed
+```
+
+| Target | Binary | Keychain | Notes |
+|--------|--------|----------|-------|
+| `make buddy` | `./buddy` | service `buddy` via `security(1)` | Default; no CGO; existing items keep working |
+| `make buddy-signed` | `./buddy-signed` | service `buddy-signed` via Security.framework | Requires `BUDDY_CODESIGN_IDENTITY`; identifier `dev.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) must stay stable; re-store secrets with `./buddy-signed cred set secret` |
+
+`make buddy-signed` fails if the identity is missing, the signature is ad-hoc, or TeamIdentifier is unset. You can keep both binaries; each only sees its own service, so a secret stored with one is invisible to the other until you store it again.
+
+```sh
+make test         # default store (security CLI on macOS)
+make test-signed  # Darwin: compile/test Security.framework backend (no codesign)
+make clean        # remove built binaries
+make help         # show all targets
 ```
 
 ## Configuration
@@ -83,7 +100,8 @@ auths:
 
 | Platform | Default store | Override |
 |----------|---------------|----------|
-| macOS | Keychain (service `buddy`) | `BUDDY_SECRET_STORE=keychain` |
+| macOS (`make buddy`) | Keychain service `buddy` via `security(1)` | `BUDDY_SECRET_STORE=keychain` |
+| macOS (`make buddy-signed`) | Keychain service `buddy-signed` via Security.framework | `BUDDY_SECRET_STORE=keychain` (re-store secrets; items do not overlap) |
 | Linux | `~/.config/buddy/secrets/<auth>.json` (mode 0600) | `BUDDY_SECRET_STORE=file` or `pass` |
 | Windows | `%APPDATA%\buddy\secrets\<auth>.json` | `BUDDY_SECRET_STORE=file` |
 

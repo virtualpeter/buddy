@@ -2,9 +2,12 @@
 # Go compiler
 GO := go
 GOFLAGS := -v -buildvcs=false
-# Buddy does not need CGO (Keychain uses security(1)). Override with CGO_ENABLED=1 if needed.
+# Default builds are CGO-free (Keychain uses security(1)).
+# make buddy-signed is Darwin-only: CGO + Security.framework + Developer ID.
 CGO_ENABLED ?= 0
 export CGO_ENABLED
+# Signed release: codesign identity is required. Identifier must stay stable across releases.
+BUDDY_CODESIGN_IDENTIFIER ?= virtualpete.buddy.cli
 
 BUILDTARGET := buddy
 
@@ -44,6 +47,7 @@ docfs/content/README.embedded: gendocs $(DOC_SOURCES) scripts/sync-docfs.sh
 #   nolsp   — omit buddy lsp (small savings; starlark stays via script)
 # Example: make buddy TAGS=noserve,nomcp
 TAGS ?=
+comma := ,
 ifneq ($(TAGS),)
 GO_TAGS := -tags '$(TAGS)'
 else
@@ -62,6 +66,22 @@ buddy-lite: sync-docfs
 	@echo "Building buddy-lite (version $(BUDDY_VERSION), tags=noserve,nomcp,nolsp, CGO_ENABLED=$(CGO_ENABLED))..."
 	$(GO) build $(GOFLAGS) -tags 'noserve,nomcp,nolsp' -ldflags "-X main.Version=$(BUDDY_VERSION)" -o buddy-lite ./cmd/buddy
 	@ls -lh buddy-lite
+
+# Darwin release binary: Security.framework Keychain (service buddy-signed).
+# Requires BUDDY_CODESIGN_IDENTITY (Developer ID Application). Does not clobber ./buddy.
+.PHONY: buddy-signed
+buddy-signed: sync-docfs
+	@test "$$(uname -s)" = Darwin || { echo "make buddy-signed is macOS-only"; exit 1; }
+	@test -n "$(BUDDY_CODESIGN_IDENTITY)" || { echo "BUDDY_CODESIGN_IDENTITY is required (Developer ID Application)"; exit 1; }
+	@echo "Building buddy-signed (version $(BUDDY_VERSION)$(if $(TAGS), tags=secitem,$(TAGS), tags=secitem), CGO_ENABLED=1)..."
+	CGO_ENABLED=1 $(GO) build $(GOFLAGS) -tags 'secitem$(if $(TAGS),$(comma)$(TAGS))' -ldflags "-X main.Version=$(BUDDY_VERSION)" -o buddy-signed ./cmd/buddy
+	codesign --force --sign "$(BUDDY_CODESIGN_IDENTITY)" --identifier "$(BUDDY_CODESIGN_IDENTIFIER)" buddy-signed
+	@info=$$(codesign -dv --verbose=2 buddy-signed 2>&1); \
+	printf '%s\n' "$$info"; \
+	case "$$info" in *Signature=adhoc*) echo "buddy-signed: ad-hoc signature rejected; use a Developer ID"; exit 1;; esac; \
+	case "$$info" in *TeamIdentifier=not\ set*) echo "buddy-signed: TeamIdentifier not set"; exit 1;; esac; \
+	echo "$$info" | grep -E 'TeamIdentifier=[A-Z0-9]+' >/dev/null || { echo "buddy-signed: missing TeamIdentifier"; exit 1; }
+	@ls -lh buddy-signed
 
 # Cross-compile Linux amd64 (pure Go; no CGO).
 .PHONY: buddy-linux
@@ -87,10 +107,18 @@ install: $(BUILDTARGET)
 	cp $(BUILDTARGET) ~/go/bin/$(BUILDTARGET)
 .PHONY: install
 
-# Run unit tests
+# Run unit tests (default Keychain: security(1) on Darwin, CGO off).
 test: sync-docfs
 	$(GO) test -v ./...
 .PHONY: test
+
+# Compile and test the Security.framework Keychain backend (-tags secitem).
+# Darwin-only; does not codesign (unit tests do not need a Developer ID).
+.PHONY: test-signed
+test-signed: sync-docfs
+	@test "$$(uname -s)" = Darwin || { echo "make test-signed is macOS-only (Security.framework)"; exit 1; }
+	@echo "Testing secitem Keychain backend (CGO_ENABLED=1, tags=secitem$(if $(TAGS),$(comma)$(TAGS)))..."
+	CGO_ENABLED=1 $(GO) test -v -tags 'secitem$(if $(TAGS),$(comma)$(TAGS))' ./...
 
 # Run integration tests (requires non-production Jamf + buddy-test-source-profile; pin --tenant/--user)
 integration-test: $(BUILDTARGET)
@@ -118,7 +146,7 @@ docs-serve: $(BUILDTARGET)
 # Clean all built executables
 clean:
 	@echo "Cleaning executables..."
-	@rm -f $(BUILDTARGET) buddy-lite buddy-linux-amd64 buddy-windows-amd64.exe
+	@rm -f $(BUILDTARGET) buddy-signed buddy-lite buddy-linux-amd64 buddy-windows-amd64.exe
 .PHONY: clean
 
 # Package Cursor/VS Code extension VSIX (PUBLISHER=virtualpete by default)
@@ -132,6 +160,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  $(BUILDTARGET)   - Sync embedded docs + build $(BUILDTARGET) CLI"
+	@echo "  buddy-signed - Darwin release: -tags secitem + Developer ID → ./buddy-signed"
 	@echo "  buddy-lite - Build with TAGS=noserve,nomcp,nolsp → ./buddy-lite"
 	@echo "  buddy-linux - Cross-compile linux/amd64 → ./buddy-linux-amd64"
 	@echo "  buddy-windows - Cross-compile windows/amd64 → ./buddy-windows-amd64.exe"
@@ -139,7 +168,8 @@ help:
 	@echo "  sync-docfs - Copy docs/AGENTS/examples/rules into docfs/content for go:embed"
 	@echo "  sync-platform-schema - Refresh vendored Jamf Platform API OpenAPI specs"
 	@echo "  install   - Install $(BUILDTARGET) CLI to ~/go/bin/"
-	@echo "  test      - Run unit tests"
+	@echo "  test      - Run unit tests (default Keychain / CGO off)"
+	@echo "  test-signed - Darwin: unit tests with -tags secitem (Security.framework, CGO)"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"
 	@echo "  integration-test-acs7 - ACS profile id=7 same-tenant mutate/restore suite"
 	@echo "  scan-acs-profiles - Read-only audit: profiles needing ACS hydrate/bind handling"
@@ -150,4 +180,5 @@ help:
 	@echo ""
 	@echo "Build tags (TAGS=…): noserve, nomcp, nolsp — omit optional features"
 	@echo "CGO_ENABLED=$(CGO_ENABLED) by default (set CGO_ENABLED=1 to override)"
+	@echo "buddy-signed: BUDDY_CODESIGN_IDENTITY required; BUDDY_CODESIGN_IDENTIFIER=$(BUDDY_CODESIGN_IDENTIFIER)"
 .PHONY: help
