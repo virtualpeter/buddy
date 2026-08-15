@@ -135,6 +135,23 @@ func TestCatalogHasPolicies(t *testing.T) {
 	}
 }
 
+func TestHoverMarkdownMatchesFunctionIndexCard(t *testing.T) {
+	md := hoverMarkdown(Symbol{Name: "policy_xml", Kind: "builtin"})
+	for _, want := range []string{
+		"**policy_xml**(",
+		"Fetch the raw Classic policy XML document.",
+		"**Returns:**",
+		"**Params:**",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("missing %q in:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "```starlark") {
+		t.Fatalf("builtin hover should match the Function index card, not a code fence:\n%s", md)
+	}
+}
+
 func TestWordAt(t *testing.T) {
 	prefix, start := wordAt("policies()", 0, 3)
 	if prefix != "pol" || start != 0 {

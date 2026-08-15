@@ -276,3 +276,51 @@ func FormatBuiltinHelp(f LibraryFunc) string {
 	}
 	return b.String()
 }
+
+// FormatBuiltinHoverMarkdown renders the Function index card as markdown for LSP hover.
+func FormatBuiltinHoverMarkdown(f LibraryFunc) string {
+	var b strings.Builder
+	b.WriteString(formatSignatureMarkdown(f.Name, f.Signature))
+	if f.Summary != "" {
+		b.WriteString("\n\n")
+		b.WriteString(f.Summary)
+	}
+	ret := displayReturns(f.Returns)
+	if ret != "" {
+		b.WriteString("\n\n**Returns:** ")
+		b.WriteString(ret)
+	}
+	if strings.TrimSpace(f.Params) != "" {
+		items := splitParamItems(f.Params)
+		b.WriteString("\n\n**Params:**")
+		if len(items) == 1 {
+			b.WriteString(" ")
+			b.WriteString(formatParamItemMarkdown(items[0]))
+		} else {
+			b.WriteByte('\n')
+			for _, it := range items {
+				b.WriteString("- ")
+				b.WriteString(formatParamItemMarkdown(it))
+				b.WriteByte('\n')
+			}
+		}
+	}
+	if strings.TrimSpace(f.Notes) != "" {
+		b.WriteString("\n\n**Notes:** ")
+		b.WriteString(strings.TrimSpace(f.Notes))
+	}
+	return strings.TrimSpace(b.String()) + "\n"
+}
+
+func formatSignatureMarkdown(name, sig string) string {
+	bold := "**" + name + "**"
+	sig = strings.TrimSpace(sig)
+	if sig == "" {
+		return bold
+	}
+	token := name + "("
+	if !strings.Contains(sig, token) {
+		return bold + " `" + sig + "`"
+	}
+	return strings.ReplaceAll(sig, token, bold+"(")
+}

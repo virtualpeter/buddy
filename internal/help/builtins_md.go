@@ -365,6 +365,20 @@ func formatParamItemHTML(s string) string {
 	return "<code>" + htmlEscapeText(key) + "</code> — " + htmlEscapeText(rest)
 }
 
+func formatParamItemMarkdown(s string) string {
+	s = strings.TrimSpace(s)
+	key, rest, ok := strings.Cut(s, ":")
+	if !ok || !looksLikeParamKeyPrefix(key+":") {
+		return s
+	}
+	key = strings.TrimSpace(key)
+	rest = strings.TrimSpace(rest)
+	if rest == "" {
+		return "`" + key + "`"
+	}
+	return "`" + key + "` — " + rest
+}
+
 func displayReturns(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "value:")

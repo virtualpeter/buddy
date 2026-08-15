@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"buddy/internal/help"
+
 	"go.starlark.net/resolve"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
@@ -257,6 +259,11 @@ func callAt(src string, line, character int) (fnName string, argIndex int, ok bo
 }
 
 func hoverMarkdown(sym Symbol) string {
+	if sym.Kind == "builtin" {
+		if fn, ok := help.LookupBuiltin(sym.Name); ok {
+			return help.FormatBuiltinHoverMarkdown(fn)
+		}
+	}
 	var b strings.Builder
 	b.WriteString("```starlark\n")
 	if sym.Signature != "" {

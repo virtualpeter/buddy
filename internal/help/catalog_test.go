@@ -173,3 +173,28 @@ func TestChangeBatchInsertStub(t *testing.T) {
 		t.Fatalf("insert = %q", fn.Insert)
 	}
 }
+
+func TestFormatBuiltinHoverMarkdown(t *testing.T) {
+	fn, ok := LookupBuiltin("policy_xml")
+	if !ok {
+		t.Fatal("missing policy_xml")
+	}
+	md := FormatBuiltinHoverMarkdown(fn)
+	for _, want := range []string{
+		"**policy_xml**(id, tenant?, surface?, auth?)",
+		"Fetch the raw Classic policy XML document.",
+		"**Returns:** str (raw policy XML)",
+		"**Params:**",
+		"`id` — int/str (policy ID)",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("missing %q in:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "```") {
+		t.Fatalf("hover should not fence the signature:\n%s", md)
+	}
+	if strings.Contains(md, "value: str") {
+		t.Fatalf("returns still has value: prefix:\n%s", md)
+	}
+}
