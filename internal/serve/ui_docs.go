@@ -38,7 +38,7 @@ func serveDocsHTML(w http.ResponseWriter, r *http.Request, pages []DocPage, md g
 		http.NotFound(w, r)
 		return
 	}
-	src := rewriteDocLinks(p.Markdown, pages)
+	src := prepareDocMarkdown(p.Markdown, pages, p.ID)
 	htmlBody, err := renderMarkdown(md, src)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -275,6 +275,9 @@ main :not(pre) > code {
   border-radius: 3px;
   white-space: break-spaces;
 }
+main a > code, main a code {
+  color: var(--accent);
+}
 main table {
   width: 100%;
   max-width: 52rem;
@@ -369,7 +372,10 @@ pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow
   </script>
   <main>
     {{if eq .ActiveID "builtins"}}
-    <input class="page-filter" id="pageFilter" type="search" placeholder="Filter builtins on this page…" autocomplete="off">
+    <input class="page-filter" id="pageFilter" type="search" data-filter="h3" placeholder="Filter builtins on this page…" autocomplete="off">
+    {{end}}
+    {{if eq .ActiveID "cli"}}
+    <input class="page-filter" id="pageFilter" type="search" data-filter="h2" placeholder="Filter commands on this page…" autocomplete="off">
     {{end}}
     {{.Body}}
   </main>
@@ -414,6 +420,32 @@ if (pageFilter) {
   pageFilter.addEventListener('input', () => {
     const q = (pageFilter.value || '').trim().toLowerCase();
     const els = [...main.children].filter(el => el !== pageFilter);
+    const mode = (pageFilter.getAttribute('data-filter') || 'h3').toUpperCase();
+    if (mode === 'H2') {
+      for (let i = 0; i < els.length; i++) {
+        if (els[i].tagName !== 'H2' || !els[i].id) continue;
+        let j = i + 1;
+        let hit = (els[i].id + ' ' + els[i].textContent).toLowerCase().includes(q);
+        while (j < els.length && els[j].tagName !== 'H2') {
+          if (!q || (els[j].id && (els[j].id + ' ' + els[j].textContent).toLowerCase().includes(q))) {
+            if (els[j].id) hit = hit || !q || (els[j].id + ' ' + els[j].textContent).toLowerCase().includes(q);
+          }
+          j++;
+        }
+        const show = !q || hit;
+        setHidden(els[i], !show);
+        const tocSec = tocLinks.find(a => a.getAttribute('data-toc-id') === els[i].id);
+        if (tocSec) setHidden(tocSec, !show);
+        for (let k = i + 1; k < j; k++) {
+          const childHit = !q || ((els[k].id || '') + ' ' + els[k].textContent).toLowerCase().includes(q);
+          const showChild = show && (els[k].tagName !== 'H3' || childHit || !q);
+          setHidden(els[k], !showChild);
+          const tocChild = tocLinks.find(a => a.getAttribute('data-toc-id') === els[k].id);
+          if (tocChild) setHidden(tocChild, !showChild);
+        }
+      }
+      return;
+    }
     // Function blocks
     for (let i = 0; i < els.length; i++) {
       const el = els[i];

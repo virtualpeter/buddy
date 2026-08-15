@@ -273,6 +273,7 @@ func loadHumanFromDisk(docsRoot string) ([]Page, error) {
 		pages = append(pages, pageFromCurated(e, string(b), path))
 	}
 	pages = append(pages, builtinsPage())
+	pages = insertBeforeSection(pages, "Guides", cliPage())
 	for _, p := range loadExamplesDir(filepath.Join(repoRoot, "examples")) {
 		if humanExampleID(p.ID) {
 			p.Section = "Examples"
@@ -299,6 +300,7 @@ func loadHumanFromEmbedded() ([]Page, error) {
 		pages = append(pages, pageFromCurated(e, string(body), "embedded:"+path))
 	}
 	pages = append(pages, builtinsPage())
+	pages = insertBeforeSection(pages, "Guides", cliPage())
 	ents, err := fs.ReadDir(docfs.Content, "content/examples")
 	if err == nil {
 		for _, ent := range ents {
@@ -351,6 +353,7 @@ func loadAgentFromDisk(docsRoot string) ([]Page, error) {
 	}
 
 	pages = append(pages, builtinsPage())
+	pages = append(pages, cliPage())
 	pages = append(pages, loadExamplesDir(filepath.Join(repoRoot, "examples"))...)
 	pages = append(pages, helpPages()...)
 	return pages, nil
@@ -385,6 +388,7 @@ func loadAgentFromEmbedded() ([]Page, error) {
 	}
 
 	pages = append(pages, builtinsPage())
+	pages = append(pages, cliPage())
 
 	ents, err := fs.ReadDir(docfs.Content, "content/examples")
 	if err == nil {
@@ -408,11 +412,11 @@ func loadAgentFromEmbedded() ([]Page, error) {
 
 func builtinsPage() Page {
 	return Page{
-		ID:      "builtins",
-		Title:   "Function index",
-		Section: "BuddyScript",
+		ID:       "builtins",
+		Title:    "Function index",
+		Section:  "BuddyScript",
 		Markdown: help.BuiltinsMarkdown(),
-		Source:  "builtin:help.BuiltinsMarkdown",
+		Source:   "builtin:help.BuiltinsMarkdown",
 		Keywords: []string{
 			"policy", "policies", "smart_group", "static_group", "profile", "package",
 			"script", "category", "computer", "mdm", "role", "client",
@@ -420,6 +424,41 @@ func builtinsPage() Page {
 			"builtin", "builtins", "starlark", "buddyscript", "function", "index",
 		},
 	}
+}
+
+func cliPage() Page {
+	return Page{
+		ID:       "cli",
+		Title:    "Command index",
+		Section:  "CLI",
+		Markdown: help.CLIMarkdown(),
+		Source:   "builtin:help.CLIMarkdown",
+		Keywords: []string{
+			"cli", "command", "commands", "help", "usage", "flags",
+			"policy", "group", "profile", "package", "computer", "auth", "cred",
+			"setup", "serve", "mcp", "lsp",
+		},
+	}
+}
+
+func insertBeforeSection(pages []Page, section string, extra Page) []Page {
+	out := make([]Page, 0, len(pages)+1)
+	inserted := false
+	for _, p := range pages {
+		sec := p.Section
+		if sec == "" {
+			sec = "Docs"
+		}
+		if !inserted && sec == section {
+			out = append(out, extra)
+			inserted = true
+		}
+		out = append(out, p)
+	}
+	if !inserted {
+		out = append(out, extra)
+	}
+	return out
 }
 
 func helpPages() []Page {

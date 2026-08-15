@@ -151,7 +151,7 @@ buddy help [command] [subcommand]
 
 ### CLI help
 
-The complete, version-accurate command reference is embedded in the binary:
+The complete, version-accurate command reference is [Command index](/docs/cli) in the docs UI (same text as the binary):
 
 ```sh
 buddy help
@@ -241,6 +241,7 @@ See the **BuddyScript** docs section:
 - [Syntax](buddyscript-syntax.md) — Starlark subset + [language spec](https://github.com/bazelbuild/starlark/blob/master/spec.md)
 - [Stdlib](buddyscript-stdlib.md) — reserved `load("stdlib/….buddy", …)` path (empty; recipes in `examples/`)
 - [Function index](/docs/builtins) — every builtin (`buddy help builtins`)
+- [Command index](/docs/cli) — every CLI command (`buddy help` / `buddy help <command>`)
 
 Compact terminal cheat sheet:
 

@@ -5,6 +5,9 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"sync"
+
+	"buddy/internal/help"
 
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/yuin/goldmark"
@@ -18,6 +21,254 @@ var headingRE = regexp.MustCompile(`(?m)^(#{1,3})\s+(.+)$`)
 var htmlHeadingRE = regexp.MustCompile(`(?is)<h([23])\s+[^>]*id="([^"]+)"[^>]*>(.*?)</h[23]>`)
 var mdLinkRE = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 var builtinsFnHeadingRE = regexp.MustCompile(`(?i)<h3\s+[^>]*id="([a-z_][a-z0-9_]*)"[^>]*>`)
+var builtinIdentRE = regexp.MustCompile(`^([a-z_][a-z0-9_]*)`)
+
+var (
+	builtinIndexOnce sync.Once
+	builtinNameSet   map[string]bool
+	builtinNameOrder []string
+)
+
+func builtinNameIndex() (map[string]bool, []string) {
+	builtinIndexOnce.Do(func() {
+		_, flat := help.BuiltinsLibrary()
+		builtinNameSet = make(map[string]bool, len(flat))
+		builtinNameOrder = make([]string, 0, len(flat))
+		for _, f := range flat {
+			if f.Name == "" || builtinNameSet[f.Name] {
+				continue
+			}
+			builtinNameSet[f.Name] = true
+			builtinNameOrder = append(builtinNameOrder, f.Name)
+		}
+	})
+	return builtinNameSet, builtinNameOrder
+}
+
+// prepareDocMarkdown rewrites in-repo links and turns BuddyScript names into
+// function-index anchors (skip the index page itself).
+func prepareDocMarkdown(markdown string, pages []DocPage, pageID string) string {
+	src := rewriteDocLinks(markdown, pages)
+	if pageID == "builtins" || pageID == "cli" {
+		return src
+	}
+	return linkCLICodeSpans(linkBuiltinCodeSpans(src))
+}
+
+// linkBuiltinCodeSpans wraps inline `name` / `name(...)` / `name*` spans that
+// match a known builtin with a markdown link to /docs/builtins#name.
+// Fenced code blocks and already-linked spans are left alone.
+func linkBuiltinCodeSpans(markdown string) string {
+	names, order := builtinNameIndex()
+	var b strings.Builder
+	b.Grow(len(markdown) + 64)
+	inFence := false
+	i := 0
+	for i < len(markdown) {
+		if strings.HasPrefix(markdown[i:], "```") {
+			inFence = !inFence
+			end := strings.IndexByte(markdown[i:], '\n')
+			if end < 0 {
+				b.WriteString(markdown[i:])
+				return b.String()
+			}
+			b.WriteString(markdown[i : i+end+1])
+			i += end + 1
+			continue
+		}
+		if inFence {
+			end := strings.IndexByte(markdown[i:], '\n')
+			if end < 0 {
+				b.WriteString(markdown[i:])
+				return b.String()
+			}
+			b.WriteString(markdown[i : i+end+1])
+			i += end + 1
+			continue
+		}
+		if markdown[i] != '`' {
+			b.WriteByte(markdown[i])
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(markdown) && markdown[j] != '`' && markdown[j] != '\n' {
+			j++
+		}
+		if j >= len(markdown) || markdown[j] != '`' {
+			b.WriteByte(markdown[i])
+			i++
+			continue
+		}
+		// Already [`code`](url) — the opening [ was written on a prior step.
+		if i > 0 && markdown[i-1] == '[' && j+2 < len(markdown) && markdown[j+1] == ']' && markdown[j+2] == '(' {
+			k := j + 3
+			for k < len(markdown) && markdown[k] != ')' {
+				k++
+			}
+			if k < len(markdown) {
+				b.WriteString(markdown[i : k+1])
+				i = k + 1
+				continue
+			}
+		}
+		code := markdown[i+1 : j]
+		if anchor := resolveBuiltinAnchor(code, names, order); anchor != "" {
+			b.WriteString("[`")
+			b.WriteString(code)
+			b.WriteString("`](/docs/builtins#")
+			b.WriteString(anchor)
+			b.WriteString(")")
+			i = j + 1
+			continue
+		}
+		b.WriteString(markdown[i : j+1])
+		i = j + 1
+	}
+	return b.String()
+}
+
+func resolveBuiltinAnchor(code string, names map[string]bool, order []string) string {
+	s := strings.TrimSpace(code)
+	m := builtinIdentRE.FindStringSubmatch(s)
+	if m == nil {
+		return ""
+	}
+	name := m[1]
+	rest := s[len(name):]
+	if names[name] {
+		if rest == "" || strings.HasPrefix(rest, "(") || strings.HasPrefix(rest, "*") {
+			return name
+		}
+		return ""
+	}
+	if !strings.Contains(s, "*") {
+		return ""
+	}
+	prefix := strings.TrimRight(name, "_")
+	if prefix == "" {
+		return ""
+	}
+	for _, n := range order {
+		if n == prefix || strings.HasPrefix(n, prefix+"_") || strings.HasPrefix(n, prefix) {
+			return n
+		}
+	}
+	return ""
+}
+
+var (
+	cliIndexOnce sync.Once
+	cliAnchorSet map[string]bool
+)
+
+func cliAnchors() map[string]bool {
+	cliIndexOnce.Do(func() {
+		cliAnchorSet = help.CommandAnchorIDs()
+	})
+	return cliAnchorSet
+}
+
+// linkCLICodeSpans wraps `buddy <command> …` spans with Command index anchors.
+func linkCLICodeSpans(markdown string) string {
+	ids := cliAnchors()
+	var b strings.Builder
+	b.Grow(len(markdown) + 64)
+	inFence := false
+	i := 0
+	for i < len(markdown) {
+		if strings.HasPrefix(markdown[i:], "```") {
+			inFence = !inFence
+			end := strings.IndexByte(markdown[i:], '\n')
+			if end < 0 {
+				b.WriteString(markdown[i:])
+				return b.String()
+			}
+			b.WriteString(markdown[i : i+end+1])
+			i += end + 1
+			continue
+		}
+		if inFence {
+			end := strings.IndexByte(markdown[i:], '\n')
+			if end < 0 {
+				b.WriteString(markdown[i:])
+				return b.String()
+			}
+			b.WriteString(markdown[i : i+end+1])
+			i += end + 1
+			continue
+		}
+		if markdown[i] != '`' {
+			b.WriteByte(markdown[i])
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(markdown) && markdown[j] != '`' && markdown[j] != '\n' {
+			j++
+		}
+		if j >= len(markdown) || markdown[j] != '`' {
+			b.WriteByte(markdown[i])
+			i++
+			continue
+		}
+		if i > 0 && markdown[i-1] == '[' && j+2 < len(markdown) && markdown[j+1] == ']' && markdown[j+2] == '(' {
+			k := j + 3
+			for k < len(markdown) && markdown[k] != ')' {
+				k++
+			}
+			if k < len(markdown) {
+				b.WriteString(markdown[i : k+1])
+				i = k + 1
+				continue
+			}
+		}
+		code := markdown[i+1 : j]
+		if anchor := resolveCLIAnchor(code, ids); anchor != "" {
+			b.WriteString("[`")
+			b.WriteString(code)
+			b.WriteString("`](/docs/cli#")
+			b.WriteString(anchor)
+			b.WriteString(")")
+			i = j + 1
+			continue
+		}
+		b.WriteString(markdown[i : j+1])
+		i = j + 1
+	}
+	return b.String()
+}
+
+func resolveCLIAnchor(code string, ids map[string]bool) string {
+	s := strings.TrimSpace(code)
+	if !strings.HasPrefix(s, "buddy ") && s != "buddy" {
+		return ""
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(s, "buddy"))
+	var parts []string
+	for _, tok := range strings.Fields(rest) {
+		if strings.HasPrefix(tok, "-") || strings.HasPrefix(tok, "<") || tok == "…" || tok == "..." {
+			break
+		}
+		if strings.ContainsAny(tok, "|/") {
+			break
+		}
+		parts = append(parts, tok)
+		if len(parts) == 2 {
+			break
+		}
+	}
+	if len(parts) == 2 {
+		id := parts[0] + "-" + parts[1]
+		if ids[id] {
+			return id
+		}
+	}
+	if len(parts) >= 1 && ids[parts[0]] {
+		return parts[0]
+	}
+	return ""
+}
 
 type tocEntry struct {
 	Level int
@@ -219,17 +470,26 @@ func searchPages(pages []DocPage, q string, limit int) []searchHit {
 	}
 	var hits []searchHit
 	for _, p := range pages {
-		if p.ID == "builtins" {
+		if p.ID == "builtins" || p.ID == "cli" {
+			kind := "builtin"
+			if p.ID == "cli" {
+				kind = "command"
+			}
 			fnHits := 0
-			for _, m := range builtinsFnHeadingRE.FindAllStringSubmatch(p.Markdown, -1) {
-				name := m[1]
-				if !strings.Contains(strings.ToLower(name), q) {
+			for _, m := range htmlHeadingRE.FindAllStringSubmatch(p.Markdown, -1) {
+				name := m[2]
+				text := strings.TrimSpace(stripHTMLTags(m[3]))
+				if !strings.Contains(strings.ToLower(name+" "+text), q) {
 					continue
+				}
+				title := text
+				if title == "" {
+					title = name
 				}
 				hits = append(hits, searchHit{
 					PageID:   p.ID,
-					Title:    name,
-					Snippet:  "builtin · " + name,
+					Title:    title,
+					Snippet:  kind + " · " + title,
 					Fragment: name,
 				})
 				fnHits++

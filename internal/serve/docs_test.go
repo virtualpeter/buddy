@@ -93,6 +93,72 @@ func TestDocsNavCollapsibleHTML(t *testing.T) {
 	}
 }
 
+func TestLinkBuiltinCodeSpans(t *testing.T) {
+	in := strings.Join([]string{
+		"| List | `policies(keywords=…)` / `policies(ids=True)` | `buddy policy list` |",
+		"| Mutate | `policy_set*` / `policy_put_xml` |",
+		"| Report | `ddm_*` builtins |",
+		"Note: `true` and `name=` stay plain; already [`policy`](/docs/builtins#policy).",
+		"",
+		"```python",
+		"p = policy(trigger=\"x\")",
+		"```",
+	}, "\n")
+	got := linkBuiltinCodeSpans(in)
+	for _, want := range []string{
+		"[`policies(keywords=…)`](/docs/builtins#policies)",
+		"[`policies(ids=True)`](/docs/builtins#policies)",
+		"[`policy_set*`](/docs/builtins#policy_set)",
+		"[`policy_put_xml`](/docs/builtins#policy_put_xml)",
+		"[`ddm_*`](/docs/builtins#",
+		"[`policy`](/docs/builtins#policy)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "[`true`]") || strings.Contains(got, "[`name=`]") {
+		t.Fatalf("should not link non-builtin code spans:\n%s", got)
+	}
+	if strings.Contains(got, "[`policy(trigger") {
+		t.Fatalf("should not rewrite fenced examples:\n%s", got)
+	}
+	if strings.Count(got, "[`policy`](/docs/builtins#policy)") != 1 {
+		t.Fatalf("should not double-link existing anchors:\n%s", got)
+	}
+}
+
+func TestPrepareDocMarkdownSkipsIndexPages(t *testing.T) {
+	md := "See `policies(keywords=…)` and `buddy policy list`.\n"
+	for _, id := range []string{"builtins", "cli"} {
+		got := prepareDocMarkdown(md, nil, id)
+		if strings.Contains(got, "/docs/builtins#") || strings.Contains(got, "/docs/cli#") {
+			t.Fatalf("%s should not self-link:\n%s", id, got)
+		}
+	}
+	got2 := prepareDocMarkdown(md, nil, "docs/policies")
+	if !strings.Contains(got2, "[`policies(keywords=…)`](/docs/builtins#policies)") {
+		t.Fatalf("resource pages should link builtins:\n%s", got2)
+	}
+	if !strings.Contains(got2, "[`buddy policy list`](/docs/cli#policy-list)") {
+		t.Fatalf("resource pages should link CLI commands:\n%s", got2)
+	}
+}
+
+func TestLinkCLICodeSpans(t *testing.T) {
+	in := "| List | `buddy policy list` | `buddy group list smart` | `buddy computer reboot|lock|…` |"
+	got := linkCLICodeSpans(in)
+	for _, want := range []string{
+		"[`buddy policy list`](/docs/cli#policy-list)",
+		"[`buddy group list smart`](/docs/cli#group)",
+		"[`buddy computer reboot|lock|…`](/docs/cli#computer)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
 func TestSearchPages(t *testing.T) {
 	pages := []DocPage{
 		{ID: "a", Title: "Alpha", Markdown: "hello world pagination"},
@@ -166,6 +232,9 @@ func TestLoadDocPages(t *testing.T) {
 	if pageByID(pages, "builtins") == nil {
 		t.Fatal("missing builtins")
 	}
+	if pageByID(pages, "cli") == nil {
+		t.Fatal("missing cli")
+	}
 	if pageByID(pages, "docs/change-batches") == nil {
 		t.Fatal("missing docs/change-batches")
 	}
@@ -224,7 +293,7 @@ func TestHumanDocRelativeLinksResolve(t *testing.T) {
 	linkRE := regexp.MustCompile(`\]\(([^)]+)\)`)
 	var broken []string
 	for _, p := range pages {
-		rewritten := rewriteDocLinks(p.Markdown, pages)
+		rewritten := prepareDocMarkdown(p.Markdown, pages, p.ID)
 		for _, m := range linkRE.FindAllStringSubmatch(rewritten, -1) {
 			dest := m[1]
 			if i := strings.IndexByte(dest, '#'); i >= 0 {

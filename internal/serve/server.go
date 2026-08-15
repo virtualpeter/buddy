@@ -98,7 +98,7 @@ func Run(ctx context.Context, o Options) error {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		htmlBody, err := renderMarkdown(md, p.Markdown)
+		htmlBody, err := renderMarkdown(md, prepareDocMarkdown(p.Markdown, pages, p.ID))
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

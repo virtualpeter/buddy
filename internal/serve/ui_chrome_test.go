@@ -165,6 +165,9 @@ func TestDocsTemplateHasChrome(t *testing.T) {
 	if !strings.Contains(docsTmplSrc, "buddy-serve-docs-nav") {
 		t.Fatal("docs should persist sidebar collapse state")
 	}
+	if !strings.Contains(docsTmplSrc, `eq .ActiveID "cli"`) {
+		t.Fatal("docs should offer a command-index page filter")
+	}
 	if strings.Contains(docsTmplSrc, `class="topbar"`) {
 		t.Fatal("docs should not keep sidebar topbar")
 	}

@@ -21,7 +21,7 @@ func TestLoadHumanEmbedded(t *testing.T) {
 		"docs/auth", "docs/reference-manual", "docs/change-batches", "docs/api-endpoints",
 		"docs/mcp", "docs/mcp-tools", "docs/profile-payloads", "docs/editor",
 		"docs/apps", "docs/macapps",
-		"docs/buddyscript", "docs/buddyscript-syntax", "docs/buddyscript-stdlib", "builtins",
+		"docs/buddyscript", "docs/buddyscript-syntax", "docs/buddyscript-stdlib", "builtins", "cli",
 		"examples/bump-release.buddy", "examples/change-batch-santa.buddy",
 		"examples/setup-app-classic.buddy",
 		"examples/README.md", "examples/mcp.json",
@@ -52,7 +52,7 @@ func TestLoadHumanEmbedded(t *testing.T) {
 		t.Fatal("only Platform should have a nav parent")
 	}
 	secs := NavSections(res.Pages)
-	wantSec := map[string]bool{"Start here": true, "Resources": true, "Platform": true, "BuddyScript": true, "Guides": true}
+	wantSec := map[string]bool{"Start here": true, "Resources": true, "Platform": true, "BuddyScript": true, "CLI": true, "Guides": true}
 	for s := range wantSec {
 		found := false
 		for _, got := range secs {
@@ -69,6 +69,13 @@ func TestLoadHumanEmbedded(t *testing.T) {
 	if bi == nil || bi.Title != "Function index" || bi.Section != "BuddyScript" {
 		t.Fatalf("builtins page want Function index / BuddyScript, got %+v", bi)
 	}
+	cl := ByID(res.Pages, "cli")
+	if cl == nil || cl.Title != "Command index" || cl.Section != "CLI" {
+		t.Fatalf("cli page want Command index / CLI, got %+v", cl)
+	}
+	if !strings.Contains(cl.Markdown, `id="policy"`) || !strings.Contains(cl.Markdown, `id="auth"`) {
+		t.Fatal("cli page missing command anchors")
+	}
 }
 
 func TestLoadAgentEmbedded(t *testing.T) {
@@ -79,7 +86,7 @@ func TestLoadAgentEmbedded(t *testing.T) {
 	for _, id := range []string{
 		"docs/index", "docs/policies", "docs/packages", "docs/blueprints",
 		"docs/change-batches", "docs/mcp", "docs/mcp-tools", "docs/profile-payloads", "docs/editor",
-		"docs/apps", "readme", "builtins",
+		"docs/apps", "readme", "builtins", "cli",
 		"help/root", "examples/bump-release.buddy",
 	} {
 		if ByID(res.Pages, id) == nil {
