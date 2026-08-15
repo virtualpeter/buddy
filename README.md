@@ -235,6 +235,12 @@ def main():
 
 A runnable file with the same ideas (and optional steps you can uncomment) lives at [examples/bump-release.buddy](examples/bump-release.buddy).
 
+## Acknowledgements
+
+[jamf-cli](https://github.com/Jamf-Concepts/jamf-cli) is Jamf’s official CLI. buddy started before that project was known of publicly; there is some overlap in what both tools talk to, but buddy is not an attempt to replace jamf-cli.
+
+The only use of jamf-cli in this repo is a vendored snapshot of its Platform API OpenAPI specs (`internal/buddy/platformschema/specs/`, MIT). The Platform API Gateway does not publish a single live schema the way Jamf Pro (`/api/schema`) and Classic (`/classicapi/doc/swagger.yaml`) do, and I have not found a better official source in Jamf’s documentation. When an update is needed refresh the copies with `make sync-platform-schema` and commit the result.
+
 ## License
 
 MIT License — see [LICENSE](LICENSE). Copyright © 2026 Peter Viertel.
