@@ -45,6 +45,12 @@ func TestLoadHumanEmbedded(t *testing.T) {
 			t.Errorf("page %q missing keywords", e.id)
 		}
 	}
+	if NavParent("Platform") != "Resources" {
+		t.Fatal("Platform should nest under Resources in the human docs nav")
+	}
+	if NavParent("Resources") != "" || NavParent("Guides") != "" {
+		t.Fatal("only Platform should have a nav parent")
+	}
 	secs := NavSections(res.Pages)
 	wantSec := map[string]bool{"Start here": true, "Resources": true, "Platform": true, "BuddyScript": true, "Guides": true}
 	for s := range wantSec {

@@ -63,7 +63,7 @@ In the IDE, open **Libraries** → **Getting started** for a short list of built
 | [API roles](/docs/docs/api-roles) | Pro API roles |
 | [API clients](/docs/docs/api-clients) | Pro API integrations / oauth clients |
 
-## Platform
+### Platform
 
 | Guide | What it’s for |
 |-------|----------------|

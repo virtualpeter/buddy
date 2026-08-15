@@ -1,10 +1,97 @@
 package serve
 
 import (
+	"bytes"
 	"regexp"
 	"strings"
 	"testing"
 )
+
+func TestDocsNavGroups(t *testing.T) {
+	pages := []DocPage{
+		{ID: "docs/index", Title: "Getting started", Section: "Start here"},
+		{ID: "docs/policies", Title: "Policies", Section: "Resources"},
+		{ID: "docs/packages", Title: "Packages", Section: "Resources"},
+		{ID: "docs/blueprints", Title: "Blueprints", Section: "Platform"},
+		{ID: "orphan", Title: "Orphan"},
+	}
+	got := docsNavGroups(pages)
+	if len(got) != 3 {
+		t.Fatalf("groups=%d want 3 (Platform nested): %+v", len(got), got)
+	}
+	if got[0].Name != "Start here" || len(got[0].Pages) != 1 {
+		t.Fatalf("first group %+v", got[0])
+	}
+	if got[1].Name != "Resources" || len(got[1].Pages) != 2 {
+		t.Fatalf("resources %+v", got[1])
+	}
+	if len(got[1].Children) != 1 || got[1].Children[0].Name != "Platform" || len(got[1].Children[0].Pages) != 1 {
+		t.Fatalf("Platform should nest under Resources: %+v", got[1].Children)
+	}
+	if got[1].Count() != 3 {
+		t.Fatalf("Resources count=%d want 3 (includes Platform)", got[1].Count())
+	}
+	if got[2].Name != "Docs" || got[2].Pages[0].ID != "orphan" {
+		t.Fatalf("empty section should become Docs: %+v", got[2])
+	}
+
+	applyNavOpen(got, "docs/blueprints", "Platform")
+	if !got[1].Open || !got[1].Children[0].Open {
+		t.Fatal("active Platform page should open Resources and Platform")
+	}
+}
+
+func TestDocsNavCollapsibleHTML(t *testing.T) {
+	var buf bytes.Buffer
+	resources := docsNavGroup{
+		Name:  "Resources",
+		Pages: []DocPage{{ID: "docs/policies", Title: "Policies"}},
+		Children: []docsNavGroup{{
+			Name:  "Platform",
+			Pages: []DocPage{{ID: "docs/blueprints", Title: "Blueprints"}},
+			Open:  true,
+		}},
+		Open: true,
+	}
+	err := docsTmpl.Execute(&buf, docsView{
+		Groups: []docsNavGroup{
+			{Name: "Start here", Pages: []DocPage{{ID: "docs/index", Title: "Getting started"}}, Open: true},
+			resources,
+		},
+		ActiveID:      "docs/blueprints",
+		ActiveSection: "Platform",
+		Title:         "Blueprints",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := buf.String()
+	for _, want := range []string{
+		`class="nav-group"`,
+		`data-sec="Start here"`,
+		`data-sec="Resources"`,
+		`data-sec="Platform"`,
+		`href="/docs/docs/blueprints"`,
+		`class="active"`,
+		`buddy-serve-docs-nav`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("docs HTML missing %q", want)
+		}
+	}
+	// Active section is open on first paint; unused long sections stay closed.
+	reOpen := regexp.MustCompile(`(?s)<details class="nav-group" data-sec="Resources"[^>]* open`)
+	if !reOpen.MatchString(html) {
+		t.Fatal("parent Resources group should be open when Platform is active")
+	}
+	rePlat := regexp.MustCompile(`(?s)<details class="nav-group" data-sec="Platform"[^>]* open`)
+	if !rePlat.MatchString(html) {
+		t.Fatal("active Platform group should be open")
+	}
+	if strings.Contains(html, `<div class="section">Resources</div>`) {
+		t.Fatal("flat section headings should be replaced by details summaries")
+	}
+}
 
 func TestSearchPages(t *testing.T) {
 	pages := []DocPage{

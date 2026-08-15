@@ -45,13 +45,15 @@ func serveDocsHTML(w http.ResponseWriter, r *http.Request, pages []DocPage, md g
 		return
 	}
 	toc := extractTOC(p.Markdown)
+	groups := docsNavGroups(pages)
+	applyNavOpen(groups, p.ID, pageSection(*p))
 	data := docsView{
-		Pages:    pages,
-		Sections: docpages.NavSections(pages),
-		ActiveID: p.ID,
-		Title:    p.Title,
-		Body:     template.HTML(htmlBody),
-		TOC:      toc,
+		Groups:        groups,
+		ActiveID:      p.ID,
+		ActiveSection: pageSection(*p),
+		Title:         p.Title,
+		Body:          template.HTML(htmlBody),
+		TOC:           toc,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := docsTmpl.Execute(w, data); err != nil {
@@ -60,22 +62,97 @@ func serveDocsHTML(w http.ResponseWriter, r *http.Request, pages []DocPage, md g
 }
 
 type docsView struct {
+	Groups        []docsNavGroup
+	ActiveID      string
+	ActiveSection string
+	Title         string
+	Body          template.HTML
+	TOC           []tocEntry
+}
+
+type docsNavGroup struct {
+	Name     string
 	Pages    []DocPage
-	Sections []string
-	ActiveID string
-	Title    string
-	Body     template.HTML
-	TOC      []tocEntry
+	Children []docsNavGroup
+	Open     bool
+}
+
+func (g docsNavGroup) Count() int {
+	n := len(g.Pages)
+	for _, c := range g.Children {
+		n += c.Count()
+	}
+	return n
+}
+
+func pageSection(p DocPage) string {
+	if p.Section == "" {
+		return "Docs"
+	}
+	return p.Section
+}
+
+func docsNavGroups(pages []DocPage) []docsNavGroup {
+	secs := docpages.NavSections(pages)
+	byName := make(map[string]*docsNavGroup, len(secs))
+	for _, sec := range secs {
+		byName[sec] = &docsNavGroup{Name: sec}
+	}
+	for _, p := range pages {
+		sec := pageSection(p)
+		if g := byName[sec]; g != nil {
+			g.Pages = append(g.Pages, p)
+		}
+	}
+	nested := make(map[string]bool)
+	for _, sec := range secs {
+		parent := docpages.NavParent(sec)
+		if parent == "" {
+			continue
+		}
+		child, parentG := byName[sec], byName[parent]
+		if child == nil || parentG == nil {
+			continue
+		}
+		parentG.Children = append(parentG.Children, *child)
+		nested[sec] = true
+	}
+	out := make([]docsNavGroup, 0, len(secs))
+	for _, sec := range secs {
+		if nested[sec] {
+			continue
+		}
+		out = append(out, *byName[sec])
+	}
+	return out
+}
+
+func applyNavOpen(groups []docsNavGroup, activeID, activeSec string) {
+	var walk func(*docsNavGroup)
+	walk = func(g *docsNavGroup) {
+		if g.Name == "Start here" || g.Name == activeSec {
+			g.Open = true
+		}
+		for _, p := range g.Pages {
+			if p.ID == activeID {
+				g.Open = true
+				break
+			}
+		}
+		for i := range g.Children {
+			walk(&g.Children[i])
+			if g.Children[i].Open {
+				g.Open = true
+			}
+		}
+	}
+	for i := range groups {
+		walk(&groups[i])
+	}
 }
 
 var docsTmpl = template.Must(template.New("docs").Funcs(template.FuncMap{
-	"indent": func(level int) int { return (level - 1) * 10 },
-	"sectionOf": func(p DocPage) string {
-		if p.Section == "" {
-			return "Docs"
-		}
-		return p.Section
-	},
+	"indent":       func(level int) int { return (level - 1) * 10 },
 	"chromeHead":   func() template.HTML { return template.HTML(chromeHeadTags()) },
 	"chromeHeader": func() template.HTML { return template.HTML(chromeHeader("docs", "", "", "")) },
 	"chromeToggle": func() template.HTML { return template.HTML(chromeToggleScript()) },
@@ -124,6 +201,53 @@ a:hover { text-decoration: underline; }
 .side-nav a.active { color: var(--accent); font-weight: 600; }
 .section { margin: 1.15rem 0 .35rem; font-family: var(--mono); font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .section:first-of-type { margin-top: .25rem; }
+.nav-group { margin: 0 0 .15rem; }
+.nav-group > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin: .85rem 0 .2rem;
+  padding: .15rem 0;
+  font-family: var(--mono);
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  user-select: none;
+}
+.nav-group:first-of-type > summary { margin-top: .15rem; }
+.nav-group > summary::-webkit-details-marker { display: none; }
+.nav-group > summary::before {
+  content: "";
+  width: 0; height: 0;
+  border-left: .32em solid currentColor;
+  border-top: .22em solid transparent;
+  border-bottom: .22em solid transparent;
+  opacity: .7;
+  flex-shrink: 0;
+  transition: transform .12s ease;
+}
+.nav-group[open] > summary::before { transform: rotate(90deg); }
+.nav-group[open] > summary { color: var(--accent); }
+.nav-group > a { padding-left: .85rem; }
+.nav-group .nav-group {
+  margin: .1rem 0 .2rem;
+}
+.nav-group .nav-group > summary {
+  margin-top: .4rem;
+  font-size: .68rem;
+}
+.nav-group .nav-group > a { padding-left: 1.15rem; }
+.nav-count {
+  margin-left: auto;
+  font-size: .65rem;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 500;
+  opacity: .75;
+}
 main { padding: 1.5rem 2rem 3rem; max-width: 52rem; }
 main > h1:first-child { margin-top: 0; }
 h1,h2,h3 { line-height: 1.25; }
@@ -204,15 +328,45 @@ pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow
   <aside class="side-nav">
     <input class="search" id="q" type="search" placeholder="Search docs…" autocomplete="off">
     <div class="hits" id="hits"></div>
-    {{range $sec := .Sections}}
-    <div class="section">{{$sec}}</div>
-    {{range $.Pages}}
-      {{if eq (sectionOf .) $sec}}
+    {{range .Groups}}
+    <details class="nav-group" data-sec="{{.Name}}"{{if .Open}} open{{end}}>
+      <summary>{{.Name}} <span class="nav-count">{{.Count}}</span></summary>
+      {{range .Pages}}
       <a href="/docs/{{.ID}}" {{if eq .ID $.ActiveID}}class="active"{{end}}>{{.Title}}</a>
       {{end}}
-    {{end}}
+      {{range .Children}}
+      <details class="nav-group" data-sec="{{.Name}}"{{if .Open}} open{{end}}>
+        <summary>{{.Name}} <span class="nav-count">{{.Count}}</span></summary>
+        {{range .Pages}}
+        <a href="/docs/{{.ID}}" {{if eq .ID $.ActiveID}}class="active"{{end}}>{{.Title}}</a>
+        {{end}}
+      </details>
+      {{end}}
+    </details>
     {{end}}
   </aside>
+  <script>
+  (function(){
+    var KEY = 'buddy-serve-docs-nav';
+    function load(){ try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; } }
+    function save(s){ try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+    var state = load();
+    document.querySelectorAll('.nav-group').forEach(function(d){
+      var sec = d.getAttribute('data-sec') || '';
+      var hasActive = !!d.querySelector('a.active');
+      var want;
+      if (hasActive) want = true;
+      else if (Object.prototype.hasOwnProperty.call(state, sec)) want = !!state[sec];
+      else want = sec === 'Start here';
+      if (d.open !== want) d.open = want;
+      d.addEventListener('toggle', function(){
+        var s = load();
+        s[sec] = d.open;
+        save(s);
+      });
+    });
+  })();
+  </script>
   <main>
     {{if eq .ActiveID "builtins"}}
     <input class="page-filter" id="pageFilter" type="search" placeholder="Filter builtins on this page…" autocomplete="off">

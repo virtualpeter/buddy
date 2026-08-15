@@ -688,6 +688,15 @@ func FilterByQuery(pages []Page, query string) []Page {
 	return loose
 }
 
+// NavParent returns the human-UI parent section for sec, or "".
+// Platform cookbooks nest under Resources in the docs sidebar.
+func NavParent(sec string) string {
+	if sec == "Platform" {
+		return "Resources"
+	}
+	return ""
+}
+
 // NavSections returns unique section names in page order (for the human UI).
 func NavSections(pages []Page) []string {
 	seen := map[string]bool{}

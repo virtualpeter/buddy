@@ -159,6 +159,12 @@ func TestDocsTemplateHasChrome(t *testing.T) {
 	if !strings.Contains(docsTmplSrc, "side-nav") {
 		t.Fatal("docs should use side-nav class")
 	}
+	if !strings.Contains(docsTmplSrc, `class="nav-group"`) || !strings.Contains(docsTmplSrc, "<details") {
+		t.Fatal("docs sidebar should use collapsible details groups")
+	}
+	if !strings.Contains(docsTmplSrc, "buddy-serve-docs-nav") {
+		t.Fatal("docs should persist sidebar collapse state")
+	}
 	if strings.Contains(docsTmplSrc, `class="topbar"`) {
 		t.Fatal("docs should not keep sidebar topbar")
 	}
