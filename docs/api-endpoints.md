@@ -244,31 +244,73 @@ Base path: `/JSSResource/osxconfigurationprofiles`
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
 | `GET` | `/JSSResource/osxconfigurationprofiles` | `ProfileList`, `ProfileSearch`, `ProfileFindID` | List all configuration profiles (id + name) |
-| `GET` | `/JSSResource/osxconfigurationprofiles/id/{id}` | `ProfileGetXML`, `ProfileGetPayloads`, `ProfileGetPayloadByDomain`, `ProfileListPayloads`, `ProfileSetPayload`, `ProfileRedeploy`, `ProfileClone` | Fetch full profile XML |
+| `GET` | `/JSSResource/osxconfigurationprofiles/id/{id}` | `ProfileGetXML`, `ProfileGetPayloads`, `ProfileGetPayloadByDomain`, `ProfileListPayloads`, `ProfileSetPayload`, `ProfileRedeploy`, `ProfileClone` | Fetch full profile XML (`Accept: application/xml`; `jamfGET` would prefer JSON) |
 | `POST` | `/JSSResource/osxconfigurationprofiles/id/0` | `ProfileClone`, `ProfileCreate` | Create a new profile (clone with empty scope, or greenfield create with payloads + scope) |
-| `PUT` | `/JSSResource/osxconfigurationprofiles/id/{id}` | `ProfileSetXML`, `ProfileSetPayload`, `ProfileRedeploy` | Replace full profile XML |
+| `PUT` | `/JSSResource/osxconfigurationprofiles/id/{id}` | `ProfileSetXML`, `ProfileSetPayload`, `ProfileRedeploy` | Replace full profile XML (Classic-only when ACS is not linked; see ACS write path) |
 
 ### ACS API (Application & Custom Settings)
 
-When MCX preference strings use Jamf ACS Apply-form `&amp;` (or Classic returns **409**), buddy uses Jamf's undocumented **ACS API** — the same `/api/config-profiles/macos/...` JSON endpoints the Jamf UI uses for Application & Custom Settings (`forced.plist`). The path still contains `macos` (platform segment); buddy calls the surface **ACS**, not Classic or Pro.
+Jamf Application & Custom Settings (ACS) lives on undocumented `/api/config-profiles/macos/...` JSON endpoints (the path still contains `macos` as a platform segment). Buddy uses this surface whenever Classic cannot store the MCX preference strings the ACS UI shows.
+
+Two different ampersands show up in MCX:
+
+| Form | What it is | Classic | Buddy |
+|------|------------|---------|--------|
+| **Apply-form** | The preference *string* contains the five characters `&amp;` (Jamf ACS **Apply**) | Often **409** on PUT/POST | Write via ACS; keep Classic visible with the same Apply-form encoding |
+| **Literal `&`** | Decoded setting is `Here &` or `…?q=foo&bar=` (XML still writes `&amp;` as an entity) | **409** | Write via ACS when a document is linked (or create/clone falls through after Classic reject/409). Classic-only PUT still rejects — no auto-convert |
+| **Under-encoded outer `<payloads>`** | Nested plist `&` encoded as a single `&amp;` instead of `&amp;amp;` | **409** | Always rejected locally |
+
+Buddy does **not** rewrite one form into the other on the ACS document. Classic visibility after an ACS write may seed Apply-form (`Here &amp;` in the Classic string) so the key is not dropped from Classic XML.
+
+**Merging ACS into Classic XML (hydrate).** Classic `GET` often has empty or stale MCX while the ACS UI still has the real preference dict. On `profile_xml` / `get xml`, buddy fetches ACS `Forced` and copies those settings into the Classic `<payloads>` document it returns — so the caller sees what the UI shows, not the stub. Code and logs call this **hydrate**. The merge is read-only: buddy must not PUT that merged document back to Classic (that would overwrite Classic with a view that mixed two sources). `ProfileSetPayload` (`set payload`) skips the merge and uses the raw Classic GET.
+
+#### Why Classic-only PUT wiped ACS keys
+
+On several tenants `GET /api/config-profiles/macos/profile/{classicId}` returns **200** `{name, level}` only — no `payloadUUID`, no `Forced`. The ACS UI still holds settings. A later Classic PUT of a dict **without** `&` (or a stub that omitted those keys) returned **200** and replaced Classic payloads. The next process then had no ACS UUID, so the merge above did nothing, and `profile_xml` showed Classic only — preference keys that contain `&` were gone.
+
+Fixes:
+
+1. **Resolve an ACS handle even from a name/level shell** (`profile:{id}` sentinel), then **POST-attach** when `PUT /profile/{id}` is **405**. After a profile-scoped PUT **200**, re-read `Forced`; if it is still empty, POST-attach (clones can “succeed” with empty Forced).
+2. **Persist real ACS document UUIDs** in `~/.config/buddy/acs-payload-uuids` (and honor `BUDDY_ACS_PAYLOAD_UUID_{id}` / `profile_acs_bind_uuid`) so the next process can fetch `Forced` and merge it into Classic XML.
+3. **Classic payloads sync after ACS** starts from the server’s Classic XML (before any ACS merge) and never writes the merged view back. Refuse a sync that **omits** a current `&` key *or* **replaces** that value with a no-`&` string. If a bare-`&` Classic PUT **409**s, retry **Apply-form** encoding so the key stays in Classic.
+4. **On read:** fill empty Classic MCX from ACS `Forced`; if ACS settings differ from Classic, ACS wins.
+
+#### Write path (PUT)
+
+`profile_put_xml` / `ProfileSetXML` (`profileClassicPut`):
+
+1. If MCX is present and an ACS UUID or `profile:{id}` shell resolves — **or** the XML is Apply-form eligible — skip Classic-first and write ACS (`forced.plist` on `PUT /api/config-profiles/macos/{payloadUUID}`).
+2. Else Classic PUT of encoding-validated XML. Bare `&` in decoded MCX **rejects locally** when ACS is not linked.
+3. Classic **409** with MCX still falls back to ACS.
+4. After ACS: Classic payloads sync (guards above), then a **metadata-only** Classic PUT for name / scope / `redeploy_on_update`.
+
+#### Write path (POST / clone / create)
+
+`profile_create` / `profile_clone` (`profileClassicPost`):
+
+1. Try Classic `POST …/id/0` when outer encoding is valid (including Apply-form).
+2. Bare `&` in decoded MCX, or Classic **409** with MCX → Classic shell + ACS attach (`POST /api/config-profiles/macos` with `classicProfileId`).
+3. Same Classic payloads sync + Apply-form seed if Classic XML (after merging ACS `Forced`) is still missing the MCX domain.
+
+Do not invent Classic profile PUT bodies from `jamf_schema`. Live checks: `scripts/integration_test.buddy` (phase C create/edit/clone/delete with Apply-form and literal `&`) and `scripts/integration_test_acs_profile7.buddy` (same-tenant ACS document).
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/config-profiles/macos/profile/{classicId}` | `profileACSPut` | Resolve ACS payload UUID / Forced from Classic profile id |
+| `GET` | `/api/config-profiles/macos/profile/{classicId}` | `resolveACSPayloadUUID`, `profileACSPut` | Resolve ACS payload UUID / Forced. Often `{name, level}` only — treat as shell, not “no ACS” |
 | `PUT` | `/api/config-profiles/macos/profile/{classicId}` | `profileACSCreatePayload` | Attach ACS to Classic profile (some tenants return **405**; buddy falls back to POST) |
-| `GET` | `/api/config-profiles/macos/{payloadUUID}` | `profileACSPut` | Fetch current ACS JSON document |
+| `GET` | `/api/config-profiles/macos/{payloadUUID}` | read merge, `profileACSPut` | Fetch current ACS JSON document (`Forced` / `forced.plist`) |
 | `PUT` | `/api/config-profiles/macos/{payloadUUID}` | `profileACSPut` | Save MCX payload content (`forced.plist`) |
 | `POST` | `/api/config-profiles/macos` | create/attach fallback | Create or attach ACS (`classicProfileId` + `name` link to Classic profile) |
 | `POST` | `/api/config-profiles/plist/can-convert-to-plist` | ACS write | Validate plist before save |
 | `GET` | `/api/config-profiles/macos/generated-uuids?count=N` | (optional) | Pre-generate UUIDs (UI uses; POST accepts `payloadUUID: null`) |
 
-Follow-up Classic PUTs after ACS payload writes patch **metadata only** (name, scope, redeploy) via GET-modify-PUT — payloads bytes from the server are never replaced with buddy-prepared XML. See [profile-payloads.md](profile-payloads.md#mcx-ampersands-and-classic-encoding).
+Builtins and payload editing: [profile payloads](/docs/docs/profile-payloads).
 
 ### Notes
 
-- All profile operations use the Classic API (XML). There is no v1/v2 profile endpoint in use.
-- `--redeploy` sets `redeploy_on_update` to `All` in the XML before PUT, causing Jamf to push the profile to all currently-assigned devices rather than only new assignments.
-- **Payload handling**: The profile XML contains a `<general><payloads>` element whose content is entity-encoded plist XML. Buddy supports PayloadContent (`PayloadIdentifier`) and MCX (`mcx_preference_settings`). **Get/list** (`get payload`, `list-payloads`, `profile_get_payload`) are PayloadContent only; **set/patch** merge PayloadContent keys or replace MCX settings. See [profile-payloads.md](/docs/docs/profile-payloads).
+- List/get/clone still go through Classic XML. There is no public v1/v2 profile CRUD; ACS JSON is the undocumented UI API for Application & Custom Settings only.
+- `--redeploy` sets `redeploy_on_update` to `All` in the XML before the **metadata** Classic PUT, causing Jamf to push the profile to all currently-assigned devices rather than only new assignments.
+- **Payload handling**: The profile XML contains a `<general><payloads>` element whose content is entity-encoded plist XML. Buddy supports PayloadContent (`PayloadIdentifier`) and MCX (`mcx_preference_settings`). **Get/list** (`get payload`, `list-payloads`, `profile_get_payload`) are PayloadContent only; **set/patch** merge PayloadContent keys or replace MCX settings. See [profile payloads](/docs/docs/profile-payloads).
 - **UUID preservation**: When updating a profile via `set xml` or `set payload`, the existing profile UUID is preserved (the fetched body is only modified in the payloads section or redeploy flag). Preserving the same UUID avoids duplicate or orphaned profiles on devices when updating from another instance.
 
 ---
@@ -538,10 +580,12 @@ buddy profile list [--filter=name]
   └─ GET /JSSResource/osxconfigurationprofiles
 
 buddy profile get xml <id>
-  └─ GET /JSSResource/osxconfigurationprofiles/id/{id}
+  └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (Accept: application/xml)
+  └─ GET /api/config-profiles/macos/profile/{id}         (optional: resolve ACS UUID)
+  └─ GET /api/config-profiles/macos/{payloadUUID}        (merge ACS Forced into the XML returned to the caller)
 
 buddy profile get payloads <id>
-  └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (extract and output payloads plist)
+  └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (extract payloads plist; same ACS merge as get xml)
 
 buddy profile get payload <id> <domain>
   └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (extract single payload by PayloadIdentifier)
@@ -550,19 +594,22 @@ buddy profile get list-payloads <id>
   └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (list PayloadIdentifier values)
 
 buddy profile clone <profile-id> <name>
-  └─ GET /JSSResource/osxconfigurationprofiles/id/{id}
-  └─ POST /JSSResource/osxconfigurationprofiles/id/0
+  └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (same ACS merge as get xml)
+  └─ POST /JSSResource/osxconfigurationprofiles/id/0     (or Classic shell + ACS attach on 409 / bare '&')
 
 buddy profile redeploy <id>
   └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (fetch current XML)
-  └─ PUT /JSSResource/osxconfigurationprofiles/id/{id}   (set redeploy_on_update=All)
+  └─ PUT /JSSResource/osxconfigurationprofiles/id/{id}   (set redeploy_on_update=All; ACS path if MCX linked)
 
 buddy profile set xml <id> [--redeploy]
-  └─ PUT /JSSResource/osxconfigurationprofiles/id/{id}   (raw XML from stdin)
+  └─ PUT /api/config-profiles/macos/{payloadUUID}        (ACS-linked or Apply-form / Classic 409)
+  └─ POST /api/config-profiles/macos                     (attach when PUT /profile/{id} is 405)
+  └─ PUT /JSSResource/osxconfigurationprofiles/id/{id}   (Classic payloads sync; Apply-form fallback)
+  └─ PUT /JSSResource/osxconfigurationprofiles/id/{id}   (metadata: name / scope / redeploy)
 
 buddy profile set payload <id> <domain> <file> [--redeploy]
-  └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (fetch current XML)
-  └─ PUT /JSSResource/osxconfigurationprofiles/id/{id}   (replace with updated payload)
+  └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (raw Classic XML; no ACS merge)
+  └─ PUT …                                              (same write path as set xml)
 
 buddy package list [--filter=<term|rsql>]
   └─ GET /api/v1/packages                         (bare → packageName=="*term*")

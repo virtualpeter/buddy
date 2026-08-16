@@ -485,6 +485,14 @@ func jamfPUT(credName, path string, body []byte, contentType string) ([]byte, er
 	return respBody, nil
 }
 
+// jamfErrorHasStatus reports whether err is a jamfGET/PUT/POST/PATCH/DELETE status error.
+func jamfErrorHasStatus(err error, status int) bool {
+	if err == nil || status < 100 {
+		return false
+	}
+	return strings.Contains(err.Error(), fmt.Sprintf(" status %d:", status))
+}
+
 // jamfPOST performs a POST request with the given body and content type.
 func jamfPOST(credName, path string, body []byte, contentType string) ([]byte, error) {
 	endpoint, err := ResolveEndpoint(credName, path)

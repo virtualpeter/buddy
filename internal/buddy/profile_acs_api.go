@@ -3,6 +3,7 @@ package buddy
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,10 @@ import (
 
 	"howett.net/plist"
 )
+
+// errACSProfileScopedMethodNotAllowed is returned when GET /profile/{id} works but PUT does not
+// (HTTP 405). Callers may fall back to Classic XML or ACS POST attach.
+var errACSProfileScopedMethodNotAllowed = errors.New("ACS profile-scoped PUT not allowed")
 
 const (
 	acsConfigProfilesPath        = "/api/config-profiles/macos"
@@ -67,7 +72,9 @@ type MCXPayloadEntry struct {
 //
 // Eligible when MCX preference strings use Jamf ACS Apply form (&amp; in the value) —
 // Classic often 409s on those — or when outer <payloads> encoding is incompatible with Classic.
-// Bare '&' in preference strings is not eligible: rejectBareMCXAmpersandSettings fails those first.
+// Bare '&' in preference strings is not Apply-form eligible here; an ACS document
+// already linked to the Classic id still takes the ACS write path (profileClassicPut).
+// Classic-only PUTs still reject via prepareProfileXMLForClassicWrite.
 func ProfileACSWritePreferred(profileXML []byte) (bool, string) {
 	entries, err := listMCXPayloadEntries(profileXML)
 	if err != nil {
@@ -446,6 +453,9 @@ func putACSConfigProfileByClassicID(credName string, classicProfileID int, doc *
 	}
 	path := fmt.Sprintf("%s/profile/%d", acsConfigProfilesPath, classicProfileID)
 	_, err = jamfPUT(credName, path, body, "application/json")
+	if jamfErrorHasStatus(err, http.StatusMethodNotAllowed) {
+		return fmt.Errorf("%w: %v", errACSProfileScopedMethodNotAllowed, err)
+	}
 	return err
 }
 
@@ -532,8 +542,14 @@ func profileXMLClassicACSStubFromACS(credName string, classicID int, acsPayloadU
 		}
 		return desiredProfileXML, nil
 	}
-	acsDoc, err := fetchACSConfigProfile(credName, acsPayloadUUID)
-	if err != nil || len(acsDoc.PayloadContent) == 0 {
+	var acsDoc *ACSConfigProfileDoc
+	var err error
+	if strings.HasPrefix(acsPayloadUUID, "profile:") {
+		acsDoc, err = fetchACSConfigProfileByClassicID(credName, classicID)
+	} else {
+		acsDoc, err = fetchACSConfigProfile(credName, acsPayloadUUID)
+	}
+	if err != nil || acsDoc == nil || len(acsDoc.PayloadContent) == 0 {
 		if stripAmpersandSettings {
 			return profileXMLWithoutMCXAmpersandSettings(desiredProfileXML)
 		}
@@ -900,9 +916,33 @@ func profileACSPut(credName string, classicProfileID int, desiredProfileXML []by
 		return "", err
 	}
 	if strings.HasPrefix(payloadUUID, "profile:") {
-		if err := putACSConfigProfileByClassicID(credName, classicProfileID, doc); err != nil {
-			return "", err
+		putErr := putACSConfigProfileByClassicID(credName, classicProfileID, doc)
+		if putErr == nil {
+			if u, ok := verifyACSAttach(credName, classicProfileID, desiredEntries, logger); ok {
+				if u != "" {
+					return u, nil
+				}
+				return payloadUUID, nil
+			}
+			if logger != nil {
+				logger.Debug("profile acs: profile-scoped PUT ok but Forced not readable; attaching via ACS POST", "profile_id", classicProfileID)
+			}
+		} else if !errors.Is(putErr, errACSProfileScopedMethodNotAllowed) {
+			return "", putErr
+		} else if logger != nil {
+			logger.Debug("profile acs: profile-scoped PUT 405; attaching via ACS POST", "profile_id", classicProfileID)
 		}
+		u, written, createErr := profileACSCreatePayload(credName, classicProfileID, desiredProfileXML, logger)
+		if createErr != nil {
+			return "", createErr
+		}
+		if written || u != "" {
+			return u, nil
+		}
+		if putErr != nil {
+			return "", putErr
+		}
+		return "", fmt.Errorf("ACS profile-scoped PUT for Classic id %d did not persist Forced.plist", classicProfileID)
 	} else {
 		if err := putACSConfigProfile(credName, payloadUUID, doc); err != nil {
 			return "", err

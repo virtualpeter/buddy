@@ -1,13 +1,18 @@
 package buddy
 
 import (
+	"bufio"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+
+	"buddy/internal/buddy/secrets"
 
 	"howett.net/plist"
 )
@@ -22,6 +27,9 @@ func cacheACSPayloadUUID(classicProfileID int, payloadUUID string) {
 		return
 	}
 	classicToACSPayloadUUID.Store(classicProfileID, payloadUUID)
+	if acsPayloadUUIDIsDocument(payloadUUID) {
+		persistACSPayloadUUID(classicProfileID, payloadUUID)
+	}
 }
 
 // CacheACSPayloadUUID records classic profile id → ACS API payload UUID
@@ -39,7 +47,85 @@ func cachedACSPayloadUUID(classicProfileID int) string {
 			return strings.TrimSpace(s)
 		}
 	}
+	if u := loadPersistedACSPayloadUUID(classicProfileID); u != "" {
+		classicToACSPayloadUUID.Store(classicProfileID, u)
+		return u
+	}
 	return ""
+}
+
+func acsPayloadUUIDCachePath() (string, error) {
+	dir, err := secrets.ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "acs-payload-uuids"), nil
+}
+
+func persistACSPayloadUUID(classicProfileID int, payloadUUID string) {
+	path, err := acsPayloadUUIDCachePath()
+	if err != nil {
+		return
+	}
+	entries := loadACSPayloadUUIDFile(path)
+	key := strconv.Itoa(classicProfileID)
+	if entries[key] == payloadUUID {
+		return
+	}
+	entries[key] = payloadUUID
+	var b strings.Builder
+	for _, k := range sortedACSCacheKeys(entries) {
+		b.WriteString(k)
+		b.WriteByte('\t')
+		b.WriteString(entries[k])
+		b.WriteByte('\n')
+	}
+	_ = os.MkdirAll(filepath.Dir(path), 0o700)
+	_ = os.WriteFile(path, []byte(b.String()), 0o600)
+}
+
+func loadPersistedACSPayloadUUID(classicProfileID int) string {
+	path, err := acsPayloadUUIDCachePath()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(loadACSPayloadUUIDFile(path)[strconv.Itoa(classicProfileID)])
+}
+
+func loadACSPayloadUUIDFile(path string) map[string]string {
+	out := map[string]string{}
+	f, err := os.Open(path)
+	if err != nil {
+		return out
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		id, uuid, ok := strings.Cut(line, "\t")
+		if !ok {
+			continue
+		}
+		id = strings.TrimSpace(id)
+		uuid = strings.TrimSpace(uuid)
+		if id == "" || !acsPayloadUUIDIsDocument(uuid) {
+			continue
+		}
+		out[id] = uuid
+	}
+	return out
+}
+
+func sortedACSCacheKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 var (
@@ -140,6 +226,15 @@ func resolveACSPayloadUUID(credName string, classicProfileID int, logger *slog.L
 			cacheACSPayloadUUID(classicProfileID, "profile:"+strconv.Itoa(classicProfileID))
 			return "profile:" + strconv.Itoa(classicProfileID), nil
 		}
+		// Some tenants return a name/level shell (no payloadUUID / Forced) for every
+		// ACS-visible Classic id. That is still enough to PUT via /profile/{id}.
+		if acsDocLinkedWithoutPayloadUUID(doc) {
+			cacheACSPayloadUUID(classicProfileID, "profile:"+strconv.Itoa(classicProfileID))
+			if logger != nil {
+				logger.Debug("profile acs: profile/{id} ACS shell (name/level); using profile-scoped document", "profile_id", classicProfileID)
+			}
+			return "profile:" + strconv.Itoa(classicProfileID), nil
+		}
 	}
 	html, htmlErr := fetchLegacyOSXConfigurationProfileHTML(credName, classicProfileID)
 	if htmlErr != nil {
@@ -164,6 +259,28 @@ func acsDocHasAnyForcedPlist(doc *ACSConfigProfileDoc) bool {
 		if pc.Forced != nil && strings.TrimSpace(pc.Forced.Plist) != "" && strings.TrimSpace(pc.PreferenceDomain) != "" {
 			return true
 		}
+	}
+	return false
+}
+
+// acsPayloadUUIDIsDocument reports a real ACS document UUID (not the profile:{id} shell sentinel).
+// A name/level shell is enough to attempt hydrate; it is not a license to POST-replace Forced.
+func acsPayloadUUIDIsDocument(payloadUUID string) bool {
+	u := strings.TrimSpace(payloadUUID)
+	return u != "" && !strings.HasPrefix(u, "profile:")
+}
+
+// acsDocLinkedWithoutPayloadUUID reports an ACS profile/{id} shell that is tied to a
+// Classic id but has not yet exposed a document UUID or Forced plist (name/level only).
+func acsDocLinkedWithoutPayloadUUID(doc *ACSConfigProfileDoc) bool {
+	if doc == nil {
+		return false
+	}
+	if strings.TrimSpace(doc.Name) != "" || strings.TrimSpace(doc.Level) != "" {
+		return true
+	}
+	if doc.ClassicProfileID != nil || doc.ProfileID != nil || doc.ExternalConfigProfileID != nil {
+		return true
 	}
 	return false
 }
@@ -237,10 +354,12 @@ func classicMCXSettingsForDomain(payloadsRaw, domain string) (map[string]any, er
 	return nil, nil
 }
 
-// hydrateClassicProfileXMLFromACSDoc merges ACS Forced plists into empty Classic MCX domains.
-// Non-empty Classic domains are left unchanged. forced.plist is normalized for Classic embedding
-// (<value>→<string>) so payloads remain howett-decodable; raw ACS Forced is preserved on write
-// via mergeACSDocWithDesiredEntries when settings are unchanged.
+// hydrateClassicProfileXMLFromACSDoc merges ACS Forced plists into Classic MCX domains.
+// Empty Classic domains are filled. Non-empty Classic is replaced when ACS Forced
+// decodes to different settings (Classic PUT often 409s on URL '&'; ACS is writable).
+// Equal settings leave Classic unchanged so encoding is preserved. forced.plist is
+// normalized for Classic embedding (<value>→<string>); raw ACS Forced is preserved
+// on write via mergeACSDocWithDesiredEntries when settings are unchanged.
 func hydrateClassicProfileXMLFromACSDoc(classicXML []byte, doc *ACSConfigProfileDoc) ([]byte, error) {
 	if doc == nil || !acsDocHasAnyForcedPlist(doc) {
 		return classicXML, nil
@@ -259,14 +378,14 @@ func hydrateClassicProfileXMLFromACSDoc(classicXML []byte, doc *ACSConfigProfile
 		if err != nil {
 			return nil, err
 		}
-		if mcxSettingsNonEmpty(existing) {
-			continue
-		}
 		settings, err := decodeForcedPlistSettings(pc.Forced.Plist)
 		if err != nil {
 			return nil, fmt.Errorf("ACS forced.plist for domain %q: %w", domain, err)
 		}
 		if !mcxSettingsNonEmpty(settings) {
+			continue
+		}
+		if mcxSettingsNonEmpty(existing) && settingsMapsEqual(existing, settings) {
 			continue
 		}
 		updated, ok, err := replaceMCXSettingsInPayloadsPlist(payloadsRaw, domain, settings)

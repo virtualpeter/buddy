@@ -1,6 +1,7 @@
 package buddy
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -348,7 +349,7 @@ func mcxPayloadsPlistWithApplyFormAmp() string {
 	return mcxPayloadsPlistWithURL("{google:baseURL}search?q={searchTerms}&amp;{google:RLZ}")
 }
 
-func mcxPayloadsPlistWithURL(searchURL string) string {
+func mcxPayloadsPlistWithSettings(settings map[string]any) string {
 	root := map[string]any{
 		"PayloadUUID":    "11111111-1111-1111-1111-111111111111",
 		"PayloadType":    "Configuration",
@@ -361,9 +362,7 @@ func mcxPayloadsPlistWithURL(searchURL string) string {
 				"PayloadUUID":       "22222222-2222-2222-2222-222222222222",
 				"Forced": []any{
 					map[string]any{
-						"mcx_preference_settings": map[string]any{
-							"DefaultSearchProviderSearchURL": searchURL,
-						},
+						"mcx_preference_settings": settings,
 					},
 				},
 			},
@@ -374,6 +373,12 @@ func mcxPayloadsPlistWithURL(searchURL string) string {
 		panic(err)
 	}
 	return buf.String()
+}
+
+func mcxPayloadsPlistWithURL(searchURL string) string {
+	return mcxPayloadsPlistWithSettings(map[string]any{
+		"DefaultSearchProviderSearchURL": searchURL,
+	})
 }
 
 func TestPlistMapHasLiteralAmpersand(t *testing.T) {
@@ -391,5 +396,15 @@ func TestPlistMapHasLiteralAmpersand(t *testing.T) {
 	}
 	if !plistMapHasBareAmpersand("a&b") {
 		t.Fatal("expected bare amp")
+	}
+}
+
+func TestJamfErrorHasStatus(t *testing.T) {
+	err := fmt.Errorf("PUT /api/config-profiles/macos/profile/300 status 405: {\"httpStatus\":405}")
+	if !jamfErrorHasStatus(err, 405) {
+		t.Fatal("expected 405 match")
+	}
+	if jamfErrorHasStatus(err, 409) || jamfErrorHasStatus(nil, 405) {
+		t.Fatal("unexpected status match")
 	}
 }

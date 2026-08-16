@@ -1,6 +1,8 @@
 package buddy
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -144,7 +146,7 @@ func syncClassicPayloadsAfterACSAttach(credName string, classicID int, acsPayloa
 	}
 	requireAmp := profileXMLRequiresAmpersandClassicRetention(desiredProfileXML)
 	tryPayloads := func(label string, profileXML []byte) error {
-		data, err := prepareProfileXMLForClassicWrite(profileXML)
+		data, err := prepareProfileXMLForClassicSync(profileXML)
 		if err != nil {
 			return err
 		}
@@ -152,16 +154,19 @@ func syncClassicPayloadsAfterACSAttach(credName string, classicID int, acsPayloa
 		if err != nil {
 			return err
 		}
-		current, err := profileFetchRaw(credName, classicID)
+		current, err := profileFetchClassicUnhydrated(credName, classicID)
 		if err != nil {
 			return err
+		}
+		if profileXMLDropsBareAmpKeys(current, data) {
+			return fmt.Errorf("Classic payloads sync (%s): refusing to drop MCX keys that contain '&'", label)
 		}
 		updated, err := replacePayloadsContent(current, payloadsInner)
 		if err != nil {
 			return err
 		}
 		// Re-validate after merge into current Classic shell (outer encoding).
-		if _, err := prepareProfileXMLForClassicWrite(updated); err != nil {
+		if _, err := prepareProfileXMLForClassicSync(updated); err != nil {
 			return err
 		}
 		status, body, err := profileClassicPutRaw(credName, classicID, updated)
@@ -180,7 +185,7 @@ func syncClassicPayloadsAfterACSAttach(credName string, classicID int, acsPayloa
 		return fmt.Errorf("Classic payloads sync (%s) status %d: %s", label, status, string(body))
 	}
 	desired := desiredProfileXML
-	if normalized, err := prepareProfileXMLForClassicWrite(desiredProfileXML); err == nil {
+	if normalized, err := prepareProfileXMLForClassicSync(desiredProfileXML); err == nil {
 		desired = normalized
 	}
 	var errs []string
@@ -204,46 +209,119 @@ func syncClassicPayloadsAfterACSAttach(credName string, classicID int, acsPayloa
 			logger.Debug("profile acs: Classic ACS stub (all settings) sync failed", "profile_id", classicID, "error", err.Error())
 		}
 	}
+	if applyXML, err := profileXMLBareAmpToApplyForm(desired); err == nil && !bytes.Equal(applyXML, desired) {
+		if err := tryPayloads("apply-form", applyXML); err == nil {
+			return nil
+		} else {
+			errs = append(errs, err.Error())
+			if logger != nil {
+				logger.Debug("profile acs: Classic Apply-form payloads sync failed", "profile_id", classicID, "error", err.Error())
+			}
+		}
+	}
 	if requireAmp {
 		return fmt.Errorf("Classic payloads sync could not retain MCX ampersand settings for profile %d (Jamf ACS UI needs ExampleURL with &amp; encoding, not stripped keys): %s", classicID, strings.Join(errs, "; "))
 	}
-	// Non-amp MCX: last-resort stripped stub is a no-op for amp keys; keep for empty-shell recovery.
-	acsStub, err := profileXMLClassicACSStubFromACS(credName, classicID, acsPayloadUUID, desired, true)
-	if err != nil {
-		return err
-	}
-	if err := tryPayloads("acs-stub", acsStub); err == nil {
-		return nil
-	} else if logger != nil {
-		logger.Debug("profile acs: Classic ACS-aligned stub sync failed; trying fixture stub", "profile_id", classicID, "error", err.Error())
-	}
-	stub, err := profileXMLWithoutMCXAmpersandSettings(desired)
-	if err != nil {
-		return err
-	}
-	if err := tryPayloads("stub", stub); err == nil {
-		return nil
-	}
+	// Never PUT a Classic stub that omits '&' keys. That 200s and profile_xml then
+	// drops AmpersandString / search URLs because GET /profile/{id} has no Forced.
 	return fmt.Errorf("Classic payloads sync failed for profile %d after ACS attach: %s", classicID, strings.Join(errs, "; "))
+}
+
+func profileXMLMissingDesiredMCXDomains(got, desired []byte) bool {
+	want, err := listMCXPayloadEntries(desired)
+	if err != nil || len(want) == 0 {
+		return false
+	}
+	have, err := listMCXPayloadEntries(got)
+	if err != nil {
+		return true
+	}
+	seen := map[string]bool{}
+	for _, e := range have {
+		if mcxSettingsNonEmpty(e.SettingsDict) {
+			seen[e.Domain] = true
+		}
+	}
+	for _, e := range want {
+		if !seen[e.Domain] {
+			return true
+		}
+	}
+	return false
+}
+
+func seedClassicMCXAfterACSCreate(credName string, classicID int, desired []byte, logger *slog.Logger) error {
+	hydrated, err := profileFetchRaw(credName, classicID)
+	if err != nil {
+		return err
+	}
+	if !profileXMLMissingDesiredMCXDomains(hydrated, desired) {
+		return nil
+	}
+	applyXML, err := profileXMLBareAmpToApplyForm(desired)
+	if err != nil {
+		return err
+	}
+	data, err := prepareProfileXMLForClassicSync(applyXML)
+	if err != nil {
+		return err
+	}
+	payloadsInner, err := extractPayloadsFromProfileXML(data)
+	if err != nil {
+		return err
+	}
+	current, err := profileFetchClassicUnhydrated(credName, classicID)
+	if err != nil {
+		return err
+	}
+	updated, err := replacePayloadsContent(current, payloadsInner)
+	if err != nil {
+		return err
+	}
+	status, body, err := profileClassicPutRaw(credName, classicID, updated)
+	if err != nil {
+		return err
+	}
+	if status == http.StatusOK || status == http.StatusCreated {
+		if logger != nil {
+			logger.Debug("profile acs: Classic MCX seed after create used Apply-form '&amp;'", "profile_id", classicID)
+		}
+		return nil
+	}
+	return fmt.Errorf("Classic MCX seed status %d: %s", status, string(body))
+}
+
+func syncClassicAfterACSWrite(credName string, profileID int, payloadUUID string, xml []byte, logger *slog.Logger) error {
+	if err := syncClassicPayloadsAfterACSAttach(credName, profileID, payloadUUID, xml, logger); err != nil {
+		if profileXMLRequiresAmpersandClassicRetention(xml) {
+			return fmt.Errorf("ACS payload save ok but Classic payloads sync failed: %w", err)
+		}
+		if logger != nil {
+			logger.Debug("profile acs: Classic payloads sync failed after ACS write; ACS is source of truth", "profile_id", profileID, "error", err.Error())
+		}
+	}
+	return nil
 }
 
 // profileClassicPut writes profile XML via Classic, falling back to ACS API when eligible.
 func profileClassicPut(credName string, opts Opts, profileID int, xml []byte, redeploy bool, logger *slog.Logger) error {
-	if err := rejectBareMCXAmpersandSettings(xml); err != nil {
-		return err
-	}
 	data := xml
 	if redeploy {
 		data = SetRedeployAll(data)
 	}
 	eligible, reason := ProfileACSWritePreferred(xml)
 	if !eligible {
-		// Refactored ACS (UI edits ACS Forced.plist; Classic MCX often empty until hydrate):
-		// when an ACS document is already linked, prefer ACS PUT so roundtrips don't wipe ACS.
+		// Linked ACS (document UUID or profile:{id} shell): write via ACS.
+		// PUT /profile/{id} is 405 on some tenants; profileACSPut then POST-attaches.
+		// Classic is left unstripped so '&' keys stay visible on profile_xml.
 		if entries, err := listMCXPayloadEntries(xml); err == nil && len(entries) > 0 {
 			if u, err := resolveACSPayloadUUID(credName, profileID, logger); err == nil && strings.TrimSpace(u) != "" {
 				eligible = true
-				reason = "ACS document linked for Classic id"
+				if acsPayloadUUIDIsDocument(u) {
+					reason = "ACS document linked for Classic id"
+				} else {
+					reason = "ACS shell; POST-attach (Classic 409s on '&')"
+				}
 			}
 		}
 	}
@@ -258,13 +336,16 @@ func profileClassicPut(credName string, opts Opts, profileID int, xml []byte, re
 		if err != nil {
 			return err
 		}
-		if err := syncClassicPayloadsAfterACSAttach(credName, profileID, payloadUUID, xml, logger); err != nil {
-			return fmt.Errorf("ACS payload save ok but Classic payloads sync failed: %w", err)
+		if err := syncClassicAfterACSWrite(credName, profileID, payloadUUID, xml, logger); err != nil {
+			return err
 		}
 		meta := profileClassicMetadataOpts{Redeploy: redeploy}
 		return profileClassicMetadataPut(credName, profileID, meta, logger)
 	}
 	if normalized, err := prepareProfileXMLForClassicWrite(data); err != nil {
+		if errors.Is(err, errBareMCXAmpersandSetting) {
+			return fmt.Errorf("payloads encoding: %w (Classic-only; bind ACS UUID with profile_acs_bind_uuid or BUDDY_ACS_PAYLOAD_UUID_%d to write via ACS)", err, profileID)
+		}
 		return fmt.Errorf("payloads encoding: %w", err)
 	} else {
 		data = normalized
@@ -299,8 +380,8 @@ func profileClassicPut(credName string, opts Opts, profileID int, xml []byte, re
 		if _, err := profileACSPut(credName, profileID, xml, logger); err != nil {
 			return err
 		}
-		if err := syncClassicPayloadsAfterACSAttach(credName, profileID, "", xml, logger); err != nil {
-			return fmt.Errorf("ACS payload save ok but Classic payloads sync failed: %w", err)
+		if err := syncClassicAfterACSWrite(credName, profileID, "", xml, logger); err != nil {
+			return err
 		}
 		return profileClassicMetadataPut(credName, profileID, profileClassicMetadataOpts{Redeploy: redeploy}, logger)
 	}
@@ -315,37 +396,44 @@ type profileClassicPostOpts struct {
 
 // profileClassicPost POSTs profile XML via Classic, falling back to ACS API create on 409 when MCX/ACS payloads need it.
 func profileClassicPost(credName string, opts Opts, xml []byte, profileName string, postOpts profileClassicPostOpts, logger *slog.Logger) (*ProfileCreateOutcome, error) {
-	if err := rejectBareMCXAmpersandSettings(xml); err != nil {
-		return nil, err
-	}
 	profileName = strings.TrimSpace(profileName)
 	data := xml
+	useACS := false
+	acsReason := ""
 	if prepared, err := prepareProfileXMLForClassicWrite(xml); err != nil {
-		return nil, fmt.Errorf("payloads encoding: %w", err)
+		if errors.Is(err, errBareMCXAmpersandSetting) {
+			useACS = true
+			acsReason = "MCX URL ampersands"
+		} else {
+			return nil, fmt.Errorf("payloads encoding: %w", err)
+		}
 	} else {
 		data = prepared
 	}
-	eligible, reason := ProfileACSWritePreferred(xml)
-	if logger != nil {
-		if eligible {
-			logger.Debug("profile create: trying Classic POST first (Jamf UI reads ACS from Classic payloads)", "name", profileName, "reason", reason)
-		} else {
-			logger.Debug("profile create: Classic POST", "name", profileName)
+	if !useACS {
+		eligible, reason := ProfileACSWritePreferred(xml)
+		if logger != nil {
+			if eligible {
+				logger.Debug("profile create: trying Classic POST first (Jamf UI reads ACS from Classic payloads)", "name", profileName, "reason", reason)
+			} else {
+				logger.Debug("profile create: Classic POST", "name", profileName)
+			}
 		}
-	}
-	status, body, err := profileClassicPostRaw(credName, data)
-	if err != nil {
-		return nil, fmt.Errorf("create profile: %w", err)
-	}
-	if status == http.StatusOK || status == http.StatusCreated {
-		id, err := resolveCreatedProfileID(credName, opts, body, profileName, logger)
+		status, body, err := profileClassicPostRaw(credName, data)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("create profile: %w", err)
 		}
-		fmt.Printf("Created configuration profile %q (ID %d)\n", profileName, id)
-		return &ProfileCreateOutcome{ProfileID: id, Name: profileName}, nil
-	}
-	if status == http.StatusConflict {
+		if status == http.StatusOK || status == http.StatusCreated {
+			id, err := resolveCreatedProfileID(credName, opts, body, profileName, logger)
+			if err != nil {
+				return nil, err
+			}
+			fmt.Printf("Created configuration profile %q (ID %d)\n", profileName, id)
+			return &ProfileCreateOutcome{ProfileID: id, Name: profileName}, nil
+		}
+		if status != http.StatusConflict {
+			return nil, fmt.Errorf("create profile status %d: %s", status, string(body))
+		}
 		eligible2, reason2 := ProfileACSWritePreferred(xml)
 		if !eligible2 {
 			if entries, err := listMCXPayloadEntries(xml); err == nil && len(entries) > 0 {
@@ -356,21 +444,25 @@ func profileClassicPost(credName string, opts Opts, xml []byte, profileName stri
 		if !eligible2 {
 			return nil, fmt.Errorf("create profile status %d: %s", status, string(body))
 		}
-		if logger != nil {
-			logger.Debug("profile create: Classic POST 409; using Classic shell + ACS payload attach", "name", profileName, "reason", reason2)
-		}
-		created, err := profileACSPost(credName, xml, profileName, logger)
-		if err != nil {
-			return nil, err
-		}
-		if err := syncClassicMetadataAfterACSCreate(credName, created.ClassicProfileID, profileName, xml, postOpts, logger); err != nil {
-			return nil, fmt.Errorf("ACS create ok (id %d) but metadata sync failed: %w", created.ClassicProfileID, err)
-		}
-		if err := syncClassicPayloadsAfterACSAttach(credName, created.ClassicProfileID, created.PayloadUUID, xml, logger); err != nil {
-			return nil, fmt.Errorf("ACS create ok (id %d) but Classic payloads sync failed: %w", created.ClassicProfileID, err)
-		}
-		fmt.Printf("Created configuration profile %q (ID %d)\n", profileName, created.ClassicProfileID)
-		return &ProfileCreateOutcome{ProfileID: created.ClassicProfileID, Name: profileName}, nil
+		useACS = true
+		acsReason = reason2
 	}
-	return nil, fmt.Errorf("create profile status %d: %s", status, string(body))
+	if logger != nil {
+		logger.Debug("profile create: Classic shell + ACS payload attach", "name", profileName, "reason", acsReason)
+	}
+	created, err := profileACSPost(credName, xml, profileName, logger)
+	if err != nil {
+		return nil, err
+	}
+	if err := syncClassicMetadataAfterACSCreate(credName, created.ClassicProfileID, profileName, xml, postOpts, logger); err != nil {
+		return nil, fmt.Errorf("ACS create ok (id %d) but metadata sync failed: %w", created.ClassicProfileID, err)
+	}
+	if err := syncClassicAfterACSWrite(credName, created.ClassicProfileID, created.PayloadUUID, xml, logger); err != nil {
+		return nil, fmt.Errorf("ACS create ok (id %d): %w", created.ClassicProfileID, err)
+	}
+	if err := seedClassicMCXAfterACSCreate(credName, created.ClassicProfileID, xml, logger); err != nil {
+		return nil, fmt.Errorf("ACS create ok (id %d) but Classic MCX seed failed: %w", created.ClassicProfileID, err)
+	}
+	fmt.Printf("Created configuration profile %q (ID %d)\n", profileName, created.ClassicProfileID)
+	return &ProfileCreateOutcome{ProfileID: created.ClassicProfileID, Name: profileName}, nil
 }

@@ -120,7 +120,7 @@ func TestHydrateClassicProfileXMLFromACSDoc_EmptyGetsFilled(t *testing.T) {
 	}
 }
 
-func TestHydrateClassicProfileXMLFromACSDoc_NonEmptyClassicWins(t *testing.T) {
+func TestHydrateClassicProfileXMLFromACSDoc_ACSForcedWinsWhenDifferent(t *testing.T) {
 	const domain = "test.profile"
 	classic := classicShellWithMCXSettings(domain, map[string]any{"fred": "Classic"})
 	doc := &ACSConfigProfileDoc{
@@ -141,8 +141,26 @@ func TestHydrateClassicProfileXMLFromACSDoc_NonEmptyClassicWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings["fred"] != "Classic" {
-		t.Fatalf("Classic non-empty should win, got %v", settings)
+	if settings["fred"] != "MacOS" {
+		t.Fatalf("ACS Forced should win when settings differ, got %v", settings)
+	}
+}
+
+func TestHydrateClassicProfileXMLFromACSDoc_EqualSettingsKeepClassic(t *testing.T) {
+	const domain = "test.profile"
+	classic := classicShellWithMCXSettings(domain, map[string]any{"fred": "Nerk"})
+	doc := &ACSConfigProfileDoc{
+		PayloadContent: []ACSPayloadContent{{
+			PreferenceDomain: domain,
+			Forced:           &ACSForced{Plist: `<dict><key>fred</key><string>Nerk</string></dict>`},
+		}},
+	}
+	out, err := hydrateClassicProfileXMLFromACSDoc(classic, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != string(classic) {
+		t.Fatal("equal ACS/Classic settings should leave Classic XML unchanged")
 	}
 }
 
@@ -173,5 +191,27 @@ func TestNormalizeJamfForcedPlistForDecode(t *testing.T) {
 	got := normalizeJamfForcedPlistForDecode(in)
 	if strings.Contains(got, "<value>") || !strings.Contains(got, "<string>b</string>") {
 		t.Fatalf("normalize failed: %s", got)
+	}
+}
+
+func TestACSPayloadUUIDIsDocument(t *testing.T) {
+	if acsPayloadUUIDIsDocument("") || acsPayloadUUIDIsDocument("profile:300") {
+		t.Fatal("shell sentinel is not a writable ACS document UUID")
+	}
+	if !acsPayloadUUIDIsDocument("38FD9351-C4A7-4B8F-BF82-A0B6473BD112") {
+		t.Fatal("real UUID should be a document id")
+	}
+}
+
+func TestACSDocLinkedWithoutPayloadUUID(t *testing.T) {
+	if acsDocLinkedWithoutPayloadUUID(nil) || acsDocLinkedWithoutPayloadUUID(&ACSConfigProfileDoc{}) {
+		t.Fatal("empty doc should not count as linked")
+	}
+	if !acsDocLinkedWithoutPayloadUUID(&ACSConfigProfileDoc{Name: "Ampersand Trouble", Level: "SYSTEM"}) {
+		t.Fatal("name/level shell should count as linked")
+	}
+	id := 300
+	if !acsDocLinkedWithoutPayloadUUID(&ACSConfigProfileDoc{ClassicProfileID: &id}) {
+		t.Fatal("classicProfileId should count as linked")
 	}
 }

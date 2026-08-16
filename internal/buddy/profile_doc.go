@@ -134,7 +134,7 @@ var ProfilesTopic = docspec.Topic{
       Does: Seed process cache of Classic id → ACS payload UUID when HTML scrape is unavailable.
       → None
       Params: profile_id: int/str; payload_uuid: str.
-      Notes: Needed when API-token clients cannot scrape legacy HTML; enables read hydrate + ACS writes.
+      Notes: Needed when API-token clients cannot scrape legacy HTML; lets profile_xml merge ACS Forced into Classic XML, and enables ACS writes.
   profile_get_payloads(profile_id)
       Does: Return the payloads plist XML embedded in the profile.
       → value: str (payloads plist XML)

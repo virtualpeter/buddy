@@ -29,7 +29,7 @@
 #   TEST_SKIP_REDEPLOY    — "1" to skip redeploy (default skip; redeploy can push to devices)
 
 TEST_PREFIX = "buddy-test-acs7-"
-TEST_ACS_PROFILE_ID = 7
+TEST_ACS_PROFILE_ID = 300
 TEST_ACS_DOMAIN = ""
 TEST_ACS_PAYLOAD_UUID = ""
 TEST_SKIP_CLONE = ""
@@ -261,6 +261,8 @@ def case_patch_merge(profile_id, snap):
     if after["settings"].get(MARKER_KEY) != "partial-only":
         fail("case 5b: expected partial-only marker, got %r" % after["settings"])
     for k in snap["settings"]:
+        if k == MARKER_KEY:
+            continue
         if k in after["settings"]:
             fail("case 5b: expected MCX replace to drop original key %r" % k)
 
@@ -305,28 +307,19 @@ def case_apply_form_amp(profile_id, snap):
 
 def case_bare_amp_reject(profile_id, snap):
     section(
-        "Case 8 — bare '&' reject",
-        "Local fail-fast before ACS/Classic; profile unchanged.",
+        "Case 8 — bare '&' via ACS",
+        "Literal '&' in a preference URL is written on the ACS path when a document is linked (Classic-only still rejects).",
     )
     state = load_acs(profile_id, snap["domain"])
-    bad = copy_dict(state["settings"])
-    bad["ExampleURL"] = BARE_AMP_URL
-    patched = profile_xml_patch_payload(state["xml"], snap["domain"], bad)
-    def _put():
-        return profile_put_xml(profile_id=profile_id, xml_str=patched, auth=auth)
-    put = attempt(_put)
-    if put["ok"]:
-        restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 8 unexpected ok")
-        fail("case 8: bare '&' put returned ok")
-    err = put["error"]
-    if "409" in err or "<html>" in err.lower():
-        fail("case 8: expected local reject, got HTTP/HTML: %s" % err)
-    if "bare '&'" not in err and "auto-convert" not in err:
-        fail("case 8: unexpected reject reason: %s" % err)
+    settings = copy_dict(state["settings"])
+    settings["ExampleURL"] = BARE_AMP_URL
+    put_mcx_settings_map(profile_id, snap["domain"], settings, "case 8 bare-amp")
     after = load_acs(profile_id, snap["domain"])
-    if not settings_equal(after["settings"], snap["settings"]):
-        fail("case 8: settings changed despite reject")
-    print("case 8 ok: bare '&' rejected:", err)
+    assert_example_url_retained(after["settings"], "case 8", ["acs7", "buddy=1"])
+    if after["general_uuid"] != snap["general_uuid"]:
+        fail("case 8: uuid changed after bare-'&' put")
+    restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 8")
+    print("case 8 ok: bare '&' retained via ACS + restore")
 
 
 def case_under_encoded_reject(profile_id, snap):

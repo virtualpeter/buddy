@@ -53,6 +53,15 @@ func TestHasUnderEncodedAmpersandsInEncodedPayloads(t *testing.T) {
 	}
 }
 
+func TestApplyFormEncodeBareAmpInString(t *testing.T) {
+	if got := applyFormEncodeBareAmpInString("Here &"); got != "Here &amp;" {
+		t.Fatalf("got %q", got)
+	}
+	if got := applyFormEncodeBareAmpInString("a&amp;b"); got != "a&amp;b" {
+		t.Fatalf("Apply-form should stay %q", got)
+	}
+}
+
 func TestHasBareAmpersandInXML(t *testing.T) {
 	if !hasBareAmpersandInXML(`<string>a&b</string>`) {
 		t.Fatal("expected bare amp")
@@ -85,5 +94,48 @@ func TestPrepareProfileXMLForClassicWrite_RejectsBareMCXAmpersand(t *testing.T) 
 	}
 	if !strings.Contains(err.Error(), "bare '&'") {
 		t.Fatalf("error should mention bare amp: %v", err)
+	}
+	if _, err := prepareProfileXMLForClassicSync(profileXML); err != nil {
+		t.Fatalf("Classic sync after ACS should allow decoded URL '&': %v", err)
+	}
+	if profileXMLRequiresAmpersandClassicRetention(profileXML) {
+		t.Fatal("literal URL '&' should not require Classic Apply-form retention")
+	}
+}
+
+func TestProfileXMLDropsBareAmpKeys(t *testing.T) {
+	withAmp := []byte(`<?xml version="1.0"?><os_x_configuration_profile><general>
+<payloads>` + xmlEncodePayload(mcxPayloadsPlistWithAmpersand()) + `</payloads>
+</general></os_x_configuration_profile>`)
+	markerOnly := []byte(`<?xml version="1.0"?><os_x_configuration_profile><general>
+<payloads>` + xmlEncodePayload(mcxPayloadsPlistWithURL("https://example.com")) + `</payloads>
+</general></os_x_configuration_profile>`)
+	// Same key, but the '&' value is replaced with a no-'&' URL — Classic 200s and hides the key.
+	if !profileXMLDropsBareAmpKeys(withAmp, markerOnly) {
+		t.Fatal("replacing an '&' value with a no-'&' string should count as drop")
+	}
+	if profileXMLDropsBareAmpKeys(withAmp, withAmp) {
+		t.Fatal("same XML should not count as dropping amp keys")
+	}
+	keepAmp := []byte(`<?xml version="1.0"?><os_x_configuration_profile><general>
+<payloads>` + xmlEncodePayload(mcxPayloadsPlistWithURL("https://example.com/q?a=1&b=2")) + `</payloads>
+</general></os_x_configuration_profile>`)
+	if profileXMLDropsBareAmpKeys(withAmp, keepAmp) {
+		t.Fatal("same key still containing '&' should not count as drop")
+	}
+	emptyMCX := []byte(`<?xml version="1.0"?><os_x_configuration_profile><general>
+<payloads>` + xmlEncodePayload(mcxPayloadsPlistWithSettings(map[string]any{"Buddy": "x"})) + `</payloads>
+</general></os_x_configuration_profile>`)
+	if !profileXMLDropsBareAmpKeys(withAmp, emptyMCX) {
+		t.Fatal("omitting the '&' key should count as drop")
+	}
+}
+
+func TestProfileXMLRequiresAmpersandClassicRetention_ApplyForm(t *testing.T) {
+	profileXML := []byte(`<?xml version="1.0"?><os_x_configuration_profile><general>
+<payloads>` + xmlEncodePayload(mcxPayloadsPlistWithApplyFormAmp()) + `</payloads>
+</general></os_x_configuration_profile>`)
+	if !profileXMLRequiresAmpersandClassicRetention(profileXML) {
+		t.Fatal("Apply-form &amp; should require Classic retention")
 	}
 }

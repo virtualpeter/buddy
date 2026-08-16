@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"regexp"
 	"strconv"
@@ -45,28 +44,21 @@ func ProfileFetchXML(credName string, profileID int) ([]byte, error) {
 // When Classic MCX preference settings are empty but ACS API has Forced.plist for the
 // same domain, those settings are merged in (see hydrateProfileXMLFromACS).
 func profileFetchRaw(credName string, profileID int) ([]byte, error) {
-	url, err := ResolveEndpoint(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID))
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/xml")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return nil, fmt.Errorf("fetch profile %d: %w", profileID, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("fetch profile %d status %d: %s", profileID, resp.StatusCode, httpErrorBody(resp))
-	}
-	body, err := readHTTPBody(resp)
+	body, err := profileFetchClassicUnhydrated(credName, profileID)
 	if err != nil {
 		return nil, err
 	}
 	return hydrateProfileXMLFromACS(credName, profileID, body, nil)
+}
+
+// profileFetchClassicUnhydrated is Classic XML only (no ACS Forced merge).
+// Used when writing Classic payloads so a hydrated ACS view cannot overwrite '&' keys.
+func profileFetchClassicUnhydrated(credName string, profileID int) ([]byte, error) {
+	body, err := jamfGETWithAccept(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID), "application/xml")
+	if err != nil {
+		return nil, fmt.Errorf("fetch profile %d: %w", profileID, err)
+	}
+	return body, nil
 }
 
 // ExtractPayloadsFromProfileXML finds the <payloads> element in profile XML, unescapes its content, and returns it.
@@ -485,26 +477,9 @@ func EncodeDictMapToXML(m map[string]any) (string, error) {
 // ProfileSearch fetches all configuration profiles and returns records matching the optional name filter.
 // If nameFilter is empty, returns all profiles. Otherwise filters by name (case-insensitive contains).
 func ProfileSearch(credName string, nameFilter string, logger *slog.Logger) ([]ProfileRecord, error) {
-	url, err := ResolveEndpoint(credName, "/JSSResource/osxconfigurationprofiles")
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/xml")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGETWithAccept(credName, "/JSSResource/osxconfigurationprofiles", "application/xml")
 	if err != nil {
 		return nil, fmt.Errorf("list profiles: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := readHTTPBody(resp)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list profiles status %d: %s", resp.StatusCode, string(body))
 	}
 	var list profileListXML
 	if err := xml.Unmarshal(body, &list); err != nil {
@@ -574,22 +549,8 @@ func ProfileRedeploy(credName string, opts Opts, profileID int, logger *slog.Log
 			return nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID))
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(updatedXML))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/xml")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
+	if _, err := jamfPUT(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID), updatedXML, "application/xml"); err != nil {
 		return fmt.Errorf("redeploy profile: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("redeploy profile status %d: %s", resp.StatusCode, httpErrorBody(resp))
 	}
 	fmt.Printf("Redeployed configuration profile (ID %d)\n", profileID)
 	return nil
@@ -688,22 +649,8 @@ func ProfileSetXML(credName string, opts Opts, profileID int, r io.Reader, redep
 			return nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID))
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/xml")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
+	if _, err := jamfPUT(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID), data, "application/xml"); err != nil {
 		return fmt.Errorf("update profile: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("update profile status %d: %s", resp.StatusCode, httpErrorBody(resp))
 	}
 	fmt.Printf("Updated configuration profile (ID %d)\n", profileID)
 	return nil
@@ -749,27 +696,9 @@ func ProfileSetPayload(credName string, opts Opts, profileID int, domain string,
 		return fmt.Errorf("dict file %q: %w", dictFile, err)
 	}
 
-	url, err := ResolveEndpoint(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID))
-	if err != nil {
-		return err
-	}
-
-	getReq, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	getReq.Header.Set("Accept", "application/xml")
-	getResp, err := PerformRequest(nil, getReq, credName)
+	profileXML, err := jamfGETWithAccept(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID), "application/xml")
 	if err != nil {
 		return fmt.Errorf("fetch profile %d: %w", profileID, err)
-	}
-	defer getResp.Body.Close()
-	if getResp.StatusCode != http.StatusOK {
-		return fmt.Errorf("fetch profile %d status %d: %s", profileID, getResp.StatusCode, httpErrorBody(getResp))
-	}
-	profileXML, err := readHTTPBody(getResp)
-	if err != nil {
-		return fmt.Errorf("read profile response: %w", err)
 	}
 
 	updatedXML, err := patchProfilePayload(profileXML, domain, newDict)
@@ -1216,8 +1145,20 @@ func rejectBareMCXAmpersandSettings(profileXML []byte) error {
 // prepareProfileXMLForClassicWrite validates entity-encoded <payloads> for Classic POST/PUT.
 // Raw (unescaped) payloads are re-embedded once. Bare or under-encoded '&' is refused — no silent conversion.
 func prepareProfileXMLForClassicWrite(profileXML []byte) ([]byte, error) {
-	if err := rejectBareMCXAmpersandSettings(profileXML); err != nil {
-		return nil, err
+	return prepareProfileXMLForClassicWriteOpts(profileXML, true)
+}
+
+// prepareProfileXMLForClassicSync validates outer <payloads> encoding after an ACS write.
+// Decoded MCX URL '&' is allowed (ACS already stored it); under-encoded outer XML is still rejected.
+func prepareProfileXMLForClassicSync(profileXML []byte) ([]byte, error) {
+	return prepareProfileXMLForClassicWriteOpts(profileXML, false)
+}
+
+func prepareProfileXMLForClassicWriteOpts(profileXML []byte, rejectBareMCX bool) ([]byte, error) {
+	if rejectBareMCX {
+		if err := rejectBareMCXAmpersandSettings(profileXML); err != nil {
+			return nil, err
+		}
 	}
 	enc, err := extractPayloadsEncodedFromProfileXML(profileXML)
 	if err != nil {
@@ -1234,6 +1175,82 @@ func prepareProfileXMLForClassicWrite(profileXML []byte) ([]byte, error) {
 
 // hasBareAmpersandInXML reports a '&' that is not the start of a known XML entity
 // (&amp; &lt; &gt; &quot; &#… / &#x…).
+func applyFormEncodeBareAmpInString(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for i := 0; i < len(s); i++ {
+		if s[i] != '&' {
+			b.WriteByte(s[i])
+			continue
+		}
+		rest := s[i+1:]
+		switch {
+		case strings.HasPrefix(rest, "amp;"),
+			strings.HasPrefix(rest, "lt;"),
+			strings.HasPrefix(rest, "gt;"),
+			strings.HasPrefix(rest, "quot;"),
+			strings.HasPrefix(rest, "#"):
+			b.WriteByte('&')
+		default:
+			b.WriteString("&amp;")
+		}
+	}
+	return b.String()
+}
+
+func applyFormEncodeBareAmpInAny(v any) any {
+	switch t := v.(type) {
+	case string:
+		return applyFormEncodeBareAmpInString(t)
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, val := range t {
+			out[k] = applyFormEncodeBareAmpInAny(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, val := range t {
+			out[i] = applyFormEncodeBareAmpInAny(val)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+// profileXMLBareAmpToApplyForm copies Jamf ACS Apply form (&amp; in preference strings)
+// so Classic POST/PUT can retain MCX keys that 409 with a literal '&'.
+func profileXMLBareAmpToApplyForm(profileXML []byte) ([]byte, error) {
+	entries, err := listMCXPayloadEntries(profileXML)
+	if err != nil {
+		return nil, err
+	}
+	payloads, err := extractPayloadsFromProfileXML(profileXML)
+	if err != nil {
+		return nil, err
+	}
+	changed := false
+	for _, e := range entries {
+		if !plistMapHasBareAmpersand(e.SettingsDict) {
+			continue
+		}
+		encoded, _ := applyFormEncodeBareAmpInAny(e.SettingsDict).(map[string]any)
+		updated, ok, err := replaceMCXSettingsInPayloadsPlist(payloads, e.Domain, encoded)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			payloads = updated
+			changed = true
+		}
+	}
+	if !changed {
+		return profileXML, nil
+	}
+	return replacePayloadsContent(profileXML, payloads)
+}
+
 func hasBareAmpersandInXML(s string) bool {
 	for i := 0; i < len(s); i++ {
 		if s[i] != '&' {
@@ -1296,15 +1313,61 @@ func repairJamfEncodedPayloadsAmps(encoded string) string {
 	return out
 }
 
-// profileXMLRequiresAmpersandClassicRetention reports whether desired profile XML has MCX
-// settings that must remain visible in Classic (Jamf ACS UI) after ACS attach.
+// profileXMLRequiresAmpersandClassicRetention reports whether desired profile XML has
+// Jamf ACS Apply-form MCX (&amp; in the preference string) that must remain visible
+// in Classic after ACS attach. Literal URL '&' is stored on ACS and is not required
+// in the Classic stub.
+// profileXMLDropsBareAmpKeys reports that desired MCX would lose a current
+// Classic value that contains a literal '&' — either by omitting the key or
+// by replacing that value with a non-'&' string. Classic PUT of a no-'&'
+// dict 200s and hides AmpersandString from the next process (ACS GET has no
+// Forced; hydrate then shows Classic only).
+func profileXMLDropsBareAmpKeys(current, desired []byte) bool {
+	curEntries, err := listMCXPayloadEntries(current)
+	if err != nil {
+		return false
+	}
+	desEntries, err := listMCXPayloadEntries(desired)
+	if err != nil {
+		return false
+	}
+	desByDomain := make(map[string]MCXPayloadEntry, len(desEntries))
+	for _, e := range desEntries {
+		desByDomain[e.Domain] = e
+	}
+	for _, e := range curEntries {
+		if !plistMapHasBareAmpersand(e.SettingsDict) {
+			continue
+		}
+		d, ok := desByDomain[e.Domain]
+		if !ok {
+			return true
+		}
+		for k, v := range e.SettingsDict {
+			if !plistMapHasBareAmpersand(v) {
+				continue
+			}
+			dv, exists := d.SettingsDict[k]
+			if !exists {
+				return true
+			}
+			// Same key, but the '&' is gone (e.g. "Here &" → marker). Apply-form
+			// (&amp; in the string) still counts as retaining the ampersand.
+			if !plistMapHasBareAmpersand(dv) && !plistMapHasMCXAmpersandIssue(dv) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func profileXMLRequiresAmpersandClassicRetention(profileXML []byte) bool {
 	entries, err := listMCXPayloadEntries(profileXML)
 	if err != nil {
 		return false
 	}
 	for _, e := range entries {
-		if e.HasAmpersand {
+		if e.HasAmpersand && !plistMapHasBareAmpersand(e.SettingsDict) {
 			return true
 		}
 	}

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"regexp"
 	"strconv"
@@ -1207,34 +1206,9 @@ func PolicySetXML(credName string, opts Opts, policyID int, r io.Reader, logger 
 	if err != nil {
 		return fmt.Errorf("read XML: %w", err)
 	}
-	// Basic validation: must look like policy XML (get outputs <ResourcePolicy>, API accepts <policy>)
-	if !bytes.Contains(data, []byte("<policy")) && !bytes.Contains(data, []byte("<ResourcePolicy")) {
-		return fmt.Errorf(errNotPolicyXML)
-	}
-	// Strip date_time_limitations to avoid propagating activation/expiration datetimes.
-	data = dateTimeLimitationsBlockRegex.ReplaceAll(data, []byte(dateTimeLimitationsEmptyXML))
-	if !opts.SkipConfirm {
-		if !ConfirmPrompt(fmt.Sprintf("\nPUT policy (ID %d) with XML from stdin", policyID), logger) {
-			return nil
-		}
-	}
-	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/policies/id/%d", policyID))
-	if err != nil {
+	wrote, err := policyPutXML(credName, opts, policyID, data, "\nPUT policy (ID %d) with XML from stdin", logger)
+	if err != nil || !wrote {
 		return err
-	}
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/xml")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return fmt.Errorf("update policy: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update policy status %d: %s", resp.StatusCode, string(body))
 	}
 	fmt.Printf("Updated policy (ID %d)\n", policyID)
 	return nil
@@ -1243,35 +1217,24 @@ func PolicySetXML(credName string, opts Opts, policyID int, r io.Reader, logger 
 // PolicyPutXML writes the given policy XML to Jamf for the given policy ID (for script/component use).
 // Uses opts.SkipConfirm to skip confirmation when called from scripts. Does not print success message.
 func PolicyPutXML(credName string, opts Opts, policyID int, xml []byte, logger *slog.Logger) error {
-	data := xml
+	_, err := policyPutXML(credName, opts, policyID, xml, "\nPUT policy (ID %d) with XML", logger)
+	return err
+}
+
+func policyPutXML(credName string, opts Opts, policyID int, data []byte, confirmFmt string, logger *slog.Logger) (wrote bool, err error) {
 	if !bytes.Contains(data, []byte("<policy")) && !bytes.Contains(data, []byte("<ResourcePolicy")) {
-		return fmt.Errorf(errNotPolicyXML)
+		return false, fmt.Errorf(errNotPolicyXML)
 	}
 	data = dateTimeLimitationsBlockRegex.ReplaceAll(data, []byte(dateTimeLimitationsEmptyXML))
 	if !opts.SkipConfirm {
-		if !ConfirmPrompt(fmt.Sprintf("\nPUT policy (ID %d) with XML", policyID), logger) {
-			return nil
+		if !ConfirmPrompt(fmt.Sprintf(confirmFmt, policyID), logger) {
+			return false, nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/policies/id/%d", policyID))
-	if err != nil {
-		return err
+	if _, err := jamfPUT(credName, fmt.Sprintf("%s/id/%d", uriPolicies, policyID), data, "application/xml"); err != nil {
+		return false, fmt.Errorf("update policy: %w", err)
 	}
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/xml")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return fmt.Errorf("update policy: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update policy status %d: %s", resp.StatusCode, string(body))
-	}
-	return nil
+	return true, nil
 }
 
 // PolicyDelete deletes one or more policies by ID.

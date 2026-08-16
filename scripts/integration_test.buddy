@@ -19,15 +19,15 @@
 #   B) clone / copy / edit on that Classic path
 #   C) ampersand / path contract:
 #        1) PUT Apply-form &amp; (ACS-eligible) — success; Classic retains ExampleURL
-#        2) bare '&' — fail-fast locally (no Classic 409)
+#        2) bare '&' after ACS is linked — success via ACS (Classic-only still rejects)
 #        3) profile_create with Apply-form &amp; from scratch — success; Classic retains
 #        4) under-encoded outer <payloads> — fail-fast locally (no Classic 409)
-#        5) GET after (3): Jamf often normalizes '&amp;' to a literal '&'. clone/PUT of
-#           that GET is the unsolved roundtrip (UI-saved MCX URLs with a literal '&').
-#           The run must print the gap; invert the asserts when GET→clone/PUT works.
+#        5) GET after (3): Jamf may normalize '&amp;' to a literal '&'. clone/PUT of
+#           that GET must succeed via ACS (create/edit/delete roundtrip).
 #
-# Coder supplies &amp; in preference strings (same as Jamf UI Apply). Buddy rejects bare
-# '&' in profile XML / MCX settings rather than auto-converting.
+# Apply-form is &amp; in the preference string (Jamf ACS Apply). A literal '&' in
+# decoded MCX is written on the ACS path; buddy does not auto-convert one to the other.
+# Outer XML under-encoding is still rejected.
 #
 # Refactored ACS (empty Classic / ACS Forced) same-tenant shake-down:
 #   make integration-test-acs7
@@ -460,10 +460,10 @@ def under_encode_apply_form_url(profile_xml):
 
 
 def test_profile_inject_ampersand(profile_id, created):
-    """Phase C: Apply-form write, rejects, and unsolved GET→clone/PUT after Jamf normalizes '&'."""
+    """Phase C: Apply-form + bare-'&' write via ACS; under-encode still rejected; GET→clone/PUT."""
     section(
         "Profile phase C — ampersand / path contract",
-        "Apply-form put+create; bare/under-encode rejects; GET after create is often uncloneable (known gap).",
+        "Apply-form put+create; bare '&' via ACS; GET→clone/PUT; under-encode reject.",
     )
 
     # -------------------------------------------------------------------------
@@ -488,31 +488,28 @@ def test_profile_inject_ampersand(profile_id, created):
     print("phase C case 1 ok: Classic ExampleURL =", got)
 
     # -------------------------------------------------------------------------
-    # Case 2 — bare '&' in the preference string.
-    # Expectation: local reject before ACS/Classic (no HTTP 409 HTML).
+    # Case 2 — bare '&' in the preference string after case 1 linked ACS.
+    # ACS write path accepts the literal; Classic-only PUT still rejects.
     # -------------------------------------------------------------------------
-    print("phase C case 2: ExampleURL with bare '&' — expect local reject")
+    print("phase C case 2: ExampleURL with bare '&' — expect ACS write + retention")
     xml, settings = assert_classic_mcx_keys(
         profile_id,
         ["BuddyTestSeed", "ExampleURL"],
         "phase C case 2 pre",
     )
-    bad = {}
+    bare = {}
     for k in settings:
-        bad[k] = settings[k]
-    bad["ExampleURL"] = BARE_AMP_URL
-    patched_bad = profile_xml_patch_payload(xml, MCX_DOMAIN, bad)
-    def _put_bare():
-        return profile_put_xml(profile_id=profile_id, xml_str=patched_bad, auth=auth)
-    put = attempt(_put_bare)
-    if put["ok"]:
-        fail("phase C case 2: bare '&' put returned ok (expected rejection)")
-    err = put["error"]
-    if "409" in err or "<html>" in err.lower():
-        fail("phase C case 2: expected local bare-'&' reject, got Classic/HTTP error: %s" % err)
-    if "bare '&'" not in err and "auto-convert" not in err:
-        fail("phase C case 2: unexpected reject reason: %s" % err)
-    print("phase C case 2 ok: bare '&' put rejected as expected:", err)
+        bare[k] = settings[k]
+    bare["ExampleURL"] = BARE_AMP_URL
+    patched_bare = profile_xml_patch_payload(xml, MCX_DOMAIN, bare)
+    profile_put_xml(profile_id=profile_id, xml_str=patched_bare, auth=auth)
+    _, settings_bare = assert_classic_mcx_keys(
+        profile_id,
+        ["BuddyTestSeed", "ExampleURL"],
+        "phase C case 2 Classic retention",
+    )
+    got = assert_example_url_retained(settings_bare, "phase C case 2", ["foo", "bar=baz"])
+    print("phase C case 2 ok: bare '&' retained via ACS:", got)
 
     # -------------------------------------------------------------------------
     # Case 3 — profile_create with Apply-form &amp; from scratch (Edge-style URL).
@@ -535,56 +532,31 @@ def test_profile_inject_ampersand(profile_id, created):
     print("phase C case 3 ok: Classic ExampleURL =", got)
 
     # -------------------------------------------------------------------------
-    # Case 5 — UNSOLVED: GET of the Apply-form create, then clone / PUT that GET.
-    # Jamf often stores a literal '&' on read-back. Buddy rejects that document
-    # (no auto-convert); Classic POST of the GET XML 409s. Same as UI-saved
-    # MCX URLs with a literal '&'. When roundtrip works, invert: clone/PUT must succeed.
+    # Case 5 — GET of the Apply-form create, then clone / PUT that GET.
+    # Jamf may normalize '&amp;' to a literal '&'. ACS create/PUT must accept either.
     # -------------------------------------------------------------------------
-    print("phase C case 5: GET Apply-form create then clone/PUT (unsolved roundtrip)")
+    print("phase C case 5: GET Apply-form create then clone/PUT")
     xml_got, settings_got = assert_classic_mcx_keys(
         created_id,
         ["BuddyTestSeed", "ExampleURL"],
         "phase C case 5 GET",
     )
     got_url = settings_got["ExampleURL"]
-    clone_name = TEST_PREFIX + "roundtrip-clone"
-
-    def _clone_got():
-        return profile_clone(created_id, clone_name)
-
-    def _put_got():
-        return profile_put_xml(profile_id=created_id, xml_str=xml_got, auth=auth)
-
-    if not has_bare_amp(got_url):
-        print("phase C case 5: GET retained Apply-form entity text:", got_url)
-        cres = attempt(_clone_got)
-        if not cres["ok"]:
-            fail("phase C case 5: Apply-form GET should clone, got: %s" % cres["error"])
-        created["profiles"].append(cres["value"]["id"])
-        print("phase C case 5 ok: Apply-form GET cloned (roundtrip works on this Jamf)")
+    if has_bare_amp(got_url):
+        print("phase C case 5: GET normalized ExampleURL to a literal '&':", got_url)
     else:
-        print("*** UNSOLVED: Jamf GET normalized Apply-form ExampleURL to a literal '&'")
-        print("*** buddy cannot clone or PUT that GET (UI-saved MCX with a literal '&')")
-        print("*** ExampleURL =", got_url)
-        cres = attempt(_clone_got)
-        if cres["ok"]:
-            created["profiles"].append(cres["value"]["id"])
-            fail("phase C case 5: GET→clone succeeded — roundtrip is fixed; invert this case to require clone/PUT")
-        cerr = cres["error"]
-        if "409" in cerr or "<html>" in cerr.lower():
-            fail("phase C case 5: expected local reject on clone, got Classic/HTTP: %s" % cerr)
-        if "bare '&'" not in cerr and "auto-convert" not in cerr:
-            fail("phase C case 5: unexpected clone error: %s" % cerr)
-        pres = attempt(_put_got)
-        if pres["ok"]:
-            fail("phase C case 5: PUT of GET XML succeeded — roundtrip is fixed; invert this case")
-        perr = pres["error"]
-        if "409" in perr or "<html>" in perr.lower():
-            fail("phase C case 5: expected local reject on PUT, got Classic/HTTP: %s" % perr)
-        if "bare '&'" not in perr and "auto-convert" not in perr:
-            fail("phase C case 5: unexpected PUT error: %s" % perr)
-        print("phase C case 5: known gap still present — GET→clone rejected:", cerr)
-        print("phase C case 5: known gap still present — GET→PUT rejected:", perr)
+        print("phase C case 5: GET retained Apply-form entity text:", got_url)
+    clone_name = TEST_PREFIX + "roundtrip-clone"
+    cloned = profile_clone(created_id, clone_name)
+    created["profiles"].append(cloned["id"])
+    _, clone_settings = assert_classic_mcx_keys(
+        cloned["id"],
+        ["BuddyTestSeed", "ExampleURL"],
+        "phase C case 5 clone",
+    )
+    assert_example_url_retained(clone_settings, "phase C case 5 clone", ["searchTerms", "google:RLZ"])
+    profile_put_xml(profile_id=created_id, xml_str=xml_got, auth=auth)
+    print("phase C case 5 ok: GET→clone + GET→PUT")
 
     # -------------------------------------------------------------------------
     # Case 4 — under-encoded '&' in outer Classic <payloads> (not Apply-form preference).
@@ -610,7 +582,7 @@ def test_profile_inject_ampersand(profile_id, created):
 def test_profile(cred, created):
     section(
         "Profiles",
-        "Phase A Classic → B clone/copy/edit → C Apply-form ACS+Classic / rejects / unsolved GET roundtrip.",
+        "Phase A Classic → B clone/copy/edit → C Apply-form + bare-'&' ACS roundtrip / under-encode reject.",
     )
 
     def _list_profiles():
