@@ -176,21 +176,8 @@ func PackageDelete(credName string, opts Opts, ids []string, logger *slog.Logger
 }
 
 func packageDeleteOne(credName, id string) error {
-	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodDelete, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
+	if err := jamfDELETE(credName, uriPackages+"/"+id); err != nil {
 		return fmt.Errorf("delete package %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("delete package %s status %d: %s", id, resp.StatusCode, httpErrorBody(resp))
 	}
 	fmt.Printf("Deleted package (ID %s)\n", id)
 	return nil
@@ -202,22 +189,8 @@ func packageDeleteMultiple(credName string, ids []string) error {
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
-	endpoint, err := ResolveEndpoint(credName, uriPackages+"/delete-multiple")
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
+	if _, err := jamfPOST(credName, uriPackages+"/delete-multiple", data, "application/json"); err != nil {
 		return fmt.Errorf("delete packages: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("delete packages status %d: %s", resp.StatusCode, httpErrorBody(resp))
 	}
 	fmt.Printf("Deleted %d package(s): %s\n", len(ids), strings.Join(ids, ", "))
 	return nil
@@ -937,27 +910,9 @@ func packagePut(credName, id string, pkg *PackageRecord) (*PackageRecord, error)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfPUT(credName, uriPackages+"/"+id, data, "application/json")
 	if err != nil {
 		return nil, fmt.Errorf("update package %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, err := readHTTPBody(resp)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("update package %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	var updated PackageRecord
 	if err := json.Unmarshal(body, &updated); err != nil {
@@ -1164,27 +1119,9 @@ func packageCreate(credName string, payload *packageCreatePayload) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("marshal create payload: %w", err)
 	}
-	endpoint, err := ResolveEndpoint(credName, uriPackages)
-	if err != nil {
-		return "", err
-	}
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfPOST(credName, uriPackages, data, "application/json")
 	if err != nil {
 		return "", fmt.Errorf("create package: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := readHTTPBody(resp)
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("create package status %d: %s", resp.StatusCode, string(body))
 	}
 	var created PackageRecord
 	if err := json.Unmarshal(body, &created); err != nil {
@@ -2000,26 +1937,9 @@ func PackageSetAttrs(credName, id string, opts Opts, attrs PackageAttrs, logger 
 // packageGetLatestHistory fetches the single most-recent history entry for a package.
 // Returns nil (no error) when no history entries exist.
 func packageGetLatestHistory(credName, id string) (*PackageHistoryEntry, error) {
-	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id+"/history?sort=date:desc&page-size=1")
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGET(credName, uriPackages+"/"+id+"/history?sort=date:desc&page-size=1")
 	if err != nil {
 		return nil, fmt.Errorf("get package history %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, err := readHTTPBody(resp)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get package history %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	var result packageHistoryResponse
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -2037,26 +1957,9 @@ func PackageHistory(credName, id string, limit int, logger *slog.Logger) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	endpoint, err := ResolveEndpoint(credName, fmt.Sprintf("%s/%s/history?sort=date:desc&page-size=%d", uriPackages, id, limit))
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGET(credName, fmt.Sprintf("%s/%s/history?sort=date:desc&page-size=%d", uriPackages, id, limit))
 	if err != nil {
 		return fmt.Errorf("get package history %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, err := readHTTPBody(resp)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("get package history %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	var result packageHistoryResponse
 	if err := json.Unmarshal(body, &result); err != nil {
