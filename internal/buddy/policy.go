@@ -27,6 +27,9 @@ type Opts struct {
 	Progress bool
 }
 
+const errFetchPolicyFmt = "fetch policy %d: %w"
+const errNotPolicyXML = "input does not appear to be policy XML (missing <policy> or <ResourcePolicy> root)"
+
 func (o Opts) logProgress() bool { return o.Progress || o.Verbose }
 
 func progressf(opts Opts, format string, args ...interface{}) {
@@ -43,7 +46,7 @@ func progressf(opts Opts, format string, args ...interface{}) {
 func PolicySS(credName string, opts Opts, policyID int, newVersion string, groupIDs []int, logger *slog.Logger) error {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 	payload := buildPolicyUpdatePayload(policy, newVersion, groupIDs)
 	if !opts.SkipConfirm {
@@ -85,7 +88,7 @@ type PolicySSOpts struct {
 func PolicySSUpdate(credName string, opts Opts, policyID int, ssOpts PolicySSOpts, logger *slog.Logger) error {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 
 	payload := buildPolicyUpdatePayload(policy, ssOpts.Version, ssOpts.GroupIDs)
@@ -175,7 +178,7 @@ func PolicySSUpdate(credName string, opts Opts, policyID int, ssOpts PolicySSOpt
 func PolicyScope(credName string, opts Opts, policyID int, groupIDs []int, logger *slog.Logger) error {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 	if len(groupIDs) == 0 {
 		return fmt.Errorf("at least one computer group ID required")
@@ -201,7 +204,7 @@ func PolicyScope(credName string, opts Opts, policyID int, groupIDs []int, logge
 func PolicyScopeAll(credName string, opts Opts, policyID int, logger *slog.Logger) error {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 	payload := buildPolicyUpdatePayload(policy, policy.SelfService.SelfServiceDescription, nil)
 	payload.Scope.AllComputers = true
@@ -227,7 +230,7 @@ func PolicyScopeAll(credName string, opts Opts, policyID int, logger *slog.Logge
 func PolicyEnable(credName string, opts Opts, policyID int, enabled bool, logger *slog.Logger) error {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 	if policy.General.Enabled == enabled {
 		state := "enabled"
@@ -276,7 +279,7 @@ func PolicyGetEnable(credName string, opts Opts, policyID int, logger *slog.Logg
 func PolicyGetEnableValue(credName string, policyID int, logger *slog.Logger) (string, error) {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return "", fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return "", fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 	if policy.General.Enabled {
 		return "enabled", nil
@@ -314,7 +317,7 @@ type PolicyDetails struct {
 func PolicyGetDetails(credName string, policyID int, logger *slog.Logger) (*PolicyDetails, error) {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return nil, fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return nil, fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 	d := &PolicyDetails{}
 	d.ID = policy.General.ID
@@ -359,7 +362,7 @@ func PolicyGetDetails(credName string, policyID int, logger *slog.Logger) (*Poli
 func PolicyTrigger(credName string, opts Opts, policyID int, newTrigger string, logger *slog.Logger) error {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 	currentTrigger := strings.TrimSpace(policy.General.TriggerOther)
 	if currentTrigger == "" {
@@ -392,7 +395,7 @@ func PolicyTrigger(credName string, opts Opts, policyID int, newTrigger string, 
 func PolicySetName(credName string, opts Opts, policyID int, newName string, logger *slog.Logger) error {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 	currentName := policy.General.Name
 	if currentName == newName {
@@ -421,7 +424,7 @@ func PolicySetName(credName string, opts Opts, policyID int, newName string, log
 func PolicySetFrequency(credName string, opts Opts, policyID int, frequency string, logger *slog.Logger) error {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 	currentFreq := strings.TrimSpace(policy.General.Frequency)
 	newFreq := strings.TrimSpace(frequency)
@@ -455,7 +458,7 @@ func PolicySetIcon(credName string, opts Opts, policyID int, filePath string, lo
 
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 
 	if !opts.SkipConfirm {
@@ -494,7 +497,7 @@ func PolicySetIcon(credName string, opts Opts, policyID int, filePath string, lo
 func PolicyInstall(credName string, opts Opts, policyID int, newVersion string, paramIndices []int, logger *slog.Logger) error {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 	if len(policy.Scripts) == 0 {
 		return fmt.Errorf("policy %d has no scripts", policyID)
@@ -637,7 +640,7 @@ func sourceSummaryLine(name string, id int, trigger string) string {
 func PlanPolicyClone(credName string, opts Opts, policyID int, name, oldVersion, newVersion, packageOverride string, paramIndices []int, disableMode DisableSourceMode, logger *slog.Logger) (*PolicyClonePlan, error) {
 	policy, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return nil, fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return nil, fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 
 	pkgs := policy.PackageConfiguration.Packages
@@ -1206,7 +1209,7 @@ func PolicySetXML(credName string, opts Opts, policyID int, r io.Reader, logger 
 	}
 	// Basic validation: must look like policy XML (get outputs <ResourcePolicy>, API accepts <policy>)
 	if !bytes.Contains(data, []byte("<policy")) && !bytes.Contains(data, []byte("<ResourcePolicy")) {
-		return fmt.Errorf("input does not appear to be policy XML (missing <policy> or <ResourcePolicy> root)")
+		return fmt.Errorf(errNotPolicyXML)
 	}
 	// Strip date_time_limitations to avoid propagating activation/expiration datetimes.
 	data = dateTimeLimitationsBlockRegex.ReplaceAll(data, []byte(dateTimeLimitationsEmptyXML))
@@ -1242,7 +1245,7 @@ func PolicySetXML(credName string, opts Opts, policyID int, r io.Reader, logger 
 func PolicyPutXML(credName string, opts Opts, policyID int, xml []byte, logger *slog.Logger) error {
 	data := xml
 	if !bytes.Contains(data, []byte("<policy")) && !bytes.Contains(data, []byte("<ResourcePolicy")) {
-		return fmt.Errorf("input does not appear to be policy XML (missing <policy> or <ResourcePolicy> root)")
+		return fmt.Errorf(errNotPolicyXML)
 	}
 	data = dateTimeLimitationsBlockRegex.ReplaceAll(data, []byte(dateTimeLimitationsEmptyXML))
 	if !opts.SkipConfirm {
@@ -1281,7 +1284,7 @@ func PolicyDelete(credName string, opts Opts, policyIDs []int, logger *slog.Logg
 	for _, id := range policyIDs {
 		policy, err := policyGetByID(credName, id)
 		if err != nil {
-			return fmt.Errorf("fetch policy %d: %w", id, err)
+			return fmt.Errorf(errFetchPolicyFmt, id, err)
 		}
 		infos = append(infos, policyInfo{id: id, name: policy.General.Name})
 	}
@@ -1977,7 +1980,7 @@ type policyPackagePayload struct {
 func getPackageSourcePolicy(credName, name string, policyID int, opts Opts, logger *slog.Logger) (*resourcePolicy, error) {
 	detail, err := policyGetByID(credName, policyID)
 	if err != nil {
-		return nil, fmt.Errorf("fetch policy %d: %w", policyID, err)
+		return nil, fmt.Errorf(errFetchPolicyFmt, policyID, err)
 	}
 	if len(detail.PackageConfiguration.Packages) != 1 {
 		return nil, fmt.Errorf("policy %d has %d packages (expected 1)", policyID, len(detail.PackageConfiguration.Packages))

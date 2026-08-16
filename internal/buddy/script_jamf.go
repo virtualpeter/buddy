@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+const uriScripts = "/api/v1/scripts"
+
 // ScriptRecord is a summary record from the scripts list endpoint.
 type ScriptRecord struct {
 	ID           string `json:"id"`
@@ -70,7 +72,7 @@ func ScriptSearch(credName, filter string, opts PageOpts, logger *slog.Logger) (
 		extra.Set("filter", normalized)
 	}
 	var all []ScriptRecord
-	err = fetchJamfPaged(credName, "/api/v1/scripts", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, uriScripts, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		// Unmarshal as full ScriptDetail (Jamf may send scriptContents), then project.
 		var page []ScriptDetail
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
@@ -113,7 +115,7 @@ func ScriptList(credName, filter string, logger *slog.Logger) error {
 
 // scriptGetFull fetches a single script by ID and returns the full detail struct.
 func scriptGetFull(credName, id string) (*ScriptDetail, error) {
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/scripts/" + id)
+	endpoint, err := ResolveEndpoint(credName, uriScripts+"/"+id)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +196,7 @@ func ScriptHistory(credName, id string, limit int, logger *slog.Logger) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	endpoint, err := ResolveEndpoint(credName, fmt.Sprintf("/api/v1/scripts/%s/history?sort=date:desc&page-size=%d", id, limit))
+	endpoint, err := ResolveEndpoint(credName, fmt.Sprintf("%s/%s/history?sort=date:desc&page-size=%d", uriScripts, id, limit))
 	if err != nil {
 		return err
 	}
@@ -249,7 +251,7 @@ func ScriptPostDetail(credName string, opts Opts, s ScriptDetail, logger *slog.L
 			return nil, nil
 		}
 	}
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/scripts")
+	endpoint, err := ResolveEndpoint(credName, uriScripts)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +310,7 @@ func scriptPut(credName, id string, s *ScriptDetail) (*ScriptDetail, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/scripts/" + id)
+	endpoint, err := ResolveEndpoint(credName, uriScripts+"/"+id)
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +454,7 @@ func ScriptDelete(credName string, opts Opts, ids []string, logger *slog.Logger)
 }
 
 func scriptDeleteOne(credName, id, name string) error {
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/scripts/" + id)
+	endpoint, err := ResolveEndpoint(credName, uriScripts+"/"+id)
 	if err != nil {
 		return err
 	}

@@ -65,7 +65,7 @@ func PreparePolicyXMLForCreate(policyXML []byte, spec PolicyPrepareSpec) ([]byte
 		return nil, fmt.Errorf("policy name is required")
 	}
 	if !bytes.Contains(policyXML, []byte("<policy")) && !bytes.Contains(policyXML, []byte("<ResourcePolicy")) {
-		return nil, fmt.Errorf("input does not appear to be policy XML (missing <policy> or <ResourcePolicy> root)")
+		return nil, fmt.Errorf(errNotPolicyXML)
 	}
 	xml := normalizePolicyXMLRoot(policyXML)
 	xml = stripFirstPolicyID(xml)
@@ -99,7 +99,7 @@ func PolicyPostXML(credName string, opts Opts, xml []byte, policyName string, lo
 		return nil, fmt.Errorf("policy name is required")
 	}
 	if !bytes.Contains(xml, []byte("<policy")) && !bytes.Contains(xml, []byte("<ResourcePolicy")) {
-		return nil, fmt.Errorf("input does not appear to be policy XML (missing <policy> or <ResourcePolicy> root)")
+		return nil, fmt.Errorf(errNotPolicyXML)
 	}
 	data := dateTimeLimitationsBlockRegex.ReplaceAll(normalizePolicyXMLRoot(xml), []byte(dateTimeLimitationsEmptyXML))
 	if !opts.SkipConfirm {

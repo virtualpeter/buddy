@@ -408,6 +408,25 @@ func writeHTTPTrace(req *http.Request, reqBody []byte, resp *http.Response, resp
 	fmt.Fprint(os.Stderr, b.String())
 }
 
+func readHTTPBody(resp *http.Response) ([]byte, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, nil
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	return body, nil
+}
+
+func httpErrorBody(resp *http.Response) string {
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return fmt.Sprintf("<%v>", err)
+	}
+	return string(body)
+}
+
 // jamfGET performs a GET request to the Jamf API and returns the response body.
 func jamfGET(credName, path string) ([]byte, error) {
 	return jamfGETWithAccept(credName, path, "application/json, application/xml")

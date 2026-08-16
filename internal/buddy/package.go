@@ -22,6 +22,8 @@ import (
 	"time"
 )
 
+const uriPackages = "/api/v1/packages"
+
 // PackageRecord is a Jamf Pro package from the v1 API (list or get).
 // List endpoints may leave optional fields empty; GET /api/v1/packages/{id}
 // returns the full object including checksums. LastChanged/LastChangedBy are
@@ -126,7 +128,7 @@ func PackageSearch(credName, filter string, opts PageOpts, logger *slog.Logger) 
 		extra.Set("filter", normalized)
 	}
 	var all []PackageRecord
-	err = fetchJamfPaged(credName, "/api/v1/packages", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, uriPackages, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		var page []PackageRecord
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)
@@ -152,9 +154,7 @@ func PackageGet(credName, id string, logger *slog.Logger) error {
 		pkg.LastChanged = latest.Date
 		pkg.LastChangedBy = latest.Username
 	}
-	out, _ := json.MarshalIndent(pkg, "", "  ")
-	fmt.Println(string(out))
-	return nil
+	return printJSON(pkg)
 }
 
 // PackageDelete deletes one or more packages by ID.
@@ -176,7 +176,7 @@ func PackageDelete(credName string, opts Opts, ids []string, logger *slog.Logger
 }
 
 func packageDeleteOne(credName, id string) error {
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/"+id)
+	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id)
 	if err != nil {
 		return err
 	}
@@ -190,8 +190,7 @@ func packageDeleteOne(credName, id string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete package %s status %d: %s", id, resp.StatusCode, string(body))
+		return fmt.Errorf("delete package %s status %d: %s", id, resp.StatusCode, httpErrorBody(resp))
 	}
 	fmt.Printf("Deleted package (ID %s)\n", id)
 	return nil
@@ -203,7 +202,7 @@ func packageDeleteMultiple(credName string, ids []string) error {
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/delete-multiple")
+	endpoint, err := ResolveEndpoint(credName, uriPackages+"/delete-multiple")
 	if err != nil {
 		return err
 	}
@@ -218,8 +217,7 @@ func packageDeleteMultiple(credName string, ids []string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete packages status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("delete packages status %d: %s", resp.StatusCode, httpErrorBody(resp))
 	}
 	fmt.Printf("Deleted %d package(s): %s\n", len(ids), strings.Join(ids, ", "))
 	return nil
@@ -375,7 +373,7 @@ func packageGet(credName, id string) (*PackageRecord, error) {
 // packageGetStatus GETs /api/v1/packages/{id} and returns the HTTP status.
 // On 404, pkg is nil and err is nil.
 func packageGetStatus(credName, id string) (pkg *PackageRecord, status int, err error) {
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/"+id)
+	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -389,7 +387,10 @@ func packageGetStatus(credName, id string) (pkg *PackageRecord, status int, err 
 		return nil, 0, fmt.Errorf("get package %s: %w", id, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return nil, 0, err
+	}
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, http.StatusNotFound, nil
 	}
@@ -779,7 +780,10 @@ func jcdsFetchPresignedURI(credName, fileName string) (string, error) {
 		return "", fmt.Errorf("get jcds file %q: %w", fileName, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return "", err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("get jcds file %q status %d: %s", fileName, resp.StatusCode, string(body))
 	}
@@ -933,7 +937,7 @@ func packagePut(credName, id string, pkg *PackageRecord) (*PackageRecord, error)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/"+id)
+	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id)
 	if err != nil {
 		return nil, err
 	}
@@ -948,7 +952,10 @@ func packagePut(credName, id string, pkg *PackageRecord) (*PackageRecord, error)
 		return nil, fmt.Errorf("update package %s: %w", id, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("update package %s status %d: %s", id, resp.StatusCode, string(body))
 	}
@@ -1157,7 +1164,7 @@ func packageCreate(credName string, payload *packageCreatePayload) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("marshal create payload: %w", err)
 	}
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages")
+	endpoint, err := ResolveEndpoint(credName, uriPackages)
 	if err != nil {
 		return "", err
 	}
@@ -1172,7 +1179,10 @@ func packageCreate(credName string, payload *packageCreatePayload) (string, erro
 		return "", fmt.Errorf("create package: %w", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return "", err
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return "", fmt.Errorf("create package status %d: %s", resp.StatusCode, string(body))
 	}
@@ -1207,7 +1217,7 @@ func packageFindByFileName(credName, fileName string, logger *slog.Logger) (id s
 // (false, nil) when Jamf has not propagated it yet (HTTP 404),
 // or an error for other failures.
 func packageProbeReadable(credName, id string) (bool, error) {
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/"+id)
+	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id)
 	if err != nil {
 		return false, err
 	}
@@ -1221,7 +1231,10 @@ func packageProbeReadable(credName, id string) (bool, error) {
 		return false, fmt.Errorf("get package %s: %w", id, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return false, err
+	}
 	switch resp.StatusCode {
 	case http.StatusOK:
 		return true, nil
@@ -1489,7 +1502,7 @@ func packageUploadFile(credName, id string, file *os.File, opts Opts) (uploaded 
 		}
 	}
 
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/"+id+"/upload")
+	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id+"/upload")
 	if err != nil {
 		_ = pr.Close()
 		<-writeErrCh
@@ -1525,12 +1538,10 @@ func packageUploadFile(credName, id string, file *os.File, opts Opts) (uploaded 
 		return 0, elapsed, fmt.Errorf("upload package file: %w", writeErr)
 	}
 	if resp.StatusCode == http.StatusNotFound {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return 0, elapsed, fmt.Errorf("%w: status %d: %s", errPackageUploadNotFound, resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+		return 0, elapsed, fmt.Errorf("%w: status %d: %s", errPackageUploadNotFound, resp.StatusCode, strings.TrimSpace(httpErrorBody(resp)))
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		msg := strings.TrimSpace(string(bodyBytes))
+		msg := strings.TrimSpace(httpErrorBody(resp))
 		if msg == "" {
 			msg = "(empty response body)"
 		}
@@ -1632,135 +1643,26 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 	if existingID != "" {
 		updating = true
 		id = existingID
-		fmt.Printf("Found existing package record (ID %s) — update path\n", id)
-		pkg, err := packageGet(credName, id)
-		if err != nil {
+		doUpload, err := packageUploadExisting(credName, opts, file, info, id, attrs, upOpts, logger)
+		if err != nil || !doUpload {
 			return err
 		}
-		printPackageRecordSummary(pkg)
-
-		metaNeeded := attrs.AnySet() && attrs.DiffersFrom(pkg)
-		if packageUploadWaitOnly(upOpts, pkg) {
-			status := pkg.CloudTransferStatus
-			if status == "" {
-				status = "(empty)"
-			}
-			fmt.Printf("Package is not READY yet (cloudTransferStatus=%s) — skipping file upload, waiting until READY\n", status)
-			if metaNeeded {
-				fmt.Printf("Updating metadata: %s\n", strings.Join(attrs.summaryLines(pkg), ", "))
-				if !opts.SkipConfirm {
-					if !ConfirmPrompt(fmt.Sprintf("\nUpdate metadata for package %s (%q)?", id, pkg.PackageName), logger) {
-						return nil
-					}
-				}
-				if err := packageApplyAttrs(credName, id, opts, attrs, pkg, logger); err != nil {
-					return err
-				}
-			}
-			return maybeWaitPackageReady(credName, id, upOpts, logger)
-		}
-
-		fmt.Printf("Hashing local file (%s)…\n", formatBytes(info.Size()))
-		localHashes, err := hashPackageReader(file, info.Size())
-		if err != nil {
-			return fmt.Errorf("hash local file: %w", err)
-		}
-		fmt.Printf("  local md5:    %s\n", localHashes.MD5)
-		fmt.Printf("  local sha256: %s\n", localHashes.SHA256)
-
-		fileMatch, how := packageFileMatches(pkg, localHashes)
-
-		if fileMatch && !upOpts.Force {
-			if !metaNeeded {
-				fmt.Printf("File unchanged (%s matches) — skipping upload\n", how)
-				return maybeWaitPackageReady(credName, id, upOpts, logger)
-			}
-			fmt.Printf("File unchanged (%s matches) — updating metadata only\n", how)
-			if !opts.SkipConfirm {
-				if !ConfirmPrompt(fmt.Sprintf("\nUpdate metadata for package %s (%q)?", id, pkg.PackageName), logger) {
-					return nil
-				}
-			}
-			if err := packageApplyAttrs(credName, id, opts, attrs, pkg, logger); err != nil {
-				return err
-			}
-			return maybeWaitPackageReady(credName, id, upOpts, logger)
-		}
-		// Mid-transfer: sha256/md5 empty but hashValue present (usually SHA3) → wait.
-		// Failed upload: no hashValue / comparable checksums → allow re-upload.
-		if !upOpts.Force && packageUploadShouldWaitNotReady(pkg) {
-			status := pkg.CloudTransferStatus
-			if status == "" {
-				status = "(empty)"
-			}
-			return fmt.Errorf("package %s (%q) is not ready yet (cloudTransferStatus=%s, sha256 empty, hashValue set); wait with package_wait_ready / 'buddy package wait-ready' before re-uploading or attaching (or pass --force / force=True to upload anyway)",
-				id, pkg.PackageName, status)
-		}
-		switch {
-		case upOpts.Force && fileMatch:
-			fmt.Printf("Force: re-uploading even though %s matches\n", how)
-		case upOpts.Force && packageUploadShouldWaitNotReady(pkg):
-			fmt.Println("Force: re-uploading even though package looks mid-transfer (hashValue set, sha256 empty)")
-		case !packageHasComparableChecksum(pkg) && !packageHasPendingTransferEvidence(pkg):
-			fmt.Println("Package record has no checksums (previous upload may have failed) — file upload needed")
-		default:
-			fmt.Println("Local file differs from server checksums — file upload needed")
-		}
-		if metaNeeded {
-			fmt.Printf("Metadata will also be updated: %s\n", strings.Join(attrs.summaryLines(pkg), ", "))
-		}
-
-		if !opts.SkipConfirm {
-			if !ConfirmPrompt(fmt.Sprintf("\nReplace file for package %s (%q)?", id, pkg.PackageName), logger) {
-				return nil
-			}
-		}
-		if metaNeeded {
-			if err := packageApplyAttrs(credName, id, opts, attrs, pkg, logger); err != nil {
-				return err
-			}
-		}
 	} else {
-		fmt.Printf("No existing package with fileName %q — create path\n", fileName)
-		id, err = packageCreate(credName, payload)
+		id, err = packageUploadCreate(credName, fileName, payload)
 		if err != nil {
 			return err
 		}
 		created = true
-		fmt.Printf("Created package record (ID %s)\n", id)
 	}
 
 	if created {
-		gets, waitElapsed, err := packageWaitReadable(credName, id)
-		if err != nil {
+		if err := packageWaitReadableAndSettle(credName, id, ""); err != nil {
 			return err
 		}
-		fmt.Printf("Package record ready after %s in %s\n",
-			formatPackageGETCount(gets), formatUploadDuration(waitElapsed))
-		settleAfterPackageCreate(id, time.Sleep)
 	}
-	if _, err := file.Seek(0, 0); err != nil {
-		return fmt.Errorf("seek file for upload: %w", err)
-	}
-	uploaded, elapsed, err := packageUploadFile(credName, id, file, opts)
+	uploaded, elapsed, err := packageUploadFileWithRetry(credName, id, file, opts)
 	if err != nil {
-		if !isPackageUploadNotFound(err) {
-			return err
-		}
-		gets, waitElapsed, waitErr := packageWaitReadable(credName, id)
-		if waitErr != nil {
-			return waitErr
-		}
-		fmt.Printf("Package record ready after %s in %s (upload retry)\n",
-			formatPackageGETCount(gets), formatUploadDuration(waitElapsed))
-		settleAfterPackageCreate(id, time.Sleep)
-		if _, seekErr := file.Seek(0, 0); seekErr != nil {
-			return fmt.Errorf("seek file for upload retry: %w", seekErr)
-		}
-		uploaded, elapsed, err = packageUploadFile(credName, id, file, opts)
-		if err != nil {
-			return err
-		}
+		return err
 	}
 	action := "Uploaded"
 	if updating {
@@ -1769,6 +1671,150 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 	fmt.Printf("%s package %q (ID %s) — %s in %s (%s)\n",
 		action, packageName, id, formatBytes(uploaded), formatUploadDuration(elapsed), formatUploadRate(uploaded, elapsed))
 	return maybeWaitPackageReady(credName, id, upOpts, logger)
+}
+
+func packageUploadCreate(credName, fileName string, payload *packageCreatePayload) (string, error) {
+	fmt.Printf("No existing package with fileName %q — create path\n", fileName)
+	id, err := packageCreate(credName, payload)
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("Created package record (ID %s)\n", id)
+	return id, nil
+}
+
+// packageUploadExisting handles the update path. doUpload is true when the caller
+// should proceed to multipart upload.
+func packageUploadExisting(credName string, opts Opts, file *os.File, info os.FileInfo, id string, attrs PackageAttrs, upOpts PackageUploadOptions, logger *slog.Logger) (doUpload bool, err error) {
+	fmt.Printf("Found existing package record (ID %s) — update path\n", id)
+	pkg, err := packageGet(credName, id)
+	if err != nil {
+		return false, err
+	}
+	printPackageRecordSummary(pkg)
+
+	metaNeeded := attrs.AnySet() && attrs.DiffersFrom(pkg)
+	if packageUploadWaitOnly(upOpts, pkg) {
+		status := pkg.CloudTransferStatus
+		if status == "" {
+			status = "(empty)"
+		}
+		fmt.Printf("Package is not READY yet (cloudTransferStatus=%s) — skipping file upload, waiting until READY\n", status)
+		if metaNeeded {
+			fmt.Printf("Updating metadata: %s\n", strings.Join(attrs.summaryLines(pkg), ", "))
+			ok, err := packageConfirmApplyAttrs(credName, id, opts, attrs, pkg, logger)
+			if err != nil || !ok {
+				return false, err
+			}
+		}
+		return false, maybeWaitPackageReady(credName, id, upOpts, logger)
+	}
+
+	fmt.Printf("Hashing local file (%s)…\n", formatBytes(info.Size()))
+	localHashes, err := hashPackageReader(file, info.Size())
+	if err != nil {
+		return false, fmt.Errorf("hash local file: %w", err)
+	}
+	fmt.Printf("  local md5:    %s\n", localHashes.MD5)
+	fmt.Printf("  local sha256: %s\n", localHashes.SHA256)
+
+	fileMatch, how := packageFileMatches(pkg, localHashes)
+
+	if fileMatch && !upOpts.Force {
+		if !metaNeeded {
+			fmt.Printf("File unchanged (%s matches) — skipping upload\n", how)
+			return false, maybeWaitPackageReady(credName, id, upOpts, logger)
+		}
+		fmt.Printf("File unchanged (%s matches) — updating metadata only\n", how)
+		ok, err := packageConfirmApplyAttrs(credName, id, opts, attrs, pkg, logger)
+		if err != nil || !ok {
+			return false, err
+		}
+		return false, maybeWaitPackageReady(credName, id, upOpts, logger)
+	}
+	// Mid-transfer: sha256/md5 empty but hashValue present (usually SHA3) → wait.
+	// Failed upload: no hashValue / comparable checksums → allow re-upload.
+	if !upOpts.Force && packageUploadShouldWaitNotReady(pkg) {
+		status := pkg.CloudTransferStatus
+		if status == "" {
+			status = "(empty)"
+		}
+		return false, fmt.Errorf("package %s (%q) is not ready yet (cloudTransferStatus=%s, sha256 empty, hashValue set); wait with package_wait_ready / 'buddy package wait-ready' before re-uploading or attaching (or pass --force / force=True to upload anyway)",
+			id, pkg.PackageName, status)
+	}
+	switch {
+	case upOpts.Force && fileMatch:
+		fmt.Printf("Force: re-uploading even though %s matches\n", how)
+	case upOpts.Force && packageUploadShouldWaitNotReady(pkg):
+		fmt.Println("Force: re-uploading even though package looks mid-transfer (hashValue set, sha256 empty)")
+	case !packageHasComparableChecksum(pkg) && !packageHasPendingTransferEvidence(pkg):
+		fmt.Println("Package record has no checksums (previous upload may have failed) — file upload needed")
+	default:
+		fmt.Println("Local file differs from server checksums — file upload needed")
+	}
+	if metaNeeded {
+		fmt.Printf("Metadata will also be updated: %s\n", strings.Join(attrs.summaryLines(pkg), ", "))
+	}
+
+	if !opts.SkipConfirm {
+		if !ConfirmPrompt(fmt.Sprintf("\nReplace file for package %s (%q)?", id, pkg.PackageName), logger) {
+			return false, nil
+		}
+	}
+	if metaNeeded {
+		if err := packageApplyAttrs(credName, id, opts, attrs, pkg, logger); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func packageConfirmApplyAttrs(credName, id string, opts Opts, attrs PackageAttrs, pkg *PackageRecord, logger *slog.Logger) (ok bool, err error) {
+	if !opts.SkipConfirm {
+		if !ConfirmPrompt(fmt.Sprintf("\nUpdate metadata for package %s (%q)?", id, pkg.PackageName), logger) {
+			return false, nil
+		}
+	}
+	if err := packageApplyAttrs(credName, id, opts, attrs, pkg, logger); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func packageWaitReadableAndSettle(credName, id, retryNote string) error {
+	gets, waitElapsed, err := packageWaitReadable(credName, id)
+	if err != nil {
+		return err
+	}
+	if retryNote != "" {
+		fmt.Printf("Package record ready after %s in %s (%s)\n",
+			formatPackageGETCount(gets), formatUploadDuration(waitElapsed), retryNote)
+	} else {
+		fmt.Printf("Package record ready after %s in %s\n",
+			formatPackageGETCount(gets), formatUploadDuration(waitElapsed))
+	}
+	settleAfterPackageCreate(id, time.Sleep)
+	return nil
+}
+
+func packageUploadFileWithRetry(credName, id string, file *os.File, opts Opts) (int64, time.Duration, error) {
+	if _, err := file.Seek(0, 0); err != nil {
+		return 0, 0, fmt.Errorf("seek file for upload: %w", err)
+	}
+	uploaded, elapsed, err := packageUploadFile(credName, id, file, opts)
+	if err == nil {
+		return uploaded, elapsed, nil
+	}
+	if !isPackageUploadNotFound(err) {
+		return 0, 0, err
+	}
+	if err := packageWaitReadableAndSettle(credName, id, "upload retry"); err != nil {
+		return 0, 0, err
+	}
+	if _, seekErr := file.Seek(0, 0); seekErr != nil {
+		return 0, 0, fmt.Errorf("seek file for upload retry: %w", seekErr)
+	}
+	return packageUploadFile(credName, id, file, opts)
 }
 
 // maybeWaitPackageReady runs PackageWaitReady when upOpts.WaitReady is set.
@@ -1954,7 +2000,7 @@ func PackageSetAttrs(credName, id string, opts Opts, attrs PackageAttrs, logger 
 // packageGetLatestHistory fetches the single most-recent history entry for a package.
 // Returns nil (no error) when no history entries exist.
 func packageGetLatestHistory(credName, id string) (*PackageHistoryEntry, error) {
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/packages/"+id+"/history?sort=date:desc&page-size=1")
+	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id+"/history?sort=date:desc&page-size=1")
 	if err != nil {
 		return nil, err
 	}
@@ -1968,7 +2014,10 @@ func packageGetLatestHistory(credName, id string) (*PackageHistoryEntry, error) 
 		return nil, fmt.Errorf("get package history %s: %w", id, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("get package history %s status %d: %s", id, resp.StatusCode, string(body))
 	}
@@ -1988,7 +2037,7 @@ func PackageHistory(credName, id string, limit int, logger *slog.Logger) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	endpoint, err := ResolveEndpoint(credName, fmt.Sprintf("/api/v1/packages/%s/history?sort=date:desc&page-size=%d", id, limit))
+	endpoint, err := ResolveEndpoint(credName, fmt.Sprintf("%s/%s/history?sort=date:desc&page-size=%d", uriPackages, id, limit))
 	if err != nil {
 		return err
 	}
@@ -2002,7 +2051,10 @@ func PackageHistory(credName, id string, limit int, logger *slog.Logger) error {
 		return fmt.Errorf("get package history %s: %w", id, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("get package history %s status %d: %s", id, resp.StatusCode, string(body))
 	}

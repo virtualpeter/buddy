@@ -10,6 +10,8 @@ import (
 	"net/url"
 )
 
+const uriAPIRoles = "/api/v1/api-roles"
+
 type ApiRole struct {
 	ID          string   `json:"id"`
 	DisplayName string   `json:"displayName"`
@@ -56,7 +58,7 @@ func RoleListValues(credName, filter string, opts PageOpts, logger *slog.Logger)
 		extra.Set("filter", normalized)
 	}
 	var all []ApiRole
-	err = fetchJamfPaged(credName, "/api/v1/api-roles", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, uriAPIRoles, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		var page []ApiRole
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)
@@ -72,7 +74,7 @@ func RoleListValues(credName, filter string, opts PageOpts, logger *slog.Logger)
 
 // RoleGet fetches and prints a single API role by ID.
 func RoleGet(credName, id string, logger *slog.Logger) error {
-	url, err := ResolveEndpoint(credName, "/api/v1/api-roles/"+id)
+	url, err := ResolveEndpoint(credName, uriAPIRoles+"/"+id)
 	if err != nil {
 		return err
 	}
@@ -101,7 +103,7 @@ func RoleGet(credName, id string, logger *slog.Logger) error {
 
 // RoleFetch fetches a single API role by ID and returns it (for script/component use).
 func RoleFetch(credName, id string, logger *slog.Logger) (*ApiRole, error) {
-	url, err := ResolveEndpoint(credName, "/api/v1/api-roles/"+id)
+	url, err := ResolveEndpoint(credName, uriAPIRoles+"/"+id)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +157,7 @@ func RoleCreateWithID(credName string, opts Opts, displayName string, privileges
 			return nil, nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, "/api/v1/api-roles")
+	url, err := ResolveEndpoint(credName, uriAPIRoles)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +212,7 @@ func RoleUpdateWithResult(credName, id string, opts Opts, displayName string, pr
 			return nil, nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, "/api/v1/api-roles/" + id)
+	url, err := ResolveEndpoint(credName, uriAPIRoles+"/"+id)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +245,7 @@ func RoleDelete(credName, id string, opts Opts, logger *slog.Logger) error {
 			return nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, "/api/v1/api-roles/" + id)
+	url, err := ResolveEndpoint(credName, uriAPIRoles+"/"+id)
 	if err != nil {
 		return err
 	}

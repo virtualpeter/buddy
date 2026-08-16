@@ -29,7 +29,7 @@ func requirePlatformMutate(credName string) error {
 func printJSON(v interface{}) error {
 	enc, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal json: %w", err)
 	}
 	fmt.Println(string(enc))
 	return nil

@@ -45,7 +45,7 @@ func ProfileFetchXML(credName string, profileID int) ([]byte, error) {
 // When Classic MCX preference settings are empty but ACS API has Forced.plist for the
 // same domain, those settings are merged in (see hydrateProfileXMLFromACS).
 func profileFetchRaw(credName string, profileID int) ([]byte, error) {
-	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
+	url, err := ResolveEndpoint(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID))
 	if err != nil {
 		return nil, err
 	}
@@ -60,10 +60,9 @@ func profileFetchRaw(credName string, profileID int) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("fetch profile %d status %d: %s", profileID, resp.StatusCode, string(body))
+		return nil, fmt.Errorf("fetch profile %d status %d: %s", profileID, resp.StatusCode, httpErrorBody(resp))
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
 	if err != nil {
 		return nil, err
 	}
@@ -76,8 +75,10 @@ func ExtractPayloadsFromProfileXML(profileXML []byte) (string, error) {
 	return extractPayloadsFromProfileXML(profileXML)
 }
 
+const uriClassicOSXProfiles = "/JSSResource/osxconfigurationprofiles/id"
 const profilePayloadsOpen = "<payloads>"
 const profilePayloadsClose = "</payloads>"
+const errDecodePayloadsPlist = "decode payloads plist: %w"
 
 func profilePayloadsContentBounds(s string) (contentStart, contentEnd int, err error) {
 	openIdx := strings.Index(s, profilePayloadsOpen)
@@ -116,7 +117,7 @@ func plistPayloadIdentifiers(payloadsRaw string) ([]string, error) {
 	var root interface{}
 	dec := plist.NewDecoder(strings.NewReader(payloadsRaw))
 	if err := dec.Decode(&root); err != nil {
-		return nil, fmt.Errorf("decode payloads plist: %w", err)
+		return nil, fmt.Errorf(errDecodePayloadsPlist, err)
 	}
 	m, ok := root.(map[string]interface{})
 	if !ok {
@@ -153,7 +154,7 @@ func plistGetPayloadByDomain(payloadsRaw, domain string) ([]byte, error) {
 	var root interface{}
 	dec := plist.NewDecoder(strings.NewReader(payloadsRaw))
 	if err := dec.Decode(&root); err != nil {
-		return nil, fmt.Errorf("decode payloads plist: %w", err)
+		return nil, fmt.Errorf(errDecodePayloadsPlist, err)
 	}
 	m, ok := root.(map[string]interface{})
 	if !ok {
@@ -277,7 +278,7 @@ func plistSetPayloadContent(payloadsRaw string, content []interface{}) (string, 
 	} else {
 		var decoded interface{}
 		if err := plist.NewDecoder(strings.NewReader(payloadsRaw)).Decode(&decoded); err != nil {
-			return "", fmt.Errorf("decode payloads plist: %w", err)
+			return "", fmt.Errorf(errDecodePayloadsPlist, err)
 		}
 		m, ok := decoded.(map[string]interface{})
 		if !ok {
@@ -386,7 +387,7 @@ func plistRemovePayload(payloadsRaw, domain string) (string, error) {
 func decodePayloadContent(payloadsRaw string) (map[string]interface{}, []interface{}, error) {
 	var root interface{}
 	if err := plist.NewDecoder(strings.NewReader(payloadsRaw)).Decode(&root); err != nil {
-		return nil, nil, fmt.Errorf("decode payloads plist: %w", err)
+		return nil, nil, fmt.Errorf(errDecodePayloadsPlist, err)
 	}
 	m, ok := root.(map[string]interface{})
 	if !ok {
@@ -406,7 +407,7 @@ func decodePayloadContent(payloadsRaw string) (map[string]interface{}, []interfa
 func decodePayloadContentOrEmpty(payloadsRaw string) (map[string]interface{}, []interface{}, error) {
 	var root interface{}
 	if err := plist.NewDecoder(strings.NewReader(payloadsRaw)).Decode(&root); err != nil {
-		return nil, nil, fmt.Errorf("decode payloads plist: %w", err)
+		return nil, nil, fmt.Errorf(errDecodePayloadsPlist, err)
 	}
 	m, ok := root.(map[string]interface{})
 	if !ok {
@@ -498,7 +499,10 @@ func ProfileSearch(credName string, nameFilter string, logger *slog.Logger) ([]P
 		return nil, fmt.Errorf("list profiles: %w", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("list profiles status %d: %s", resp.StatusCode, string(body))
 	}
@@ -570,7 +574,7 @@ func ProfileRedeploy(credName string, opts Opts, profileID int, logger *slog.Log
 			return nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
+	url, err := ResolveEndpoint(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID))
 	if err != nil {
 		return err
 	}
@@ -585,8 +589,7 @@ func ProfileRedeploy(credName string, opts Opts, profileID int, logger *slog.Log
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("redeploy profile status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("redeploy profile status %d: %s", resp.StatusCode, httpErrorBody(resp))
 	}
 	fmt.Printf("Redeployed configuration profile (ID %d)\n", profileID)
 	return nil
@@ -685,7 +688,7 @@ func ProfileSetXML(credName string, opts Opts, profileID int, r io.Reader, redep
 			return nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
+	url, err := ResolveEndpoint(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID))
 	if err != nil {
 		return err
 	}
@@ -700,8 +703,7 @@ func ProfileSetXML(credName string, opts Opts, profileID int, r io.Reader, redep
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update profile status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("update profile status %d: %s", resp.StatusCode, httpErrorBody(resp))
 	}
 	fmt.Printf("Updated configuration profile (ID %d)\n", profileID)
 	return nil
@@ -747,7 +749,7 @@ func ProfileSetPayload(credName string, opts Opts, profileID int, domain string,
 		return fmt.Errorf("dict file %q: %w", dictFile, err)
 	}
 
-	url, err := ResolveEndpoint(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
+	url, err := ResolveEndpoint(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID))
 	if err != nil {
 		return err
 	}
@@ -763,10 +765,9 @@ func ProfileSetPayload(credName string, opts Opts, profileID int, domain string,
 	}
 	defer getResp.Body.Close()
 	if getResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(getResp.Body)
-		return fmt.Errorf("fetch profile %d status %d: %s", profileID, getResp.StatusCode, string(body))
+		return fmt.Errorf("fetch profile %d status %d: %s", profileID, getResp.StatusCode, httpErrorBody(getResp))
 	}
-	profileXML, err := io.ReadAll(getResp.Body)
+	profileXML, err := readHTTPBody(getResp)
 	if err != nil {
 		return fmt.Errorf("read profile response: %w", err)
 	}
@@ -1148,7 +1149,7 @@ func reembedPayloadsForJamfAPI(profileXML []byte) ([]byte, error) {
 			}
 			return reembedPayloadsForJamfAPI(xml2)
 		}
-		return nil, fmt.Errorf("decode payloads plist: %w", err)
+		return nil, fmt.Errorf(errDecodePayloadsPlist, err)
 	}
 	rootMap, ok := root.(map[string]interface{})
 	if !ok {

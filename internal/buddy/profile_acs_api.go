@@ -12,20 +12,20 @@ import (
 )
 
 const (
-	acsConfigProfilesPath       = "/api/config-profiles/macos"
-	acsConfigProfilesPlistPath  = "/api/config-profiles/plist/can-convert-to-plist"
-	managedClientPreferencesType  = "com.apple.ManagedClient.preferences"
-	acsConfigProfileLevelSystem = "SYSTEM"
+	acsConfigProfilesPath        = "/api/config-profiles/macos"
+	acsConfigProfilesPlistPath   = "/api/config-profiles/plist/can-convert-to-plist"
+	managedClientPreferencesType = "com.apple.ManagedClient.preferences"
+	acsConfigProfileLevelSystem  = "SYSTEM"
 )
 
 // ACSConfigProfileDoc is the JSON document for GET/PUT/POST /api/config-profiles/macos/….
 type ACSConfigProfileDoc struct {
-	PayloadUUID             *string               `json:"payloadUUID,omitempty"`
-	Level                   string                `json:"level,omitempty"`
-	Name                    string                `json:"name,omitempty"`
-	ClassicProfileID        *int                  `json:"classicProfileId,omitempty"`
-	ExternalConfigProfileID *int                  `json:"externalConfigProfileId,omitempty"`
-	ProfileID               *int                  `json:"profileId,omitempty"`
+	PayloadUUID             *string             `json:"payloadUUID,omitempty"`
+	Level                   string              `json:"level,omitempty"`
+	Name                    string              `json:"name,omitempty"`
+	ClassicProfileID        *int                `json:"classicProfileId,omitempty"`
+	ExternalConfigProfileID *int                `json:"externalConfigProfileId,omitempty"`
+	ProfileID               *int                `json:"profileId,omitempty"`
 	PayloadContent          []ACSPayloadContent `json:"payloadContent,omitempty"`
 }
 
@@ -38,7 +38,7 @@ type ACSPayloadContent struct {
 	PayloadOrganization string       `json:"payloadOrganization,omitempty"`
 	PayloadDisplayName  string       `json:"payloadDisplayName,omitempty"`
 	PreferenceDomain    string       `json:"preferenceDomain,omitempty"`
-	Forced              *ACSForced `json:"forced,omitempty"`
+	Forced              *ACSForced   `json:"forced,omitempty"`
 	SetOnce             *acsJSONNull `json:"setOnce,omitempty"`
 }
 
@@ -106,7 +106,7 @@ func listMCXPayloadEntriesFromPayloadsPlist(payloadsRaw string) ([]MCXPayloadEnt
 	}
 	var root map[string]any
 	if err := plist.NewDecoder(strings.NewReader(payloadsRaw)).Decode(&root); err != nil {
-		return nil, fmt.Errorf("decode payloads plist: %w", err)
+		return nil, fmt.Errorf(errDecodePayloadsPlist, err)
 	}
 	return listMCXPayloadEntriesFromRoot(root), nil
 }
@@ -217,7 +217,7 @@ func replaceMCXSettingsInPayloadsPlist(payloadsRaw, domain string, settings map[
 	}
 	var root map[string]any
 	if err := plist.NewDecoder(strings.NewReader(payloadsRaw)).Decode(&root); err != nil {
-		return "", false, fmt.Errorf("decode payloads plist: %w", err)
+		return "", false, fmt.Errorf(errDecodePayloadsPlist, err)
 	}
 	if !replaceMCXSettingsInRoot(root, domain, settings) {
 		return "", false, nil
@@ -503,7 +503,7 @@ func profileXMLWithoutMCXAmpersandSettings(profileXML []byte) ([]byte, error) {
 	}
 	var root map[string]any
 	if err := plist.NewDecoder(strings.NewReader(payloadsRaw)).Decode(&root); err != nil {
-		return nil, fmt.Errorf("decode payloads plist: %w", err)
+		return nil, fmt.Errorf(errDecodePayloadsPlist, err)
 	}
 	for _, entry := range entries {
 		if !entry.HasAmpersand {
@@ -600,7 +600,7 @@ func profileXMLClassicACSStubFromACS(credName string, classicID int, acsPayloadU
 	root := map[string]any{
 		"PayloadUUID":       generalUUID,
 		"PayloadType":       "Configuration",
-		"PayloadVersion":  1,
+		"PayloadVersion":    1,
 		"PayloadIdentifier": generalUUID,
 		"PayloadContent":    acsPayloads,
 	}

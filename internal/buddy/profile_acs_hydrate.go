@@ -44,7 +44,7 @@ func cachedACSPayloadUUID(classicProfileID int) string {
 
 var (
 	fieldExternalConfigProfileIDRe = regexp.MustCompile(`(?i)FIELD_EXTERNAL_CONFIGPROFILE_ID["'\s=:]+([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})`)
-	acsConfigProfilesUUIDPathRe  = regexp.MustCompile(`(?i)/api/config-profiles/macos/([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})`)
+	acsConfigProfilesUUIDPathRe    = regexp.MustCompile(`(?i)/api/config-profiles/macos/([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})`)
 	inputExternalConfigProfileIDRe = regexp.MustCompile(`(?i)name=["']FIELD_EXTERNAL_CONFIGPROFILE_ID["'][^>]*value=["']([a-fA-F0-9\-]{36})["']`)
 )
 
@@ -295,7 +295,7 @@ func hydrateClassicProfileXMLFromACSDoc(classicXML []byte, doc *ACSConfigProfile
 func ensureMCXDomainAndSetSettings(payloadsRaw, domain string, settings map[string]any) (string, bool, error) {
 	var root map[string]any
 	if err := plist.NewDecoder(strings.NewReader(payloadsRaw)).Decode(&root); err != nil {
-		return "", false, fmt.Errorf("decode payloads plist: %w", err)
+		return "", false, fmt.Errorf(errDecodePayloadsPlist, err)
 	}
 	content, _ := root["PayloadContent"].([]any)
 	var managed map[string]any

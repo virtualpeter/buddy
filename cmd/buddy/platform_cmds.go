@@ -47,7 +47,7 @@ func runDeviceGroup(credName string, opts buddy.Opts, args []string, log *slog.L
 		return buddy.DeviceGroupList(credName, listOpts, log)
 	case "get":
 		if len(args) < 1 {
-			return fmt.Errorf("missing group-id; run 'buddy device-group help'")
+			return missingArgHint("group-id", "buddy device-group help")
 		}
 		return buddy.DeviceGroupGet(credName, args[0], log)
 	case "create":
@@ -58,7 +58,7 @@ func runDeviceGroup(credName string, opts buddy.Opts, args []string, log *slog.L
 		return buddy.DeviceGroupCreate(credName, opts, body, log)
 	case "set":
 		if len(args) < 1 {
-			return fmt.Errorf("missing group-id; run 'buddy device-group help'")
+			return missingArgHint("group-id", "buddy device-group help")
 		}
 		groupID := args[0]
 		body, _, err := readJSONFileArg(args[1:])
@@ -68,17 +68,17 @@ func runDeviceGroup(credName string, opts buddy.Opts, args []string, log *slog.L
 		return buddy.DeviceGroupSet(credName, groupID, opts, body, log)
 	case "delete":
 		if len(args) < 1 {
-			return fmt.Errorf("missing group-id; run 'buddy device-group help'")
+			return missingArgHint("group-id", "buddy device-group help")
 		}
 		return buddy.DeviceGroupDelete(credName, args[0], opts, log)
 	case "members":
 		if len(args) < 1 {
-			return fmt.Errorf("missing group-id; run 'buddy device-group help'")
+			return missingArgHint("group-id", "buddy device-group help")
 		}
 		return buddy.DeviceGroupMembers(credName, args[0], log)
 	case "set-members":
 		if len(args) < 1 {
-			return fmt.Errorf("missing group-id; run 'buddy device-group help'")
+			return missingArgHint("group-id", "buddy device-group help")
 		}
 		groupID := args[0]
 		body, _, err := readJSONFileArg(args[1:])
@@ -119,12 +119,12 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		return buddy.DeviceList(credName, listOpts, log)
 	case "get":
 		if len(args) < 1 {
-			return fmt.Errorf("missing device-id; run 'buddy device help'")
+			return missingArgHint("device-id", "buddy device help")
 		}
 		return buddy.DeviceGet(credName, args[0], log)
 	case "set":
 		if len(args) < 1 {
-			return fmt.Errorf("missing device-id; run 'buddy device help'")
+			return missingArgHint("device-id", "buddy device help")
 		}
 		deviceID := args[0]
 		body, _, err := readJSONFileArg(args[1:])
@@ -134,12 +134,12 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		return buddy.DeviceSet(credName, deviceID, opts, body, log)
 	case "delete":
 		if len(args) < 1 {
-			return fmt.Errorf("missing device-id; run 'buddy device help'")
+			return missingArgHint("device-id", "buddy device help")
 		}
 		return buddy.DeviceDelete(credName, args[0], opts, log)
 	case "applications":
 		if len(args) < 1 {
-			return fmt.Errorf("missing device-id; run 'buddy device help'")
+			return missingArgHint("device-id", "buddy device help")
 		}
 		deviceID := args[0]
 		filter, rest, err := extractStringFlag(args[1:], "filter")
@@ -152,7 +152,7 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		return buddy.DeviceApplications(credName, deviceID, filter, log)
 	case "user":
 		if len(args) < 1 {
-			return fmt.Errorf("missing user-id; run 'buddy device help'")
+			return missingArgHint("user-id", "buddy device help")
 		}
 		listOpts := buddy.DeviceListOpts{Page: buddy.PageOpts{Page: buddy.PageAll}}
 		items, err := buddy.DevicesForUserValue(credName, args[0], listOpts, log)
@@ -164,27 +164,27 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		return nil
 	case "check-in":
 		if len(args) < 1 {
-			return fmt.Errorf("missing device-id; run 'buddy device help'")
+			return missingArgHint("device-id", "buddy device help")
 		}
 		return buddy.DeviceCheckIn(credName, args[0], opts, log)
 	case "restart":
 		if len(args) < 1 {
-			return fmt.Errorf("missing device-id; run 'buddy device help'")
+			return missingArgHint("device-id", "buddy device help")
 		}
 		return buddy.DeviceRestart(credName, args[0], opts, log)
 	case "shutdown":
 		if len(args) < 1 {
-			return fmt.Errorf("missing device-id; run 'buddy device help'")
+			return missingArgHint("device-id", "buddy device help")
 		}
 		return buddy.DeviceShutdown(credName, args[0], opts, log)
 	case "erase":
 		if len(args) < 1 {
-			return fmt.Errorf("missing device-id; run 'buddy device help'")
+			return missingArgHint("device-id", "buddy device help")
 		}
 		return buddy.DeviceErase(credName, args[0], opts, log)
 	case "unmanage":
 		if len(args) < 1 {
-			return fmt.Errorf("missing device-id; run 'buddy device help'")
+			return missingArgHint("device-id", "buddy device help")
 		}
 		return buddy.DeviceUnmanage(credName, args[0], opts, log)
 	default:
@@ -260,7 +260,7 @@ func runBenchmark(credName string, opts buddy.Opts, args []string, log *slog.Log
 		return buddy.BenchmarkList(credName, log)
 	case "get":
 		if len(args) < 2 {
-			return fmt.Errorf("missing benchmark-id; run 'buddy benchmark help'")
+			return missingArgHint("benchmark-id", "buddy benchmark help")
 		}
 		return buddy.BenchmarkGet(credName, args[1], log)
 	case "create":
@@ -271,7 +271,7 @@ func runBenchmark(credName string, opts buddy.Opts, args []string, log *slog.Log
 		return buddy.BenchmarkCreate(credName, opts, body, log)
 	case "delete":
 		if len(args) < 2 {
-			return fmt.Errorf("missing benchmark-id; run 'buddy benchmark help'")
+			return missingArgHint("benchmark-id", "buddy benchmark help")
 		}
 		return buddy.BenchmarkDelete(credName, args[1], opts, log)
 	case "baselines":
@@ -288,17 +288,17 @@ func runBenchmark(credName string, opts buddy.Opts, args []string, log *slog.Log
 		return buddy.BenchmarkCatalogRules(credName, baseline, log)
 	case "compliance-percentage":
 		if len(args) < 2 {
-			return fmt.Errorf("missing benchmark-id; run 'buddy benchmark help'")
+			return missingArgHint("benchmark-id", "buddy benchmark help")
 		}
 		return buddy.BenchmarkCompliancePercentage(credName, args[1], log)
 	case "report-devices":
 		if len(args) < 2 {
-			return fmt.Errorf("missing benchmark-id; run 'buddy benchmark help'")
+			return missingArgHint("benchmark-id", "buddy benchmark help")
 		}
 		return buddy.BenchmarkReportDevices(credName, args[1], log)
 	case "report-rules":
 		if len(args) < 2 {
-			return fmt.Errorf("missing benchmark-id; run 'buddy benchmark help'")
+			return missingArgHint("benchmark-id", "buddy benchmark help")
 		}
 		return buddy.BenchmarkReportRules(credName, args[1], log)
 	default:

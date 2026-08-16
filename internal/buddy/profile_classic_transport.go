@@ -13,7 +13,7 @@ var profileScopeGroupIDRe = regexp.MustCompile(`<computer_group><id>(\d+)</id></
 
 // profileClassicPutRaw PUTs profile XML and returns HTTP status (409 does not error).
 func profileClassicPutRaw(credName string, profileID int, xml []byte) (status int, respBody []byte, err error) {
-	path := fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID)
+	path := fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID)
 	resp, err := JamfRequest(credName, JamfRequestOpts{
 		Method:      http.MethodPut,
 		Path:        path,
@@ -30,7 +30,7 @@ func profileClassicPutRaw(credName string, profileID int, xml []byte) (status in
 func profileClassicPostRaw(credName string, xml []byte) (status int, respBody []byte, err error) {
 	resp, err := JamfRequest(credName, JamfRequestOpts{
 		Method:      http.MethodPost,
-		Path:        "/JSSResource/osxconfigurationprofiles/id/0",
+		Path:        uriClassicOSXProfiles + "/0",
 		Body:        xml,
 		ContentType: "application/xml",
 	})
@@ -270,7 +270,7 @@ func profileClassicPut(credName string, opts Opts, profileID int, xml []byte, re
 		data = normalized
 	}
 	if logger != nil {
-		logger.Debug("profile write: Classic PUT", "profile_id", profileID, "path", fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID))
+		logger.Debug("profile write: Classic PUT", "profile_id", profileID, "path", fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID))
 	}
 	status, body, err := profileClassicPutRaw(credName, profileID, data)
 	if err != nil {

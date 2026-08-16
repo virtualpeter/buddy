@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 )
+
+const uriAPIIntegrations = "/api/v1/api-integrations"
 
 type ApiIntegrationResponse struct {
 	ID                      int      `json:"id"`
@@ -45,9 +46,7 @@ func ClientList(credName, filter string, logger *slog.Logger) error {
 		return err
 	}
 	result := ApiIntegrationSearchResult{TotalCount: len(clients), Results: clients}
-	out, _ := json.MarshalIndent(result, "", "  ")
-	fmt.Println(string(out))
-	return nil
+	return printJSON(result)
 }
 
 // ClientListValues fetches API integrations and returns them (for script/setup use).
@@ -63,7 +62,7 @@ func ClientListValues(credName, filter string, opts PageOpts, logger *slog.Logge
 		extra.Set("filter", normalized)
 	}
 	var all []ApiIntegrationResponse
-	err = fetchJamfPaged(credName, "/api/v1/api-integrations", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, uriAPIIntegrations, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		var page []ApiIntegrationResponse
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)
@@ -93,7 +92,7 @@ func ClientFindByDisplayName(credName, displayName string, logger *slog.Logger) 
 
 // ClientGet fetches and prints a single API integration by ID.
 func ClientGet(credName, id string, logger *slog.Logger) error {
-	url, err := ResolveEndpoint(credName, "/api/v1/api-integrations/" + id)
+	url, err := ResolveEndpoint(credName, uriAPIIntegrations+"/"+id)
 	if err != nil {
 		return err
 	}
@@ -107,7 +106,10 @@ func ClientGet(credName, id string, logger *slog.Logger) error {
 		return fmt.Errorf("get client %s: %w", id, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("get client %s status %d: %s", id, resp.StatusCode, string(body))
 	}
@@ -115,9 +117,7 @@ func ClientGet(credName, id string, logger *slog.Logger) error {
 	if err := json.Unmarshal(body, &client); err != nil {
 		return fmt.Errorf("parse response: %w", err)
 	}
-	out, _ := json.MarshalIndent(client, "", "  ")
-	fmt.Println(string(out))
-	return nil
+	return printJSON(client)
 }
 
 // ClientFetch fetches a single API integration by ID and returns it (for script/component use).
@@ -134,7 +134,10 @@ func ClientCreate(credName string, opts Opts, displayName string, scopes []strin
 	if client == nil {
 		return nil
 	}
-	out, _ := json.MarshalIndent(client, "", "  ")
+	out, err := json.MarshalIndent(client, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal json: %w", err)
+	}
 	fmt.Printf("Created API client (ID %d):\n%s\n", client.ID, string(out))
 	return nil
 }
@@ -155,7 +158,7 @@ func ClientCreateWithResult(credName string, opts Opts, displayName string, scop
 			return nil, nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, "/api/v1/api-integrations")
+	url, err := ResolveEndpoint(credName, uriAPIIntegrations)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +173,10 @@ func ClientCreateWithResult(credName string, opts Opts, displayName string, scop
 		return nil, fmt.Errorf("create client: %w", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("create client status %d: %s", resp.StatusCode, string(body))
 	}
@@ -190,7 +196,10 @@ func ClientUpdate(credName, id string, opts Opts, displayName string, scopes []s
 	if client == nil {
 		return nil
 	}
-	out, _ := json.MarshalIndent(client, "", "  ")
+	out, err := json.MarshalIndent(client, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal json: %w", err)
+	}
 	fmt.Printf("Updated API client (ID %d):\n%s\n", client.ID, string(out))
 	return nil
 }
@@ -217,7 +226,7 @@ func ClientUpdateWithResult(credName, id string, opts Opts, displayName string, 
 			return nil, nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, "/api/v1/api-integrations/" + id)
+	url, err := ResolveEndpoint(credName, uriAPIIntegrations+"/"+id)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +241,10 @@ func ClientUpdateWithResult(credName, id string, opts Opts, displayName string, 
 		return nil, fmt.Errorf("update client %s: %w", id, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("update client %s status %d: %s", id, resp.StatusCode, string(body))
 	}
@@ -281,7 +293,7 @@ func ClientDelete(credName, id string, opts Opts, logger *slog.Logger) error {
 			return nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, "/api/v1/api-integrations/" + id)
+	url, err := ResolveEndpoint(credName, uriAPIIntegrations+"/"+id)
 	if err != nil {
 		return err
 	}
@@ -295,8 +307,7 @@ func ClientDelete(credName, id string, opts Opts, logger *slog.Logger) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete client %s status %d: %s", id, resp.StatusCode, string(body))
+		return fmt.Errorf("delete client %s status %d: %s", id, resp.StatusCode, httpErrorBody(resp))
 	}
 	fmt.Printf("Deleted API client (ID %s)\n", id)
 	return nil
@@ -323,7 +334,7 @@ func ClientCredentialsWithResult(credName, id string, opts Opts, logger *slog.Lo
 			return "", "", nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, "/api/v1/api-integrations/" + id + "/client-credentials")
+	url, err := ResolveEndpoint(credName, uriAPIIntegrations+"/"+id+"/client-credentials")
 	if err != nil {
 		return "", "", err
 	}
@@ -337,7 +348,10 @@ func ClientCredentialsWithResult(credName, id string, opts Opts, logger *slog.Lo
 		return "", "", fmt.Errorf("generate credentials for client %s: %w", id, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return "", "", err
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return "", "", fmt.Errorf("generate credentials status %d: %s", resp.StatusCode, string(body))
 	}
@@ -370,7 +384,7 @@ func ClientSetTokenLifetime(credName, id string, opts Opts, seconds int, logger 
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/api-integrations/" + id)
+	endpoint, err := ResolveEndpoint(credName, uriAPIIntegrations+"/"+id)
 	if err != nil {
 		return err
 	}
@@ -385,7 +399,10 @@ func ClientSetTokenLifetime(credName, id string, opts Opts, seconds int, logger 
 		return fmt.Errorf("update client %s: %w", id, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("update client %s status %d: %s", id, resp.StatusCode, string(body))
 	}
@@ -399,7 +416,7 @@ func ClientSetTokenLifetime(credName, id string, opts Opts, seconds int, logger 
 
 // clientGetRaw fetches an API integration without printing, used internally.
 func clientGetRaw(credName, id string) (*ApiIntegrationResponse, error) {
-	url, err := ResolveEndpoint(credName, "/api/v1/api-integrations/" + id)
+	url, err := ResolveEndpoint(credName, uriAPIIntegrations+"/"+id)
 	if err != nil {
 		return nil, err
 	}
@@ -413,7 +430,10 @@ func clientGetRaw(credName, id string) (*ApiIntegrationResponse, error) {
 		return nil, fmt.Errorf("get client %s: %w", id, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("get client %s status %d: %s", id, resp.StatusCode, string(body))
 	}

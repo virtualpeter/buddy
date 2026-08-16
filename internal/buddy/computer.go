@@ -3,6 +3,7 @@ package buddy
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,21 +13,23 @@ import (
 	"strings"
 )
 
+var errComputerIDsRequired = errors.New("at least one computer ID required")
+
 // ComputerRecord holds key fields from a computer inventory record.
 type ComputerRecord struct {
-	ID            int    `json:"id"`
-	Name          string `json:"name,omitempty"`
-	SerialNumber  string `json:"serialNumber,omitempty"`
-	UDID          string `json:"udid,omitempty"`
-	ManagementID  string `json:"managementId,omitempty"`
-	MacAddress    string `json:"macAddress,omitempty"`
-	Username      string `json:"username,omitempty"`
+	ID           int    `json:"id"`
+	Name         string `json:"name,omitempty"`
+	SerialNumber string `json:"serialNumber,omitempty"`
+	UDID         string `json:"udid,omitempty"`
+	ManagementID string `json:"managementId,omitempty"`
+	MacAddress   string `json:"macAddress,omitempty"`
+	Username     string `json:"username,omitempty"`
 }
 
 // computerInventoryListResponseV3 is the paginated response from GET /api/v3/computers-inventory.
 type computerInventoryListResponseV3 struct {
-	TotalCount int                   `json:"totalCount"`
-	Results    []computerListItemV3  `json:"results"`
+	TotalCount int                  `json:"totalCount"`
+	Results    []computerListItemV3 `json:"results"`
 }
 
 // computerListItemV3 is a single item in the v3 computers-inventory list.
@@ -335,7 +338,7 @@ func computerGetManagementID(credName string, computerID int) (string, error) {
 // Each computer's managementId is fetched via GET /api/v3/computers-inventory/{id}?section=GENERAL.
 func computerSendMDMCommand(credName string, computerIDs []int, commandType string, commandData map[string]interface{}, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	// Ensure commandType is in commandData
 	if commandData == nil {
@@ -391,7 +394,7 @@ func ComputerSendMDMCommand(credName string, computerIDs []int, commandType stri
 // ComputerReboot sends RESTART_DEVICE MDM command to one or more computers.
 func ComputerReboot(credName string, opts Opts, computerIDs []int, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	if !opts.SkipConfirm {
 		if !ConfirmPrompt(fmt.Sprintf("\nReboot %d computer(s): %v", len(computerIDs), computerIDs), logger) {
@@ -409,7 +412,7 @@ func ComputerReboot(credName string, opts Opts, computerIDs []int, logger *slog.
 // ComputerShutdown sends SHUT_DOWN_DEVICE MDM command to one or more computers.
 func ComputerShutdown(credName string, opts Opts, computerIDs []int, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	if !opts.SkipConfirm {
 		if !ConfirmPrompt(fmt.Sprintf("\nShutdown %d computer(s): %v", len(computerIDs), computerIDs), logger) {
@@ -426,7 +429,7 @@ func ComputerShutdown(credName string, opts Opts, computerIDs []int, logger *slo
 // ComputerLock sends DEVICE_LOCK MDM command to one or more computers. Requires extra confirmation unless opts.SkipConfirm.
 func ComputerLock(credName string, opts Opts, computerIDs []int, message, phoneNumber, pin string, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	if !opts.SkipConfirm {
 		if !confirmDangerous("DEVICE_LOCK will lock the user out.", "", logger) {
@@ -453,7 +456,7 @@ func ComputerLock(credName string, opts Opts, computerIDs []int, message, phoneN
 // ComputerLogOut sends LOG_OUT_USER MDM command to one or more computers.
 func ComputerLogOut(credName string, opts Opts, computerIDs []int, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	if !opts.SkipConfirm {
 		if !ConfirmPrompt(fmt.Sprintf("\nLog out user on %d computer(s): %v", len(computerIDs), computerIDs), logger) {
@@ -470,7 +473,7 @@ func ComputerLogOut(credName string, opts Opts, computerIDs []int, logger *slog.
 // ComputerErase sends ERASE_DEVICE MDM command to one or more computers. Requires typing "erase" to confirm unless opts.SkipConfirm.
 func ComputerErase(credName string, opts Opts, computerIDs []int, pin, obliterationBehavior string, preserveDataPlan, disallowProximitySetup bool, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	if !opts.SkipConfirm {
 		if !confirmDangerous("ERASE_DEVICE will permanently wipe the device. This cannot be undone.", "erase", logger) {
@@ -500,7 +503,7 @@ func ComputerErase(credName string, opts Opts, computerIDs []int, pin, obliterat
 // ComputerDeviceInfo sends DEVICE_INFORMATION MDM command. Results are reported asynchronously; command is queued.
 func ComputerDeviceInfo(credName string, opts Opts, computerIDs []int, queries []string, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	var cmdData map[string]interface{}
 	if len(queries) > 0 {
@@ -516,7 +519,7 @@ func ComputerDeviceInfo(credName string, opts Opts, computerIDs []int, queries [
 // ComputerDeviceLocation sends DEVICE_LOCATION MDM command. Results are reported asynchronously; command is queued.
 func ComputerDeviceLocation(credName string, opts Opts, computerIDs []int, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	if err := computerSendMDMCommand(credName, computerIDs, "DEVICE_LOCATION", nil, logger); err != nil {
 		return err
@@ -528,7 +531,7 @@ func ComputerDeviceLocation(credName string, opts Opts, computerIDs []int, logge
 // ComputerSecurityInfo sends SECURITY_INFO MDM command. Results are reported asynchronously; command is queued.
 func ComputerSecurityInfo(credName string, opts Opts, computerIDs []int, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	if err := computerSendMDMCommand(credName, computerIDs, "SECURITY_INFO", nil, logger); err != nil {
 		return err
@@ -540,7 +543,7 @@ func ComputerSecurityInfo(credName string, opts Opts, computerIDs []int, logger 
 // ComputerInstalledApps sends INSTALLED_APPLICATION_LIST MDM command. Results are reported asynchronously; command is queued.
 func ComputerInstalledApps(credName string, opts Opts, computerIDs []int, identifiers []string, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	var cmdData map[string]interface{}
 	if len(identifiers) > 0 {
@@ -556,7 +559,7 @@ func ComputerInstalledApps(credName string, opts Opts, computerIDs []int, identi
 // ComputerManagedApps sends MANAGED_APPLICATION_LIST MDM command. Results are reported asynchronously; command is queued.
 func ComputerManagedApps(credName string, opts Opts, computerIDs []int, identifiers []string, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	var cmdData map[string]interface{}
 	if len(identifiers) > 0 {
@@ -572,7 +575,7 @@ func ComputerManagedApps(credName string, opts Opts, computerIDs []int, identifi
 // ComputerCertificates sends CERTIFICATE_LIST MDM command. Results are reported asynchronously; command is queued.
 func ComputerCertificates(credName string, opts Opts, computerIDs []int, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	if err := computerSendMDMCommand(credName, computerIDs, "CERTIFICATE_LIST", nil, logger); err != nil {
 		return err
@@ -584,7 +587,7 @@ func ComputerCertificates(credName string, opts Opts, computerIDs []int, logger 
 // ComputerRedeploy triggers Jamf Management Framework redeploy on one or more computers.
 func ComputerRedeploy(credName string, opts Opts, computerIDs []int, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
-		return fmt.Errorf("at least one computer ID required")
+		return errComputerIDsRequired
 	}
 	if !opts.SkipConfirm {
 		if !ConfirmPrompt(fmt.Sprintf("\nRedeploy Jamf Management Framework on %d computer(s): %v", len(computerIDs), computerIDs), logger) {

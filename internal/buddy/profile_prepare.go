@@ -63,7 +63,6 @@ func normalizeUUID(u string) string {
 	return strings.ToLower(strings.TrimSpace(u))
 }
 
-
 func extractGeneralUUID(profileXML []byte) (string, error) {
 	m := generalUUIDRe.FindSubmatch(profileXML)
 	if m == nil {
@@ -289,7 +288,7 @@ func PlistCollectPayloadUUIDs(payloadsRaw string) ([]string, error) {
 	var root interface{}
 	dec := plist.NewDecoder(strings.NewReader(payloadsRaw))
 	if err := dec.Decode(&root); err != nil {
-		return nil, fmt.Errorf("decode payloads plist: %w", err)
+		return nil, fmt.Errorf(errDecodePayloadsPlist, err)
 	}
 	var out []string
 	collectPayloadUUIDs(root, &out)
@@ -353,7 +352,7 @@ func ProfileDelete(credName string, opts Opts, profileID int, logger *slog.Logge
 			return nil
 		}
 	}
-	if err := jamfDELETE(credName, fmt.Sprintf("/JSSResource/osxconfigurationprofiles/id/%d", profileID)); err != nil {
+	if err := jamfDELETE(credName, fmt.Sprintf("%s/%d", uriClassicOSXProfiles, profileID)); err != nil {
 		return fmt.Errorf("delete profile %d: %w", profileID, err)
 	}
 	fmt.Printf("Deleted configuration profile %q (ID %d)\n", name, profileID)
