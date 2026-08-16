@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"buddy/internal/clispec"
 	"buddy/internal/help"
 )
 
@@ -89,47 +90,47 @@ var helpScriptSet = help.ScriptSet
 func printCommandHelp(path []string) {
 	key := strings.Join(path, ".")
 	helpMap := map[string]string{
-		"auth":          helpAuth,
-		"cred":          helpCred,
-		"version":       helpVersion,
-		"shell":         help.Shell,
-		"starlark":      help.Starlark,
-		"builtins":      help.Builtins,
-		"policy":        helpPolicy,
-		"policy.list":   helpPolicyList,
-		"policy.get":    helpPolicyGet,
-		"policy.set":    helpPolicySet,
-		"policy.create": helpPolicyCreate,
-		"policy.clone":  helpPolicyClone,
-		"policy.find":   helpPolicyFind,
-		"policy.delete": helpPolicyDelete,
-		"category":      helpCategory,
-		"macapp":        helpMacApp,
-		"app":           helpApp,
-		"group":         helpGroup,
-		"profile":       helpProfile,
-		"package":       helpPackage,
-		"computer":      helpComputer,
-		"mdm":           helpMdm,
-		"blueprint":     helpBlueprint,
-		"device":        helpDevice,
-		"device-group":  helpDeviceGroup,
-		"ddm":           helpDDM,
-		"benchmark":     helpBenchmark,
-		"role":          helpRole,
-		"client":        helpClient,
-		"script":        helpScript,
-		"script.get":    helpScriptGet,
-		"script.set":    helpScriptSet,
-		"setup":         helpSetup,
-		"serve":         helpServe,
-		"mcp":           helpMCP,
-		"lsp":           helpLSP,
+		clispec.CmdAuth:       helpAuth,
+		clispec.CmdCred:       helpCred,
+		clispec.CmdVersion:    helpVersion,
+		clispec.CmdShell:      help.Shell,
+		clispec.TopicStarlark: help.Starlark,
+		clispec.TopicBuiltins: help.Builtins,
+		clispec.CmdPolicy:     helpPolicy,
+		clispec.HelpPath(clispec.CmdPolicy, clispec.SubList):   helpPolicyList,
+		clispec.HelpPath(clispec.CmdPolicy, clispec.SubGet):    helpPolicyGet,
+		clispec.HelpPath(clispec.CmdPolicy, clispec.SubSet):    helpPolicySet,
+		clispec.HelpPath(clispec.CmdPolicy, clispec.SubCreate): helpPolicyCreate,
+		clispec.HelpPath(clispec.CmdPolicy, clispec.SubClone):  helpPolicyClone,
+		clispec.HelpPath(clispec.CmdPolicy, clispec.SubFind):   helpPolicyFind,
+		clispec.HelpPath(clispec.CmdPolicy, clispec.SubDelete): helpPolicyDelete,
+		clispec.CmdCategory:    helpCategory,
+		clispec.CmdMacApp:      helpMacApp,
+		clispec.CmdApp:         helpApp,
+		clispec.CmdGroup:       helpGroup,
+		clispec.CmdProfile:     helpProfile,
+		clispec.CmdPackage:     helpPackage,
+		clispec.CmdComputer:    helpComputer,
+		clispec.CmdMdm:         helpMdm,
+		clispec.CmdBlueprint:   helpBlueprint,
+		clispec.CmdDevice:      helpDevice,
+		clispec.CmdDeviceGroup: helpDeviceGroup,
+		clispec.CmdDDM:         helpDDM,
+		clispec.CmdBenchmark:   helpBenchmark,
+		clispec.CmdRole:        helpRole,
+		clispec.CmdClient:      helpClient,
+		clispec.CmdScript:      helpScript,
+		clispec.HelpPath(clispec.CmdScript, clispec.SubGet): helpScriptGet,
+		clispec.HelpPath(clispec.CmdScript, clispec.SubSet): helpScriptSet,
+		clispec.CmdSetup: helpSetup,
+		clispec.CmdServe: helpServe,
+		clispec.CmdMCP:   helpMCP,
+		clispec.CmdLSP:   helpLSP,
 	}
 	if text, ok := helpMap[key]; ok {
 		fmt.Print(text)
 	} else {
-		fmt.Fprintf(os.Stderr, "No help available for %q\n\n", strings.Join(path, " "))
+		fmt.Fprintf(os.Stderr, "%s", clispec.T(clispec.MsgNoHelp, strings.Join(path, " ")))
 		printUsage()
 	}
 }
@@ -137,19 +138,19 @@ func printCommandHelp(path []string) {
 // policySubHelp returns the help text for a policy subcommand.
 func policySubHelp(mode string) string {
 	switch mode {
-	case "list":
+	case clispec.SubList:
 		return helpPolicyList
-	case "get":
+	case clispec.SubGet:
 		return helpPolicyGet
-	case "set":
+	case clispec.SubSet:
 		return helpPolicySet
-	case "create":
+	case clispec.SubCreate:
 		return helpPolicyCreate
-	case "clone":
+	case clispec.SubClone:
 		return helpPolicyClone
-	case "find":
+	case clispec.SubFind:
 		return helpPolicyFind
-	case "delete":
+	case clispec.SubDelete:
 		return helpPolicyDelete
 	default:
 		return helpPolicy
@@ -159,9 +160,9 @@ func policySubHelp(mode string) string {
 // scriptSubHelp returns the help text for a script subcommand.
 func scriptSubHelp(action string) string {
 	switch action {
-	case "get":
+	case clispec.SubGet:
 		return helpScriptGet
-	case "set":
+	case clispec.SubSet:
 		return helpScriptSet
 	default:
 		return helpScript

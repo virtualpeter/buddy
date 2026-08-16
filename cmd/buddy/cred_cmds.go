@@ -8,21 +8,22 @@ import (
 	"strings"
 
 	"buddy/internal/buddy"
+	"buddy/internal/clispec"
 )
 
 func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpCred)
 		return nil
 	}
 	switch args[0] {
-	case "list":
+	case clispec.SubList:
 		return runCredList(cfg)
-	case "get":
+	case clispec.SubGet:
 		return runCredGet(cfg, args[1:])
-	case "set":
+	case clispec.SubSet:
 		return runCredSet(cfg, opts, args[1:])
-	case "delete":
+	case clispec.SubDelete:
 		return runCredDelete(cfg, opts, args[1:])
 	case "use":
 		return runCredUse(cfg, args[1:])
@@ -36,14 +37,14 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) 
 		return runCredMigrate(cfg, opts, args[1:])
 	default:
 		return errUnknownSubcommand("cred", args[0], []string{
-			"list", "get", "set", "delete", "use", "store", "migrate", "clean", "help",
+			clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubDelete, "use", "store", "migrate", "clean", clispec.SubHelp,
 		})
 	}
 }
 
 func runCredGet(cfg *buddy.Config, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("missing item; usage: buddy cred get tenant|auth|secret|channel <name> (see 'buddy cred help')")
+		return fmt.Errorf("missing item; usage: buddy cred get tenant|auth|secret|channel <name> (see '%s')", clispec.UsageHelp(clispec.CmdCred))
 	}
 	switch args[0] {
 	case "tenant":
@@ -80,7 +81,7 @@ func runCredGet(cfg *buddy.Config, args []string) error {
 
 func runCredSet(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("missing item; usage: buddy cred set tenant|auth|secret <name> … (see 'buddy cred help')")
+		return fmt.Errorf("missing item; usage: buddy cred set tenant|auth|secret <name> … (see '%s')", clispec.UsageHelp(clispec.CmdCred))
 	}
 	switch args[0] {
 	case "tenant":
@@ -101,7 +102,7 @@ func runCredSet(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 
 func runCredDelete(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("missing item; usage: buddy cred delete tenant|auth|secret <name> (see 'buddy cred help')")
+		return fmt.Errorf("missing item; usage: buddy cred delete tenant|auth|secret <name> (see '%s')", clispec.UsageHelp(clispec.CmdCred))
 	}
 	switch args[0] {
 	case "tenant":
@@ -320,7 +321,7 @@ func runCredSetChannel(cfg *buddy.Config, args []string) error {
 
 func runCredList(cfg *buddy.Config) error {
 	if len(cfg.Tenants) == 0 && len(cfg.Auths) == 0 {
-		fmt.Println("No tenants/auths configured. Use 'buddy cred set tenant|auth …' (see 'buddy cred help').")
+		fmt.Printf("No tenants/auths configured. Use 'buddy cred set tenant|auth …' (see '%s').\n", clispec.UsageHelp(clispec.CmdCred))
 		return nil
 	}
 	fmt.Println("TENANTS")
@@ -993,7 +994,7 @@ func runCredSetSecret(cfg *buddy.Config, authName string, args []string) error {
 		case a == "--client-secret":
 			wantClientSecret = true
 		default:
-			return fmt.Errorf("unknown flag %q; run 'buddy cred help'", a)
+			return fmt.Errorf("unknown flag %q; run '%s'", a, clispec.UsageHelp(clispec.CmdCred))
 		}
 	}
 	if !wantPassword && !wantClientSecret {
@@ -1068,7 +1069,7 @@ func runCredStore() error {
 }
 
 func runCredClean(cfg *buddy.Config, opts buddy.Opts, args []string) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(`buddy cred clean - Review and remove orphaned secrets or stale tokens
 
 Usage:

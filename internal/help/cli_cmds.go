@@ -426,7 +426,7 @@ Notes:
   may come later.
   IDE runs use the same builtins as the CLI. Interactive confirm() and Jamf
   mutate confirms open a dialog in the browser (not the serve terminal).
-  Global -y / --yes skips confirms entirely. The IDE uses the ide client
+  Global -y skips confirms entirely. The IDE uses the ide client
   channel with optional channels.ide policy for tenant and access.
   Bind address must be localhost (127.0.0.1, localhost, or ::1).
 

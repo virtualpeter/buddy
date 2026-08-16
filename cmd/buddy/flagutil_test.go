@@ -5,14 +5,14 @@ import "testing"
 func TestTakeFlagValue(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name    string
-		args    []string
-		i       int
-		flag    string
-		wantVal string
-		wantNext int
+		name      string
+		args      []string
+		i         int
+		flag      string
+		wantVal   string
+		wantNext  int
 		wantMatch bool
-		wantErr bool
+		wantErr   bool
 	}{
 		{"equals", []string{"--filter=Nitro"}, 0, "filter", "Nitro", 1, true, false},
 		{"space", []string{"--filter", "Nitro"}, 0, "filter", "Nitro", 2, true, false},

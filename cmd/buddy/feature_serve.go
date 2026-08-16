@@ -11,11 +11,12 @@ import (
 	"os/signal"
 
 	"buddy/internal/buddy"
+	"buddy/internal/clispec"
 	"buddy/internal/serve"
 )
 
 func runServe(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) > 0 && args[0] == "help" {
+	if len(args) > 0 && args[0] == clispec.SubHelp {
 		fmt.Print(helpServe)
 		return nil
 	}

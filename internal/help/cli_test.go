@@ -3,7 +3,25 @@ package help
 import (
 	"strings"
 	"testing"
+
+	"buddy/internal/clispec"
 )
+
+func TestCommandCatalogMatchesClispec(t *testing.T) {
+	cat := CommandCatalog()
+	spec := clispec.CatalogEntries()
+	if len(cat) != len(spec) {
+		t.Fatalf("catalog len %d vs spec %d", len(cat), len(spec))
+	}
+	for i := range spec {
+		if cat[i].ID != spec[i].ID || cat[i].Title != spec[i].Title || cat[i].Level != spec[i].Level {
+			t.Errorf("entry %d: catalog=%+v spec=%+v", i, cat[i], spec[i])
+		}
+		if cat[i].Body == "" {
+			t.Errorf("empty body for %s", spec[i].ID)
+		}
+	}
+}
 
 func TestCLIMarkdownHasCommands(t *testing.T) {
 	md := CLIMarkdown()

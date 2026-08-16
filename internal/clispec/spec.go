@@ -1,0 +1,128 @@
+package clispec
+
+// Command is a top-level CLI command. ID is never translated; Summary is a message ID.
+type Command struct {
+	ID      string
+	Summary string
+	Aliases []string
+}
+
+// CatalogEntry is one CommandCatalog / docs index row.
+type CatalogEntry struct {
+	ID    string
+	Title string
+	Level int
+}
+
+// GlobalFlag is a process-wide flag shown in Root help and parsed by extractGlobalFlags.
+type GlobalFlag struct {
+	Name    string // long name without dashes; empty if short-only
+	Short   string // single letter; empty if long-only
+	Arg     string // "<code>", "<name>", or empty
+	Summary string // message ID
+}
+
+// RootCommands is the Commands: table in buddy help (excludes "help" itself).
+func RootCommands() []Command {
+	return []Command{
+		{ID: CmdAuth, Summary: MsgCmdAuth, Aliases: []string{"auths"}},
+		{ID: CmdCred, Summary: MsgCmdCred, Aliases: []string{"creds", "credentials"}},
+		{ID: CmdPolicy, Summary: MsgCmdPolicy, Aliases: []string{"policies"}},
+		{ID: CmdCategory, Summary: MsgCmdCategory, Aliases: []string{"categories"}},
+		{ID: CmdMacApp, Summary: MsgCmdMacApp, Aliases: []string{"macapps"}},
+		{ID: CmdApp, Summary: MsgCmdApp, Aliases: []string{"apps"}},
+		{ID: CmdGroup, Summary: MsgCmdGroup, Aliases: []string{"groups"}},
+		{ID: CmdProfile, Summary: MsgCmdProfile, Aliases: []string{"profiles"}},
+		{ID: CmdPackage, Summary: MsgCmdPackage, Aliases: []string{"packages"}},
+		{ID: CmdComputer, Summary: MsgCmdComputer, Aliases: []string{"computers"}},
+		{ID: CmdMdm, Summary: MsgCmdMdm},
+		{ID: CmdBlueprint, Summary: MsgCmdBlueprint, Aliases: []string{"blueprints"}},
+		{ID: CmdDevice, Summary: MsgCmdDevice, Aliases: []string{"devices"}},
+		{ID: CmdDeviceGroup, Summary: MsgCmdDeviceGroup, Aliases: []string{"device-groups"}},
+		{ID: CmdDDM, Summary: MsgCmdDDM},
+		{ID: CmdBenchmark, Summary: MsgCmdBenchmark, Aliases: []string{"benchmarks"}},
+		{ID: CmdRole, Summary: MsgCmdRole, Aliases: []string{"roles"}},
+		{ID: CmdClient, Summary: MsgCmdClient, Aliases: []string{"clients"}},
+		{ID: CmdScript, Summary: MsgCmdScript, Aliases: []string{"scripts"}},
+		{ID: CmdSetup, Summary: MsgCmdSetup},
+		{ID: CmdServe, Summary: MsgCmdServe},
+		{ID: CmdMCP, Summary: MsgCmdMCP},
+		{ID: CmdLSP, Summary: MsgCmdLSP},
+		{ID: CmdVersion, Summary: MsgCmdVersion},
+	}
+}
+
+// DispatchNames is every token accepted as argv[0] (Root commands plus help).
+func DispatchNames() []string {
+	out := make([]string, 0, len(RootCommands())+1)
+	out = append(out, CmdHelp)
+	for _, c := range RootCommands() {
+		out = append(out, c.ID)
+	}
+	return out
+}
+
+// CommandAliases maps plural/typo tokens to a dispatch name.
+func CommandAliases() map[string]string {
+	out := map[string]string{}
+	for _, c := range RootCommands() {
+		for _, a := range c.Aliases {
+			out[a] = c.ID
+		}
+	}
+	return out
+}
+
+// GlobalFlags is the Global flags: table in buddy help, in display order.
+func GlobalFlags() []GlobalFlag {
+	return []GlobalFlag{
+		{Name: FlagVersion, Summary: MsgGFlagVersion},
+		{Name: FlagEval, Short: ShortEval, Arg: "<code>", Summary: MsgGFlagEval},
+		{Short: ShortSkipConfirm, Summary: MsgGFlagSkipConfirm},
+		{Name: FlagVerbose, Short: ShortVerbose, Summary: MsgGFlagVerbose},
+		{Name: FlagTrace, Short: ShortTrace, Summary: MsgGFlagTrace},
+		{Name: FlagScriptTrace, Summary: MsgGFlagScriptTrace},
+		{Name: FlagTenant, Arg: "<name>", Summary: MsgGFlagTenant},
+		{Name: FlagUser, Arg: "<name>", Summary: MsgGFlagUser},
+		{Name: FlagAuth, Arg: "<name>", Summary: MsgGFlagAuth},
+	}
+}
+
+// CatalogEntries is the ordered Command index (IDs/titles/levels). Bodies stay in internal/help.
+func CatalogEntries() []CatalogEntry {
+	return []CatalogEntry{
+		{ID: TopicOverview, Title: "Overview", Level: 2},
+		{ID: CmdAuth, Title: CmdAuth, Level: 2},
+		{ID: CmdCred, Title: CmdCred, Level: 2},
+		{ID: CmdPolicy, Title: CmdPolicy, Level: 2},
+		{ID: CatalogID(CmdPolicy, SubList), Title: HelpTitle(CmdPolicy, SubList), Level: 3},
+		{ID: CatalogID(CmdPolicy, SubGet), Title: HelpTitle(CmdPolicy, SubGet), Level: 3},
+		{ID: CatalogID(CmdPolicy, SubSet), Title: HelpTitle(CmdPolicy, SubSet), Level: 3},
+		{ID: CatalogID(CmdPolicy, SubCreate), Title: HelpTitle(CmdPolicy, SubCreate), Level: 3},
+		{ID: CatalogID(CmdPolicy, SubDelete), Title: HelpTitle(CmdPolicy, SubDelete), Level: 3},
+		{ID: CmdCategory, Title: CmdCategory, Level: 2},
+		{ID: CmdMacApp, Title: CmdMacApp, Level: 2},
+		{ID: CmdApp, Title: CmdApp, Level: 2},
+		{ID: CmdGroup, Title: CmdGroup, Level: 2},
+		{ID: CmdProfile, Title: CmdProfile, Level: 2},
+		{ID: CmdPackage, Title: CmdPackage, Level: 2},
+		{ID: CmdComputer, Title: CmdComputer, Level: 2},
+		{ID: CmdMdm, Title: CmdMdm, Level: 2},
+		{ID: CmdBlueprint, Title: CmdBlueprint, Level: 2},
+		{ID: CmdDevice, Title: CmdDevice, Level: 2},
+		{ID: CmdDeviceGroup, Title: CmdDeviceGroup, Level: 2},
+		{ID: CmdDDM, Title: CmdDDM, Level: 2},
+		{ID: CmdBenchmark, Title: CmdBenchmark, Level: 2},
+		{ID: CmdRole, Title: CmdRole, Level: 2},
+		{ID: CmdClient, Title: CmdClient, Level: 2},
+		{ID: CmdScript, Title: CmdScript, Level: 2},
+		{ID: CatalogID(CmdScript, SubGet), Title: HelpTitle(CmdScript, SubGet), Level: 3},
+		{ID: CatalogID(CmdScript, SubSet), Title: HelpTitle(CmdScript, SubSet), Level: 3},
+		{ID: CmdSetup, Title: CmdSetup, Level: 2},
+		{ID: CmdServe, Title: CmdServe, Level: 2},
+		{ID: CmdMCP, Title: CmdMCP, Level: 2},
+		{ID: CmdLSP, Title: CmdLSP, Level: 2},
+		{ID: CmdVersion, Title: CmdVersion, Level: 2},
+		{ID: CmdShell, Title: CmdShell, Level: 2},
+	}
+}

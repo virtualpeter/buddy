@@ -13,6 +13,11 @@ import (
 	"strings"
 )
 
+const (
+	uriComputersInventory       = "/api/v3/computers-inventory"
+	uriComputersInventoryDetail = "/api/v3/computers-inventory-detail"
+)
+
 var errComputerIDsRequired = errors.New("at least one computer ID required")
 
 // ComputerRecord holds key fields from a computer inventory record.
@@ -105,7 +110,7 @@ func ComputerSearch(credName, filter string, opts PageOpts, logger *slog.Logger)
 		extra.Set("filter", normalized)
 	}
 	var all []ComputerRecord
-	err = fetchJamfPaged(credName, "/api/v3/computers-inventory", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, uriComputersInventory, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		var page []computerListItemV3
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)
@@ -217,7 +222,7 @@ func computerInventoryPath(idStr string, sections []string) (string, error) {
 	if err != nil || id <= 0 {
 		return "", fmt.Errorf("invalid computer-id %q: must be positive integer", idStr)
 	}
-	path := "/api/v3/computers-inventory/" + strconv.Itoa(id)
+	path := uriComputersInventory + "/" + strconv.Itoa(id)
 	secs := NormalizeComputerSections(sections)
 	if len(secs) == 0 {
 		return path, nil
@@ -249,7 +254,7 @@ func ComputerFetchDetail(credName, idStr string) ([]byte, error) {
 	if err != nil || id <= 0 {
 		return nil, fmt.Errorf("invalid computer-id %q: must be positive integer", idStr)
 	}
-	path := "/api/v3/computers-inventory-detail/" + strconv.Itoa(id)
+	path := uriComputersInventoryDetail + "/" + strconv.Itoa(id)
 	body, err := jamfGET(credName, path)
 	if err != nil {
 		return nil, fmt.Errorf("get computer detail %s: %w", strings.TrimSpace(idStr), err)
@@ -288,7 +293,7 @@ func ComputerDetailValue(credName, idStr string, logger *slog.Logger) (map[strin
 
 // computerGetManagementID fetches a computer's managementId (for MDM commands).
 func computerGetManagementID(credName string, computerID int) (string, error) {
-	endpoint, err := ResolveEndpoint(credName, "/api/v3/computers-inventory/"+strconv.Itoa(computerID)+"?section=GENERAL")
+	endpoint, err := ResolveEndpoint(credName, uriComputersInventory+"/"+strconv.Itoa(computerID)+"?section=GENERAL")
 	if err != nil {
 		return "", err
 	}
@@ -361,7 +366,7 @@ func computerSendMDMCommand(credName string, computerIDs []int, commandType stri
 		if err != nil {
 			return fmt.Errorf("marshal MDM command payload: %w", err)
 		}
-		endpoint, err := ResolveEndpoint(credName, "/api/v2/mdm/commands")
+		endpoint, err := ResolveEndpoint(credName, uriMdmCommands)
 		if err != nil {
 			return err
 		}

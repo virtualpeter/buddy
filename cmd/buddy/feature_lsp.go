@@ -3,6 +3,7 @@
 package main
 
 import (
+	"buddy/internal/clispec"
 	"fmt"
 	"log/slog"
 
@@ -10,7 +11,7 @@ import (
 )
 
 func runLSP(args []string, log *slog.Logger) error {
-	if len(args) > 0 && args[0] == "help" {
+	if len(args) > 0 && args[0] == clispec.SubHelp {
 		fmt.Print(helpLSP)
 		return nil
 	}

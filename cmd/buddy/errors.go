@@ -4,14 +4,16 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+
+	"buddy/internal/clispec"
 )
 
 func missingArg(what, helpCmd string) error {
-	return fmt.Errorf("missing %s; run '%s' for usage", what, helpCmd)
+	return fmt.Errorf("%s", clispec.T(clispec.MsgMissingArg, what, helpCmd))
 }
 
 func missingArgHint(what, helpCmd string) error {
-	return fmt.Errorf("missing %s; run '%s'", what, helpCmd)
+	return fmt.Errorf("%s", clispec.T(clispec.MsgMissingArgHint, what, helpCmd))
 }
 
 func exitOnErr(logger *slog.Logger, msg string, err error) {

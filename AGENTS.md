@@ -9,6 +9,7 @@ Human docs: [docs/index.md](docs/index.md). Auth/secrets/tokens: [docs/auth.md](
 | Path | Role |
 |------|------|
 | `cmd/buddy/` | CLI entry, dispatch, help (`help.go`) |
+| `internal/clispec/` | CLI command/flag identifiers and English message catalog (`T`) |
 | `internal/buddy/` | Jamf API clients, config, auth, secrets |
 | `internal/buddy/tokenauth/` | Token acquisition, cache, 401 refresh |
 | `internal/script/` | buddyscript (Starlark) builtins + session |
@@ -25,7 +26,7 @@ Resource cookbooks: edit `internal/buddy/*_doc.go`, then `make gendocs` (writes 
 
 ## Conventions
 
-- CLI help: `.cursor/rules/buddy-cli.mdc`
+- CLI help: `.cursor/rules/buddy-cli.mdc`. Command/flag **names** and user-facing CLI **messages** live in `internal/clispec` (English default; `BUDDY_LANG` / `LANG` fall back to `en`). Do not add a second locale or translate docs/MCP/LSP yet. Identifiers stay English forever.
 - Builtins: `.cursor/rules/buddy-builtins.mdc` — plural/singular grammar, resource IDs first, `tenant?`/`surface?`/`auth?` last. Do not reintroduce removed aliases (`package_list`, `policy_find_ids`, …).
 - Auth/secrets: `.cursor/rules/buddy-auth-secrets.mdc` and [docs/auth.md](docs/auth.md)
 - Scripts use `.buddy`. `load("stdlib/….buddy", …)` is reserved (no modules yet; recipes live in `examples/`).

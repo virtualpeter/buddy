@@ -8,11 +8,12 @@ import (
 	"log/slog"
 
 	"buddy/internal/buddy"
+	"buddy/internal/clispec"
 	buddymcp "buddy/internal/mcp"
 )
 
 func runMCP(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) > 0 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help") {
+	if len(args) > 0 && (args[0] == clispec.SubHelp || args[0] == "-h" || args[0] == "--help") {
 		fmt.Print(helpMCP)
 		return nil
 	}
@@ -35,7 +36,7 @@ func runMCP(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		}, opts, log)
 	}
 	if len(args) > 0 {
-		return errUnknownSubcommand("mcp", args[0], []string{"setup", "help"})
+		return errUnknownSubcommand("mcp", args[0], []string{"setup", clispec.SubHelp})
 	}
 	return buddymcp.Run(credName, opts, log, Version)
 }

@@ -4,29 +4,12 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"buddy/internal/clispec"
 )
 
 // Common plural / alias typos for top-level commands (before edit-distance).
-var commandAliases = map[string]string{
-	"blueprints":    "blueprint",
-	"policies":      "policy",
-	"categories":    "category",
-	"macapps":       "macapp",
-	"apps":          "app",
-	"profiles":      "profile",
-	"packages":      "package",
-	"computers":     "computer",
-	"devices":       "device",
-	"device-groups": "device-group",
-	"groups":        "group",
-	"scripts":       "script",
-	"benchmarks":    "benchmark",
-	"roles":         "role",
-	"clients":       "client",
-	"creds":         "cred",
-	"credentials":   "cred",
-	"auths":         "auth",
-}
+var commandAliases = clispec.CommandAliases()
 
 func knownCommandNames() []string {
 	names := make([]string, 0, len(knownCommands))
@@ -97,14 +80,14 @@ func formatDidYouMean(suggestion string) string {
 	if suggestion == "" {
 		return ""
 	}
-	return fmt.Sprintf("\nDid you mean %q?", suggestion)
+	return clispec.T(clispec.MsgDidYouMean, suggestion)
 }
 
 // errUnknownSubcommand builds a consistent unknown-subcommand error with optional suggestion.
 func errUnknownSubcommand(command, got string, candidates []string) error {
-	msg := fmt.Sprintf("unknown %s subcommand: %q", command, got)
+	msg := clispec.T(clispec.MsgUnknownSubcommand, command, got)
 	msg += formatDidYouMean(suggestClosest(got, candidates))
-	msg += fmt.Sprintf(" (use: %s)", strings.Join(candidates, ", "))
+	msg += clispec.T(clispec.MsgUseCandidates, strings.Join(candidates, ", "))
 	return fmt.Errorf("%s", msg)
 }
 

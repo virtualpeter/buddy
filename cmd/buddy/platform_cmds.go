@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"buddy/internal/buddy"
+	"buddy/internal/clispec"
 )
 
 func readJSONFileArg(args []string) (body []byte, rest []string, err error) {
@@ -14,8 +15,8 @@ func readJSONFileArg(args []string) (body []byte, rest []string, err error) {
 	var leftover []string
 	for _, a := range args {
 		switch {
-		case strings.HasPrefix(a, "--file="):
-			file = strings.TrimPrefix(a, "--file=")
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagFile)):
+			file = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagFile))
 		case a == "-":
 			file = "-"
 		default:
@@ -27,38 +28,38 @@ func readJSONFileArg(args []string) (body []byte, rest []string, err error) {
 }
 
 func runDeviceGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpDeviceGroup)
 		return nil
 	}
 	subcommand := args[0]
 	args = args[1:]
 	switch subcommand {
-	case "list":
+	case clispec.SubList:
 		listOpts := buddy.DeviceGroupListOpts{Page: buddy.PageOpts{Page: buddy.PageAll}}
-		filter, rest, err := extractStringFlag(args, "filter")
+		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
 		if err != nil {
 			return err
 		}
 		listOpts.Filter = filter
 		if len(rest) > 0 {
-			return fmt.Errorf("unknown list flag %q; run 'buddy device-group help'", rest[0])
+			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdDeviceGroup))
 		}
 		return buddy.DeviceGroupList(credName, listOpts, log)
-	case "get":
+	case clispec.SubGet:
 		if len(args) < 1 {
-			return missingArgHint("group-id", "buddy device-group help")
+			return missingArgHint("group-id", clispec.UsageHelp(clispec.CmdDeviceGroup))
 		}
 		return buddy.DeviceGroupGet(credName, args[0], log)
-	case "create":
+	case clispec.SubCreate:
 		body, _, err := readJSONFileArg(args)
 		if err != nil {
 			return err
 		}
 		return buddy.DeviceGroupCreate(credName, opts, body, log)
-	case "set":
+	case clispec.SubSet:
 		if len(args) < 1 {
-			return missingArgHint("group-id", "buddy device-group help")
+			return missingArgHint("group-id", clispec.UsageHelp(clispec.CmdDeviceGroup))
 		}
 		groupID := args[0]
 		body, _, err := readJSONFileArg(args[1:])
@@ -66,19 +67,19 @@ func runDeviceGroup(credName string, opts buddy.Opts, args []string, log *slog.L
 			return err
 		}
 		return buddy.DeviceGroupSet(credName, groupID, opts, body, log)
-	case "delete":
+	case clispec.SubDelete:
 		if len(args) < 1 {
-			return missingArgHint("group-id", "buddy device-group help")
+			return missingArgHint("group-id", clispec.UsageHelp(clispec.CmdDeviceGroup))
 		}
 		return buddy.DeviceGroupDelete(credName, args[0], opts, log)
 	case "members":
 		if len(args) < 1 {
-			return missingArgHint("group-id", "buddy device-group help")
+			return missingArgHint("group-id", clispec.UsageHelp(clispec.CmdDeviceGroup))
 		}
 		return buddy.DeviceGroupMembers(credName, args[0], log)
 	case "set-members":
 		if len(args) < 1 {
-			return missingArgHint("group-id", "buddy device-group help")
+			return missingArgHint("group-id", clispec.UsageHelp(clispec.CmdDeviceGroup))
 		}
 		groupID := args[0]
 		body, _, err := readJSONFileArg(args[1:])
@@ -88,22 +89,22 @@ func runDeviceGroup(credName string, opts buddy.Opts, args []string, log *slog.L
 		return buddy.DeviceGroupSetMembers(credName, groupID, opts, body, log)
 	default:
 		return errUnknownSubcommand("device-group", subcommand, []string{
-			"list", "get", "create", "set", "delete", "members", "set-members",
+			clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubSet, clispec.SubDelete, "members", "set-members",
 		})
 	}
 }
 
 func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpDevice)
 		return nil
 	}
 	subcommand := args[0]
 	args = args[1:]
 	switch subcommand {
-	case "list":
+	case clispec.SubList:
 		listOpts := buddy.DeviceListOpts{Page: buddy.PageOpts{Page: buddy.PageAll}}
-		filter, rest, err := extractStringFlag(args, "filter")
+		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
 		if err != nil {
 			return err
 		}
@@ -114,17 +115,17 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		listOpts.Filter = filter
 		listOpts.Sort = sort
 		if len(rest) > 0 {
-			return fmt.Errorf("unknown list flag %q; run 'buddy device help'", rest[0])
+			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdDevice))
 		}
 		return buddy.DeviceList(credName, listOpts, log)
-	case "get":
+	case clispec.SubGet:
 		if len(args) < 1 {
-			return missingArgHint("device-id", "buddy device help")
+			return missingArgHint("device-id", clispec.UsageHelp(clispec.CmdDevice))
 		}
 		return buddy.DeviceGet(credName, args[0], log)
-	case "set":
+	case clispec.SubSet:
 		if len(args) < 1 {
-			return missingArgHint("device-id", "buddy device help")
+			return missingArgHint("device-id", clispec.UsageHelp(clispec.CmdDevice))
 		}
 		deviceID := args[0]
 		body, _, err := readJSONFileArg(args[1:])
@@ -132,14 +133,14 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 			return err
 		}
 		return buddy.DeviceSet(credName, deviceID, opts, body, log)
-	case "delete":
+	case clispec.SubDelete:
 		if len(args) < 1 {
-			return missingArgHint("device-id", "buddy device help")
+			return missingArgHint("device-id", clispec.UsageHelp(clispec.CmdDevice))
 		}
 		return buddy.DeviceDelete(credName, args[0], opts, log)
 	case "applications":
 		if len(args) < 1 {
-			return missingArgHint("device-id", "buddy device help")
+			return missingArgHint("device-id", clispec.UsageHelp(clispec.CmdDevice))
 		}
 		deviceID := args[0]
 		filter, rest, err := extractStringFlag(args[1:], "filter")
@@ -152,7 +153,7 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		return buddy.DeviceApplications(credName, deviceID, filter, log)
 	case "user":
 		if len(args) < 1 {
-			return missingArgHint("user-id", "buddy device help")
+			return missingArgHint("user-id", clispec.UsageHelp(clispec.CmdDevice))
 		}
 		listOpts := buddy.DeviceListOpts{Page: buddy.PageOpts{Page: buddy.PageAll}}
 		items, err := buddy.DevicesForUserValue(credName, args[0], listOpts, log)
@@ -164,39 +165,39 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		return nil
 	case "check-in":
 		if len(args) < 1 {
-			return missingArgHint("device-id", "buddy device help")
+			return missingArgHint("device-id", clispec.UsageHelp(clispec.CmdDevice))
 		}
 		return buddy.DeviceCheckIn(credName, args[0], opts, log)
 	case "restart":
 		if len(args) < 1 {
-			return missingArgHint("device-id", "buddy device help")
+			return missingArgHint("device-id", clispec.UsageHelp(clispec.CmdDevice))
 		}
 		return buddy.DeviceRestart(credName, args[0], opts, log)
 	case "shutdown":
 		if len(args) < 1 {
-			return missingArgHint("device-id", "buddy device help")
+			return missingArgHint("device-id", clispec.UsageHelp(clispec.CmdDevice))
 		}
 		return buddy.DeviceShutdown(credName, args[0], opts, log)
 	case "erase":
 		if len(args) < 1 {
-			return missingArgHint("device-id", "buddy device help")
+			return missingArgHint("device-id", clispec.UsageHelp(clispec.CmdDevice))
 		}
 		return buddy.DeviceErase(credName, args[0], opts, log)
 	case "unmanage":
 		if len(args) < 1 {
-			return missingArgHint("device-id", "buddy device help")
+			return missingArgHint("device-id", clispec.UsageHelp(clispec.CmdDevice))
 		}
 		return buddy.DeviceUnmanage(credName, args[0], opts, log)
 	default:
 		return errUnknownSubcommand("device", subcommand, []string{
-			"list", "get", "set", "delete", "applications", "user", "check-in", "restart", "shutdown", "erase", "unmanage",
+			clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubDelete, "applications", "user", "check-in", "restart", "shutdown", "erase", "unmanage",
 		})
 	}
 }
 
 func runDDM(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
 	_ = opts
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpDDM)
 		return nil
 	}
@@ -251,27 +252,27 @@ func runDDM(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 }
 
 func runBenchmark(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpBenchmark)
 		return nil
 	}
 	switch args[0] {
-	case "list":
+	case clispec.SubList:
 		return buddy.BenchmarkList(credName, log)
-	case "get":
+	case clispec.SubGet:
 		if len(args) < 2 {
-			return missingArgHint("benchmark-id", "buddy benchmark help")
+			return missingArgHint("benchmark-id", clispec.UsageHelp(clispec.CmdBenchmark))
 		}
 		return buddy.BenchmarkGet(credName, args[1], log)
-	case "create":
+	case clispec.SubCreate:
 		body, _, err := readJSONFileArg(args[1:])
 		if err != nil {
 			return err
 		}
 		return buddy.BenchmarkCreate(credName, opts, body, log)
-	case "delete":
+	case clispec.SubDelete:
 		if len(args) < 2 {
-			return missingArgHint("benchmark-id", "buddy benchmark help")
+			return missingArgHint("benchmark-id", clispec.UsageHelp(clispec.CmdBenchmark))
 		}
 		return buddy.BenchmarkDelete(credName, args[1], opts, log)
 	case "baselines":
@@ -288,22 +289,22 @@ func runBenchmark(credName string, opts buddy.Opts, args []string, log *slog.Log
 		return buddy.BenchmarkCatalogRules(credName, baseline, log)
 	case "compliance-percentage":
 		if len(args) < 2 {
-			return missingArgHint("benchmark-id", "buddy benchmark help")
+			return missingArgHint("benchmark-id", clispec.UsageHelp(clispec.CmdBenchmark))
 		}
 		return buddy.BenchmarkCompliancePercentage(credName, args[1], log)
 	case "report-devices":
 		if len(args) < 2 {
-			return missingArgHint("benchmark-id", "buddy benchmark help")
+			return missingArgHint("benchmark-id", clispec.UsageHelp(clispec.CmdBenchmark))
 		}
 		return buddy.BenchmarkReportDevices(credName, args[1], log)
 	case "report-rules":
 		if len(args) < 2 {
-			return missingArgHint("benchmark-id", "buddy benchmark help")
+			return missingArgHint("benchmark-id", clispec.UsageHelp(clispec.CmdBenchmark))
 		}
 		return buddy.BenchmarkReportRules(credName, args[1], log)
 	default:
 		return errUnknownSubcommand("benchmark", args[0], []string{
-			"list", "get", "create", "delete", "baselines", "rules", "compliance-percentage", "report-devices", "report-rules",
+			clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubDelete, "baselines", "rules", "compliance-percentage", "report-devices", "report-rules",
 		})
 	}
 }

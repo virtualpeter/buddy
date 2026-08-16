@@ -1,58 +1,6 @@
 package help
 
-// Code extracted from cmd/buddy/help.go — keep in sync when editing CLI help.
-
-const Root = `buddy - Jamf Pro management CLI
-
-Usage:
-  buddy [global-flags]                              Interactive buddyscript shell
-  buddy [global-flags] <script.buddy> [-- args...]  Run a buddyscript script
-  buddy [global-flags] -e <code> [-- args...]       Eval a buddyscript one-liner
-  buddy [global-flags] <command> [subcommand] [args...]
-  buddy help [command] [subcommand]
-
-Commands:
-  auth     Test authentication for the active tenant/auth
-  cred     Manage tenants, auths, and secrets in the config file
-  policy   Manage Jamf policies (list/get/set/create/delete)
-  category Manage categories (list/get/create/delete)
-  macapp   Manage Classic Mac App Store apps (list/get/create/delete)
-  app      Manage policy apps (list/get/upgrade)
-  group    Manage computer groups (list/get/create/delete; smart/static membership)
-  profile  Manage configuration profiles (list/get/set/clone/redeploy)
-  package  Manage package records (list/get/download/upload/delete/set/history)
-  computer Manage computers and MDM commands (list/get/reboot/lock/erase/...)
-  mdm      Query MDM commands from Jamf Pro (list with RSQL filter)
-  blueprint Manage Platform API blueprints (list/get/create/set/delete/deploy/…)
-  device   Manage Platform API devices (inventory + check-in/restart/erase/…)
-  device-group Manage Platform API device groups (not Pro computer groups)
-  ddm      Platform DDM declaration reporting (read-only)
-  benchmark Platform compliance benchmarks (beta)
-  role     Manage API roles (list/get/create/update/delete/privileges)
-  client   Manage API integrations (list/get/create/update/delete/credentials/set)
-  script   Manage Jamf scripts (list/get/create/upload/download/delete/set)
-  setup    basic-setup (first tenant/auth); write-script; store-oauth (instance)
-  serve    Local docs + script IDE web UI
-  mcp      MCP stdio server for AI tools (setup discovers host configs)
-  lsp      Language server for buddyscript (editor integration)
-  version  Print version and exit (same as --version)
-
-Global flags:
-  --version           Print version and exit
-  -e, --eval <code>   Run a buddyscript snippet and exit (see 'buddy help shell')
-  -y                  Skip confirmation prompts (buddy CLI and confirm() in scripts)
-  -v, --verbose       Verbose output
-  -t, --trace         Trace HTTP requests and responses to stderr (headers and bodies; Authorization/Cookie redacted)
-  --script-trace      Trace buddyscript builtin calls and print() in scripts and the interactive shell
-  --tenant <name>     Tenant from config (default: config.tenant); auto-picks auth
-  --user <name>       Pin an auth name (--auth alias)
-  --auth <name>       Pin an auth name (same as --user)
-
-First time? Run 'buddy setup basic-setup' (then 'buddy auth test'). See 'buddy setup help'.
-Use 'buddy help starlark' or 'buddy help builtins' for buddyscript reference.
-Use 'buddy help <command>' or 'buddy <command> help' for command details.
-Use 'buddy <command> <subcommand> help' for subcommand details.
-`
+// CLI help bodies. Top-level command names and Root command/flag lists come from clispec.
 
 const Shell = `buddy - buddyscript shell and scripts
 

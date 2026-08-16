@@ -20,14 +20,14 @@ func TestComputerInventoryPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path != "/api/v3/computers-inventory/42" {
+	if path != uriComputersInventory+"/42" {
 		t.Fatalf("path = %q", path)
 	}
 	path, err = computerInventoryPath("42", []string{"hardware", "GENERAL"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path != "/api/v3/computers-inventory/42?section=HARDWARE&section=GENERAL" {
+	if path != uriComputersInventory+"/42?section=HARDWARE&section=GENERAL" {
 		t.Fatalf("path = %q", path)
 	}
 	if _, err := computerInventoryPath("0", nil); err == nil {
