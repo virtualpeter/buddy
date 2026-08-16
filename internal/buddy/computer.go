@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -293,23 +291,9 @@ func ComputerDetailValue(credName, idStr string, logger *slog.Logger) (map[strin
 
 // computerGetManagementID fetches a computer's managementId (for MDM commands).
 func computerGetManagementID(credName string, computerID int) (string, error) {
-	endpoint, err := ResolveEndpoint(credName, uriComputersInventory+"/"+strconv.Itoa(computerID)+"?section=GENERAL")
-	if err != nil {
-		return "", err
-	}
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGET(credName, uriComputersInventory+"/"+strconv.Itoa(computerID)+"?section=GENERAL")
 	if err != nil {
 		return "", fmt.Errorf("get computer %d: %w", computerID, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("get computer %d status %d: %s", computerID, resp.StatusCode, string(body))
 	}
 	var detail computerInventoryDetailResponseV3
 	if err := json.Unmarshal(body, &detail); err != nil {
@@ -366,24 +350,8 @@ func computerSendMDMCommand(credName string, computerIDs []int, commandType stri
 		if err != nil {
 			return fmt.Errorf("marshal MDM command payload: %w", err)
 		}
-		endpoint, err := ResolveEndpoint(credName, uriMdmCommands)
-		if err != nil {
-			return err
-		}
-		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
-		if err != nil {
-			return fmt.Errorf("create request: %w", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "application/json")
-		resp, err := PerformRequest(nil, req, credName)
-		if err != nil {
+		if _, err := jamfPOST(credName, uriMdmCommands, data, "application/json"); err != nil {
 			return fmt.Errorf("send MDM command to computer %d: %w", id, err)
-		}
-		defer resp.Body.Close()
-		respBody, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-			return fmt.Errorf("MDM command computer %d status %d: %s", id, resp.StatusCode, string(respBody))
 		}
 	}
 	return nil
@@ -600,23 +568,8 @@ func ComputerRedeploy(credName string, opts Opts, computerIDs []int, logger *slo
 		}
 	}
 	for _, id := range computerIDs {
-		endpoint, err := ResolveEndpoint(credName, "/api/v1/jamf-management-framework/redeploy/"+strconv.Itoa(id))
-		if err != nil {
-			return err
-		}
-		req, err := http.NewRequest(http.MethodPost, endpoint, nil)
-		if err != nil {
-			return fmt.Errorf("create request: %w", err)
-		}
-		req.Header.Set("Accept", "application/json")
-		resp, err := PerformRequest(nil, req, credName)
-		if err != nil {
+		if _, err := jamfPOST(credName, "/api/v1/jamf-management-framework/redeploy/"+strconv.Itoa(id), nil, "application/json"); err != nil {
 			return fmt.Errorf("redeploy computer %d: %w", id, err)
-		}
-		defer resp.Body.Close()
-		respBody, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
-			return fmt.Errorf("redeploy computer %d status %d: %s", id, resp.StatusCode, string(respBody))
 		}
 	}
 	fmt.Printf("Redeploy command sent to %d computer(s)\n", len(computerIDs))

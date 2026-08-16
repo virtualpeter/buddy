@@ -1701,7 +1701,8 @@ func putPolicyGeneric(credName string, policyID int, payload interface{}, logger
 	if err != nil {
 		return fmt.Errorf("marshal policy: %w", err)
 	}
-	return jamfPUT(credName, path, body, "application/xml")
+	_, err = jamfPUT(credName, path, body, "application/xml")
+	return err
 }
 
 // --- setinstall payloads ---
@@ -1913,7 +1914,8 @@ func putPolicyInstall(credName string, policyID int, payload *policyInstallPaylo
 	if err != nil {
 		return fmt.Errorf("marshal policy: %w", err)
 	}
-	return jamfPUT(credName, path, body, "application/xml")
+	_, err = jamfPUT(credName, path, body, "application/xml")
+	return err
 }
 
 func postPolicyInstall(credName string, payload *policyInstallPayload, logger *slog.Logger) ([]byte, error) {
@@ -2189,7 +2191,8 @@ func putPolicyPackage(credName string, policyID int, payload *policyPackagePaylo
 	if err != nil {
 		return fmt.Errorf("marshal policy: %w", err)
 	}
-	return jamfPUT(credName, path, body, "application/xml")
+	_, err = jamfPUT(credName, path, body, "application/xml")
+	return err
 }
 
 func postPolicyPackage(credName string, payload *policyPackagePayload, logger *slog.Logger) ([]byte, error) {

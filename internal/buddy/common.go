@@ -459,27 +459,30 @@ func jamfGETWithAccept(credName, path, accept string) ([]byte, error) {
 }
 
 // jamfPUT performs a PUT request with the given body and content type.
-func jamfPUT(credName, path string, body []byte, contentType string) error {
+func jamfPUT(credName, path string, body []byte, contentType string) ([]byte, error) {
 	endpoint, err := ResolveEndpoint(credName, path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Accept", contentType)
 	resp, err := PerformRequest(nil, req, credName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("%s %s status %d: %s", http.MethodPut, path, resp.StatusCode, string(respBody))
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
 	}
-	return nil
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("%s %s status %d: %s", http.MethodPut, path, resp.StatusCode, string(respBody))
+	}
+	return respBody, nil
 }
 
 // jamfPOST performs a POST request with the given body and content type.

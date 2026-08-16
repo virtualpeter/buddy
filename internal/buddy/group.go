@@ -267,7 +267,7 @@ func GroupPutSmartRaw(credName string, opts Opts, groupID string, payload []byte
 			return nil
 		}
 	}
-	if err := jamfPUT(credName, fmt.Sprintf("%s/%s", uriSmartGroups, groupID), payload, "application/json"); err != nil {
+	if _, err := jamfPUT(credName, fmt.Sprintf("%s/%s", uriSmartGroups, groupID), payload, "application/json"); err != nil {
 		return fmt.Errorf("update smart group: %w", err)
 	}
 	return nil
@@ -387,7 +387,7 @@ func GroupVersion(credName string, opts Opts, groupID, newVersion string, logger
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
 	}
-	if err := jamfPUT(credName, fmt.Sprintf("%s/%s", uriSmartGroups, groupID), payloadBytes, "application/json"); err != nil {
+	if _, err := jamfPUT(credName, fmt.Sprintf("%s/%s", uriSmartGroups, groupID), payloadBytes, "application/json"); err != nil {
 		return fmt.Errorf("update smart group: %w", err)
 	}
 	fmt.Printf("Updated smart group %q (ID %s) %s: %s -> %s\n", group.Name, groupID, group.Criteria[idx].Name, oldVersion, newVersion)
@@ -589,7 +589,7 @@ func StaticGroupPutAssignments(credName, groupID string, assignments []string) e
 	if err != nil {
 		return fmt.Errorf("marshal static group PUT: %w", err)
 	}
-	if err := jamfPUT(credName, path, payloadBytes, "application/json"); err != nil {
+	if _, err := jamfPUT(credName, path, payloadBytes, "application/json"); err != nil {
 		return fmt.Errorf("update static group %s membership: %w", groupID, err)
 	}
 	return nil

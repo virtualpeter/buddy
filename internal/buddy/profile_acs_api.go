@@ -432,7 +432,8 @@ func putACSConfigProfile(credName, payloadUUID string, doc *ACSConfigProfileDoc)
 		return err
 	}
 	path := fmt.Sprintf("%s/%s", acsConfigProfilesPath, payloadUUID)
-	return jamfPUT(credName, path, body, "application/json")
+	_, err = jamfPUT(credName, path, body, "application/json")
+	return err
 }
 
 func putACSConfigProfileByClassicID(credName string, classicProfileID int, doc *ACSConfigProfileDoc) error {
@@ -444,7 +445,8 @@ func putACSConfigProfileByClassicID(credName string, classicProfileID int, doc *
 		return err
 	}
 	path := fmt.Sprintf("%s/profile/%d", acsConfigProfilesPath, classicProfileID)
-	return jamfPUT(credName, path, body, "application/json")
+	_, err = jamfPUT(credName, path, body, "application/json")
+	return err
 }
 
 func validateACSDocPlists(credName string, doc *ACSConfigProfileDoc) error {

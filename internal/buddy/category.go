@@ -154,7 +154,7 @@ func CategoryPut(credName string, opts Opts, id string, c CategoryDetail, logger
 			return nil
 		}
 	}
-	if err := jamfPUT(credName, uriCategories+"/"+id, payload, "application/json"); err != nil {
+	if _, err := jamfPUT(credName, uriCategories+"/"+id, payload, "application/json"); err != nil {
 		return fmt.Errorf("update category %s: %w", id, err)
 	}
 	fmt.Printf("Updated category %s (%q)\n", id, c.Name)

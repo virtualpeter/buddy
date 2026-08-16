@@ -1,11 +1,9 @@
 package buddy
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/url"
 )
 
@@ -92,30 +90,9 @@ func ClientFindByDisplayName(credName, displayName string, logger *slog.Logger) 
 
 // ClientGet fetches and prints a single API integration by ID.
 func ClientGet(credName, id string, logger *slog.Logger) error {
-	url, err := ResolveEndpoint(credName, uriAPIIntegrations+"/"+id)
+	client, err := clientGetRaw(credName, id)
 	if err != nil {
 		return err
-	}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return fmt.Errorf("get client %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, err := readHTTPBody(resp)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("get client %s status %d: %s", id, resp.StatusCode, string(body))
-	}
-	var client ApiIntegrationResponse
-	if err := json.Unmarshal(body, &client); err != nil {
-		return fmt.Errorf("parse response: %w", err)
 	}
 	return printJSON(client)
 }
@@ -158,27 +135,9 @@ func ClientCreateWithResult(credName string, opts Opts, displayName string, scop
 			return nil, nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, uriAPIIntegrations)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfPOST(credName, uriAPIIntegrations, data, "application/json")
 	if err != nil {
 		return nil, fmt.Errorf("create client: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := readHTTPBody(resp)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create client status %d: %s", resp.StatusCode, string(body))
 	}
 	var client ApiIntegrationResponse
 	if err := json.Unmarshal(body, &client); err != nil {
@@ -217,42 +176,12 @@ func ClientUpdateWithResult(credName, id string, opts Opts, displayName string, 
 		AccessTokenLifetimeSecs: existing.AccessTokenLifetimeSecs,
 		AuthorizationScopes:     scopes,
 	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
 	if !opts.SkipConfirm {
 		if !ConfirmPrompt(fmt.Sprintf("Update API client %s to name %q with scopes: %v", id, displayName, scopes), logger) {
 			return nil, nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, uriAPIIntegrations+"/"+id)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return nil, fmt.Errorf("update client %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, err := readHTTPBody(resp)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("update client %s status %d: %s", id, resp.StatusCode, string(body))
-	}
-	var client ApiIntegrationResponse
-	if err := json.Unmarshal(body, &client); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return &client, nil
+	return clientPut(credName, id, payload)
 }
 
 // ClientPutFields fetches the existing client, applies updates from fields, then PUTs the payload.
@@ -293,21 +222,8 @@ func ClientDelete(credName, id string, opts Opts, logger *slog.Logger) error {
 			return nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, uriAPIIntegrations+"/"+id)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
+	if err := jamfDELETE(credName, uriAPIIntegrations+"/"+id); err != nil {
 		return fmt.Errorf("delete client %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("delete client %s status %d: %s", id, resp.StatusCode, httpErrorBody(resp))
 	}
 	fmt.Printf("Deleted API client (ID %s)\n", id)
 	return nil
@@ -334,26 +250,9 @@ func ClientCredentialsWithResult(credName, id string, opts Opts, logger *slog.Lo
 			return "", "", nil
 		}
 	}
-	url, err := ResolveEndpoint(credName, uriAPIIntegrations+"/"+id+"/client-credentials")
-	if err != nil {
-		return "", "", err
-	}
-	req, err := http.NewRequest(http.MethodPost, url, nil)
-	if err != nil {
-		return "", "", fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfPOST(credName, uriAPIIntegrations+"/"+id+"/client-credentials", nil, "application/json")
 	if err != nil {
 		return "", "", fmt.Errorf("generate credentials for client %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, err := readHTTPBody(resp)
-	if err != nil {
-		return "", "", err
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return "", "", fmt.Errorf("generate credentials status %d: %s", resp.StatusCode, string(body))
 	}
 	var creds OAuthClientCredentials
 	if err := json.Unmarshal(body, &creds); err != nil {
@@ -380,35 +279,9 @@ func ClientSetTokenLifetime(credName, id string, opts Opts, seconds int, logger 
 		AccessTokenLifetimeSecs: seconds,
 		AuthorizationScopes:     existing.AuthorizationScopes,
 	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	endpoint, err := ResolveEndpoint(credName, uriAPIIntegrations+"/"+id)
+	updated, err := clientPut(credName, id, payload)
 	if err != nil {
 		return err
-	}
-	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return fmt.Errorf("update client %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, err := readHTTPBody(resp)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("update client %s status %d: %s", id, resp.StatusCode, string(body))
-	}
-	var updated ApiIntegrationResponse
-	if err := json.Unmarshal(body, &updated); err != nil {
-		return fmt.Errorf("parse response: %w", err)
 	}
 	fmt.Printf("Updated API client %s: accessTokenLifetimeSeconds = %d\n", id, updated.AccessTokenLifetimeSecs)
 	return nil
@@ -416,26 +289,25 @@ func ClientSetTokenLifetime(credName, id string, opts Opts, seconds int, logger 
 
 // clientGetRaw fetches an API integration without printing, used internally.
 func clientGetRaw(credName, id string) (*ApiIntegrationResponse, error) {
-	url, err := ResolveEndpoint(credName, uriAPIIntegrations+"/"+id)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGET(credName, uriAPIIntegrations+"/"+id)
 	if err != nil {
 		return nil, fmt.Errorf("get client %s: %w", id, err)
 	}
-	defer resp.Body.Close()
-	body, err := readHTTPBody(resp)
-	if err != nil {
-		return nil, err
+	var client ApiIntegrationResponse
+	if err := json.Unmarshal(body, &client); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get client %s status %d: %s", id, resp.StatusCode, string(body))
+	return &client, nil
+}
+
+func clientPut(credName, id string, payload ApiIntegrationRequest) (*ApiIntegrationResponse, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	body, err := jamfPUT(credName, uriAPIIntegrations+"/"+id, data, "application/json")
+	if err != nil {
+		return nil, fmt.Errorf("update client %s: %w", id, err)
 	}
 	var client ApiIntegrationResponse
 	if err := json.Unmarshal(body, &client); err != nil {

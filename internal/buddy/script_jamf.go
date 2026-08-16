@@ -1,12 +1,9 @@
 package buddy
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -115,23 +112,9 @@ func ScriptList(credName, filter string, logger *slog.Logger) error {
 
 // scriptGetFull fetches a single script by ID and returns the full detail struct.
 func scriptGetFull(credName, id string) (*ScriptDetail, error) {
-	endpoint, err := ResolveEndpoint(credName, uriScripts+"/"+id)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGET(credName, uriScripts+"/"+id)
 	if err != nil {
 		return nil, fmt.Errorf("get script %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get script %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	var s ScriptDetail
 	if err := json.Unmarshal(body, &s); err != nil {
@@ -196,23 +179,9 @@ func ScriptHistory(credName, id string, limit int, logger *slog.Logger) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	endpoint, err := ResolveEndpoint(credName, fmt.Sprintf("%s/%s/history?sort=date:desc&page-size=%d", uriScripts, id, limit))
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGET(credName, fmt.Sprintf("%s/%s/history?sort=date:desc&page-size=%d", uriScripts, id, limit))
 	if err != nil {
 		return fmt.Errorf("get script history %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("get script history %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	var result scriptHistoryResponse
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -251,24 +220,9 @@ func ScriptPostDetail(credName string, opts Opts, s ScriptDetail, logger *slog.L
 			return nil, nil
 		}
 	}
-	endpoint, err := ResolveEndpoint(credName, uriScripts)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfPOST(credName, uriScripts, data, "application/json")
 	if err != nil {
 		return nil, fmt.Errorf("create script: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create script status %d: %s", resp.StatusCode, string(body))
 	}
 	var created ScriptDetail
 	if err := json.Unmarshal(body, &created); err != nil {
@@ -310,24 +264,9 @@ func scriptPut(credName, id string, s *ScriptDetail) (*ScriptDetail, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	endpoint, err := ResolveEndpoint(credName, uriScripts+"/"+id)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfPUT(credName, uriScripts+"/"+id, data, "application/json")
 	if err != nil {
 		return nil, fmt.Errorf("update script %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("update script %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	var updated ScriptDetail
 	if err := json.Unmarshal(body, &updated); err != nil {
@@ -454,22 +393,8 @@ func ScriptDelete(credName string, opts Opts, ids []string, logger *slog.Logger)
 }
 
 func scriptDeleteOne(credName, id, name string) error {
-	endpoint, err := ResolveEndpoint(credName, uriScripts+"/"+id)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodDelete, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
+	if err := jamfDELETE(credName, uriScripts+"/"+id); err != nil {
 		return fmt.Errorf("delete script %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete script %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	fmt.Printf("Deleted script %s (%s)\n", id, name)
 	return nil
