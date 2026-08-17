@@ -270,6 +270,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "script_create", scriptCreate(credName, logger))
 	putBuiltin(dict, "script_update", scriptUpdate(credName, logger))
 	putBuiltin(dict, "script_put", scriptPutBuiltin(credName, logger))
+	putBuiltin(dict, "script_delete", scriptDelete(credName, logger))
 
 	putBuiltin(dict, "computer_send_mdm_command", computerSendMDMCommand(credName, logger))
 	putBuiltin(dict, "computer_reboot", computerReboot(credName, logger))
@@ -2197,6 +2198,45 @@ func scriptUpdate(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		defer restoreSession()
 		c := sessionPin
 		if err := buddy.ScriptUpdate(c, scriptOpts, string(scriptID), string(file), logger); err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(starlark.None), nil
+	}
+}
+
+// script_delete(id=?) | script_delete(ids=?, tenant?, surface?, auth?) → None
+func scriptDelete(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value = starlark.None
+		var idsVal starlark.Value = starlark.None
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("script_delete", args, kwargs, "id?", &idVal, "ids?", &idsVal,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		idSet := idVal != nil && idVal != starlark.None
+		idsSet := idsVal != nil && idsVal != starlark.None
+		if err := xorIDOrKey("script_delete", idSet, idsSet, "ids"); err != nil {
+			return nil, err
+		}
+		raw := idVal
+		label := "id"
+		if idsSet {
+			raw = idsVal
+			label = "ids"
+		}
+		ids, err := idListFromStarlark(raw, label)
+		if err != nil {
+			return nil, fmt.Errorf("script_delete: %w", err)
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		if err := buddy.ScriptDelete(sessionPin, scriptOpts, ids, logger); err != nil {
 			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil

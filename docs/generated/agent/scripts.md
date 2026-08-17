@@ -9,12 +9,13 @@ keywords:
   - scripts
   - script_copy
   - script_migrate
+  - script_delete
   - scriptContents
 ---
 
 # Scripts
 
-Jamf Pro scripts — list summaries vs full body, create/update, and copy/migrate.
+Jamf Pro scripts — list summaries vs full body, create/update/delete, and copy/migrate.
 
 ## Agent rules
 
@@ -26,6 +27,7 @@ Jamf Pro scripts — list summaries vs full body, create/update, and copy/migrat
 - List: `scripts(filter?)` · `buddy script list` — Summaries `{id, name, categoryId, categoryName}` only; bodies stripped
 - Load: `script(id=…)` / `script(name=…)` / `script_get_contents(id=…)` · `buddy script get` / `get contents` — Full Jamf JSON dict (id= and name=); or body only
 - Create / update: `script_create` / `script_put` / `script_update` · `buddy script create` / `upload` — Create from string body; PUT dict or replace from file
+- Delete: `script_delete(id=…)` / `script_delete(ids=…)` · `buddy script delete` — One ID or a list
 - Copy / migrate: `script_copy` / `script_migrate` — Upsert by name; category remapped on destination
 - Bare `filter` terms become `name=="*term*"` on the server. List JSON never yields usable `scriptContents` — load with `script(id=…)`.
 
@@ -91,6 +93,32 @@ Returns: dict
     "id"
   ],
   "title": "script_copy",
+  "type": "object"
+}
+```
+
+### script_delete
+
+Delete one or more scripts
+
+Returns: None
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "description": "one script ID (not with ids=)",
+      "type": "string"
+    },
+    "ids": {
+      "description": "script ID or list of IDs (not with id=)",
+      "type": "string"
+    }
+  },
+  "title": "script_delete",
   "type": "object"
 }
 ```

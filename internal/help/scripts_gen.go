@@ -37,6 +37,11 @@ const ScriptsBuiltinsSection = `SCRIPT (Jamf Pro scripts)
       Does: PUT a full script JSON record.
       → value: dict (updated script; PUT body confirms the write)
       Params: id: str/int; dict: full script body.
+  script_delete(id=?) | script_delete(ids=?, tenant?, surface?, auth?)
+      Does: Delete one or more Jamf Pro scripts (DELETE /api/v1/scripts/{id}).
+      → None
+      Params: pass either id= (one script) or ids= (one ID or list of IDs), not both.
+        IDs are str/int. tenant?/surface?/auth?: omit for process defaults.
   script_clone(id, name, category_id?, tenant?, surface?, auth?)
       Does: Clone a script in the same session (alias of script_copy without to_*).
       → value: dict (created script; same shape as script(id=…))

@@ -189,7 +189,7 @@ var curatedDocEntries = []curatedDoc{
 		keywords: []string{"package", "packages", "jcds", "ready", "download", "upload", "cloudTransferStatus"}},
 	{id: "docs/scripts", title: "Scripts", section: "Resources",
 		humanFile: "generated/human/scripts.md", agentFile: "generated/agent/scripts.md",
-		keywords: []string{"script", "scripts", "script_copy", "script_migrate", "scriptContents"}},
+		keywords: []string{"script", "scripts", "script_copy", "script_migrate", "script_delete", "scriptContents"}},
 	{id: "docs/categories", title: "Categories", section: "Resources",
 		humanFile: "generated/human/categories.md", agentFile: "generated/agent/categories.md",
 		keywords: []string{"category", "categories", "category_copy", "category_migrate"}},

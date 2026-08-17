@@ -17,13 +17,15 @@ var ScriptsTopic = docspec.Topic{
 		`scripts`,
 		`script_copy`,
 		`script_migrate`,
+		`script_delete`,
 		`scriptContents`,
 	},
-	Summary: `Jamf Pro scripts — list summaries vs full body, create/update, and copy/migrate.`,
+	Summary: `Jamf Pro scripts — list summaries vs full body, create/update/delete, and copy/migrate.`,
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List", BuddyScript: "`scripts(filter?)`", CLI: "`buddy script list`", Notes: "Summaries `{id, name, categoryId, categoryName}` only; bodies stripped"},
 		{Action: "Load", BuddyScript: "`script(id=…)` / `script(name=…)` / `script_get_contents(id=…)`", CLI: "`buddy script get` / `get contents`", Notes: "Full Jamf JSON dict (id= and name=); or body only"},
 		{Action: "Create / update", BuddyScript: "`script_create` / `script_put` / `script_update`", CLI: "`buddy script create` / `upload`", Notes: "Create from string body; PUT dict or replace from file"},
+		{Action: "Delete", BuddyScript: "`script_delete(id=…)` / `script_delete(ids=…)`", CLI: "`buddy script delete`", Notes: "One ID or a list"},
 		{Action: "Copy / migrate", BuddyScript: "`script_copy` / `script_migrate`", Notes: "Upsert by name; category remapped on destination"},
 	},
 	Notes: []string{
@@ -34,28 +36,37 @@ var ScriptsTopic = docspec.Topic{
 		"Migrate scripts before policies that reference them (see migrate order under [policies](/docs/docs/policies) / [categories](/docs/docs/categories)).",
 	},
 	Builtins: []docspec.Builtin{
-			{
-				Name: `scripts`,
-				Summary: `List script summaries`,
-				Returns: `list of {id,name,…}`,
-				Params: []docspec.Param{
-					{Name: `filter`, Type: `string`, Required: false, Description: `filter`},
-				},
-			},
-			{
-				Name: `script`,
-				Summary: `Load full script`,
-				Returns: `dict`,
-			},
-			{
-				Name: `script_copy`,
-				Summary: `Copy/migrate script`,
-				Returns: `dict`,
-				Params: []docspec.Param{
-					{Name: `id`, Type: `string`, Required: true, Description: `id`},
-				},
+		{
+			Name:    `scripts`,
+			Summary: `List script summaries`,
+			Returns: `list of {id,name,…}`,
+			Params: []docspec.Param{
+				{Name: `filter`, Type: `string`, Required: false, Description: `filter`},
 			},
 		},
+		{
+			Name:    `script`,
+			Summary: `Load full script`,
+			Returns: `dict`,
+		},
+		{
+			Name:    `script_copy`,
+			Summary: `Copy/migrate script`,
+			Returns: `dict`,
+			Params: []docspec.Param{
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
+			},
+		},
+		{
+			Name:    `script_delete`,
+			Summary: `Delete one or more scripts`,
+			Returns: `None`,
+			Params: []docspec.Param{
+				{Name: `id`, Type: `string|int`, Required: false, Description: `one script ID (not with ids=)`},
+				{Name: `ids`, Type: `string|int|list`, Required: false, Description: `script ID or list of IDs (not with id=)`},
+			},
+		},
+	},
 	ExamplesBuddy: []string{
 		`def main():
     rows = scripts(filter="Chrome")
@@ -102,6 +113,11 @@ var ScriptsTopic = docspec.Topic{
       Does: PUT a full script JSON record.
       → value: dict (updated script; PUT body confirms the write)
       Params: id: str/int; dict: full script body.
+  script_delete(id=?) | script_delete(ids=?, tenant?, surface?, auth?)
+      Does: Delete one or more Jamf Pro scripts (DELETE /api/v1/scripts/{id}).
+      → None
+      Params: pass either id= (one script) or ids= (one ID or list of IDs), not both.
+        IDs are str/int. tenant?/surface?/auth?: omit for process defaults.
   script_clone(id, name, category_id?, tenant?, surface?, auth?)
       Does: Clone a script in the same session (alias of script_copy without to_*).
       → value: dict (created script; same shape as script(id=…))

@@ -27,7 +27,7 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 	dict := makeBuiltins("default", slog.Default(), false)
 	for _, name := range []string{
 		"policies", "policy", "policy_xml", "policy_set",
-		"packages", "package", "packages_scan", "scripts", "script", "script_create",
+		"packages", "package", "packages_scan", "scripts", "script", "script_create", "script_delete",
 		"computers", "computer", "computer_detail", "mdm_commands",
 		"profiles", "profile", "profile_xml",
 		"smart_groups", "static_groups", "smart_group", "static_group",
@@ -66,6 +66,38 @@ func TestXorIDOrKey(t *testing.T) {
 	}
 	if err := xorIDOrKey("policy", true, false, "trigger"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIDListFromStarlark(t *testing.T) {
+	got, err := idListFromStarlark(starlark.String("7"), "ids")
+	if err != nil || len(got) != 1 || got[0] != "7" {
+		t.Fatalf("str: got %v err %v", got, err)
+	}
+	got, err = idListFromStarlark(starlark.MakeInt(8), "ids")
+	if err != nil || len(got) != 1 || got[0] != "8" {
+		t.Fatalf("int: got %v err %v", got, err)
+	}
+	list := starlark.NewList([]starlark.Value{starlark.String("1"), starlark.MakeInt(2)})
+	got, err = idListFromStarlark(list, "ids")
+	if err != nil || len(got) != 2 || got[0] != "1" || got[1] != "2" {
+		t.Fatalf("list: got %v err %v", got, err)
+	}
+	if _, err := idListFromStarlark(starlark.None, "ids"); err == nil {
+		t.Fatal("expected error for None")
+	}
+}
+
+func TestScriptDeleteRejectsBothIDAndIDs(t *testing.T) {
+	fn := scriptDelete("default", slog.Default())
+	thread := &starlark.Thread{Name: "t"}
+	kwargs := []starlark.Tuple{
+		{starlark.String("id"), starlark.String("1")},
+		{starlark.String("ids"), starlark.NewList([]starlark.Value{starlark.String("2")})},
+	}
+	_, err := fn(thread, nil, nil, kwargs)
+	if err == nil || !strings.Contains(err.Error(), "either id= or ids=") {
+		t.Fatalf("got %v", err)
 	}
 }
 

@@ -107,3 +107,49 @@ func TestScriptPostDetail_NoFollowUpGET(t *testing.T) {
 		t.Fatalf("GET count=%d, want 0", gets.Load())
 	}
 }
+
+func TestScriptDelete_GETThenDELETE(t *testing.T) {
+	var gets, deletes atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/auth/token", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"token": "tok", "expires": ""})
+	})
+	mux.HandleFunc("/api/v1/scripts/{id}", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			gets.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":   "7",
+				"name": "Install Thing",
+			})
+		case http.MethodDelete:
+			deletes.Add(1)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "method", http.StatusMethodNotAllowed)
+		}
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	SetActiveConfig(ConfigFromCredentialMap("scripts-delete-test", map[string]CredentialConfig{
+		"scripts-delete-test": {
+			URL:  srv.URL,
+			Auth: AuthConfig{Type: "basic", Username: "u", Password: "p"},
+		},
+	}))
+	clearCredAuthCache()
+	t.Cleanup(func() {
+		clearCredAuthCache()
+		SetActiveConfig(nil)
+	})
+
+	if err := ScriptDelete("scripts-delete-test", Opts{SkipConfirm: true}, []string{"7"}, slog.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if gets.Load() != 1 {
+		t.Fatalf("GET count=%d, want 1", gets.Load())
+	}
+	if deletes.Load() != 1 {
+		t.Fatalf("DELETE count=%d, want 1", deletes.Load())
+	}
+}
