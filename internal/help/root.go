@@ -19,7 +19,7 @@ Commands:
 `
 
 const rootFooter = `
-First time? Run 'buddy setup basic-setup' (then 'buddy auth test'). See 'buddy setup help'.
+First time? Run 'buddy setup basic-setup' (or 'buddy setup secrets' if an MDM profile already provides tenants), then 'buddy auth test'. See 'buddy setup help'.
 Use 'buddy help starlark' or 'buddy help builtins' for buddyscript reference.
 Use 'buddy help <command>' or 'buddy <command> help' for command details.
 Use 'buddy <command> <subcommand> help' for subcommand details.

@@ -24,6 +24,7 @@ type ConfirmOpts struct {
 	Yes      string // accepted yes token; empty → "y"
 	No       string // accepted no token; empty → "n"
 	Default  string // Enter answer; empty → No. Must match Yes or No (case-insensitive).
+	SilentNo bool   // if true, do not print "Aborted." when the answer is no (per-item skip)
 }
 
 func (o ConfirmOpts) normalized() (question, yes, no, def string, defaultYes bool, err error) {
@@ -136,7 +137,9 @@ func Confirm(opts ConfirmOpts, logger *slog.Logger) bool {
 		}
 		if !ans {
 			logger.Debug("User cancelled")
-			fmt.Fprintln(confirmOut, "Aborted.")
+			if !opts.SilentNo {
+				fmt.Fprintln(confirmOut, "Aborted.")
+			}
 			return false
 		}
 		return true

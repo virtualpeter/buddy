@@ -98,6 +98,7 @@ func TestDefaultOAuthAuthName(t *testing.T) {
 func TestSetupBasic(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, filepath.Join(dir, "no-managed.plist"))
 	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
 	t.Cleanup(func() { secrets.SetStore(nil) })
 
@@ -149,4 +150,3 @@ func TestSetupBasicRequiresFlagsNonInteractive(t *testing.T) {
 		t.Fatal("expected error without tenant/url when non-interactive")
 	}
 }
-

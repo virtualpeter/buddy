@@ -54,6 +54,8 @@ access, default tenant, tenant allowlist). Global --tenant selects a tenant
 
 Usage:
   buddy cred <subcommand> [args...]
+  buddy cred backup <file> [--passphrase=] [-y]
+  buddy cred restore <file> [--passphrase=] [-y]
 
 Subcommands:
   list                              List tenants, auths, and channel policies
@@ -76,6 +78,8 @@ Subcommands:
                                     Show or set channels.<client>.tenant
   store                             Show the active secret backend
   migrate [auth]                    Move inline config.yaml secrets into the secure store
+  backup <file>                     Encrypt tenants, auths (with secrets), and channels to a file
+  restore <file>                    Decrypt a backup; prompt once per auth (or -y)
 
 Flags for 'set tenant':
   --url=<url>                       Jamf Pro instance URL (and/or platform gateway URL)
@@ -106,11 +110,23 @@ Flags for 'set secret':
   --client-secret[=value]           Store OAuth client secret
   --secret-from-stdin               Read the secret value from stdin
 
+Flags for 'backup' / 'restore':
+  --passphrase=<pass>               Encryption passphrase (prefer interactive prompt)
+  -y                                Overwrite backup file / restore all auths without prompting
+
   Notes:
   A platform clientId may list multiple tenants under --tenants.
   Old credentials: / string tenant: / defaults: / allow_auths: migrate on load.
   tenant.cli|mcp|serve|ide and the serve client channel are removed — use
   channels.<cli|mcp|ide> instead.
+  macOS managed preferences (domain virtualpete.buddy.cli) overlay as org
+  defaults; config.yaml wins per name. 'buddy cred list' notes managed sources.
+  Deleting a managed tenant/auth warns; it returns on next load until the MDM
+  profile changes. Fill secrets with 'buddy setup secrets'.
+  cred backup writes AES-256-GCM (PBKDF2-SHA256) JSON; auths include store
+  secrets. Restore applies tenants/channels, then prompts once per auth
+  (and its secrets) unless -y. Skipped auths are omitted; local auths not
+  in the backup are replaced. Secrets go to the platform store.
   Secrets are keyed by auth name in the platform store.
   Deleting an auth also removes its password/client-secret from the store.
   Deleting a tenant deletes auths linked only to that tenant (with secrets) and
@@ -135,6 +151,8 @@ Examples:
   buddy cred delete tenant sandbox
   buddy cred clean secrets
   buddy cred clean tokens
+  buddy cred backup ./buddy.creds
+  buddy cred restore ./buddy.creds
   buddy cred use sandbox
   buddy cred use --mcp sandbox
   buddy --tenant=sandbox policy list --filter=chrome
@@ -291,6 +309,8 @@ const Setup = `buddy setup - Bootstrap instance config; Jamf Pro role/client + i
 
 Usage:
   buddy [global-flags] setup basic-setup [--tenant=] [--url=] [--name=] [--username=] [--password=] [-y]
+  buddy [global-flags] setup secrets [-y]
+  buddy [global-flags] setup managed-plist [path]
   buddy [global-flags] setup write-script [path]
   buddy [global-flags] setup store-oauth [--user=<auth>] [--tenant=<tenant>] [--client-name=buddy-cli] [--name=<auth>] [-y]
 
@@ -298,6 +318,7 @@ Notes:
   write-script and store-oauth target the Jamf Pro *instance* (API roles and
   integrations). Platform gateway oauth cannot create roles or clients.
   If you have no config yet, start with basic-setup (instance URL + basic auth).
+  If an MDM profile already provides tenants, run setup secrets instead.
 
 Subcommands:
   basic-setup
@@ -308,6 +329,25 @@ Subcommands:
 
     Non-interactive: pass --tenant, --url, --username, and --password (and
     optionally --name for the auth; default <tenant>-admin).
+
+  secrets
+    For each tenant with no linked auth, prompt to create one (oauth by default).
+    Then prompt for any missing client IDs / usernames and store missing
+    passwords or OAuth client secrets in the platform secret store.
+    Org MDM profiles typically ship tenants and channel policy. Auths in the
+    plist (including client IDs and secrets) are accepted if present; prefer
+    this command so they stay in the local store. 'buddy setup managed-plist'
+    omits auths entirely.
+
+    Non-interactive / -y: report gaps and exit non-zero (use a terminal, or
+    'buddy cred set auth' / 'buddy cred set secret').
+
+  managed-plist [path]
+    Write tenants and channel policy as XML plist to path, or stdout if path is
+    omitted. Omits auths (names, client IDs, and secrets are per-user). Upload
+    as Jamf Application & Custom Settings for preference domain
+    virtualpete.buddy.cli. User ~/.config/buddy/config.yaml overlays managed
+    prefs (user wins per tenant/auth/channel name).
 
   write-script [path]
     Writes a buddyscript script that creates a Jamf Pro API role with privileges
@@ -356,6 +396,9 @@ Flags for 'basic-setup':
   --password=<pass>   Jamf password (prefer interactive prompt)
   -y                  Overwrite existing tenant/auth without confirming
 
+Flags for 'secrets':
+  -y                  Do not prompt; print missing auths/secrets and exit non-zero
+
 Flags for 'store-oauth':
   --user=<auth>         Instance-capable auth used to call Jamf (rotate credentials)
   --tenant=<tenant>     Tenant to link the oauth auth to (default: session tenant)
@@ -365,6 +408,8 @@ Flags for 'store-oauth':
 
 Examples:
   buddy setup basic-setup
+  buddy setup secrets
+  buddy setup managed-plist /tmp/buddy.plist
   buddy --user <admin-auth> auth test
   buddy setup write-script
   buddy setup_buddy_role.buddy -y

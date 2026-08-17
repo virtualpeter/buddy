@@ -65,6 +65,8 @@ make help         # show all targets
 
 Config file: `~/.config/buddy/config.yaml` (macOS/Linux; `$XDG_CONFIG_HOME/buddy` when set). On Windows: `%APPDATA%\buddy\config.yaml`.
 
+On macOS, a Jamf **Application & Custom Settings** profile for preference domain `virtualpete.buddy.cli` can ship org defaults (tenants, channel policy). User YAML overlays and wins per name. Auths in the plist are accepted if present; `buddy setup managed-plist` omits them (names and client IDs are per-user). Prefer `buddy setup secrets` to store secrets locally. Override the plist path with `BUDDY_MANAGED_PLIST`.
+
 ```yaml
 tenant:
   default: sandbox                 # global fallback
@@ -116,6 +118,8 @@ buddy cred set auth sandbox-platform-ro --type=oauth --client-id=… --tenants=s
 buddy cred set channel mcp --access=readonly --tenant=sandbox
 buddy cred set channel mcp --deny-builtins=jamf_*,computer_erase
 buddy cred set secret sandbox-admin --client-secret
+buddy cred backup ./buddy.creds
+buddy cred restore ./buddy.creds
 buddy cred use sandbox
 buddy cred use --mcp sandbox
 buddy cred store
@@ -133,6 +137,8 @@ If you have **no config yet**, bootstrap an instance tenant + basic auth first:
 buddy setup basic-setup               # prompts for tenant, URL, username, password
 buddy --user <admin-auth> auth test
 ```
+
+If an MDM profile already provides tenants, run `buddy setup secrets` instead.
 
 Then (optional) create a Jamf Pro **instance** API role/client and store oauth (Platform gateway oauth cannot manage roles/integrations):
 
@@ -273,6 +279,7 @@ MIT License — see [LICENSE](LICENSE). Copyright © 2026 Peter Viertel.
 |-------------------|------------------------------------------|
 | `DEBUG`           | Enable debug logging when set            |
 | `XDG_CONFIG_HOME` | Override config directory (default `~/.config`) |
+| `BUDDY_MANAGED_PLIST` | Path to org-managed config plist (replaces Darwin Managed Preferences) |
 
 ## Project Structure
 

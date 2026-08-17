@@ -523,6 +523,11 @@ type Config struct {
 	Credentials map[string]CredentialConfig `yaml:"credentials,omitempty"`
 	Defaults    map[string]string           `yaml:"defaults,omitempty"`    // migrated away
 	AllowAuths  map[string][]string         `yaml:"allow_auths,omitempty"` // migrated away
+
+	// user is the YAML file as loaded (after migrate). mdm is managed prefs.
+	// Both are omitted from YAML; SaveConfig writes only the user overlay when mdm is set.
+	user *Config
+	mdm  *Config
 }
 
 // legacyConfigFile is used to detect and migrate older config shapes.
@@ -766,25 +771,81 @@ func configPath() (string, error) {
 
 // LoadConfig loads config from the platform config dir (see secrets.ConfigDir).
 // Older shapes (credentials:, string tenant:, defaults:, allow_auths:) migrate in-memory and rewrite on disk.
+// macOS managed preferences (and BUDDY_MANAGED_PLIST) overlay as org defaults; user YAML wins per name.
 func LoadConfig() (*Config, error) {
 	path, err := configPath()
 	if err != nil {
 		return nil, fmt.Errorf("resolve config path: %w", err)
 	}
+	var user *Config
+	var notes []string
+	userExists := false
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &Config{Tenant: TenantSelection{Default: DefaultTenant}}, nil
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("read config %s: %w", path, err)
 		}
-		return nil, fmt.Errorf("read config %s: %w", path, err)
+		user = &Config{}
+	} else {
+		userExists = true
+		var err2 error
+		user, notes, err2 = parseAndMigrateUserYAML(data)
+		if err2 != nil {
+			return nil, fmt.Errorf("parse config %s: %w", path, err2)
+		}
 	}
 
-	// Detect string-form tenant: before typed unmarshal (TenantSelection accepts both).
+	mdm, hadSecrets, err := loadManagedConfig()
+	if err != nil {
+		return nil, err
+	}
+	if hadSecrets {
+		fmt.Fprintf(os.Stderr, "warning: managed preferences include inline secrets; the plist is typically world-readable — prefer 'buddy setup secrets' (or 'buddy cred set secret')\n")
+	}
+
+	merged := overlayConfig(mdm, user)
+	if merged == nil {
+		merged = &Config{}
+	}
+	merged.user = cloneConfig(user)
+	merged.mdm = cloneConfig(mdm)
+
+	if strings.TrimSpace(merged.Tenant.Default) == "" {
+		if len(merged.Tenants) == 0 {
+			merged.Tenant.Default = DefaultTenant
+		} else if n := firstSortedTenantName(merged); n != "" {
+			merged.Tenant.Default = n
+		}
+	}
+	normalizeAuthChannels(merged)
+
+	if len(merged.Tenants) > 0 || len(merged.Auths) > 0 || len(merged.Channels) > 0 {
+		src := path
+		if !userExists && mdm != nil {
+			src = "managed preferences"
+		}
+		if err := merged.ValidateTenantSelectionAndChannels(); err != nil {
+			return nil, fmt.Errorf("config %s: %w", src, err)
+		}
+	}
+
+	if userExists && len(notes) > 0 {
+		if err := SaveConfig(merged); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: migrated config in memory (%s) but could not rewrite %s: %v\n", strings.Join(notes, "; "), path, err)
+			fmt.Fprintf(os.Stderr, "note: fix permissions and re-run buddy (or 'buddy cred use') so the new shape is persisted\n")
+		} else {
+			fmt.Fprintf(os.Stderr, "note: migrated config.yaml (%s); see 'buddy cred help'\n", strings.Join(notes, "; "))
+		}
+	}
+	return merged, nil
+}
+
+func parseAndMigrateUserYAML(data []byte) (*Config, []string, error) {
 	stringTenant := tenantKeyIsString(data)
 
 	var raw legacyConfigFile
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse config %s: %w", path, err)
+		return nil, nil, err
 	}
 
 	cfg := &Config{
@@ -797,10 +858,11 @@ func LoadConfig() (*Config, error) {
 	}
 	var notes []string
 	if len(raw.Credentials) > 0 && len(raw.Tenants) == 0 {
-		cfg, err = migrateCredentialsToTenantsAuths(&raw)
+		migrated, err := migrateCredentialsToTenantsAuths(&raw)
 		if err != nil {
-			return nil, fmt.Errorf("migrate config %s: %w", path, err)
+			return nil, nil, err
 		}
+		cfg = migrated
 		cfg.Defaults = raw.Defaults
 		cfg.AllowAuths = raw.AllowAuths
 		notes = append(notes, "credentials: to tenants:/auths:")
@@ -820,28 +882,12 @@ func LoadConfig() (*Config, error) {
 			}
 		}
 	}
-	if strings.TrimSpace(cfg.Tenant.Default) == "" {
-		cfg.Tenant.Default = DefaultTenant
-	}
 	cfg.Cred = ""
 	cfg.Credentials = nil
 	cfg.Defaults = nil
 	cfg.AllowAuths = nil
 	normalizeAuthChannels(cfg)
-
-	if err := cfg.ValidateTenantSelectionAndChannels(); err != nil {
-		return nil, fmt.Errorf("config %s: %w", path, err)
-	}
-
-	if len(notes) > 0 {
-		if err := SaveConfig(cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: migrated config in memory (%s) but could not rewrite %s: %v\n", strings.Join(notes, "; "), path, err)
-			fmt.Fprintf(os.Stderr, "note: fix permissions and re-run buddy (or 'buddy cred use') so the new shape is persisted\n")
-		} else {
-			fmt.Fprintf(os.Stderr, "note: migrated config.yaml (%s); see 'buddy cred help'\n", strings.Join(notes, "; "))
-		}
-	}
-	return cfg, nil
+	return cfg, notes, nil
 }
 
 func tenantKeyIsString(data []byte) bool {
@@ -1147,9 +1193,6 @@ func normalizeConfigForSave(cfg *Config) {
 	cfg.Credentials = nil
 	cfg.Defaults = nil
 	cfg.AllowAuths = nil
-	if strings.TrimSpace(cfg.Tenant.Default) == "" {
-		cfg.Tenant.Default = DefaultTenant
-	}
 	normalizeAuthChannels(cfg)
 	for name, t := range cfg.Tenants {
 		if strings.TrimSpace(t.Region) == "" {
@@ -1227,7 +1270,22 @@ func yamlMapKeyOrder(data []byte, key string) []string {
 }
 
 func marshalConfig(cfg *Config, existing []byte) ([]byte, error) {
+	return marshalConfigWith(cfg, existing, marshalConfigOptions{fillDefault: true})
+}
+
+type marshalConfigOptions struct {
+	fillDefault   bool
+	omitEmptyMaps bool
+}
+
+func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) ([]byte, error) {
+	if cfg == nil {
+		cfg = &Config{}
+	}
 	normalizeConfigForSave(cfg)
+	if opts.fillDefault && strings.TrimSpace(cfg.Tenant.Default) == "" {
+		cfg.Tenant.Default = DefaultTenant
+	}
 
 	tenantSet := make(map[string]struct{}, len(cfg.Tenants))
 	for n := range cfg.Tenants {
@@ -1311,21 +1369,33 @@ func marshalConfig(cfg *Config, existing []byte) ([]byte, error) {
 		)
 	}
 
-	tenantNode := &yaml.Node{Kind: yaml.MappingNode}
-	tenantNode.Content = append(tenantNode.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "default"},
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: strings.TrimSpace(cfg.Tenant.Default)},
-	)
-
 	root := &yaml.Node{Kind: yaml.MappingNode}
-	root.Content = append(root.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenant"},
-		tenantNode,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenants"},
-		tenantsNode,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "auths"},
-		authsNode,
-	)
+	if d := strings.TrimSpace(cfg.Tenant.Default); d != "" {
+		tenantNode := &yaml.Node{Kind: yaml.MappingNode}
+		tenantNode.Content = append(tenantNode.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "default"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: d},
+		)
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenant"},
+			tenantNode,
+		)
+	}
+
+	writeTenants := len(tenantOrder) > 0 || !opts.omitEmptyMaps
+	writeAuths := len(authOrder) > 0 || !opts.omitEmptyMaps
+	if writeTenants {
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenants"},
+			tenantsNode,
+		)
+	}
+	if writeAuths {
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "auths"},
+			authsNode,
+		)
+	}
 
 	if len(cfg.Channels) > 0 {
 		chNames := make([]string, 0, len(cfg.Channels))
@@ -1359,6 +1429,16 @@ func marshalConfig(cfg *Config, existing []byte) ([]byte, error) {
 					seq,
 				)
 			}
+			if len(p.DenyBuiltins) > 0 {
+				seq := &yaml.Node{Kind: yaml.SequenceNode}
+				for _, d := range p.DenyBuiltins {
+					seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: d})
+				}
+				entry.Content = append(entry.Content,
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "deny_builtins"},
+					seq,
+				)
+			}
 			if len(entry.Content) == 0 {
 				continue
 			}
@@ -1379,6 +1459,7 @@ func marshalConfig(cfg *Config, existing []byte) ([]byte, error) {
 }
 
 // SaveConfig writes the config (new tenants/auths shape only).
+// When managed prefs contributed to cfg, only user overrides and local keys are written.
 func SaveConfig(cfg *Config) error {
 	path, err := configPath()
 	if err != nil {
@@ -1388,12 +1469,24 @@ func SaveConfig(cfg *Config) error {
 		return fmt.Errorf("create config directory: %w", err)
 	}
 	existing, _ := os.ReadFile(path)
-	data, err := marshalConfig(cfg, existing)
+	if cfg != nil {
+		normalizeConfigForSave(cfg)
+	}
+	toWrite := cfg
+	opts := marshalConfigOptions{fillDefault: true}
+	if cfg != nil && cfg.mdm != nil {
+		toWrite = userOverlayForSave(cfg)
+		opts = marshalConfigOptions{fillDefault: false, omitEmptyMaps: true}
+	}
+	data, err := marshalConfigWith(toWrite, existing, opts)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write config %s: %w", path, err)
+	}
+	if cfg != nil && cfg.mdm != nil && toWrite != nil {
+		cfg.user = cloneConfig(toWrite)
 	}
 	return nil
 }

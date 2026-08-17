@@ -2757,8 +2757,56 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 				res.AuthName, res.TenantName, res.AuthName)
 		}
 		return nil
+	case "secrets":
+		fmt.Println("buddy setup secrets")
+		fmt.Println()
+		fmt.Println("Creates a missing auth for any tenant that has none, then stores")
+		fmt.Println("missing passwords / OAuth client secrets in the platform secret store.")
+		fmt.Println("MDM profiles can include client IDs or secrets; this command fills gaps.")
+		fmt.Println()
+		res, err := buddy.SetupSecrets(cfg, buddy.SetupSecretsOpts{SkipConfirm: opts.SkipConfirm})
+		if res != nil {
+			for _, name := range res.CreatedAuths {
+				fmt.Printf("Created auth %q\n", name)
+			}
+			for _, name := range res.UpdatedAuths {
+				fmt.Printf("Updated auth %q\n", name)
+			}
+			for _, s := range res.StoredSecrets {
+				fmt.Printf("Stored %s\n", s)
+			}
+		}
+		if err != nil {
+			return err
+		}
+		if res != nil && len(res.CreatedAuths) == 0 && len(res.StoredSecrets) == 0 && len(res.UpdatedAuths) == 0 {
+			fmt.Println("All tenants have an auth and required secrets are stored.")
+		}
+		fmt.Println()
+		fmt.Println("Try: buddy auth test")
+		return nil
+	case "managed-plist":
+		path := ""
+		if len(args) > 0 {
+			path = args[0]
+		}
+		data, err := buddy.MarshalManagedPlist(cfg)
+		if err != nil {
+			return fmt.Errorf("managed plist: %w", err)
+		}
+		if path == "" {
+			_, err := os.Stdout.Write(data)
+			return err
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("Wrote %s\n", path)
+		fmt.Printf("Upload as Jamf Application & Custom Settings for domain %s\n", buddy.ManagedPrefsDomain)
+		fmt.Println("Auths omitted (per-user); tenants and channel policy are included.")
+		return nil
 	default:
-		return errUnknownSubcommand("setup", subcommand, []string{"basic-setup", "write-script", "store-oauth"})
+		return errUnknownSubcommand("setup", subcommand, []string{"basic-setup", "write-script", "store-oauth", "secrets", "managed-plist"})
 	}
 }
 

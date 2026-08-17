@@ -20,6 +20,13 @@ buddy auth test                       # verify the session
 
 That writes `~/.config/buddy/config.yaml`, stores the password in the platform secret store (Keychain on macOS), and sets a default tenant.
 
+If this Mac already has an org MDM profile for preference domain `virtualpete.buddy.cli` (tenants and optional auth stubs), skip basic-setup and run:
+
+```sh
+buddy setup secrets                   # create missing auths; store client secrets / passwords
+buddy auth test
+```
+
 **Optional — API client (oauth) for day-to-day use** (instance only; not Platform gateway):
 
 ```sh

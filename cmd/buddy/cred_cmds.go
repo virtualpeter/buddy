@@ -35,9 +35,13 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) 
 		return runCredClean(cfg, opts, args[1:])
 	case "migrate":
 		return runCredMigrate(cfg, opts, args[1:])
+	case "backup":
+		return runCredBackup(cfg, opts, args[1:])
+	case "restore":
+		return runCredRestore(cfg, opts, args[1:])
 	default:
 		return errUnknownSubcommand("cred", args[0], []string{
-			clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubDelete, "use", "store", "migrate", "clean", clispec.SubHelp,
+			clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubDelete, "use", "store", "migrate", "clean", "backup", "restore", clispec.SubHelp,
 		})
 	}
 }
@@ -404,6 +408,9 @@ func runCredList(cfg *buddy.Config) error {
 			fmt.Fprintf(os.Stderr, "\nwarning: inline secrets in config.yaml for: %s\n", strings.Join(inline, ", "))
 			fmt.Fprintf(os.Stderr, "move them to the secure store with: buddy cred migrate\n")
 		}
+	}
+	if sum := cfg.ManagedPrefsSummary(); sum != "" {
+		fmt.Printf("\n%s\n", sum)
 	}
 	return nil
 }
@@ -925,6 +932,9 @@ func runCredDeleteTenant(cfg *buddy.Config, opts buddy.Opts, name string) error 
 		return err
 	}
 	fmt.Printf("Deleted tenant %q\n", name)
+	if cfg.TenantFromManagedPrefs(name) {
+		fmt.Fprintf(os.Stderr, "warning: tenant %q is still provided by managed preferences; it will return on next load unless you override it in config.yaml or remove it from the MDM profile\n", name)
+	}
 	return nil
 }
 
@@ -944,6 +954,9 @@ func runCredDeleteAuth(cfg *buddy.Config, opts buddy.Opts, name string) error {
 		return err
 	}
 	fmt.Printf("Deleted auth %q (and related secrets)\n", name)
+	if cfg.AuthFromManagedPrefs(name) {
+		fmt.Fprintf(os.Stderr, "warning: auth %q is still provided by managed preferences; it will return on next load unless you override it in config.yaml or remove it from the MDM profile\n", name)
+	}
 	return nil
 }
 
@@ -1056,6 +1069,75 @@ func runCredDeleteSecret(authName string, args []string) error {
 	}
 	fmt.Printf("Deleted secret(s) for auth %q from the secure store\n", authName)
 	return nil
+}
+
+func runCredBackup(cfg *buddy.Config, opts buddy.Opts, args []string) error {
+	path, passphrase, err := parseCredBackupArgs("backup", args)
+	if err != nil {
+		return err
+	}
+	res, err := buddy.BackupCreds(cfg, buddy.CredBackupOpts{
+		Path:        path,
+		Passphrase:  passphrase,
+		SkipConfirm: opts.SkipConfirm,
+	})
+	if err != nil {
+		return err
+	}
+	if res == nil {
+		return nil
+	}
+	fmt.Printf("Wrote encrypted backup %s (%d tenant(s), %d auth(s))\n", res.Path, res.Tenants, res.Auths)
+	for _, m := range res.MissingSecrets {
+		fmt.Fprintf(os.Stderr, "warning: missing %s (not in config or store)\n", m)
+	}
+	return nil
+}
+
+func runCredRestore(cfg *buddy.Config, opts buddy.Opts, args []string) error {
+	path, passphrase, err := parseCredBackupArgs("restore", args)
+	if err != nil {
+		return err
+	}
+	res, err := buddy.RestoreCreds(cfg, buddy.CredBackupOpts{
+		Path:        path,
+		Passphrase:  passphrase,
+		SkipConfirm: opts.SkipConfirm,
+	})
+	if err != nil {
+		return err
+	}
+	if res == nil {
+		return nil
+	}
+	fmt.Printf("Restored %s (%d tenant(s), %d auth(s), %d secret(s) in store)\n",
+		res.Path, res.Tenants, res.Auths, res.Stored)
+	if res.Skipped > 0 {
+		fmt.Printf("Skipped %d auth(s)\n", res.Skipped)
+	}
+	return nil
+}
+
+func parseCredBackupArgs(verb string, args []string) (path, passphrase string, err error) {
+	var positional []string
+	for _, a := range args {
+		switch {
+		case a == clispec.SubHelp:
+			return "", "", fmt.Errorf("usage: buddy cred %s <file> [--passphrase=] [-y]", verb)
+		case strings.HasPrefix(a, "--passphrase="):
+			passphrase = strings.TrimPrefix(a, "--passphrase=")
+		case a == clispec.Short(clispec.ShortSkipConfirm):
+			// global -y is already in opts; ignore if repeated
+		case strings.HasPrefix(a, "-"):
+			return "", "", fmt.Errorf("unknown flag %q; usage: buddy cred %s <file> [--passphrase=] [-y]", a, verb)
+		default:
+			positional = append(positional, a)
+		}
+	}
+	if len(positional) != 1 {
+		return "", "", fmt.Errorf("usage: buddy cred %s <file> [--passphrase=] [-y]", verb)
+	}
+	return positional[0], passphrase, nil
 }
 
 func runCredStore() error {

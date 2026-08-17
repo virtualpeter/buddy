@@ -88,7 +88,7 @@ var en = map[string]string{
 	MsgCmdRole:        "Manage API roles (list/get/create/update/delete/privileges)",
 	MsgCmdClient:      "Manage API integrations (list/get/create/update/delete/credentials/set)",
 	MsgCmdScript:      "Manage Jamf scripts (list/get/create/upload/download/delete/set)",
-	MsgCmdSetup:       "basic-setup (first tenant/auth); write-script; store-oauth (instance)",
+	MsgCmdSetup:       "basic-setup; secrets; managed-plist; write-script; store-oauth",
 	MsgCmdServe:       "Local docs + script IDE web UI",
 	MsgCmdMCP:         "MCP stdio server for AI tools (setup discovers host configs)",
 	MsgCmdLSP:         "Language server for buddyscript (editor integration)",

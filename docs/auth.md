@@ -2,7 +2,7 @@
 
 Buddy talks to Jamf using a **tenant** (which environment) plus an **auth** (which principal). Passwords and OAuth client secrets belong in the platform secret store, not in `config.yaml`. Tokens are cached and refreshed automatically.
 
-First-time install: [Getting started](index.md) (`buddy setup basic-setup`). YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
+First-time install: [Getting started](index.md) (`buddy setup basic-setup` or, with an org MDM profile, `buddy setup secrets`). YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
 
 ---
 
@@ -62,6 +62,24 @@ buddy cred use --mcp sandbox
 
 ---
 
+## Org defaults (macOS managed preferences)
+
+Buddy can load config from a Jamf Application & Custom Settings (or MCX) payload for preference domain **`virtualpete.buddy.cli`** (the same reverse-DNS as the signed binary / Keychain service). This is org **defaults**, not enforced policy: `~/.config/buddy/config.yaml` overlays and wins per tenant, auth, and channel name.
+
+Search order:
+
+1. `BUDDY_MANAGED_PLIST` if set (tests and non-Darwin drop-in; a missing path disables discovery)
+2. Else on macOS: `/Library/Managed Preferences/virtualpete.buddy.cli.plist`, then `~/Library/Managed Preferences/virtualpete.buddy.cli.plist` (user-managed overlays computer)
+3. User `config.yaml`
+
+Typical profile content: `tenant.default`, `tenants`, and `channels` policy. Auths (`clientId`, usernames, secrets, even auth *names*) are per-user: **accepted** if present in the plist, but `buddy setup managed-plist` omits the whole `auths` map. Prefer `buddy setup secrets` for client IDs and secrets (managed plists are typically world-readable).
+
+`buddy setup secrets` creates an auth for any tenant that has none, then prompts for missing client IDs and store secrets. `buddy setup managed-plist [path]` dumps tenants and channel policy as XML plist for Jamf ACS.
+
+`buddy cred list` prints a `managed: …` line when prefs contributed. Deleting a managed tenant or auth from YAML warns: it comes back on the next load until the profile changes or you keep a local override.
+
+---
+
 ## Where secrets live
 
 Keep production passwords and OAuth client secrets **out of YAML**. Inline secrets are fine for local tests only.
@@ -87,9 +105,13 @@ The signed release binary (`make buddy-darwin-arm64`, build tag `secitem`) uses 
 buddy cred set secret sandbox-admin                  # password (basic)
 buddy cred set secret sandbox-admin --client-secret  # OAuth
 buddy cred migrate                                   # move inline YAML secrets into the store
+buddy cred backup ./buddy.creds                      # passphrase prompt; AES-GCM file
+buddy cred restore ./buddy.creds                     # passphrase; confirm each auth
 buddy cred clean secrets                             # review / delete orphaned store entries
 buddy cred delete auth sandbox-admin                 # also clears store secrets
 ```
+
+`buddy cred backup` / `restore` encrypt tenants, auths (including store secrets), and channel policy with a passphrase (AES-256-GCM, PBKDF2-SHA256). Restore applies tenants and channels, then prompts once per auth unless `-y`. Secrets go back to the platform store.
 
 Config and tokens live under `~/.config/buddy` on macOS/Linux (`$XDG_CONFIG_HOME/buddy` when set), and `%APPDATA%\buddy` on Windows.
 

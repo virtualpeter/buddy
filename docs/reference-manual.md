@@ -49,6 +49,8 @@ Or run `./buddy` from the build directory.
 
 Default config path: `~/.config/buddy/config.yaml` (override config root with `XDG_CONFIG_HOME`).
 
+On macOS, org defaults may also come from managed preferences (`virtualpete.buddy.cli`); user YAML overlays them. See [Auth, secrets, and tokens](auth.md#org-defaults-macos-managed-preferences).
+
 Config is split into **tenant selection** (`tenant.default`), **channel policies** (`channels.cli|mcp|ide` with optional `access` / `tenant` / `tenants` / `deny_builtins`), **tenants** (instance URL and/or Platform `region`+`tenantId`), and **auths** (command/basic/oauth principals linked to one or more tenants). Optional auth `channels:` (`cli`/`mcp`/`ide`; omit = all) limits which buddy clients may use that auth. Legacy shapes migrate on load; `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` client names are removed (use `channels.ide`).
 
 Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, secrets, and tokens](auth.md)**.
@@ -59,6 +61,8 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred clean secrets` — review secret-store entries and prompt to delete orphans
 - `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`
 - `buddy cred migrate` — move inline config.yaml secrets into the secure store
+- `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of tenants, auths (with secrets), and channels; restore prompts once per auth (or `-y`)
+- `buddy setup secrets` — create missing tenant auths; store missing passwords / client secrets
 - `buddy auth test` — verify the active tenant/auth session
 - `buddy --tenant <name> ...` — select tenant (auto-picks auth); `--user`/`--auth` pins an auth
 
@@ -87,6 +91,8 @@ If you have **no config yet**, start with instance basic auth:
 buddy setup basic-setup               # prompts for tenant, URL, username, password
 buddy --user <admin-auth> auth test
 ```
+
+If an MDM profile already provides tenants (preference domain `virtualpete.buddy.cli`), run `buddy setup secrets` instead to create missing auths and store client secrets.
 
 Then (optional) create a Jamf Pro **instance** API role/client and store oauth (Platform gateway oauth cannot manage roles/integrations):
 
@@ -322,6 +328,7 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 | `XDG_CONFIG_HOME` | Config directory root (default: `~/.config`) |
 | `BUDDY_DOCS_ROOT` | Optional live `docs/` override for serve/MCP (default: embedded) |
 | `BUDDY_SECRET_STORE` | Secret backend: `file`, `pass`, or `keychain` |
+| `BUDDY_MANAGED_PLIST` | Path to a managed-config plist (replaces Darwin `/Library/Managed Preferences/virtualpete.buddy.cli.plist`) |
 
 ---
 
