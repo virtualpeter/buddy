@@ -46,9 +46,21 @@ type ProfileMigrateOutcome struct {
 	Created   bool
 }
 
-// NewUUID returns a random RFC 4122 UUID string (offline helper).
+// NewUUID returns a random version-4 UUID in the canonical 8-4-4-4-12
+// lowercase hex form (RFC 9562 / formerly RFC 4122 variant 1).
 func NewUUID() string {
 	return uuid.New().String()
+}
+
+// IsUUID reports whether s is the canonical hyphenated UUID text form
+// (8-4-4-4-12 hex, 36 chars). That is what uuid_new emits and what Jamf
+// stores as PayloadUUID. URN, {braces}, and 32-char hex are False.
+func IsUUID(s string) bool {
+	s = strings.TrimSpace(s)
+	if len(s) != 36 {
+		return false
+	}
+	return uuid.Validate(s) == nil
 }
 
 var generalUUIDRe = regexp.MustCompile(`(?i)<uuid>\s*([a-fA-F0-9\-]{36})\s*</uuid>`)

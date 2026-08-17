@@ -251,7 +251,8 @@ Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…
 
 **Clone/copy:** do not hand-edit UUIDs. `profile_clone` / `profile_copy` randomize general + PayloadUUID and default to unassigned scope. `profile_xml_prepare_for_create` is the offline equivalent before `profile_create_xml`.
 
-- `uuid_new() → value: str` — offline random UUID.
+- `uuid_new() → value: str` — offline random version-4 UUID (RFC 9562 / RFC 4122 variant 1; 8-4-4-4-12 lowercase hex).
+- `uuid_is(s) → value: bool` — True for canonical hyphenated UUID text (Jamf PayloadUUID form); False for reverse-DNS, URN, braces.
 - `profile_clone(id, name, tenant?, surface?, auth?) → value: dict {id, name}` — same session; UUID remap + unassigned scope.
 - `profile_acs_bind_uuid(id, payload_uuid) → value: None` — seed process cache for ACS payload UUID when legacy HTML scrape fails (API tokens).
 - `profile_copy(id, name, category_id?, scope_all?, scope_group_ids?, tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name}` — source = tenant/auth; dest = to_* (omit = same).

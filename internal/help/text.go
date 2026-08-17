@@ -280,9 +280,15 @@ SERIALIZATION
       → value: str (plist XML)
       Params: value: dict, list, or primitive.
   uuid_new()
-      Does: Generate a random RFC 4122 UUID (for payload builders).
-      → value: str
+      Does: Generate a random version-4 UUID (122 random bits; RFC 9562 / RFC 4122 variant 1).
+      → value: str (8-4-4-4-12 lowercase hex, e.g. 550e8400-e29b-41d4-a716-446655440000)
       Params: none (offline).
+      Notes: Canonical text form; not time/MAC version 1. Same layout Apple/Jamf use for PayloadUUID.
+  uuid_is(s)
+      Does: Return True if s is canonical UUID text (36-char 8-4-4-4-12 hex).
+      → value: bool
+      Params: s: str. Offline. Any version (including nil UUID). False for reverse-DNS PayloadType,
+        urn:uuid:, {braces}, or 32-char hex without hyphens.
   xml_escape(s)
       Does: Entity-encode & < > for nesting text inside XML element content.
       → value: str

@@ -226,6 +226,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "package_put", packagePut(credName, logger))
 
 	putBuiltin(dict, "uuid_new", uuidNewBuiltin)
+	putBuiltin(dict, "uuid_is", uuidIsBuiltin)
 	putBuiltin(dict, "profile_create", profileCreate(credName, logger))
 	putBuiltin(dict, "profile_clone", profileClone(credName, logger))
 	putBuiltin(dict, "profile_copy", profileCopy(credName, logger))
@@ -3426,6 +3427,14 @@ func uuidNewBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple
 		return nil, err
 	}
 	return resultOK(starlark.String(buddy.NewUUID())), nil
+}
+
+func uuidIsBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var s starlark.String
+	if err := starlark.UnpackArgs("uuid_is", args, kwargs, "s", &s); err != nil {
+		return nil, err
+	}
+	return resultOK(starlark.Bool(buddy.IsUUID(string(s)))), nil
 }
 
 func profileClone(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {

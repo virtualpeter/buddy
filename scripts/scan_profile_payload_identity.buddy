@@ -50,18 +50,8 @@ def ok_call(fn):
     return None, err
 
 
-def looks_uuid(s):
-    if type(s) != "string" or len(s) != 36:
-        return False
-    n = 0
-    for ch in s:
-        if ch == "-":
-            n = n + 1
-    return n == 4
-
-
 def looks_reverse_dns(s):
-    if type(s) != "string" or s == "" or looks_uuid(s):
+    if type(s) != "string" or s == "" or uuid_is(s):
         return False
     return "." in s
 
@@ -418,15 +408,6 @@ def scan_profile(profile_id, name):
             probe_domain = listed[0].get("identifier", "")
         if probe_domain != "":
             _, merr = get_mcx(plist, probe_domain)
-            helpful = merr != "" and ("payloads_list_identifiers" in merr or "PayloadContent" in merr)
-            if merr == "":
-                check(checks, "mcx_negative", False, "get_mcx_dict(%r) succeeded on PayloadContent-only plist" % probe_domain)
-                row["ok"] = False
-            elif helpful:
-                check(checks, "mcx_negative", True, "pointed at list/get_payload")
-            else:
-                check(checks, "mcx_negative", False, "unhelpful error: %s" % merr)
-                row["ok"] = False
             helpful = merr != "" and ("payloads_list_identifiers" in merr or "PayloadContent" in merr)
             if merr == "":
                 check(checks, "mcx_negative", False, "get_mcx_dict(%r) succeeded on PayloadContent-only plist" % probe_domain)

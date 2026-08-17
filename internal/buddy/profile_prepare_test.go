@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"howett.net/plist"
 )
 
@@ -707,5 +708,43 @@ func TestAmpFixtureReplacePayloadPreservesJamfAmp(t *testing.T) {
 	}
 	if srcEnc[si:si+60] != gotEnc[gi:gi+60] {
 		t.Fatalf("replace payload changed amp encoding\nbefore: %q\nafter:  %q", srcEnc[si:si+60], gotEnc[gi:gi+60])
+	}
+}
+
+func TestIsUUID(t *testing.T) {
+	got := NewUUID()
+	u, err := uuid.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Version() != 4 {
+		t.Fatalf("uuid_new version = %s, want VERSION_4", u.Version())
+	}
+	if u.Variant() != uuid.RFC4122 {
+		t.Fatalf("uuid_new variant = %s, want RFC4122", u.Variant())
+	}
+	if got != strings.ToLower(got) {
+		t.Fatalf("uuid_new should be lowercase, got %q", got)
+	}
+	if !IsUUID(got) {
+		t.Fatal("uuid_new form should parse")
+	}
+	if !IsUUID("330C2054-B496-494F-9EC1-846B04E789B6") {
+		t.Fatal("uppercase hyphenated UUID")
+	}
+	if !IsUUID("00000000-0000-0000-0000-000000000000") {
+		t.Fatal("nil UUID is still canonical text")
+	}
+	for _, s := range []string{
+		"",
+		"com.apple.ManagedClient.preferences",
+		"330C2054B496494F9EC1846B04E789B6",
+		"urn:uuid:330C2054-B496-494F-9EC1-846B04E789B6",
+		"{330C2054-B496-494F-9EC1-846B04E789B6}",
+		"not-a-uuid",
+	} {
+		if IsUUID(s) {
+			t.Fatalf("IsUUID(%q) = true", s)
+		}
 	}
 }
