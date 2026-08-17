@@ -6,6 +6,7 @@
 /buddy-darwin-arm64
 /buddy-Darwin-arm64
 /buddy-signed
+/*.pkg
 /docfs/content
 
 # Go

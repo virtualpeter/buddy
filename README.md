@@ -42,6 +42,7 @@ The signed binary uses a **different Keychain service** (`virtualpete.buddy.cli`
 ```sh
 BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make buddy-darwin-arm64
 # or: BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make install-signed
+# or: BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make package
 ```
 
 | Target | Binary | Keychain | Notes |
@@ -49,6 +50,7 @@ BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make buddy-darwin-arm64
 | `make buddy` | `./buddy` | service `buddy` via `security(1)` | Default; no CGO; existing items keep working |
 | `make buddy-darwin-arm64` | `./buddy-darwin-arm64` | service `virtualpete.buddy.cli` (label Buddy) via Security.framework | Requires Darwin/arm64 and `BUDDY_CODESIGN_IDENTITY`; identifier `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) must stay stable; re-store secrets with `./buddy-darwin-arm64 cred set secret` |
 | `make install-signed` | `~/go/bin/buddy` | same as `buddy-darwin-arm64` | Builds the signed binary, then copies it over `~/go/bin/buddy` |
+| `make package` | `/usr/local/bin/buddy` (via pkg) | same as `buddy-darwin-arm64` | Builds `buddy-<version>.pkg`; optional `BUDDY_PKG_SIGN_IDENTITY` (Developer ID Installer) |
 
 `make buddy-darwin-arm64` fails if the host is not Darwin/arm64, the identity is missing, the signature is ad-hoc, or TeamIdentifier is unset. You can keep both binaries; each only sees its own service, so a secret stored with one is invisible to the other until you store it again.
 
