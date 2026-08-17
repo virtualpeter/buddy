@@ -220,9 +220,14 @@ func scriptCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 			if out == nil {
 				return resultErr("script_copy: cancelled")
 			}
-			d := new(starlark.Dict)
-			_ = d.SetKey(starlark.String("id"), starlark.String(out.ID))
-			_ = d.SetKey(starlark.String("name"), starlark.String(out.Name))
+			val, err := scriptDetailValue(&out.Script)
+			if err != nil {
+				return resultErr(err.Error())
+			}
+			d, ok := val.(*starlark.Dict)
+			if !ok {
+				return resultErr("script_copy: expected dict")
+			}
 			_ = d.SetKey(starlark.String("created"), starlark.Bool(out.Created))
 			return resultOK(d), nil
 		}
@@ -240,7 +245,11 @@ func scriptCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 		if out == nil {
 			return resultErr("script_copy: cancelled")
 		}
-		return scriptOutcomeDict(out.ID, out.Name), nil
+		val, err := scriptDetailValue(&out.Script)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(val), nil
 	}
 }
 
@@ -267,13 +276,6 @@ func withUpsertTrue(kwargs []starlark.Tuple) []starlark.Tuple {
 		out = append(out, kv)
 	}
 	return append(out, starlark.Tuple{starlark.String("upsert"), starlark.True})
-}
-
-func scriptOutcomeDict(id, name string) starlark.Value {
-	d := new(starlark.Dict)
-	_ = d.SetKey(starlark.String("id"), starlark.String(id))
-	_ = d.SetKey(starlark.String("name"), starlark.String(name))
-	return resultOK(d)
 }
 
 func smartGroupCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {

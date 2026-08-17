@@ -345,7 +345,7 @@ func scriptsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 	}
 }
 
-// script(id=?) | script(name=?) → full dict or id string
+// script(id=?) | script(name=?) → full Jamf JSON dict
 func scriptBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value = starlark.None
@@ -369,11 +369,15 @@ func scriptBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			return nil, err
 		}
 		if keySet {
-			id, err := buddy.ScriptGetID(c, string(name), logger)
+			s, err := buddy.ScriptFetchByName(c, string(name), logger)
 			if err != nil {
 				return resultErr(err.Error())
 			}
-			return resultOK(starlark.String(id)), nil
+			val, err := scriptDetailValue(s)
+			if err != nil {
+				return resultErr(err.Error())
+			}
+			return resultOK(val), nil
 		}
 		id, err := starlarkIDString(idVal, "id")
 		if err != nil {
@@ -383,11 +387,7 @@ func scriptBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		if err != nil {
 			return resultErr(err.Error())
 		}
-		b, mErr := json.Marshal(s)
-		if mErr != nil {
-			return resultErr(mErr.Error())
-		}
-		val, err := JSONDecodeToStarlark(string(b))
+		val, err := scriptDetailValue(s)
 		if err != nil {
 			return resultErr(err.Error())
 		}

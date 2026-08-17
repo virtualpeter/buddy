@@ -2098,16 +2098,16 @@ func scriptGetContents(credName string, logger *slog.Logger) func(*starlark.Thre
 	}
 }
 
-// script_create(name, contents, category_id?, priority?, info?, notes?, os_requirements?,
-// parameter4?…parameter11?, tenant?, surface?, auth?) → {id, name}
+// script_create(name, script_contents, category_id?, priority?, info?, notes?, os_requirements?,
+// parameter4?…parameter11?, tenant?, surface?, auth?) → dict (posted script + id)
 func scriptCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var name, contents, categoryID, priority, info, notes, osRequirements starlark.String
+		var name, scriptContents, categoryID, priority, info, notes, osRequirements starlark.String
 		var p4, p5, p6, p7, p8, p9, p10, p11 starlark.String
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("script_create", args, kwargs,
 			"name", &name,
-			"contents", &contents,
+			"script_contents", &scriptContents,
 			"category_id?", &categoryID,
 			"priority?", &priority,
 			"info?", &info,
@@ -2138,7 +2138,7 @@ func scriptCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		created, err := buddy.ScriptPostDetail(sessionPin, scriptOpts, buddy.ScriptDetail{
 			Name:           string(name),
-			ScriptContents: string(contents),
+			ScriptContents: string(scriptContents),
 			CategoryID:     strings.TrimSpace(string(categoryID)),
 			Priority:       pri,
 			Info:           string(info),
@@ -2159,12 +2159,23 @@ func scriptCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		if created == nil {
 			return resultErr("script_create: cancelled")
 		}
-		out, err := GoValueToStarlark(map[string]interface{}{"id": created.ID, "name": created.Name})
+		val, err := scriptDetailValue(created)
 		if err != nil {
 			return resultErr(err.Error())
 		}
-		return resultOK(out), nil
+		return resultOK(val), nil
 	}
+}
+
+func scriptDetailValue(s *buddy.ScriptDetail) (starlark.Value, error) {
+	if s == nil {
+		return nil, fmt.Errorf("script detail is nil")
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return nil, err
+	}
+	return JSONDecodeToStarlark(string(b))
 }
 
 // script_update(script_id, file, tenant?, surface?, auth?) → {ok, value: None}

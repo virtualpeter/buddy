@@ -22,7 +22,7 @@ var ScriptsTopic = docspec.Topic{
 	Summary: `Jamf Pro scripts — list summaries vs full body, create/update, and copy/migrate.`,
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List", BuddyScript: "`scripts(filter?)`", CLI: "`buddy script list`", Notes: "Summaries `{id, name, categoryId, categoryName}` only; bodies stripped"},
-		{Action: "Load", BuddyScript: "`script(id=…)` / `script_get_contents(script_id=…)`", CLI: "`buddy script get` / `get contents`", Notes: "Full record / body"},
+		{Action: "Load", BuddyScript: "`script(id=…)` / `script(name=…)` / `script_get_contents(script_id=…)`", CLI: "`buddy script get` / `get contents`", Notes: "Full Jamf JSON dict (id= and name=); or body only"},
 		{Action: "Create / update", BuddyScript: "`script_create` / `script_put` / `script_update`", CLI: "`buddy script create` / `upload`", Notes: "Create from string body; PUT dict or replace from file"},
 		{Action: "Copy / migrate", BuddyScript: "`script_copy` / `script_migrate`", Notes: "Upsert by name; category remapped on destination"},
 	},
@@ -76,42 +76,46 @@ var ScriptsTopic = docspec.Topic{
       Params: filter?: bare term → name=="*term*", or full RSQL. page?: int (omit = all);
         page_size?: int (default 200).
   script(id=?) | script(name=?, tenant?, surface?, auth?)
-      Does: Load one script by id (full record) or resolve id by exact name.
-      → value: full script dict (id=) or id string (name=)
-      Params: pass either id= or name=, not both.
+      Does: Load one script by id or exact name (case-insensitive).
+      → value: dict (full Jamf JSON: id, name, categoryId, scriptContents, …)
+      Params: pass either id= or name=, not both. name= uses RSQL name=="…" and
+        returns that list row when it includes scriptContents; otherwise GET by id.
   script_get_contents(script_id, tenant?, surface?, auth?)
       Does: Return the raw script body only.
       → value: str
       Params: script_id: str/int.
-  script_create(name, contents, category_id?, priority?, info?, notes?, os_requirements?,
+  script_create(name, script_contents, category_id?, priority?, info?, notes?, os_requirements?,
                 parameter4?, parameter5?, parameter6?, parameter7?, parameter8?,
                 parameter9?, parameter10?, parameter11?, tenant?, surface?, auth?)
-      Does: Create a Jamf Pro script (POST /api/v1/scripts). Body is the contents string (not a file).
-      → value: dict {id, name}
-      Params: name: str; contents: str (script body). category_id?: str. priority?: BEFORE|AFTER|AT_REBOOT.
+      Does: Create a Jamf Pro script (POST /api/v1/scripts). Body is script_contents (not a file).
+      → value: dict (created script; same shape as script(id=…))
+      Params: name: str; script_contents: str (same field as script(id=…)["scriptContents"]). category_id?: str. priority?: BEFORE|AFTER|AT_REBOOT.
         info?/notes?/os_requirements?: str. parameter4?…parameter11?: str (Jamf script parameters).
         tenant?/surface?/auth?: omit for process defaults.
+      Notes: Jamf POST returns {id, href}. The builtin returns the posted script with id applied
+        (plus any extra Script fields in the POST body). No follow-up GET.
   script_update(script_id, file, tenant?, surface?, auth?)
       Does: Replace a script's body from a local file.
       → None
       Params: script_id: str/int; file: str (filesystem path).
   script_put(script_id, dict, tenant?, surface?, auth?)
       Does: PUT a full script JSON record.
-      → value: dict (updated script)
+      → value: dict (updated script; PUT body confirms the write)
       Params: script_id: str/int; dict: full script body.
   script_clone(script_id, name, category_id?, tenant?, surface?, auth?)
       Does: Clone a script in the same session (alias of script_copy without to_*).
-      → value: dict {id, name}
+      → value: dict (created script; same shape as script(id=…))
       Params: script_id: str/int; name: str; category_id?: str.
   script_copy(script_id, name?, category_id?, upsert?=False,
               tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
       Does: Copy a script to another (or the same) session, remapping category by name.
-      → value: dict {id, name} or +created when upsert
+      → value: dict (dest script; same shape as script(id=…); +created when upsert)
       Params: script_id: source. name?: dest name. category_id?: dest category.
         upsert?: bool (upsert by exact name). Source = tenant?/auth?; dest = to_* (omit = same).
+      Notes: Create is POST (posted script + id). Existing dest is PUT (response confirms the write).
   script_migrate(...)
       Does: Alias of script_copy with upsert=True.
-      → value: dict {id, name, created?}
+      → value: dict (dest script + created bool)
 
 `,
 	CLIHelp: `buddy script - Manage Jamf Pro scripts

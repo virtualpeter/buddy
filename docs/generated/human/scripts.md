@@ -8,7 +8,7 @@ Jamf Pro scripts — list summaries vs full body, create/update, and copy/migrat
 | Do this | BuddyScript | CLI | Notes |
 |---------|-------------|-----|-------|
 | List | `scripts(filter?)` | `buddy script list` | Summaries `{id, name, categoryId, categoryName}` only; bodies stripped |
-| Load | `script(id=…)` / `script_get_contents(script_id=…)` | `buddy script get` / `get contents` | Full record / body |
+| Load | `script(id=…)` / `script(name=…)` / `script_get_contents(script_id=…)` | `buddy script get` / `get contents` | Full Jamf JSON dict (id= and name=); or body only |
 | Create / update | `script_create` / `script_put` / `script_update` | `buddy script create` / `upload` | Create from string body; PUT dict or replace from file |
 | Copy / migrate | `script_copy` / `script_migrate` | — | Upsert by name; category remapped on destination |
 

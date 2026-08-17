@@ -32,14 +32,12 @@ type ScriptMigrateSpec struct {
 
 // ScriptCreateOutcome is returned after script create/copy.
 type ScriptCreateOutcome struct {
-	ID   string
-	Name string
+	Script ScriptDetail
 }
 
 // ScriptMigrateOutcome is returned after script_migrate upsert.
 type ScriptMigrateOutcome struct {
-	ID      string
-	Name    string
+	Script  ScriptDetail
 	Created bool
 }
 
@@ -106,7 +104,7 @@ func ScriptClone(credName string, opts Opts, scriptID, name, categoryID string, 
 	if created == nil {
 		return nil, nil
 	}
-	return &ScriptCreateOutcome{ID: created.ID, Name: created.Name}, nil
+	return &ScriptCreateOutcome{Script: *created}, nil
 }
 
 // ScriptCopy fetches from src and POSTs on dst.
@@ -157,7 +155,7 @@ func ScriptCopy(src, dst SessionRef, opts Opts, spec ScriptCopySpec, logger *slo
 		if created == nil {
 			return nil
 		}
-		outcome = &ScriptCreateOutcome{ID: created.ID, Name: created.Name}
+		outcome = &ScriptCreateOutcome{Script: *created}
 		return nil
 	})
 	return outcome, err
@@ -217,7 +215,7 @@ func ScriptMigrate(src, dst SessionRef, opts Opts, spec ScriptMigrateSpec, logge
 				return err
 			}
 			fmt.Printf("Updated script (ID %s): %s\n", updated.ID, updated.Name)
-			outcome = &ScriptMigrateOutcome{ID: updated.ID, Name: updated.Name, Created: false}
+			outcome = &ScriptMigrateOutcome{Script: *updated, Created: false}
 			return nil
 		}
 		created, err := ScriptPostDetail(pin, optsCopy, prepared, logger)
@@ -227,7 +225,7 @@ func ScriptMigrate(src, dst SessionRef, opts Opts, spec ScriptMigrateSpec, logge
 		if created == nil {
 			return nil
 		}
-		outcome = &ScriptMigrateOutcome{ID: created.ID, Name: created.Name, Created: true}
+		outcome = &ScriptMigrateOutcome{Script: *created, Created: true}
 		return nil
 	})
 	return outcome, err
