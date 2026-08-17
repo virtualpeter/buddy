@@ -59,9 +59,10 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred set secret <auth>` — store password/client secret in Keychain, file, or pass
 - `buddy cred delete auth|tenant <name>` — remove auth (+store secrets) or tenant (cascades sole-linked auths)
 - `buddy cred clean secrets` — review secret-store entries and prompt to delete orphans
+- `buddy cred erase secrets` — wipe every secret in the store (and both macOS Keychain services)
 - `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`
 - `buddy cred migrate` — move inline config.yaml secrets into the secure store
-- `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of tenants, auths (with secrets), and channels; restore prompts once per auth (or `-y`)
+- `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of tenants, auths (with secrets), and channels; restore prompts once per auth (Enter restores, or `-y`)
 - `buddy setup secrets` — create missing tenant auths; store missing passwords / client secrets
 - `buddy auth test` — verify the active tenant/auth session
 - `buddy --tenant <name> ...` — select tenant (auto-picks auth); `--user`/`--auth` pins an auth

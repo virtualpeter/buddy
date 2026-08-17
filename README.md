@@ -125,6 +125,7 @@ buddy cred use --mcp sandbox
 buddy cred store
 buddy cred delete auth sandbox-admin   # also clears store secrets
 buddy cred clean secrets               # review/delete orphaned store entries
+buddy cred erase secrets               # wipe all store secrets (both macOS Keychain services)
 buddy cred clean tokens                # delete expired/corrupt disk token cache files
 ```
 

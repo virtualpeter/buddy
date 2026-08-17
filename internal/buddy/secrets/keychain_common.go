@@ -20,6 +20,12 @@ func keychainAccount(credName string, kind Kind) string {
 	return fmt.Sprintf("%s/%s", credName, kind)
 }
 
+// BuddyKeychainServices is the Keychain generic-password services buddy uses.
+// CLI builds store under "buddy"; the signed binary uses "virtualpete.buddy.cli".
+func BuddyKeychainServices() []string {
+	return []string{keychainServiceCLI, keychainServiceSigned}
+}
+
 // securityQuote wraps s in single quotes for security(1) -i.
 func securityQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"

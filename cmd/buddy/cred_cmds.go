@@ -33,6 +33,8 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) 
 		return runCredStore()
 	case "clean":
 		return runCredClean(cfg, opts, args[1:])
+	case "erase":
+		return runCredErase(opts, args[1:])
 	case "migrate":
 		return runCredMigrate(cfg, opts, args[1:])
 	case "backup":
@@ -41,7 +43,7 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) 
 		return runCredRestore(cfg, opts, args[1:])
 	default:
 		return errUnknownSubcommand("cred", args[0], []string{
-			clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubDelete, "use", "store", "migrate", "clean", "backup", "restore", clispec.SubHelp,
+			clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubDelete, "use", "store", "migrate", "clean", "erase", "backup", "restore", clispec.SubHelp,
 		})
 	}
 }
@@ -1200,6 +1202,119 @@ func runCredCleanTokens() error {
 		fmt.Printf("Token cache: %s\n", res.Dir)
 	}
 	fmt.Printf("Deleted %d stale file(s); kept %d still-valid.\n", res.Deleted, res.Kept)
+	return nil
+}
+
+func runCredErase(opts buddy.Opts, args []string) error {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
+		fmt.Print(`buddy cred erase - Wipe every secret from the platform store
+
+Usage:
+  buddy [global-flags] cred erase secrets [-y]
+
+Subcommands:
+  secrets   Delete all secret-store entries, including those still linked to auths
+
+Notes:
+  Unlike 'cred clean secrets' (orphans only), this removes every password and
+  client-secret buddy stored. Auths, tenants, and channels in config.yaml are
+  not changed. Re-store with 'buddy cred set secret' or 'buddy setup secrets'.
+  On macOS, both Keychain services are cleared (CLI "buddy" and signed
+  "virtualpete.buddy.cli") so leftovers from the other binary are not left behind.
+  -y skips the confirmation prompt.
+
+Examples:
+  buddy cred erase secrets
+  buddy cred erase secrets -y
+`)
+		return nil
+	}
+	switch args[0] {
+	case "secrets":
+		for _, a := range args[1:] {
+			if a == "-y" {
+				opts.SkipConfirm = true
+			}
+		}
+		return runCredEraseSecrets(opts)
+	default:
+		return errUnknownSubcommand("cred erase", args[0], []string{"secrets"})
+	}
+}
+
+func runCredEraseSecrets(opts buddy.Opts) error {
+	if !buddy.SecretStoreAvailable() {
+		return fmt.Errorf("no secure secret store available (see 'buddy cred store')")
+	}
+	kind, detail, err := buddy.SecretStoreInfo()
+	if err != nil {
+		return err
+	}
+	entries, err := buddy.ListCredentialSecrets()
+	if err != nil {
+		return fmt.Errorf("list secrets: %w", err)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].AuthName != entries[j].AuthName {
+			return entries[i].AuthName < entries[j].AuthName
+		}
+		return entries[i].Kind.String() < entries[j].Kind.String()
+	})
+	kcGroups, err := buddy.ListBuddyKeychainSecrets()
+	if err != nil {
+		return fmt.Errorf("list keychain: %w", err)
+	}
+	activeKC := buddy.ActiveKeychainService()
+	var extraKC []buddy.KeychainSecretGroup
+	for _, g := range kcGroups {
+		if kind == "keychain" && g.Service == activeKC {
+			continue
+		}
+		extraKC = append(extraKC, g)
+	}
+
+	if len(entries) == 0 && len(extraKC) == 0 {
+		fmt.Printf("No secrets in the store (%s).\n", detail)
+		return nil
+	}
+
+	fmt.Printf("This will delete ALL secrets from the store (%s: %s).\n", kind, detail)
+	fmt.Println("Auths in config.yaml are kept; only stored passwords / client-secrets are removed.")
+	if len(entries) > 0 {
+		fmt.Println()
+		fmt.Println("Active store:")
+		for _, e := range entries {
+			fmt.Printf("  %-24s  %s\n", e.AuthName, e.Kind.String())
+		}
+	}
+	for _, g := range extraKC {
+		fmt.Println()
+		fmt.Printf("Keychain service %q:\n", g.Service)
+		ents := g.Entries
+		sort.Slice(ents, func(i, j int) bool {
+			if ents[i].AuthName != ents[j].AuthName {
+				return ents[i].AuthName < ents[j].AuthName
+			}
+			return ents[i].Kind.String() < ents[j].Kind.String()
+		})
+		for _, e := range ents {
+			fmt.Printf("  %-24s  %s\n", e.AuthName, e.Kind.String())
+		}
+	}
+	fmt.Println()
+	if !opts.SkipConfirm {
+		if !buddy.ConfirmPrompt("Delete ALL of these secrets?", nil) {
+			return nil
+		}
+	}
+	storeN, kcN, err := buddy.EraseCredentialSecrets()
+	if err != nil {
+		return fmt.Errorf("erase secrets: %w", err)
+	}
+	fmt.Printf("Deleted %d secret(s) from the store.\n", storeN)
+	if kcN > 0 {
+		fmt.Printf("Deleted %d Keychain item(s) across buddy services.\n", kcN)
+	}
 	return nil
 }
 

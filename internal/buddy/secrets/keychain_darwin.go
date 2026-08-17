@@ -79,13 +79,9 @@ func (k *KeychainStore) Has(credName string, kind Kind) (bool, error) {
 }
 
 func (k *KeychainStore) List() ([]Entry, error) {
-	cmd := exec.Command("security", "dump-keychain")
-	output, err := cmd.CombinedOutput()
+	dump, err := dumpKeychainOutput()
 	if err != nil {
-		// dump-keychain often writes to stderr even on success; still try parse.
-		if len(output) == 0 {
-			return nil, fmt.Errorf("keychain list: %w", err)
-		}
+		return nil, err
 	}
-	return parseKeychainDumpForService(string(output), keychainService), nil
+	return parseKeychainDumpForService(dump, keychainService), nil
 }

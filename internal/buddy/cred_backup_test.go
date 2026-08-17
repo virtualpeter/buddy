@@ -190,6 +190,154 @@ func TestCredRestorePromptsEachAuth(t *testing.T) {
 	}
 }
 
+func TestCredRestoreSkipLeavesExistingAuth(t *testing.T) {
+	prev := credBackupIter
+	credBackupIter = 10_000
+	t.Cleanup(func() { credBackupIter = prev })
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, filepath.Join(dir, "no-managed.plist"))
+	secrets.SetStore(&mockSecretStore{values: map[string]string{
+		"keep-me/client-secret": "keep-secret",
+		"skip-me/client-secret": "skip-secret",
+	}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	src := &Config{
+		Tenant:  TenantSelection{Default: "sandbox"},
+		Tenants: map[string]TenantConfig{"sandbox": {URL: "https://example.jamfcloud.com"}},
+		Auths: map[string]AuthEntry{
+			"keep-me": {Type: "oauth", ClientID: "backup-keep", Tenants: []string{"sandbox"}},
+			"skip-me": {Type: "oauth", ClientID: "backup-skip", Tenants: []string{"sandbox"}},
+		},
+	}
+	path := filepath.Join(dir, "buddy.backup")
+	if _, err := BackupCreds(src, CredBackupOpts{Path: path, Passphrase: "pw", SkipConfirm: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
+	defer PushConfirmAsk(func(opts ConfirmOpts) bool {
+		return strings.Contains(opts.Question, "keep-me")
+	})()
+
+	dst := &Config{
+		Tenant:  TenantSelection{Default: "sandbox"},
+		Tenants: map[string]TenantConfig{"sandbox": {URL: "https://old.example.jamfcloud.com"}},
+		Auths: map[string]AuthEntry{
+			"skip-me": {Type: "oauth", ClientID: "local-skip", Tenants: []string{"sandbox"}},
+			"local":   {Type: "oauth", ClientID: "local-only", Tenants: []string{"sandbox"}},
+		},
+	}
+	got, err := RestoreCreds(dst, CredBackupOpts{Path: path, Passphrase: "pw", SkipConfirm: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Auths != 1 || got.Skipped != 1 {
+		t.Fatalf("restore %+v", got)
+	}
+	if dst.Auths["keep-me"].ClientID != "backup-keep" {
+		t.Fatalf("keep-me not restored: %+v", dst.Auths["keep-me"])
+	}
+	if dst.Auths["skip-me"].ClientID != "local-skip" {
+		t.Fatalf("skip-me should stay local: %+v", dst.Auths["skip-me"])
+	}
+	if dst.Auths["local"].ClientID != "local-only" {
+		t.Fatalf("local auth dropped: %+v", dst.Auths)
+	}
+}
+
+func TestCredRestoreSkipAllKeepsExistingAuths(t *testing.T) {
+	prev := credBackupIter
+	credBackupIter = 10_000
+	t.Cleanup(func() { credBackupIter = prev })
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, filepath.Join(dir, "no-managed.plist"))
+	secrets.SetStore(&mockSecretStore{values: map[string]string{
+		"keep-me/client-secret": "keep-secret",
+	}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	src := &Config{
+		Tenant:  TenantSelection{Default: "sandbox"},
+		Tenants: map[string]TenantConfig{"sandbox": {URL: "https://example.jamfcloud.com"}},
+		Auths: map[string]AuthEntry{
+			"keep-me": {Type: "oauth", ClientID: "keep-id", Tenants: []string{"sandbox"}},
+		},
+	}
+	path := filepath.Join(dir, "buddy.backup")
+	if _, err := BackupCreds(src, CredBackupOpts{Path: path, Passphrase: "pw", SkipConfirm: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := &Config{
+		Tenant:  TenantSelection{Default: "other"},
+		Tenants: map[string]TenantConfig{"other": {URL: "https://other.example.jamfcloud.com"}},
+		Auths: map[string]AuthEntry{
+			"local": {Type: "oauth", ClientID: "local-id", Tenants: []string{"other"}},
+		},
+	}
+	defer PushConfirmAsk(func(ConfirmOpts) bool { return false })()
+	got, err := RestoreCreds(dst, CredBackupOpts{Path: path, Passphrase: "pw", SkipConfirm: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Auths != 0 || got.Skipped != 1 || got.Tenants != 1 {
+		t.Fatalf("restore %+v", got)
+	}
+	if dst.Tenants["sandbox"].URL != "https://example.jamfcloud.com" {
+		t.Fatalf("tenants not restored: %+v", dst.Tenants)
+	}
+	if dst.Auths["local"].ClientID != "local-id" {
+		t.Fatalf("existing auth dropped: %+v", dst.Auths)
+	}
+	if _, ok := dst.Auths["keep-me"]; ok {
+		t.Fatalf("skipped backup auth should not be added: %+v", dst.Auths)
+	}
+}
+
+func TestCredRestoreEmptyAuthBackupKeepsExistingAuths(t *testing.T) {
+	prev := credBackupIter
+	credBackupIter = 10_000
+	t.Cleanup(func() { credBackupIter = prev })
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, filepath.Join(dir, "no-managed.plist"))
+	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	tenantsOnly := &Config{
+		Tenant:  TenantSelection{Default: "sandbox"},
+		Tenants: map[string]TenantConfig{"sandbox": {URL: "https://example.jamfcloud.com"}},
+	}
+	path := filepath.Join(dir, "tenants.backup")
+	if _, err := BackupCreds(tenantsOnly, CredBackupOpts{Path: path, Passphrase: "pw", SkipConfirm: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := &Config{
+		Tenant:  TenantSelection{Default: "sandbox"},
+		Tenants: map[string]TenantConfig{"sandbox": {URL: "https://old.example.jamfcloud.com"}},
+		Auths: map[string]AuthEntry{
+			"keep": {Type: "oauth", ClientID: "keep-id", Tenants: []string{"sandbox"}},
+		},
+	}
+	got, err := RestoreCreds(dst, CredBackupOpts{Path: path, Passphrase: "pw", SkipConfirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Auths != 0 || got.Tenants != 1 {
+		t.Fatalf("restore %+v", got)
+	}
+	if dst.Tenants["sandbox"].URL != "https://example.jamfcloud.com" {
+		t.Fatalf("tenant not restored: %+v", dst.Tenants["sandbox"])
+	}
+	if dst.Auths["keep"].ClientID != "keep-id" {
+		t.Fatalf("existing auth dropped: %+v", dst.Auths)
+	}
+}
+
 type recordingSecretStore struct {
 	mockSecretStore
 	lookups []string

@@ -464,6 +464,26 @@ func TestRunCredMigrate_MovesInlineSecret(t *testing.T) {
 	}
 }
 
+func TestRunCredEraseSecrets_WipesStore(t *testing.T) {
+	mock := &mockSecretStore{values: map[string]string{
+		"sandbox/password":      "pw",
+		"sandbox/client-secret": "cs",
+	}}
+	secrets.SetStore(mock)
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	if err := runCredEraseSecrets(buddy.Opts{SkipConfirm: true}); err != nil {
+		t.Fatalf("runCredEraseSecrets: %v", err)
+	}
+	left, err := mock.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 0 {
+		t.Fatalf("leftover %+v", left)
+	}
+}
+
 func TestParseCredSetTenant_GatewayRequiresTenantID(t *testing.T) {
 	got, err := parseCredSetTenantArgs([]string{"gw", "--region=us"}, false)
 	if err != nil {

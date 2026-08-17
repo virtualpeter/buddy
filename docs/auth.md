@@ -97,7 +97,7 @@ Resolution order: **inline config → platform store → error**. Store keys are
 
 The default Darwin binary writes Keychain items with `security -i` (secret on stdin, not argv) under service `buddy`. That is convenient for development (no CGO, survives `go build`), but the ACL is on `/usr/bin/security`, so any process running as you can read the same items.
 
-The signed release binary (`make buddy-darwin-arm64`, build tag `secitem`) uses Security.framework so the ACL is buddy’s Developer ID: only that signed binary can read without a prompt, and upgrades keep working as long as the Team ID and identifier stay the same. It uses a **different** service (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) so the two never share ACL or items. A signed binary does not see secrets stored by `./buddy`; run `buddy cred set secret` (or `buddy cred migrate`) again against `./buddy-darwin-arm64`. `make install-signed` copies that binary to `~/go/bin/buddy`.
+The signed release binary (`make buddy-darwin-arm64`, build tag `secitem`) uses Security.framework so the ACL is buddy’s Developer ID: only that signed binary can read without a prompt, and upgrades keep working as long as the Team ID and identifier stay the same. It uses a **different** service (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) so the two never share ACL or items. A signed binary does not see secrets stored by `./buddy`; run `buddy cred set secret` (or `buddy cred migrate`) again against `./buddy-darwin-arm64`. `make install-signed` copies that binary to `~/go/bin/buddy`. `buddy cred erase secrets` deletes items from **both** services.
 
 `make buddy-darwin-arm64` requires Darwin/arm64 and `BUDDY_CODESIGN_IDENTITY` (a Developer ID Application identity). The identifier defaults to `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) and must stay stable across releases so Keychain ACLs survive rebuilds. The Keychain service is hardcoded to that same reverse-DNS string (not read from the running binary), so overriding the identifier at sign time still stores items under `virtualpete.buddy.cli`. Ad-hoc signatures are rejected.
 
@@ -108,10 +108,11 @@ buddy cred migrate                                   # move inline YAML secrets 
 buddy cred backup ./buddy.creds                      # passphrase prompt; AES-GCM file
 buddy cred restore ./buddy.creds                     # passphrase; confirm each auth
 buddy cred clean secrets                             # review / delete orphaned store entries
+buddy cred erase secrets                             # wipe all store secrets (both macOS Keychain services)
 buddy cred delete auth sandbox-admin                 # also clears store secrets
 ```
 
-`buddy cred backup` / `restore` encrypt tenants, auths (including store secrets), and channel policy with a passphrase (AES-256-GCM, PBKDF2-SHA256). Restore applies tenants and channels, then prompts once per auth unless `-y`. Secrets go back to the platform store.
+`buddy cred backup` / `restore` encrypt tenants, auths (including store secrets), and channel policy with a passphrase (AES-256-GCM, PBKDF2-SHA256). Restore applies tenants and channels, then prompts once per auth unless `-y` (Enter/y writes that auth from the backup; `n` leaves the existing config entry). Auths not in the backup are kept. Secrets go back to the platform store.
 
 Config and tokens live under `~/.config/buddy` on macOS/Linux (`$XDG_CONFIG_HOME/buddy` when set), and `%APPDATA%\buddy` on Windows.
 

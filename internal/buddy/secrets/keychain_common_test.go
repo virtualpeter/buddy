@@ -45,6 +45,13 @@ func TestSecurityAddInteractiveLineTooLarge(t *testing.T) {
 	}
 }
 
+func TestBuddyKeychainServices(t *testing.T) {
+	got := BuddyKeychainServices()
+	if len(got) != 2 || got[0] != keychainServiceCLI || got[1] != keychainServiceSigned {
+		t.Fatalf("BuddyKeychainServices = %q", got)
+	}
+}
+
 func TestKeychainSignedServiceAndLabel(t *testing.T) {
 	if keychainServiceSigned != "virtualpete.buddy.cli" {
 		t.Fatalf("keychainServiceSigned = %q", keychainServiceSigned)

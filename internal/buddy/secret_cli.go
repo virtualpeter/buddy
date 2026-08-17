@@ -139,3 +139,69 @@ func OrphanCredentialSecrets(cfg *Config) ([]secrets.Entry, error) {
 	return orphans, nil
 }
 
+// KeychainSecretGroup is buddy items under one Keychain service (identities only).
+type KeychainSecretGroup struct {
+	Service string
+	Entries []secrets.Entry
+}
+
+func secretStoreOverridden() bool {
+	kind, _, _ := secrets.StoreInfo()
+	return kind == "override"
+}
+
+// ListBuddyKeychainSecrets lists items under both buddy Keychain services on macOS.
+// Empty when the store is overridden (tests) or not on Darwin.
+func ListBuddyKeychainSecrets() ([]KeychainSecretGroup, error) {
+	if secretStoreOverridden() {
+		return nil, nil
+	}
+	var out []KeychainSecretGroup
+	for _, svc := range secrets.BuddyKeychainServices() {
+		entries, err := secrets.ListKeychainService(svc)
+		if err != nil {
+			return nil, err
+		}
+		if len(entries) == 0 {
+			continue
+		}
+		out = append(out, KeychainSecretGroup{Service: svc, Entries: entries})
+	}
+	return out, nil
+}
+
+// EraseCredentialSecrets deletes every secret in the active store.
+// On macOS it also deletes leftover items from both buddy Keychain services
+// (CLI "buddy" and signed "virtualpete.buddy.cli").
+func EraseCredentialSecrets() (storeDeleted, keychainDeleted int, err error) {
+	store, err := secrets.DefaultStore()
+	if err != nil {
+		return 0, 0, err
+	}
+	entries, err := store.List()
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, e := range entries {
+		if err := store.Delete(e.AuthName, e.Kind); err != nil {
+			return storeDeleted, 0, fmt.Errorf("delete %s for %q: %w", e.Kind, e.AuthName, err)
+		}
+		storeDeleted++
+	}
+	if secretStoreOverridden() {
+		return storeDeleted, 0, nil
+	}
+	for _, svc := range secrets.BuddyKeychainServices() {
+		n, err := secrets.EraseKeychainService(svc)
+		keychainDeleted += n
+		if err != nil {
+			return storeDeleted, keychainDeleted, err
+		}
+	}
+	return storeDeleted, keychainDeleted, nil
+}
+
+// ActiveKeychainService is the Keychain service this binary uses (empty off macOS).
+func ActiveKeychainService() string {
+	return secrets.ActiveKeychainService()
+}

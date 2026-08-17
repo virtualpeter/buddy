@@ -99,6 +99,12 @@ func BackupCreds(cfg *Config, opts CredBackupOpts) (*CredBackupResult, error) {
 	}
 
 	payload, missing := collectCredBackup(cfg)
+	if len(payload.Auths) == 0 {
+		fmt.Fprintln(os.Stderr, "warning: backup contains no auths (tenants only)")
+	}
+	if orphans, err := OrphanCredentialSecrets(cfg); err == nil && len(orphans) > 0 {
+		fmt.Fprintf(os.Stderr, "warning: %d secret(s) in the store have no matching auth in config and will not be in this backup\n", len(orphans))
+	}
 	plain, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("encode backup: %w", err)
@@ -129,8 +135,9 @@ func BackupCreds(cfg *Config, opts CredBackupOpts) (*CredBackupResult, error) {
 }
 
 // RestoreCreds decrypts a backup and replaces tenants/channels in cfg.
-// Each auth is confirmed unless opts.SkipConfirm. Secrets go into the platform
-// store (not YAML) when the store is available.
+// Each backup auth is confirmed unless opts.SkipConfirm (Enter restores).
+// n skips that auth and leaves the existing config entry (or absence) alone.
+// Auths not in the backup are kept. Secrets go into the platform store when available.
 func RestoreCreds(cfg *Config, opts CredBackupOpts) (*CredRestoreResult, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("internal error: config is nil")
@@ -162,6 +169,36 @@ func RestoreCreds(cfg *Config, opts CredBackupOpts) (*CredRestoreResult, error) 
 		return nil, fmt.Errorf("restore confirmation required for each auth (interactive TTY, or -y)")
 	}
 
+	names := make([]string, 0, len(payload.Auths))
+	for name := range payload.Auths {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	type pendingAuth struct {
+		name string
+		auth AuthEntry
+	}
+	var accept []pendingAuth
+	skipped := 0
+	if len(names) == 0 {
+		fmt.Fprintf(os.Stderr, "warning: backup has no auths; existing auths will be left unchanged\n")
+	} else if !opts.SkipConfirm {
+		fmt.Fprintf(confirmOut, "Restoring tenants/channels. For each auth: y writes from backup, n leaves existing config (%d):\n", len(names))
+		for _, name := range names {
+			a := payload.Auths[name]
+			if !Confirm(ConfirmOpts{Question: authRestorePrompt(name, a), Default: "y", SilentNo: true}, nil) {
+				skipped++
+				continue
+			}
+			accept = append(accept, pendingAuth{name: name, auth: a})
+		}
+	} else {
+		for _, name := range names {
+			accept = append(accept, pendingAuth{name: name, auth: payload.Auths[name]})
+		}
+	}
+
 	cfg.Tenant = payload.Tenant
 	cfg.Tenants = map[string]TenantConfig{}
 	for n, t := range payload.Tenants {
@@ -172,52 +209,23 @@ func RestoreCreds(cfg *Config, opts CredBackupOpts) (*CredRestoreResult, error) 
 		cfg.Channels[n] = cloneChannelPolicy(p)
 	}
 
-	names := make([]string, 0, len(payload.Auths))
-	for name := range payload.Auths {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	if !opts.SkipConfirm && len(names) > 0 {
-		fmt.Fprintf(confirmOut, "Restoring tenants/channels; confirm each auth (%d):\n", len(names))
+	if cfg.Auths == nil {
+		cfg.Auths = map[string]AuthEntry{}
+	} else {
+		cloned := make(map[string]AuthEntry, len(cfg.Auths))
+		for n, a := range cfg.Auths {
+			cloned[n] = cloneAuthEntry(a)
+		}
+		cfg.Auths = cloned
 	}
 
 	stored := 0
-	skipped := 0
-	cfg.Auths = map[string]AuthEntry{}
-	for _, name := range names {
-		a := payload.Auths[name]
-		if !opts.SkipConfirm {
-			if !Confirm(ConfirmOpts{Question: authRestorePrompt(name, a), Default: "n", SilentNo: true}, nil) {
-				skipped++
-				continue
-			}
+	for _, p := range accept {
+		n, err := restoreAuthFromBackup(cfg, p.name, p.auth)
+		if err != nil {
+			return nil, err
 		}
-		pw, cs := a.Password, a.ClientSecret
-		a.Password = ""
-		a.ClientSecret = ""
-		if err := a.Validate(); err != nil {
-			return nil, fmt.Errorf("backup auth %q: %w", name, err)
-		}
-		cfg.Auths[name] = cloneAuthEntry(a)
-		if pw != "" {
-			if err := SetCredentialSecret(name, secrets.KindPassword, pw); err != nil {
-				a.Password = pw
-				cfg.Auths[name] = cloneAuthEntry(a)
-				fmt.Fprintf(os.Stderr, "warning: could not store password for %q: %v (kept inline)\n", name, err)
-			} else {
-				stored++
-			}
-		}
-		if cs != "" {
-			a = cfg.Auths[name]
-			if err := SetCredentialSecret(name, secrets.KindClientSecret, cs); err != nil {
-				a.ClientSecret = cs
-				cfg.Auths[name] = cloneAuthEntry(a)
-				fmt.Fprintf(os.Stderr, "warning: could not store client secret for %q: %v (kept inline)\n", name, err)
-			} else {
-				stored++
-			}
-		}
+		stored += n
 	}
 
 	if err := cfg.ValidateTenantSelectionAndChannels(); err != nil {
@@ -229,10 +237,40 @@ func RestoreCreds(cfg *Config, opts CredBackupOpts) (*CredRestoreResult, error) 
 	return &CredRestoreResult{
 		Path:    path,
 		Tenants: len(cfg.Tenants),
-		Auths:   len(cfg.Auths),
+		Auths:   len(accept),
 		Stored:  stored,
 		Skipped: skipped,
 	}, nil
+}
+
+func restoreAuthFromBackup(cfg *Config, name string, a AuthEntry) (stored int, err error) {
+	pw, cs := a.Password, a.ClientSecret
+	a.Password = ""
+	a.ClientSecret = ""
+	if err := a.Validate(); err != nil {
+		return 0, fmt.Errorf("backup auth %q: %w", name, err)
+	}
+	cfg.Auths[name] = cloneAuthEntry(a)
+	if pw != "" {
+		if err := SetCredentialSecret(name, secrets.KindPassword, pw); err != nil {
+			a.Password = pw
+			cfg.Auths[name] = cloneAuthEntry(a)
+			fmt.Fprintf(os.Stderr, "warning: could not store password for %q: %v (kept inline)\n", name, err)
+		} else {
+			stored++
+		}
+	}
+	if cs != "" {
+		a = cfg.Auths[name]
+		if err := SetCredentialSecret(name, secrets.KindClientSecret, cs); err != nil {
+			a.ClientSecret = cs
+			cfg.Auths[name] = cloneAuthEntry(a)
+			fmt.Fprintf(os.Stderr, "warning: could not store client secret for %q: %v (kept inline)\n", name, err)
+		} else {
+			stored++
+		}
+	}
+	return stored, nil
 }
 
 func authRestorePrompt(name string, a AuthEntry) string {

@@ -73,6 +73,7 @@ Subcommands:
                                     auth (+secrets), or stored secrets
   clean secrets                     Review secret-store entries; prompt to delete orphans
   clean tokens                      Delete expired/corrupt files under ~/.config/buddy/tokens/
+  erase secrets                     Wipe every secret from the store (and both macOS Keychain services)
   use [tenant]                      Show or set tenant.default
   use --cli|--mcp|--ide [tenant]
                                     Show or set channels.<client>.tenant
@@ -125,12 +126,15 @@ Flags for 'backup' / 'restore':
   profile changes. Fill secrets with 'buddy setup secrets'.
   cred backup writes AES-256-GCM (PBKDF2-SHA256) JSON; auths include store
   secrets. Restore applies tenants/channels, then prompts once per auth
-  (and its secrets) unless -y. Skipped auths are omitted; local auths not
-  in the backup are replaced. Secrets go to the platform store.
+  (and its secrets) unless -y. Enter/y writes that auth from the backup;
+  n leaves the existing auth (or absence) in config. Auths not in the backup
+  are kept. A backup with no auths restores tenants/channels only.
+  Secrets go to the platform store.
   Secrets are keyed by auth name in the platform store.
   Deleting an auth also removes its password/client-secret from the store.
   Deleting a tenant deletes auths linked only to that tenant (with secrets) and
-  unlinks multi-tenant auths; use 'buddy cred clean secrets' for leftover orphans.
+  unlinks multi-tenant auths; use 'buddy cred clean secrets' for leftover orphans
+  or 'buddy cred erase secrets' to wipe the entire store (including Keychain).
   Token files under ~/.config/buddy/tokens/ are purged when expired (or via
   'buddy cred clean tokens'); still-valid entries are reused across CLI runs.
   Auth channels (cli/mcp/ide) default to all. Channel policy access and
@@ -151,6 +155,7 @@ Examples:
   buddy cred delete tenant sandbox
   buddy cred clean secrets
   buddy cred clean tokens
+  buddy cred erase secrets
   buddy cred backup ./buddy.creds
   buddy cred restore ./buddy.creds
   buddy cred use sandbox
