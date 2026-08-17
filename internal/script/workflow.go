@@ -79,11 +79,11 @@ type Step struct {
 	// create_ss
 	DisplayName string
 	// set_profile_payload / set_profile_xml / create_profile
-	ProfileID int
-	Domain    string
-	DictFile  string
-	XMLFile   string
-	Redeploy  bool
+	ProfileID  int
+	Identifier string
+	DictFile   string
+	XMLFile    string
+	Redeploy   bool
 	// create_profile
 	PayloadsPlist    string
 	PayloadDomains   []string // plan-time summary (optional)
@@ -162,7 +162,7 @@ func (s *Step) planLine() string {
 		if s.Redeploy {
 			redeployStr = "  [redeploy=All]"
 		}
-		return fmt.Sprintf("set_profile_payload  profile %d  %s  %s%s", s.ProfileID, s.Domain, s.DictFile, redeployStr)
+		return fmt.Sprintf("set_profile_payload  profile %d  %s  %s%s", s.ProfileID, s.Identifier, s.DictFile, redeployStr)
 	case stepTypeSetProfileXML:
 		redeployStr := ""
 		if s.Redeploy {
@@ -512,14 +512,14 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		if s.ProfileID, _, err = getInt("id"); err != nil {
 			return nil, err
 		}
-		if s.Domain, _, err = getStr("domain"); err != nil {
+		if s.Identifier, _, err = getStr("identifier"); err != nil {
 			return nil, err
 		}
 		if s.DictFile, _, err = getStr("dict_file"); err != nil {
 			return nil, err
 		}
-		if s.ProfileID == 0 || s.Domain == "" || s.DictFile == "" {
-			return nil, fmt.Errorf("step_set_profile_payload requires id, domain, dict_file")
+		if s.ProfileID == 0 || s.Identifier == "" || s.DictFile == "" {
+			return nil, fmt.Errorf("step_set_profile_payload requires id, identifier, dict_file")
 		}
 		if s.Redeploy, _, err = getBool("redeploy"); err != nil {
 			return nil, err
@@ -885,7 +885,7 @@ func executeStep(credName string, s *Step, opts buddy.Opts, logger *slog.Logger)
 		return buddy.PolicyCreateFromTemplate(credName, opts, tmpl, "", logger)
 
 	case stepTypeSetProfilePayload:
-		return buddy.ProfileSetPayload(credName, opts, s.ProfileID, s.Domain, s.DictFile, s.Redeploy, logger)
+		return buddy.ProfileSetPayload(credName, opts, s.ProfileID, s.Identifier, s.DictFile, s.Redeploy, logger)
 
 	case stepTypeSetProfileXML:
 		f, err := os.Open(s.XMLFile)

@@ -3175,25 +3175,37 @@ func profileGetPayloads(credName string, logger *slog.Logger) func(*starlark.Thr
 	}
 }
 
-// profile_get_payload(profile_id, domain) → {ok, value: str} (single payload plist XML)
+func payloadContentRowsStarlark(rows []buddy.PayloadContentRow) *starlark.List {
+	list := new(starlark.List)
+	for _, r := range rows {
+		d := new(starlark.Dict)
+		_ = d.SetKey(starlark.String("identifier"), starlark.String(r.Identifier))
+		_ = d.SetKey(starlark.String("type"), starlark.String(r.Type))
+		_ = d.SetKey(starlark.String("uuid"), starlark.String(r.UUID))
+		_ = list.Append(d)
+	}
+	return list
+}
+
+// profile_get_payload(id, identifier) → {ok, value: str} (single payload plist XML)
 func profileGetPayload(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var profileID starlark.Int
-		var domain starlark.String
-		if err := starlark.UnpackArgs("profile_get_payload", args, kwargs, "id", &profileID, "domain", &domain); err != nil {
+		var identifier starlark.String
+		if err := starlark.UnpackArgs("profile_get_payload", args, kwargs, "id", &profileID, "identifier", &identifier); err != nil {
 			return nil, err
 		}
 		pid, _ := profileID.Int64()
 		cred := credName
 		var buf bytes.Buffer
-		if err := buddy.ProfileGetPayloadByDomain(cred, int(pid), string(domain), &buf, logger); err != nil {
+		if err := buddy.ProfileGetPayloadByDomain(cred, int(pid), string(identifier), &buf, logger); err != nil {
 			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(buf.String())), nil
 	}
 }
 
-// profile_list_payloads(profile_id) → {ok, value: list of str} (PayloadIdentifiers)
+// profile_list_payloads(id) → {ok, value: list of {identifier, type, uuid}}
 func profileListPayloads(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var profileID starlark.Int
@@ -3202,15 +3214,11 @@ func profileListPayloads(credName string, logger *slog.Logger) func(*starlark.Th
 		}
 		pid, _ := profileID.Int64()
 		cred := credName
-		domains, err := buddy.ProfileListPayloads(cred, int(pid), logger)
+		rows, err := buddy.ProfileListPayloads(cred, int(pid), logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
-		list := new(starlark.List)
-		for _, d := range domains {
-			_ = list.Append(starlark.String(d))
-		}
-		return resultOK(list), nil
+		return resultOK(payloadContentRowsStarlark(rows)), nil
 	}
 }
 
@@ -3265,12 +3273,12 @@ func profileACSBindUUIDBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 func profileSetPayload(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var profileID starlark.Int
-		var domain, dictFile starlark.String
+		var identifier, dictFile starlark.String
 		redeploy := starlark.Bool(false)
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("profile_set_payload", args, kwargs,
 			"id", &profileID,
-			"domain", &domain,
+			"identifier", &identifier,
 			"dict_file", &dictFile,
 			"redeploy?", &redeploy,
 			"tenant?", &sess.Tenant,
@@ -3285,7 +3293,7 @@ func profileSetPayload(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		defer restoreSession()
 		pid, _ := profileID.Int64()
-		err := buddy.ProfileSetPayload(sessionPin, scriptOpts, int(pid), string(domain), string(dictFile), bool(redeploy), logger)
+		err := buddy.ProfileSetPayload(sessionPin, scriptOpts, int(pid), string(identifier), string(dictFile), bool(redeploy), logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -3672,20 +3680,20 @@ func profileXMLSetRedeployAllBuiltin(_ *starlark.Thread, _ *starlark.Builtin, ar
 	return resultOK(starlark.String(string(out))), nil
 }
 
-// profile_xml_patch_payload(profile_xml_str, domain, new_payload) → {ok, value: str}
+// profile_xml_patch_payload(profile_xml_str, identifier, new_payload) → {ok, value: str}
 // new_payload is a Starlark dict or plist/dict XML string (PayloadContent or MCX settings).
 func profileXMLPatchPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var xmlStr, domain starlark.String
+	var xmlStr, identifier starlark.String
 	var newPayload starlark.Value
 	if err := starlark.UnpackArgs("profile_xml_patch_payload", args, kwargs,
-		"profile_xml_str", &xmlStr, "domain", &domain, "new_payload", &newPayload); err != nil {
+		"profile_xml_str", &xmlStr, "identifier", &identifier, "new_payload", &newPayload); err != nil {
 		return nil, err
 	}
 	dictXML, err := payloadValueToDictXML(newPayload)
 	if err != nil {
 		return resultErr(err.Error())
 	}
-	updated, err := buddy.PatchProfilePayload([]byte(string(xmlStr)), string(domain), dictXML)
+	updated, err := buddy.PatchProfilePayload([]byte(string(xmlStr)), string(identifier), dictXML)
 	if err != nil {
 		return resultErr(err.Error())
 	}
@@ -3705,21 +3713,17 @@ func plistNormaliseDictBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	return resultOK(starlark.String(out)), nil
 }
 
-// payloads_list_identifiers(payloads_plist_str) → {ok, value: list of str}
+// payloads_list_identifiers(payloads_plist_str) → {ok, value: list of {identifier, type, uuid}}
 func payloadsListIdentifiersBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var plistStr starlark.String
 	if err := starlark.UnpackArgs("payloads_list_identifiers", args, kwargs, "payloads_plist_str", &plistStr); err != nil {
 		return nil, err
 	}
-	ids, err := buddy.PlistPayloadIdentifiers(string(plistStr))
+	rows, err := buddy.PlistPayloadContentRows(string(plistStr))
 	if err != nil {
 		return resultErr(err.Error())
 	}
-	list := new(starlark.List)
-	for _, id := range ids {
-		_ = list.Append(starlark.String(id))
-	}
-	return resultOK(list), nil
+	return resultOK(payloadContentRowsStarlark(rows)), nil
 }
 
 // payloads_collect_uuids(payloads_plist_str) → {ok, value: list of str}
@@ -3739,26 +3743,26 @@ func payloadsCollectUUIDsBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args s
 	return resultOK(list), nil
 }
 
-// payloads_get_payload(payloads_plist_str, domain) → {ok, value: str}
+// payloads_get_payload(payloads_plist_str, identifier) → {ok, value: str}
 func payloadsGetPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var plistStr, domain starlark.String
-	if err := starlark.UnpackArgs("payloads_get_payload", args, kwargs, "payloads_plist_str", &plistStr, "domain", &domain); err != nil {
+	var plistStr, identifier starlark.String
+	if err := starlark.UnpackArgs("payloads_get_payload", args, kwargs, "payloads_plist_str", &plistStr, "identifier", &identifier); err != nil {
 		return nil, err
 	}
-	out, err := buddy.PlistGetPayloadByDomain(string(plistStr), string(domain))
+	out, err := buddy.PlistGetPayloadByDomain(string(plistStr), string(identifier))
 	if err != nil {
 		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(string(out))), nil
 }
 
-// payloads_replace_payload(payloads_plist_str, domain, new_payload) → {ok, value: str}. new_payload is dict or plist XML string.
+// payloads_replace_payload(payloads_plist_str, identifier, new_payload) → {ok, value: str}. new_payload is dict or plist XML string.
 func payloadsReplacePayload(logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var plistStr, domain starlark.String
+		var plistStr, identifier starlark.String
 		var newPayload starlark.Value
 		if err := starlark.UnpackArgs("payloads_replace_payload", args, kwargs,
-			"payloads_plist_str", &plistStr, "domain", &domain, "new_payload", &newPayload); err != nil {
+			"payloads_plist_str", &plistStr, "identifier", &identifier, "new_payload", &newPayload); err != nil {
 			return nil, err
 		}
 		var payloadMap interface{}
@@ -3786,7 +3790,7 @@ func payloadsReplacePayload(logger *slog.Logger) func(*starlark.Thread, *starlar
 		default:
 			return resultErr("new_payload must be dict or plist XML string")
 		}
-		updated, err := buddy.PlistReplacePayloadByDomain(string(plistStr), string(domain), payloadMap)
+		updated, err := buddy.PlistReplacePayloadByDomain(string(plistStr), string(identifier), payloadMap)
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -3847,34 +3851,34 @@ func payloadsSetContentBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	return resultOK(starlark.String(updated)), nil
 }
 
-// payloads_add_payload(payloads_plist_str, domain, new_payload) → {ok, value: str}
-// Appends or replaces by PayloadIdentifier. Empty payloads_plist_str creates a new plist.
+// payloads_add_payload(payloads_plist_str, identifier, new_payload) → {ok, value: str}
+// Appends or replaces by identifier=. Empty payloads_plist_str creates a new plist.
 func payloadsAddPayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var plistStr, domain starlark.String
+	var plistStr, identifier starlark.String
 	var newPayload starlark.Value
 	if err := starlark.UnpackArgs("payloads_add_payload", args, kwargs,
-		"payloads_plist_str", &plistStr, "domain", &domain, "new_payload", &newPayload); err != nil {
+		"payloads_plist_str", &plistStr, "identifier", &identifier, "new_payload", &newPayload); err != nil {
 		return nil, err
 	}
 	payloadMap, err := payloadValueToGoMap(newPayload)
 	if err != nil {
 		return resultErr(err.Error())
 	}
-	updated, err := buddy.PlistAddPayload(string(plistStr), string(domain), payloadMap)
+	updated, err := buddy.PlistAddPayload(string(plistStr), string(identifier), payloadMap)
 	if err != nil {
 		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(updated)), nil
 }
 
-// payloads_remove_payload(payloads_plist_str, domain) → {ok, value: str}
+// payloads_remove_payload(payloads_plist_str, identifier) → {ok, value: str}
 func payloadsRemovePayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var plistStr, domain starlark.String
+	var plistStr, identifier starlark.String
 	if err := starlark.UnpackArgs("payloads_remove_payload", args, kwargs,
-		"payloads_plist_str", &plistStr, "domain", &domain); err != nil {
+		"payloads_plist_str", &plistStr, "identifier", &identifier); err != nil {
 		return nil, err
 	}
-	updated, err := buddy.PlistRemovePayload(string(plistStr), string(domain))
+	updated, err := buddy.PlistRemovePayload(string(plistStr), string(identifier))
 	if err != nil {
 		return resultErr(err.Error())
 	}
@@ -3935,11 +3939,11 @@ func payloadValueToDictXML(newPayload starlark.Value) (string, error) {
 
 func stepSetProfilePayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var profileID starlark.Int
-	var domain, dictFile starlark.String
+	var identifier, dictFile starlark.String
 	redeploy := starlark.Bool(false)
 	if err := starlark.UnpackArgs("step_set_profile_payload", args, kwargs,
 		"id", &profileID,
-		"domain", &domain,
+		"identifier", &identifier,
 		"dict_file", &dictFile,
 		"redeploy?", &redeploy,
 	); err != nil {
@@ -3948,7 +3952,7 @@ func stepSetProfilePayloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args 
 	pid, _ := profileID.Int64()
 	d := stepDict(stepTypeSetProfilePayload,
 		"id", int(pid),
-		"domain", string(domain),
+		"identifier", string(identifier),
 		"dict_file", string(dictFile),
 		"redeploy", bool(redeploy),
 	)

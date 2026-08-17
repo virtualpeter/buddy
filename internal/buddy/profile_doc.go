@@ -38,41 +38,45 @@ var ProfilesTopic = docspec.Topic{
 		"Do not skip [profile payloads](/docs/docs/profile-payloads) when editing PayloadContent / MCX.",
 	},
 	Builtins: []docspec.Builtin{
-			{
-				Name: `profiles`,
-				Summary: `List profiles`,
-				Returns: `list`,
-				Params: []docspec.Param{
-					{Name: `filter`, Type: `string`, Required: false, Description: `filter`},
-				},
-			},
-			{
-				Name: `profile`,
-				Summary: `Load profile XML`,
-				Returns: `string/dict`,
-			},
-			{
-				Name: `profile_copy`,
-				Summary: `Copy/migrate profile`,
-				Returns: `dict {id,name}`,
-				Params: []docspec.Param{
-					{Name: `id`, Type: `string`, Required: true, Description: `id`},
-				},
-			},
-			{
-				Name: `profile_put_xml`,
-				Summary: `Save profile XML`,
-				Returns: `None`,
-				Params: []docspec.Param{
-					{Name: `id`, Type: `string`, Required: true, Description: `id`},
-					{Name: `xml_str`, Type: `string`, Required: true, Description: `xml_str`},
-				},
+		{
+			Name:    `profiles`,
+			Summary: `List profiles`,
+			Returns: `list`,
+			Params: []docspec.Param{
+				{Name: `filter`, Type: `string`, Required: false, Description: `filter`},
 			},
 		},
+		{
+			Name:    `profile`,
+			Summary: `Load profile XML`,
+			Returns: `string/dict`,
+		},
+		{
+			Name:    `profile_copy`,
+			Summary: `Copy/migrate profile`,
+			Returns: `dict {id,name}`,
+			Params: []docspec.Param{
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
+			},
+		},
+		{
+			Name:    `profile_put_xml`,
+			Summary: `Save profile XML`,
+			Returns: `None`,
+			Params: []docspec.Param{
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
+				{Name: `xml_str`, Type: `string`, Required: true, Description: `xml_str`},
+			},
+		},
+	},
 	ExamplesBuddy: []string{
 		`def main():
     xml = profile_xml(id=42)
-    xml = profile_xml_patch_payload(xml, "com.example", {"Key": "New"})
+    plist = profile_xml_extract_payloads(xml)
+    rows = payloads_list_identifiers(plist)
+    # Custom payloads: identifier is often reverse-DNS. Jamf Apple payloads: identifier is often a UUID; type is reverse-DNS.
+    ident = rows[0]["identifier"]
+    xml = profile_xml_patch_payload(xml, identifier=ident, new_payload={"Key": "New"})
     profile_put_xml(id=42, xml_str=xml)
     return "ok"`,
 	},
@@ -139,19 +143,19 @@ var ProfilesTopic = docspec.Topic{
       Does: Return the payloads plist XML embedded in the profile.
       → value: str (payloads plist XML)
       Params: id: int/str.
-  profile_get_payload(id, domain)
+  profile_get_payload(id, identifier)
       Does: Return one PayloadContent payload dict as plist XML.
       → value: str (plist <dict> fragment)
-      Params: id: int/str; domain: str (PayloadIdentifier).
+      Params: id: int/str; identifier: str (PayloadIdentifier, unique PayloadType, or unique PayloadUUID).
       Notes: PayloadContent only; not MCX — use payloads_get_mcx_dict offline.
   profile_list_payloads(id)
-      Does: List PayloadIdentifier values under PayloadContent.
-      → value: list of str
+      Does: List PayloadContent rows.
+      → value: list of {identifier, type, uuid}
       Params: id: int/str.
-  profile_set_payload(id, domain, dict_file, redeploy?, tenant?, surface?, auth?)
+  profile_set_payload(id, identifier, dict_file, redeploy?, tenant?, surface?, auth?)
       Does: Merge-patch one payload (PayloadContent keys or MCX settings) and PUT the profile.
       → None
-      Params: id: int/str; domain: str; dict_file: str (path to dict/plist);
+      Params: id: int/str; identifier: str; dict_file: str (path to dict/plist);
         redeploy?: bool (set redeploy_on_update=All).
       Notes: Same merge rules as profile_xml_patch_payload.
 
@@ -165,16 +169,16 @@ Subcommands:
   list [--filter=<name>]                                    List configuration profiles
   get xml <profile-id>                                      Output full profile XML
   get payloads <profile-id>                                 Output payloads plist only (pretty-printed)
-  get payload <profile-id> <domain>                          Output single PayloadContent payload by PayloadIdentifier
-  get list-payloads <profile-id>                            List PayloadIdentifier values (PayloadContent only)
+  get payload <profile-id> <identifier>                      Output one PayloadContent payload (Identifier, unique Type, or unique UUID)
+  get list-payloads <profile-id>                            List PayloadContent {identifier, type, uuid}
   set xml <profile-id> [--redeploy]                         PUT profile from XML on stdin
-  set payload <profile-id> <domain> <dict-file.xml> [--redeploy]   Patch payload (PayloadContent merge or MCX settings)
+  set payload <profile-id> <identifier> <dict-file.xml> [--redeploy]   Patch payload (PayloadContent merge or MCX settings)
   clone <profile-id> <new-name>                             Clone profile with new name, unassigned scope
   redeploy <profile-id>                                     Redeploy to all assigned devices
 
 Notes:
   --redeploy sets redeploy_on_update=All (pushes to all assigned devices, not just new ones)
-  get payload / list-payloads are PayloadContent only. For MCX inspect use profile XML extract + payloads_get_mcx_dict.
+  get payload / list-payloads are PayloadContent only. identifier= is PayloadIdentifier, unique PayloadType, or unique PayloadUUID (Jamf Apple payloads often have Identifier == UUID). For MCX inspect use profile XML extract + payloads_get_mcx_dict (ManagedClient / flat mcx_preference_settings only).
   set payload: PayloadContent merges keys onto the existing payload; MCX dict file is settings-only.
 
 Examples:

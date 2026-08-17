@@ -61,19 +61,19 @@ const ProfilesBuiltinsSection = `PROFILE
       Does: Return the payloads plist XML embedded in the profile.
       → value: str (payloads plist XML)
       Params: id: int/str.
-  profile_get_payload(id, domain)
+  profile_get_payload(id, identifier)
       Does: Return one PayloadContent payload dict as plist XML.
       → value: str (plist <dict> fragment)
-      Params: id: int/str; domain: str (PayloadIdentifier).
+      Params: id: int/str; identifier: str (PayloadIdentifier, unique PayloadType, or unique PayloadUUID).
       Notes: PayloadContent only; not MCX — use payloads_get_mcx_dict offline.
   profile_list_payloads(id)
-      Does: List PayloadIdentifier values under PayloadContent.
-      → value: list of str
+      Does: List PayloadContent rows.
+      → value: list of {identifier, type, uuid}
       Params: id: int/str.
-  profile_set_payload(id, domain, dict_file, redeploy?, tenant?, surface?, auth?)
+  profile_set_payload(id, identifier, dict_file, redeploy?, tenant?, surface?, auth?)
       Does: Merge-patch one payload (PayloadContent keys or MCX settings) and PUT the profile.
       → None
-      Params: id: int/str; domain: str; dict_file: str (path to dict/plist);
+      Params: id: int/str; identifier: str; dict_file: str (path to dict/plist);
         redeploy?: bool (set redeploy_on_update=All).
       Notes: Same merge rules as profile_xml_patch_payload.
 
@@ -89,16 +89,16 @@ Subcommands:
   list [--filter=<name>]                                    List configuration profiles
   get xml <profile-id>                                      Output full profile XML
   get payloads <profile-id>                                 Output payloads plist only (pretty-printed)
-  get payload <profile-id> <domain>                          Output single PayloadContent payload by PayloadIdentifier
-  get list-payloads <profile-id>                            List PayloadIdentifier values (PayloadContent only)
+  get payload <profile-id> <identifier>                      Output one PayloadContent payload (Identifier, unique Type, or unique UUID)
+  get list-payloads <profile-id>                            List PayloadContent {identifier, type, uuid}
   set xml <profile-id> [--redeploy]                         PUT profile from XML on stdin
-  set payload <profile-id> <domain> <dict-file.xml> [--redeploy]   Patch payload (PayloadContent merge or MCX settings)
+  set payload <profile-id> <identifier> <dict-file.xml> [--redeploy]   Patch payload (PayloadContent merge or MCX settings)
   clone <profile-id> <new-name>                             Clone profile with new name, unassigned scope
   redeploy <profile-id>                                     Redeploy to all assigned devices
 
 Notes:
   --redeploy sets redeploy_on_update=All (pushes to all assigned devices, not just new ones)
-  get payload / list-payloads are PayloadContent only. For MCX inspect use profile XML extract + payloads_get_mcx_dict.
+  get payload / list-payloads are PayloadContent only. identifier= is PayloadIdentifier, unique PayloadType, or unique PayloadUUID (Jamf Apple payloads often have Identifier == UUID). For MCX inspect use profile XML extract + payloads_get_mcx_dict (ManagedClient / flat mcx_preference_settings only).
   set payload: PayloadContent merges keys onto the existing payload; MCX dict file is settings-only.
 
 Examples:

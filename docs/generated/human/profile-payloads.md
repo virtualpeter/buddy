@@ -7,9 +7,9 @@ Edit Jamf macOS configuration profile payloads with buddy (PayloadContent and MC
 
 | Do this | BuddyScript | CLI | Notes |
 |---------|-------------|-----|-------|
-| Load XML | `profile_xml(id=…)` | `buddy profile get xml` | Preserves outer UUID |
-| Inspect | `profile_xml_extract_payloads` → `payloads_list_identifiers` / `payloads_get_mcx_dict` | `buddy profile get list-payloads` / `get payload` | PayloadContent vs MCX; CLI is PayloadContent only |
-| Patch | `profile_xml_patch_payload(xml, domain, new_payload)` | `buddy profile set payload` | Offline merge for PayloadContent |
+| Load XML | `profile_xml(id=…)` | `buddy profile get xml` | Classic envelope; not a bare Apple plist |
+| Inspect | `profile_xml_extract_payloads` → `payloads_list_identifiers` | `buddy profile get list-payloads` / `get payload` | List {identifier, type, uuid}; MCX inspect is payloads_get_mcx_dict |
+| Patch | `profile_xml_patch_payload(xml, identifier, new_payload)` | `buddy profile set payload` | Offline merge; identifier= is Identifier, unique Type, or unique UUID |
 | Write back | `profile_put_xml(id, xml_str)` | `buddy profile set xml` | ACS quirks handled inside |
 | Clone / copy | `profile_clone` / `profile_copy` | `buddy profile clone` | Randomizes UUIDs; unassigned scope; copy/migrate is BuddyScript-only |
 | Create prep | `profile_xml_prepare_for_create` → `profile_create_xml` | — | Offline then POST |
@@ -20,9 +20,14 @@ Edit Jamf macOS configuration profile payloads with buddy (PayloadContent and MC
 ```python
 def main():
     xml = profile_xml(id=42)
-    xml = profile_xml_patch_payload(xml, "com.example", {"Key": "New"})
+    plist = profile_xml_extract_payloads(xml)
+    rows = payloads_list_identifiers(plist)
+    # Jamf Apple payloads: identifier is often a UUID; type is reverse-DNS.
+    # Custom payloads (e.g. Chrome): identifier is often reverse-DNS.
+    ident = rows[0]["type"]
+    xml = profile_xml_patch_payload(xml, identifier=ident, new_payload={"Key": "New"})
     profile_put_xml(id=42, xml_str=xml)
-    return "ok"
+    return rows
 ```
 
 ```python

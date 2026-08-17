@@ -23,52 +23,60 @@ var ProfilePayloadsTopic = docspec.Topic{
 	},
 	Summary: `Edit Jamf macOS configuration profile payloads with buddy (PayloadContent and MCX).`,
 	Surfaces: []docspec.SurfaceRow{
-		{Action: "Load XML", BuddyScript: "`profile_xml(id=…)`", CLI: "`buddy profile get xml`", Notes: "Preserves outer UUID"},
-		{Action: "Inspect", BuddyScript: "`profile_xml_extract_payloads` → `payloads_list_identifiers` / `payloads_get_mcx_dict`", CLI: "`buddy profile get list-payloads` / `get payload`", Notes: "PayloadContent vs MCX; CLI is PayloadContent only"},
-		{Action: "Patch", BuddyScript: "`profile_xml_patch_payload(xml, domain, new_payload)`", CLI: "`buddy profile set payload`", Notes: "Offline merge for PayloadContent"},
+		{Action: "Load XML", BuddyScript: "`profile_xml(id=…)`", CLI: "`buddy profile get xml`", Notes: "Classic envelope; not a bare Apple plist"},
+		{Action: "Inspect", BuddyScript: "`profile_xml_extract_payloads` → `payloads_list_identifiers`", CLI: "`buddy profile get list-payloads` / `get payload`", Notes: "List {identifier, type, uuid}; MCX inspect is payloads_get_mcx_dict"},
+		{Action: "Patch", BuddyScript: "`profile_xml_patch_payload(xml, identifier, new_payload)`", CLI: "`buddy profile set payload`", Notes: "Offline merge; identifier= is Identifier, unique Type, or unique UUID"},
 		{Action: "Write back", BuddyScript: "`profile_put_xml(id, xml_str)`", CLI: "`buddy profile set xml`", Notes: "ACS quirks handled inside"},
 		{Action: "Clone / copy", BuddyScript: "`profile_clone` / `profile_copy`", CLI: "`buddy profile clone`", Notes: "Randomizes UUIDs; unassigned scope; copy/migrate is BuddyScript-only"},
 		{Action: "Create prep", BuddyScript: "`profile_xml_prepare_for_create` → `profile_create_xml`", Notes: "Offline then POST"},
 		{Action: "Greenfield", BuddyScript: "`profile_create` + `payloads_set_content`", Notes: ""},
 	},
 	AgentNotes: []string{
+		"`profile_xml` is the Classic envelope. Pass that string to `profile_xml_patch_payload`. List/get need `profile_xml_extract_payloads` first.",
+		"Jamf Apple payloads often have PayloadIdentifier == PayloadUUID; PayloadType is reverse-DNS. `identifier=` accepts Identifier, unique Type, or unique UUID. Always `payloads_list_identifiers` first.",
+		"`payloads_get_mcx_dict` is only for ManagedClient / flat mcx_preference_settings preference domains — not `com.apple.MCX` PayloadContent.",
 		"Prefer named builtins via buddyscript; do not invent Classic/Pro PUTs from jamf_schema alone.",
 		"Prefer `profile_clone` / `profile_copy` over hand-editing UUIDs when creating copies.",
 	},
 	Builtins: []docspec.Builtin{
-			{
-				Name: `profile_xml_patch_payload`,
-				Summary: `Merge-patch one payload`,
-				Returns: `string`,
-				Params: []docspec.Param{
-					{Name: `profile_xml_str`, Type: `string`, Required: true, Description: `profile_xml_str`},
-					{Name: `domain`, Type: `string`, Required: true, Description: `domain`},
-				},
-			},
-			{
-				Name: `profile_xml_extract_payloads`,
-				Summary: `Extract payloads plist`,
-				Returns: `string`,
-				Params: []docspec.Param{
-					{Name: `profile_xml_str`, Type: `string`, Required: true, Description: `profile_xml_str`},
-				},
-			},
-			{
-				Name: `payloads_replace_payload`,
-				Summary: `Full-replace payload`,
-				Returns: `string`,
-				Params: []docspec.Param{
-					{Name: `payloads_plist_str`, Type: `string`, Required: true, Description: `payloads_plist_str`},
-					{Name: `domain`, Type: `string`, Required: true, Description: `domain`},
-				},
+		{
+			Name:    `profile_xml_patch_payload`,
+			Summary: `Merge-patch one payload`,
+			Returns: `string`,
+			Params: []docspec.Param{
+				{Name: `profile_xml_str`, Type: `string`, Required: true, Description: `profile_xml_str`},
+				{Name: `identifier`, Type: `string`, Required: true, Description: `PayloadIdentifier, unique PayloadType, unique PayloadUUID, or MCX preference domain`},
 			},
 		},
+		{
+			Name:    `profile_xml_extract_payloads`,
+			Summary: `Extract payloads plist`,
+			Returns: `string`,
+			Params: []docspec.Param{
+				{Name: `profile_xml_str`, Type: `string`, Required: true, Description: `profile_xml_str`},
+			},
+		},
+		{
+			Name:    `payloads_replace_payload`,
+			Summary: `Full-replace payload`,
+			Returns: `string`,
+			Params: []docspec.Param{
+				{Name: `payloads_plist_str`, Type: `string`, Required: true, Description: `payloads_plist_str`},
+				{Name: `identifier`, Type: `string`, Required: true, Description: `PayloadIdentifier, unique PayloadType, or unique PayloadUUID`},
+			},
+		},
+	},
 	ExamplesBuddy: []string{
 		`def main():
     xml = profile_xml(id=42)
-    xml = profile_xml_patch_payload(xml, "com.example", {"Key": "New"})
+    plist = profile_xml_extract_payloads(xml)
+    rows = payloads_list_identifiers(plist)
+    # Jamf Apple payloads: identifier is often a UUID; type is reverse-DNS.
+    # Custom payloads (e.g. Chrome): identifier is often reverse-DNS.
+    ident = rows[0]["type"]
+    xml = profile_xml_patch_payload(xml, identifier=ident, new_payload={"Key": "New"})
     profile_put_xml(id=42, xml_str=xml)
-    return "ok"`,
+    return rows`,
 		`./buddy --tenant=sandbox --user=sandbox-admin scripts/integration_test.buddy
 # or: make integration-test`,
 	},
@@ -99,32 +107,33 @@ var ProfilePayloadsTopic = docspec.Topic{
       Does: Set <redeploy_on_update>All</redeploy_on_update> on profile XML.
       → value: str (updated profile XML)
       Params: profile_xml_str: str. Offline.
-  profile_xml_patch_payload(profile_xml_str, domain, new_payload)
+  profile_xml_patch_payload(profile_xml_str, identifier, new_payload)
       Does: Merge-patch one PayloadContent payload or MCX settings dict in profile XML.
       → value: str (updated profile XML)
-      Params: profile_xml_str: str; domain: str (PayloadIdentifier or MCX preference domain);
+      Params: profile_xml_str: str; identifier: str (PayloadIdentifier, unique PayloadType,
+        unique PayloadUUID, or MCX preference domain if no PayloadContent hit);
               new_payload: dict or plist/dict XML. PayloadContent: keys merge onto existing payload
-              (PayloadUUID preserved). MCX: settings dict only under mcx_preference_settings.
+              (canonical PayloadIdentifier preserved). MCX: settings dict only under mcx_preference_settings.
   payloads_list_identifiers(payloads_plist_str)
-      Does: List PayloadIdentifier values under PayloadContent.
-      → value: list of str
-      Params: payloads_plist_str: str (payloads plist XML). PayloadContent only.
+      Does: List PayloadContent rows (Identifier, Type, UUID).
+      → value: list of {identifier, type, uuid}
+      Params: payloads_plist_str: str (payloads plist XML from profile_xml_extract_payloads). PayloadContent only.
   payloads_collect_uuids(payloads_plist_str)
       Does: Collect every PayloadUUID in the plist (verify clone/copy remapping).
       → value: list of str
       Params: payloads_plist_str: str.
-  payloads_get_payload(payloads_plist_str, domain)
-      Does: Return the PayloadContent payload with PayloadIdentifier == domain.
+  payloads_get_payload(payloads_plist_str, identifier)
+      Does: Return the PayloadContent payload selected by identifier=.
       → value: str (plist XML dict)
-      Params: payloads_plist_str: str; domain: str (PayloadIdentifier). Not MCX.
-  payloads_replace_payload(payloads_plist_str, domain, new_payload)
+      Params: payloads_plist_str: str; identifier: str (PayloadIdentifier, unique Type, or unique UUID). Not MCX.
+  payloads_replace_payload(payloads_plist_str, identifier, new_payload)
       Does: Fully replace one PayloadContent payload (not a merge).
       → value: str (payloads plist XML)
-      Params: payloads_plist_str: str; domain: str; new_payload: dict or plist XML.
+      Params: payloads_plist_str: str; identifier: str; new_payload: dict or plist XML.
   payloads_get_mcx_dict(payloads_plist_str, domain)
       Does: Return the mcx_preference_settings dict for an MCX preference domain.
       → value: str (bare <dict>…</dict>)
-      Params: payloads_plist_str: str; domain: str (MCX preference-domain key).
+      Params: payloads_plist_str: str; domain: str (MCX preference-domain key, not PayloadType com.apple.MCX).
   payloads_replace_mcx_dict(payloads_plist_str, domain, dict_xml_str)
       Does: Replace mcx_preference_settings for an MCX preference domain.
       → value: str (payloads plist XML)
@@ -133,15 +142,15 @@ var ProfilePayloadsTopic = docspec.Topic{
       Does: Set the PayloadContent array on a payloads plist (start fresh if omitted).
       → value: str (payloads plist XML)
       Params: content: list of payload dicts; payloads_plist_str?: str (omit/empty to start fresh).
-  payloads_add_payload(payloads_plist_str, domain, new_payload)
-      Does: Append a payload, or replace it if the PayloadIdentifier already exists.
+  payloads_add_payload(payloads_plist_str, identifier, new_payload)
+      Does: Append a payload, or replace it if identifier= already matches.
       → value: str (payloads plist XML)
-      Params: payloads_plist_str: str (empty ok); domain: str; new_payload: dict or plist XML.
-        Sets PayloadIdentifier to domain when missing.
-  payloads_remove_payload(payloads_plist_str, domain)
-      Does: Remove the payload with PayloadIdentifier == domain (fails if not found).
+      Params: payloads_plist_str: str (empty ok); identifier: str; new_payload: dict or plist XML.
+        Sets PayloadIdentifier to identifier when missing on create.
+  payloads_remove_payload(payloads_plist_str, identifier)
+      Does: Remove the PayloadContent payload selected by identifier=.
       → value: str (payloads plist XML)
-      Params: payloads_plist_str: str; domain: str.
+      Params: payloads_plist_str: str; identifier: str.
   plist_normalise_dict(data_str)
       Does: Normalise a dict fragment or full plist to a bare <dict>…</dict>.
       → value: str (bare <dict>…</dict>)

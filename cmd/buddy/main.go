@@ -1624,14 +1624,14 @@ func runProfileGet(credName string, opts buddy.Opts, subcommand string, args []s
 		return buddy.ProfileGetPayloads(credName, profileID, os.Stdout, log)
 	case "payload":
 		if len(args) < 2 {
-			return missingArg("profile-id or domain", clispec.UsageHelp(clispec.CmdProfile))
+			return missingArg("profile-id or identifier", clispec.UsageHelp(clispec.CmdProfile))
 		}
 		profileID, err := parseInt(args[0], "profile-id")
 		if err != nil {
 			return err
 		}
-		domain := strings.TrimSpace(args[1])
-		return buddy.ProfileGetPayloadByDomain(credName, profileID, domain, os.Stdout, log)
+		identifier := strings.TrimSpace(args[1])
+		return buddy.ProfileGetPayloadByDomain(credName, profileID, identifier, os.Stdout, log)
 	case "list-payloads":
 		if len(args) < 1 {
 			return missingArg("profile-id", clispec.UsageHelp(clispec.CmdProfile))
@@ -1640,12 +1640,13 @@ func runProfileGet(credName string, opts buddy.Opts, subcommand string, args []s
 		if err != nil {
 			return err
 		}
-		domains, err := buddy.ProfileListPayloads(credName, profileID, log)
+		rows, err := buddy.ProfileListPayloads(credName, profileID, log)
 		if err != nil {
 			return err
 		}
-		for _, d := range domains {
-			fmt.Println(d)
+		fmt.Printf("%-36s  %-40s  %s\n", "IDENTIFIER", "TYPE", "UUID")
+		for _, r := range rows {
+			fmt.Printf("%-36s  %-40s  %s\n", r.Identifier, r.Type, r.UUID)
 		}
 		return nil
 	default:
@@ -1682,15 +1683,15 @@ func runProfileSet(credName string, opts buddy.Opts, subcommand string, args []s
 		return buddy.ProfileSetXML(credName, opts, profileID, os.Stdin, redeploy, log)
 	case "payload":
 		if len(args) < 3 {
-			return missingArg("profile-id, domain, or dict-file", clispec.UsageHelp(clispec.CmdProfile))
+			return missingArg("profile-id, identifier, or dict-file", clispec.UsageHelp(clispec.CmdProfile))
 		}
 		profileID, err := parseInt(args[0], "profile-id")
 		if err != nil {
 			return err
 		}
-		domain := strings.TrimSpace(args[1])
+		identifier := strings.TrimSpace(args[1])
 		dictFile := args[2]
-		return buddy.ProfileSetPayload(credName, opts, profileID, domain, dictFile, redeploy, log)
+		return buddy.ProfileSetPayload(credName, opts, profileID, identifier, dictFile, redeploy, log)
 	default:
 		return errUnknownSubcommand("profile set", subcommand, []string{"xml", "payload"})
 	}

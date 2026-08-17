@@ -1,14 +1,14 @@
 # Offline smoke: profile payload patch path agents should use via MCP.
 def main():
     xml = """<?xml version="1.0"?><os_x_configuration_profile><general><id>1</id></general><payloads>&lt;?xml version="1.0"?&gt;&lt;plist version="1.0"&gt;&lt;dict&gt;&lt;key&gt;PayloadContent&lt;/key&gt;&lt;array&gt;&lt;dict&gt;&lt;key&gt;PayloadIdentifier&lt;/key&gt;&lt;string&gt;com.example.test&lt;/string&gt;&lt;key&gt;PayloadType&lt;/key&gt;&lt;string&gt;com.example.test&lt;/string&gt;&lt;key&gt;SomeKey&lt;/key&gt;&lt;string&gt;Old&lt;/string&gt;&lt;/dict&gt;&lt;/array&gt;&lt;/dict&gt;&lt;/plist&gt;</payloads></os_x_configuration_profile>"""
+    plist = profile_xml_extract_payloads(xml)
+    rows = payloads_list_identifiers(plist)
+    if not rows or rows[0]["type"] != "com.example.test":
+        fail("list identifiers should return {identifier, type, uuid}")
     patched = profile_xml_patch_payload(
         xml,
-        "com.example.test",
-        {
-            "PayloadIdentifier": "com.example.test",
-            "PayloadType": "com.example.test",
-            "SomeKey": "New",
-        },
+        identifier=rows[0]["type"],
+        new_payload={"SomeKey": "New"},
     )
     payloads = profile_xml_extract_payloads(patched)
     if "New" not in payloads:

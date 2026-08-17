@@ -245,7 +245,7 @@ def case_patch_merge(profile_id, snap):
     full = copy_dict(snap["settings"])
     full[MARKER_KEY] = MARKER_VAL + "-patch"
     state = load_acs(profile_id, snap["domain"])
-    patched = profile_xml_patch_payload(state["xml"], snap["domain"], full)
+    patched = profile_xml_patch_payload(state["xml"], identifier=snap["domain"], new_payload=full)
     profile_put_xml(id=profile_id, xml_str=patched, auth=auth)
     after = load_acs(profile_id, snap["domain"])
     assert_settings_contain(after["settings"], [MARKER_KEY], "case 5a")
@@ -255,7 +255,7 @@ def case_patch_merge(profile_id, snap):
 
     # 5b — partial patch replaces entire settings dict (documented MCX behaviour).
     state = load_acs(profile_id, snap["domain"])
-    patched = profile_xml_patch_payload(state["xml"], snap["domain"], {MARKER_KEY: "partial-only"})
+    patched = profile_xml_patch_payload(state["xml"], identifier=snap["domain"], new_payload={MARKER_KEY: "partial-only"})
     profile_put_xml(id=profile_id, xml_str=patched, auth=auth)
     after = load_acs(profile_id, snap["domain"])
     if after["settings"].get(MARKER_KEY) != "partial-only":

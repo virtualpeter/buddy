@@ -20,14 +20,17 @@ Edit Jamf macOS configuration profile payloads with buddy (PayloadContent and MC
 
 ## Agent rules
 
+- `profile_xml` is the Classic envelope. Pass that string to `profile_xml_patch_payload`. List/get need `profile_xml_extract_payloads` first.
+- Jamf Apple payloads often have PayloadIdentifier == PayloadUUID; PayloadType is reverse-DNS. `identifier=` accepts Identifier, unique Type, or unique UUID. Always `payloads_list_identifiers` first.
+- `payloads_get_mcx_dict` is only for ManagedClient / flat mcx_preference_settings preference domains — not `com.apple.MCX` PayloadContent.
 - Prefer named builtins via buddyscript; do not invent Classic/Pro PUTs from jamf_schema alone.
 - Prefer `profile_clone` / `profile_copy` over hand-editing UUIDs when creating copies.
 
 ## Facts
 
-- Load XML: `profile_xml(id=…)` · `buddy profile get xml` — Preserves outer UUID
-- Inspect: `profile_xml_extract_payloads` → `payloads_list_identifiers` / `payloads_get_mcx_dict` · `buddy profile get list-payloads` / `get payload` — PayloadContent vs MCX; CLI is PayloadContent only
-- Patch: `profile_xml_patch_payload(xml, domain, new_payload)` · `buddy profile set payload` — Offline merge for PayloadContent
+- Load XML: `profile_xml(id=…)` · `buddy profile get xml` — Classic envelope; not a bare Apple plist
+- Inspect: `profile_xml_extract_payloads` → `payloads_list_identifiers` · `buddy profile get list-payloads` / `get payload` — List {identifier, type, uuid}; MCX inspect is payloads_get_mcx_dict
+- Patch: `profile_xml_patch_payload(xml, identifier, new_payload)` · `buddy profile set payload` — Offline merge; identifier= is Identifier, unique Type, or unique UUID
 - Write back: `profile_put_xml(id, xml_str)` · `buddy profile set xml` — ACS quirks handled inside
 - Clone / copy: `profile_clone` / `profile_copy` · `buddy profile clone` — Randomizes UUIDs; unassigned scope; copy/migrate is BuddyScript-only
 - Create prep: `profile_xml_prepare_for_create` → `profile_create_xml` — Offline then POST
@@ -47,8 +50,8 @@ Returns: string
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "domain": {
-      "description": "domain",
+    "identifier": {
+      "description": "PayloadIdentifier, unique PayloadType, unique PayloadUUID, or MCX preference domain",
       "type": "string"
     },
     "profile_xml_str": {
@@ -58,7 +61,7 @@ Returns: string
   },
   "required": [
     "profile_xml_str",
-    "domain"
+    "identifier"
   ],
   "title": "profile_xml_patch_payload",
   "type": "object"
@@ -102,8 +105,8 @@ Returns: string
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "domain": {
-      "description": "domain",
+    "identifier": {
+      "description": "PayloadIdentifier, unique PayloadType, or unique PayloadUUID",
       "type": "string"
     },
     "payloads_plist_str": {
@@ -113,7 +116,7 @@ Returns: string
   },
   "required": [
     "payloads_plist_str",
-    "domain"
+    "identifier"
   ],
   "title": "payloads_replace_payload",
   "type": "object"
@@ -125,9 +128,14 @@ Returns: string
 ```python
 def main():
     xml = profile_xml(id=42)
-    xml = profile_xml_patch_payload(xml, "com.example", {"Key": "New"})
+    plist = profile_xml_extract_payloads(xml)
+    rows = payloads_list_identifiers(plist)
+    # Jamf Apple payloads: identifier is often a UUID; type is reverse-DNS.
+    # Custom payloads (e.g. Chrome): identifier is often reverse-DNS.
+    ident = rows[0]["type"]
+    xml = profile_xml_patch_payload(xml, identifier=ident, new_payload={"Key": "New"})
     profile_put_xml(id=42, xml_str=xml)
-    return "ok"
+    return rows
 ```
 
 ```python

@@ -245,23 +245,34 @@ func TestStepFromStarlark_CreatePolicy_VersionSubstitution(t *testing.T) {
 }
 
 func TestStepFromStarlark_SetProfilePayload_Valid(t *testing.T) {
-	d := stepDict(stepTypeSetProfilePayload, "id", 99, "domain", "com.example.app", "dict_file", "/path/to/dict.plist")
+	d := stepDict(stepTypeSetProfilePayload, "id", 99, "identifier", "com.example.app", "dict_file", "/path/to/dict.plist")
 	s, err := stepFromStarlark(d)
 	if err != nil {
 		t.Fatalf("stepFromStarlark: %v", err)
 	}
-	if s.Type != stepTypeSetProfilePayload || s.ProfileID != 99 || s.Domain != "com.example.app" || s.DictFile != "/path/to/dict.plist" {
-		t.Errorf("got Type=%q ProfileID=%d Domain=%q DictFile=%q", s.Type, s.ProfileID, s.Domain, s.DictFile)
+	if s.Type != stepTypeSetProfilePayload || s.ProfileID != 99 || s.Identifier != "com.example.app" || s.DictFile != "/path/to/dict.plist" {
+		t.Errorf("got Type=%q ProfileID=%d Identifier=%q DictFile=%q", s.Type, s.ProfileID, s.Identifier, s.DictFile)
 	}
 }
 
 func TestStepFromStarlark_SetProfilePayload_MissingField(t *testing.T) {
-	d := stepDict(stepTypeSetProfilePayload, "id", 99, "domain", "com.example")
+	d := stepDict(stepTypeSetProfilePayload, "id", 99, "identifier", "com.example")
 	_, err := stepFromStarlark(d)
 	if err == nil {
 		t.Fatal("expected error when dict_file missing")
 	}
-	if !strings.Contains(err.Error(), "id, domain, dict_file") {
+	if !strings.Contains(err.Error(), "id, identifier, dict_file") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestStepFromStarlark_SetProfilePayload_RejectsDomainKey(t *testing.T) {
+	d := stepDict(stepTypeSetProfilePayload, "id", 99, "domain", "com.example.app", "dict_file", "/path/to/dict.plist")
+	_, err := stepFromStarlark(d)
+	if err == nil {
+		t.Fatal("expected error when identifier missing (domain is not an alias)")
+	}
+	if !strings.Contains(err.Error(), "id, identifier, dict_file") {
 		t.Errorf("error = %v", err)
 	}
 }

@@ -422,7 +422,7 @@ def test_profile_mutate_classic(profile_id):
 
     xml, settings = assert_classic_mcx_keys(profile_id, ["BuddyTestSeed"], "phase B pre-mutate")
     settings["BuddyTestKey"] = TEST_PREFIX
-    patched = profile_xml_patch_payload(xml, MCX_DOMAIN, settings)
+    patched = profile_xml_patch_payload(xml, identifier=MCX_DOMAIN, new_payload=settings)
     profile_put_xml(id=profile_id, xml_str=patched, auth=auth)
     assert_classic_mcx_keys(profile_id, ["BuddyTestSeed", "BuddyTestKey"], "phase B post-mutate")
 
@@ -477,7 +477,7 @@ def test_profile_inject_ampersand(profile_id, created):
     for k in settings:
         good[k] = settings[k]
     good["ExampleURL"] = APPLY_FORM_URL
-    patched_apply = profile_xml_patch_payload(xml, MCX_DOMAIN, good)
+    patched_apply = profile_xml_patch_payload(xml, identifier=MCX_DOMAIN, new_payload=good)
     profile_put_xml(id=profile_id, xml_str=patched_apply, auth=auth)
     _, settings_ok = assert_classic_mcx_keys(
         profile_id,
@@ -501,7 +501,7 @@ def test_profile_inject_ampersand(profile_id, created):
     for k in settings:
         bare[k] = settings[k]
     bare["ExampleURL"] = BARE_AMP_URL
-    patched_bare = profile_xml_patch_payload(xml, MCX_DOMAIN, bare)
+    patched_bare = profile_xml_patch_payload(xml, identifier=MCX_DOMAIN, new_payload=bare)
     profile_put_xml(id=profile_id, xml_str=patched_bare, auth=auth)
     _, settings_bare = assert_classic_mcx_keys(
         profile_id,

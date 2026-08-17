@@ -13,7 +13,7 @@ Prefer one buddyscript def main() over many tiny round-trips (host timeouts); do
 Tools: get_instructions, buddy_info, docs, jamf_schema (discovery only), buddyscript (primary).
 Before resource work: docs query the object noun (e.g. smart_groups, policies, packages, profile-payloads, blueprints) then get that page.
 Respect buddy_info.deny_builtins (channels.mcp.deny_builtins); blocked builtins raise — treat as a gap, do not invent schema HTTP.
-Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic PUT from schema.
+Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic PUT from schema. profile_xml is the Classic envelope; list with payloads_list_identifiers then identifier= (Identifier, unique Type, or unique UUID). MCX helpers only for ManagedClient / mcx_preference_settings.
 Packages/JCDS: package_ready / package_wait_ready / package_download.
 Groups: smart_group* (criteria + smart_group_list_computers) vs static_group* (membership mutate) — do not mix; Platform device_group* is separate.
 buddyscript: prefer def main(): … return …; Starlark has no while/try/class (use for … in / range, or builtins like package_wait_ready for polling); builtins return bare values and raise on failure; MCP wraps {ok,value} only at the tool boundary.
@@ -68,7 +68,7 @@ MCP hosts (Claude Desktop, Cursor, …) often time out tool calls. Do **not** pr
 
 - Respect **buddy_info.deny_builtins** (channels.mcp.deny_builtins). Blocked builtins raise on call — treat as a coverage gap; do not invent alternate HTTP.
 - **Groups:** smart_group* (criteria + smart_group_list_computers) vs static_group* (membership mutate) vs Platform device_group* — do not mix.
-- **Profiles/ACS:** profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic profile PUT from jamf_schema.
+- **Profiles/ACS:** profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic profile PUT from jamf_schema. profile_xml is the Classic envelope (not a bare plist). Inspect via profile_xml_extract_payloads → payloads_list_identifiers, then identifier= (PayloadIdentifier, unique PayloadType, or unique PayloadUUID). payloads_get_mcx_dict only for ManagedClient / flat mcx_preference_settings — not com.apple.MCX PayloadContent.
 - **Packages/JCDS:** package_ready / package_wait_ready / package_download.
 - Jamf remote MCP (developer.jamf.com/mcp) = product schemas; buddy = tenant changes with your config/secrets.
 `
@@ -111,6 +111,8 @@ const (
 		"Prefer def main(): … return … (no trailing top-level expr), or a single bare expression. " +
 		"Before resource work: docs query object noun (policies, packages, smart-groups, profile-payloads, blueprints). " +
 		"Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload — never jamf_put Classic profile XML. " +
+		"profile_xml is the Classic envelope; payloads_list_identifiers then identifier= (Identifier / unique Type / unique UUID). " +
+		"MCX helpers only for ManagedClient / mcx_preference_settings. " +
 		"Packages: package_wait_ready / package_download. " +
 		"Groups: smart_group* (criteria + smart_group_list_computers) vs static_group* (membership mutate) — do not mix; Platform device_group* is separate. " +
 		"jamf_get/jamf_put only when no builtin exists. Top-level if/for must be inside functions. " +

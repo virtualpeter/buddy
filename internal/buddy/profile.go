@@ -106,78 +106,46 @@ func PlistPayloadIdentifiers(payloadsRaw string) ([]string, error) {
 }
 
 func plistPayloadIdentifiers(payloadsRaw string) ([]string, error) {
-	var root interface{}
-	dec := plist.NewDecoder(strings.NewReader(payloadsRaw))
-	if err := dec.Decode(&root); err != nil {
-		return nil, fmt.Errorf(errDecodePayloadsPlist, err)
-	}
-	m, ok := root.(map[string]interface{})
-	if !ok {
-		return nil, nil
-	}
-	content, ok := m["PayloadContent"]
-	if !ok {
-		return nil, nil
-	}
-	arr, ok := content.([]interface{})
-	if !ok {
-		return nil, nil
+	rows, err := plistPayloadContentRows(payloadsRaw)
+	if err != nil {
+		return nil, err
 	}
 	var ids []string
-	for _, item := range arr {
-		dict, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if id, _ := dict["PayloadIdentifier"].(string); id != "" {
-			ids = append(ids, id)
+	for _, r := range rows {
+		if r.Identifier != "" {
+			ids = append(ids, r.Identifier)
 		}
 	}
 	return ids, nil
 }
 
-// PlistGetPayloadByDomain returns the single payload dict with PayloadIdentifier == domain as plist XML (dict fragment).
-// If the plist uses PayloadContent array, finds that payload; otherwise returns error.
+// PlistGetPayloadByDomain returns the PayloadContent dict selected by identifier=
+// (PayloadIdentifier, unique PayloadType, or unique PayloadUUID) as plist XML.
 func PlistGetPayloadByDomain(payloadsRaw, domain string) ([]byte, error) {
 	return plistGetPayloadByDomain(payloadsRaw, domain)
 }
 
 func plistGetPayloadByDomain(payloadsRaw, domain string) ([]byte, error) {
-	var root interface{}
-	dec := plist.NewDecoder(strings.NewReader(payloadsRaw))
-	if err := dec.Decode(&root); err != nil {
-		return nil, fmt.Errorf(errDecodePayloadsPlist, err)
+	_, arr, err := decodePayloadContent(payloadsRaw)
+	if err != nil {
+		return nil, err
 	}
-	m, ok := root.(map[string]interface{})
+	idx, err := matchPayloadContentIndex(arr, domain)
+	if err != nil {
+		return nil, err
+	}
+	dict, ok := arr[idx].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("payloads root is not a dict")
+		return nil, fmt.Errorf("payload %q is not a dict", domain)
 	}
-	content, ok := m["PayloadContent"]
-	if !ok {
-		return nil, fmt.Errorf("payloads plist has no PayloadContent array")
+	var buf bytes.Buffer
+	if err := plist.NewEncoder(&buf).Encode(dict); err != nil {
+		return nil, fmt.Errorf("encode payload: %w", err)
 	}
-	arr, ok := content.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("PayloadContent is not an array")
-	}
-	for _, item := range arr {
-		dict, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if id, _ := dict["PayloadIdentifier"].(string); id == domain {
-			var buf bytes.Buffer
-			enc := plist.NewEncoder(&buf)
-			if err := enc.Encode(dict); err != nil {
-				return nil, fmt.Errorf("encode payload: %w", err)
-			}
-			return buf.Bytes(), nil
-		}
-	}
-	return nil, fmt.Errorf("payload with PayloadIdentifier %q not found", domain)
+	return buf.Bytes(), nil
 }
 
-// PlistReplacePayloadByDomain replaces the payload with PayloadIdentifier == domain in the payloads plist with newPayload.
+// PlistReplacePayloadByDomain replaces the PayloadContent payload selected by identifier=.
 // newPayload should be a decoded plist dict (map[string]interface{} or struct). Returns the updated plist as XML string.
 // This is a full replace (advanced). Prefer PlistMergePayloadByDomain / PatchProfilePayload for partial updates.
 func PlistReplacePayloadByDomain(payloadsRaw, domain string, newPayload interface{}) (string, error) {
@@ -193,27 +161,21 @@ func plistReplacePayloadByDomain(payloadsRaw, domain string, newPayload interfac
 	if err != nil {
 		return "", err
 	}
-	found := false
-	for i, item := range arr {
-		dict, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if id, _ := dict["PayloadIdentifier"].(string); id == domain {
-			arr[i] = newDict
-			found = true
-			break
-		}
+	idx, err := matchPayloadContentIndex(arr, domain)
+	if err != nil {
+		return "", err
 	}
-	if !found {
-		return "", fmt.Errorf("payload with PayloadIdentifier %q not found", domain)
-	}
+	existing, _ := arr[idx].(map[string]interface{})
+	canonical := payloadDictString(existing, "PayloadIdentifier")
+	preserveCanonicalIdentifier(newDict, canonical, strings.TrimSpace(domain))
+	arr[idx] = newDict
 	m["PayloadContent"] = arr
 	return encodePayloadsRoot(m)
 }
 
-// PlistMergePayloadByDomain merges newPayload keys onto the existing PayloadContent entry for domain
-// (new keys win; omitted keys are preserved, including PayloadUUID). Sets PayloadIdentifier to domain if missing.
+// PlistMergePayloadByDomain merges newPayload keys onto the PayloadContent entry selected by identifier=
+// (new keys win; omitted keys are preserved, including PayloadUUID). Does not rewrite PayloadIdentifier
+// to a Type/UUID selector.
 func PlistMergePayloadByDomain(payloadsRaw, domain string, newPayload interface{}) (string, error) {
 	return plistMergePayloadByDomain(payloadsRaw, domain, newPayload)
 }
@@ -227,31 +189,24 @@ func plistMergePayloadByDomain(payloadsRaw, domain string, newPayload interface{
 	if err != nil {
 		return "", err
 	}
-	found := false
-	for i, item := range arr {
-		dict, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if id, _ := dict["PayloadIdentifier"].(string); id == domain {
-			merged := make(map[string]interface{}, len(dict)+len(newDict))
-			for k, v := range dict {
-				merged[k] = v
-			}
-			for k, v := range newDict {
-				merged[k] = v
-			}
-			if _, ok := merged["PayloadIdentifier"]; !ok || merged["PayloadIdentifier"] == "" {
-				merged["PayloadIdentifier"] = domain
-			}
-			arr[i] = merged
-			found = true
-			break
-		}
+	idx, err := matchPayloadContentIndex(arr, domain)
+	if err != nil {
+		return "", err
 	}
-	if !found {
-		return "", fmt.Errorf("payload with PayloadIdentifier %q not found", domain)
+	dict, ok := arr[idx].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("payload %q is not a dict", domain)
 	}
+	canonical := payloadDictString(dict, "PayloadIdentifier")
+	merged := make(map[string]interface{}, len(dict)+len(newDict))
+	for k, v := range dict {
+		merged[k] = v
+	}
+	for k, v := range newDict {
+		merged[k] = v
+	}
+	preserveCanonicalIdentifier(merged, canonical, strings.TrimSpace(domain))
+	arr[idx] = merged
 	m["PayloadContent"] = arr
 	return encodePayloadsRoot(m)
 }
@@ -293,7 +248,7 @@ func plistSetPayloadContent(payloadsRaw string, content []interface{}) (string, 
 	return encodePayloadsRoot(root)
 }
 
-// PlistAddPayload appends (or replaces) a payload dict keyed by PayloadIdentifier == domain.
+// PlistAddPayload appends (or replaces) a payload dict selected by identifier=.
 // If payloadsRaw is empty, creates a new payloads plist with a single PayloadContent entry.
 func PlistAddPayload(payloadsRaw, domain string, newPayload interface{}) (string, error) {
 	return plistAddPayload(payloadsRaw, domain, newPayload)
@@ -302,19 +257,19 @@ func PlistAddPayload(payloadsRaw, domain string, newPayload interface{}) (string
 func plistAddPayload(payloadsRaw, domain string, newPayload interface{}) (string, error) {
 	domain = strings.TrimSpace(domain)
 	if domain == "" {
-		return "", fmt.Errorf("domain is required")
+		return "", fmt.Errorf("identifier is required")
 	}
 	newDict, err := coercePayloadDict(newPayload)
 	if err != nil {
 		return "", err
 	}
-	if id, _ := newDict["PayloadIdentifier"].(string); id == "" {
-		newDict["PayloadIdentifier"] = domain
-	} else if id != domain {
-		return "", fmt.Errorf("new payload PayloadIdentifier %q does not match domain %q", id, domain)
-	}
 
 	if strings.TrimSpace(payloadsRaw) == "" {
+		if payloadDictString(newDict, "PayloadIdentifier") == "" {
+			newDict["PayloadIdentifier"] = domain
+		} else if id := payloadDictString(newDict, "PayloadIdentifier"); id != domain {
+			return "", fmt.Errorf("new payload PayloadIdentifier %q does not match identifier %q", id, domain)
+		}
 		return plistSetPayloadContent("", []interface{}{newDict})
 	}
 
@@ -322,26 +277,25 @@ func plistAddPayload(payloadsRaw, domain string, newPayload interface{}) (string
 	if err != nil {
 		return "", err
 	}
-	found := false
-	for i, item := range arr {
-		dict, ok := item.(map[string]interface{})
-		if !ok {
-			continue
+	idx, matchErr := matchPayloadContentIndex(arr, domain)
+	if matchErr == nil {
+		existing, _ := arr[idx].(map[string]interface{})
+		canonical := payloadDictString(existing, "PayloadIdentifier")
+		preserveCanonicalIdentifier(newDict, canonical, domain)
+		arr[idx] = newDict
+	} else {
+		if payloadDictString(newDict, "PayloadIdentifier") == "" {
+			newDict["PayloadIdentifier"] = domain
+		} else if id := payloadDictString(newDict, "PayloadIdentifier"); id != domain {
+			return "", fmt.Errorf("new payload PayloadIdentifier %q does not match identifier %q", id, domain)
 		}
-		if id, _ := dict["PayloadIdentifier"].(string); id == domain {
-			arr[i] = newDict
-			found = true
-			break
-		}
-	}
-	if !found {
 		arr = append(arr, newDict)
 	}
 	m["PayloadContent"] = arr
 	return encodePayloadsRoot(m)
 }
 
-// PlistRemovePayload removes the payload with PayloadIdentifier == domain from PayloadContent.
+// PlistRemovePayload removes the PayloadContent payload selected by identifier=.
 func PlistRemovePayload(payloadsRaw, domain string) (string, error) {
 	return plistRemovePayload(payloadsRaw, domain)
 }
@@ -349,28 +303,22 @@ func PlistRemovePayload(payloadsRaw, domain string) (string, error) {
 func plistRemovePayload(payloadsRaw, domain string) (string, error) {
 	domain = strings.TrimSpace(domain)
 	if domain == "" {
-		return "", fmt.Errorf("domain is required")
+		return "", fmt.Errorf("identifier is required")
 	}
 	m, arr, err := decodePayloadContent(payloadsRaw)
 	if err != nil {
 		return "", err
 	}
-	out := make([]interface{}, 0, len(arr))
-	found := false
-	for _, item := range arr {
-		dict, ok := item.(map[string]interface{})
-		if !ok {
-			out = append(out, item)
-			continue
-		}
-		if id, _ := dict["PayloadIdentifier"].(string); id == domain {
-			found = true
+	idx, err := matchPayloadContentIndex(arr, domain)
+	if err != nil {
+		return "", err
+	}
+	out := make([]interface{}, 0, len(arr)-1)
+	for i, item := range arr {
+		if i == idx {
 			continue
 		}
 		out = append(out, item)
-	}
-	if !found {
-		return "", fmt.Errorf("payload with PayloadIdentifier %q not found", domain)
 	}
 	m["PayloadContent"] = out
 	return encodePayloadsRoot(m)
@@ -593,8 +541,7 @@ func ProfileGetPayloads(credName string, profileID int, w io.Writer, logger *slo
 	return enc.Encode(root)
 }
 
-// ProfileGetPayloadByDomain fetches the profile and writes the single payload with PayloadIdentifier == domain to w
-// as plist XML (a single dict). Use for extracting one payload for editing or re-use with set payload.
+// ProfileGetPayloadByDomain fetches the profile and writes the PayloadContent payload selected by identifier= to w.
 func ProfileGetPayloadByDomain(credName string, profileID int, domain string, w io.Writer, logger *slog.Logger) error {
 	profileXML, err := profileFetchRaw(credName, profileID)
 	if err != nil {
@@ -612,9 +559,9 @@ func ProfileGetPayloadByDomain(credName string, profileID int, domain string, w 
 	return err
 }
 
-// ProfileListPayloads fetches the profile and returns the list of PayloadIdentifier values (domains) in the profile.
-// Returns nil slice if the payloads plist does not use PayloadContent array (e.g. MCX-style).
-func ProfileListPayloads(credName string, profileID int, logger *slog.Logger) ([]string, error) {
+// ProfileListPayloads fetches the profile and returns PayloadContent rows {identifier, type, uuid}.
+// Returns a nil slice if the payloads plist does not use a PayloadContent array (e.g. MCX-style).
+func ProfileListPayloads(credName string, profileID int, logger *slog.Logger) ([]PayloadContentRow, error) {
 	profileXML, err := profileFetchRaw(credName, profileID)
 	if err != nil {
 		return nil, err
@@ -623,7 +570,7 @@ func ProfileListPayloads(credName string, profileID int, logger *slog.Logger) ([
 	if err != nil {
 		return nil, err
 	}
-	return plistPayloadIdentifiers(payloadsRaw)
+	return plistPayloadContentRows(payloadsRaw)
 }
 
 // ProfileSetXML reads XML from r (typically os.Stdin) and PUTs it to update the configuration profile.
@@ -681,7 +628,7 @@ func ProfilePutXML(credName string, opts Opts, profileID int, xml []byte, redepl
 // PayloadIdentifier, or MCX mcx_preference_settings settings dict). It fetches the current
 // profile from Jamf, patches in place, and PUTs the result back.
 //
-// Usage: buddy profile set payload <profile-id> <domain> <dict-file.xml>
+// Usage: buddy profile set payload <profile-id> <identifier> <dict-file.xml>
 //
 // For PayloadContent, the dict file may be a partial payload (keys merge; PayloadUUID kept).
 // For MCX, the dict file is the mcx_preference_settings content only.
@@ -1393,36 +1340,49 @@ func dictFileToPlistMap(data []byte) (map[string]interface{}, error) {
 	return m, nil
 }
 
-// patchProfilePayload locates the entity-encoded plist inside <payloads>, decodes it,
-// merges/replaces the payload for the given domain (by PayloadIdentifier in PayloadContent, or MCX mcx_preference_settings),
-// re-encodes it, and returns the reconstructed profile XML. Preserves the rest of the profile including UUID.
-// PayloadContent path merges keys; MCX path replaces the settings dict only.
+// patchProfilePayload locates the entity-encoded plist inside <payloads>,
+// merges the payload selected by identifier= (PayloadIdentifier, unique Type, unique UUID)
+// or falls back to MCX mcx_preference_settings for the same string as a preference domain.
 func patchProfilePayload(profileXML []byte, domain, newDictXML string) ([]byte, error) {
 	payloadsRaw, err := extractPayloadsFromProfileXML(profileXML)
 	if err != nil {
 		return nil, err
 	}
 
-	// Try plist-based merge (PayloadContent array, PayloadIdentifier).
+	var pcErr error
 	newPayloadMap, mapErr := dictFileToPlistMap([]byte(newDictXML))
 	if mapErr == nil {
 		updatedRaw, replaceErr := plistMergePayloadByDomain(payloadsRaw, domain, newPayloadMap)
 		if replaceErr == nil {
 			return replacePayloadsContent(profileXML, updatedRaw)
 		}
+		pcErr = replaceErr
+	} else {
+		pcErr = mapErr
 	}
 
-	// Fall back to MCX-style replace (domain key + mcx_preference_settings dict).
 	mcxDict := newDictXML
 	if normalized, normErr := normaliseDictFile([]byte(newDictXML)); normErr == nil {
 		mcxDict = normalized
 	}
-	updatedPlist, err := replaceMCXDict(payloadsRaw, domain, mcxDict)
-	if err != nil {
-		return nil, err
+	updatedPlist, mcxErr := replaceMCXDict(payloadsRaw, domain, mcxDict)
+	if mcxErr == nil {
+		return replacePayloadsContent(profileXML, updatedPlist)
 	}
 
-	return replacePayloadsContent(profileXML, updatedPlist)
+	rows, _ := plistPayloadContentRows(payloadsRaw)
+	if len(rows) > 0 {
+		entries, _ := listMCXPayloadEntriesFromPayloadsPlist(payloadsRaw)
+		msg := pcErr.Error()
+		if names := mcxDomainNames(entries); len(names) > 0 {
+			msg += fmt.Sprintf("; MCX domains: %v", names)
+		}
+		return nil, fmt.Errorf("%s", msg)
+	}
+	if mcxErr != nil {
+		return nil, mcxErr
+	}
+	return nil, pcErr
 }
 
 // GetMCXDict returns the bare <dict>…</dict> fragment for mcx_preference_settings under domain.
@@ -1444,7 +1404,11 @@ func getMCXDict(plistXML, domain string) (string, error) {
 			return mcxSettingsMapToDictFragment(e.SettingsDict)
 		}
 	}
-	return "", fmt.Errorf("domain %q not found in payloads plist", domain)
+	rows, _ := plistPayloadContentRows(plistXML)
+	if len(entries) == 0 && len(rows) > 0 {
+		return "", fmt.Errorf("no MCX preference domain %q; this plist has PayloadContent — use payloads_list_identifiers / payloads_get_payload", domain)
+	}
+	return "", fmt.Errorf("MCX preference domain %q not found", domain)
 }
 
 func getMCXDictFlat(plistXML, domain string) (string, error) {

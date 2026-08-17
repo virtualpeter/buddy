@@ -459,10 +459,10 @@ DECLARATIVE WORKFLOW (step constructors + executor)
       Does: Step: delete one or more policies.
       → value: step dict
       Params: ids: list of int.
-  step_set_profile_payload(id, domain, dict_file, redeploy?)
+  step_set_profile_payload(id, identifier, dict_file, redeploy?)
       Does: Step: merge-patch a profile payload from a dict file.
       → value: step dict
-      Params: id: int; domain: str; dict_file: str; redeploy?: bool.
+      Params: id: int; identifier: str; dict_file: str; redeploy?: bool.
   step_set_profile_xml(id, xml_file, redeploy?)
       Does: Step: PUT a profile from a local XML file.
       → value: step dict

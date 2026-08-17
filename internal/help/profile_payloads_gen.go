@@ -30,32 +30,33 @@ const ProfilePayloadsBuiltinsSection = `PROFILE — component
       Does: Set <redeploy_on_update>All</redeploy_on_update> on profile XML.
       → value: str (updated profile XML)
       Params: profile_xml_str: str. Offline.
-  profile_xml_patch_payload(profile_xml_str, domain, new_payload)
+  profile_xml_patch_payload(profile_xml_str, identifier, new_payload)
       Does: Merge-patch one PayloadContent payload or MCX settings dict in profile XML.
       → value: str (updated profile XML)
-      Params: profile_xml_str: str; domain: str (PayloadIdentifier or MCX preference domain);
+      Params: profile_xml_str: str; identifier: str (PayloadIdentifier, unique PayloadType,
+        unique PayloadUUID, or MCX preference domain if no PayloadContent hit);
               new_payload: dict or plist/dict XML. PayloadContent: keys merge onto existing payload
-              (PayloadUUID preserved). MCX: settings dict only under mcx_preference_settings.
+              (canonical PayloadIdentifier preserved). MCX: settings dict only under mcx_preference_settings.
   payloads_list_identifiers(payloads_plist_str)
-      Does: List PayloadIdentifier values under PayloadContent.
-      → value: list of str
-      Params: payloads_plist_str: str (payloads plist XML). PayloadContent only.
+      Does: List PayloadContent rows (Identifier, Type, UUID).
+      → value: list of {identifier, type, uuid}
+      Params: payloads_plist_str: str (payloads plist XML from profile_xml_extract_payloads). PayloadContent only.
   payloads_collect_uuids(payloads_plist_str)
       Does: Collect every PayloadUUID in the plist (verify clone/copy remapping).
       → value: list of str
       Params: payloads_plist_str: str.
-  payloads_get_payload(payloads_plist_str, domain)
-      Does: Return the PayloadContent payload with PayloadIdentifier == domain.
+  payloads_get_payload(payloads_plist_str, identifier)
+      Does: Return the PayloadContent payload selected by identifier=.
       → value: str (plist XML dict)
-      Params: payloads_plist_str: str; domain: str (PayloadIdentifier). Not MCX.
-  payloads_replace_payload(payloads_plist_str, domain, new_payload)
+      Params: payloads_plist_str: str; identifier: str (PayloadIdentifier, unique Type, or unique UUID). Not MCX.
+  payloads_replace_payload(payloads_plist_str, identifier, new_payload)
       Does: Fully replace one PayloadContent payload (not a merge).
       → value: str (payloads plist XML)
-      Params: payloads_plist_str: str; domain: str; new_payload: dict or plist XML.
+      Params: payloads_plist_str: str; identifier: str; new_payload: dict or plist XML.
   payloads_get_mcx_dict(payloads_plist_str, domain)
       Does: Return the mcx_preference_settings dict for an MCX preference domain.
       → value: str (bare <dict>…</dict>)
-      Params: payloads_plist_str: str; domain: str (MCX preference-domain key).
+      Params: payloads_plist_str: str; domain: str (MCX preference-domain key, not PayloadType com.apple.MCX).
   payloads_replace_mcx_dict(payloads_plist_str, domain, dict_xml_str)
       Does: Replace mcx_preference_settings for an MCX preference domain.
       → value: str (payloads plist XML)
@@ -64,15 +65,15 @@ const ProfilePayloadsBuiltinsSection = `PROFILE — component
       Does: Set the PayloadContent array on a payloads plist (start fresh if omitted).
       → value: str (payloads plist XML)
       Params: content: list of payload dicts; payloads_plist_str?: str (omit/empty to start fresh).
-  payloads_add_payload(payloads_plist_str, domain, new_payload)
-      Does: Append a payload, or replace it if the PayloadIdentifier already exists.
+  payloads_add_payload(payloads_plist_str, identifier, new_payload)
+      Does: Append a payload, or replace it if identifier= already matches.
       → value: str (payloads plist XML)
-      Params: payloads_plist_str: str (empty ok); domain: str; new_payload: dict or plist XML.
-        Sets PayloadIdentifier to domain when missing.
-  payloads_remove_payload(payloads_plist_str, domain)
-      Does: Remove the payload with PayloadIdentifier == domain (fails if not found).
+      Params: payloads_plist_str: str (empty ok); identifier: str; new_payload: dict or plist XML.
+        Sets PayloadIdentifier to identifier when missing on create.
+  payloads_remove_payload(payloads_plist_str, identifier)
+      Does: Remove the PayloadContent payload selected by identifier=.
       → value: str (payloads plist XML)
-      Params: payloads_plist_str: str; domain: str.
+      Params: payloads_plist_str: str; identifier: str.
   plist_normalise_dict(data_str)
       Does: Normalise a dict fragment or full plist to a bare <dict>…</dict>.
       → value: str (bare <dict>…</dict>)

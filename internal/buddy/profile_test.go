@@ -368,3 +368,115 @@ func TestGetMCXDict(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func jamfApplePayloadPlist(identifier, payloadType, uuid, extraKey, extraVal string) string {
+	return `<?xml version="1.0"?><plist version="1.0"><dict><key>PayloadContent</key><array>
+  <dict>
+    <key>PayloadIdentifier</key><string>` + identifier + `</string>
+    <key>PayloadType</key><string>` + payloadType + `</string>
+    <key>PayloadUUID</key><string>` + uuid + `</string>
+    <key>` + extraKey + `</key><string>` + extraVal + `</string>
+  </dict>
+</array></dict></plist>`
+}
+
+func TestMatchPayloadContent_TypeUnique(t *testing.T) {
+	plistRaw := jamfApplePayloadPlist("330C2054-B496-494F-9EC1-846B04E789B6", "com.apple.mobiledevice.passwordpolicy", "330C2054-B496-494F-9EC1-846B04E789B6", "maxPINAgeInDays", "159")
+	out, err := plistGetPayloadByDomain(plistRaw, "com.apple.mobiledevice.passwordpolicy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("330C2054-B496-494F-9EC1-846B04E789B6")) {
+		t.Fatalf("expected identifier preserved, got %s", out)
+	}
+}
+
+func TestMatchPayloadContent_UUIDUnique(t *testing.T) {
+	plistRaw := jamfApplePayloadPlist("id-1", "com.apple.foo", "uuid-1", "Value", "x")
+	out, err := plistGetPayloadByDomain(plistRaw, "uuid-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("id-1")) {
+		t.Fatalf("got %s", out)
+	}
+}
+
+func TestMatchPayloadContent_TypeAmbiguous(t *testing.T) {
+	plistRaw := `<?xml version="1.0"?><plist version="1.0"><dict><key>PayloadContent</key><array>
+  <dict><key>PayloadIdentifier</key><string>a</string><key>PayloadType</key><string>com.dup</string></dict>
+  <dict><key>PayloadIdentifier</key><string>b</string><key>PayloadType</key><string>com.dup</string></dict>
+</array></dict></plist>`
+	_, err := plistGetPayloadByDomain(plistRaw, "com.dup")
+	if err == nil {
+		t.Fatal("expected ambiguous type error")
+	}
+	if !strings.Contains(err.Error(), "not unique") {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "identifier=") {
+		t.Fatalf("err should list rows: %v", err)
+	}
+}
+
+func TestMergePayload_TypeSelectorDoesNotRewriteIdentifier(t *testing.T) {
+	plistRaw := jamfApplePayloadPlist("keep-id", "com.apple.foo", "keep-uuid", "Value", "before")
+	updated, err := plistMergePayloadByDomain(plistRaw, "com.apple.foo", map[string]interface{}{
+		"PayloadIdentifier": "com.apple.foo",
+		"Value":             "after",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(updated, "after") {
+		t.Fatalf("expected merge, got %s", updated)
+	}
+	if !strings.Contains(updated, "keep-id") {
+		t.Fatalf("expected canonical Identifier kept, got %s", updated)
+	}
+	out, err := plistGetPayloadByDomain(updated, "keep-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(out, []byte("before")) {
+		t.Fatalf("old value still present: %s", out)
+	}
+}
+
+func TestPatchProfilePayload_MissListsPayloadContentNotMCX(t *testing.T) {
+	inner := jamfApplePayloadPlist("keep-id", "com.apple.foo", "keep-uuid", "Value", "before")
+	escaped := xmlEncodePayload(inner)
+	profileXML := []byte(`<?xml version="1.0"?><os_x_configuration_profile><general><payloads>` + escaped + `</payloads></general></os_x_configuration_profile>`)
+	_, err := PatchProfilePayload(profileXML, "com.apple.missing", `<dict><key>Value</key><string>x</string></dict>`)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), "domain not found in payloads plist") {
+		t.Fatalf("MCX fallback leaked: %v", err)
+	}
+	if !strings.Contains(err.Error(), "PayloadContent") && !strings.Contains(err.Error(), "identifier=") {
+		t.Fatalf("expected PayloadContent listing, got %v", err)
+	}
+}
+
+func TestGetMCXDict_PayloadContentOnly(t *testing.T) {
+	plistRaw := jamfApplePayloadPlist("keep-id", "com.apple.MCX", "keep-uuid", "Value", "x")
+	_, err := GetMCXDict(plistRaw, "com.apple.MCX")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "payloads_list_identifiers") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPlistPayloadContentRows(t *testing.T) {
+	plistRaw := jamfApplePayloadPlist("id-1", "com.apple.foo", "uuid-1", "Value", "x")
+	rows, err := PlistPayloadContentRows(plistRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Identifier != "id-1" || rows[0].Type != "com.apple.foo" || rows[0].UUID != "uuid-1" {
+		t.Fatalf("rows = %+v", rows)
+	}
+}

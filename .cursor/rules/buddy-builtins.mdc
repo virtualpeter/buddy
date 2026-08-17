@@ -280,46 +280,46 @@ Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…
   - **Returns**:
     - `value`: profile XML with `<redeploy_on_update>All</redeploy_on_update>`.
 
-- `profile_xml_patch_payload(profile_xml_str, domain, new_payload) → value: string`
+- `profile_xml_patch_payload(profile_xml_str, identifier, new_payload) → value: string`
   - **Params**:
-    - `profile_xml_str` (string).
-    - `domain` (string): PayloadIdentifier or MCX preference-domain key.
-    - `new_payload` (dict or string): PayloadContent — keys **merged** onto existing payload (PayloadUUID kept if omitted). MCX — settings dict only under `mcx_preference_settings`.
+    - `profile_xml_str` (string): Classic profile envelope from `profile_xml`.
+    - `identifier` (string): PayloadIdentifier, unique PayloadType, unique PayloadUUID, or MCX preference domain if no PayloadContent hit.
+    - `new_payload` (dict or string): PayloadContent — keys **merged** onto existing payload (canonical PayloadIdentifier kept). MCX — settings dict only under `mcx_preference_settings`.
   - **Returns**:
     - `value`: updated profile XML.
 
-- `payloads_list_identifiers(payloads_plist_str) → value: list[string]`
+- `payloads_list_identifiers(payloads_plist_str) → value: list[dict]`
   - **Params**:
     - `payloads_plist_str` (string): Payloads plist XML from `profile_xml_extract_payloads`.
   - **Returns**:
-    - `value`: list of `PayloadIdentifier` strings under `PayloadContent`, or `[]` if no `PayloadContent` array exists.
+    - `value`: list of `{identifier, type, uuid}` under `PayloadContent`, or `[]` if no `PayloadContent` array exists. Jamf Apple payloads often have identifier == uuid; type is reverse-DNS.
 
-- `payloads_get_payload(payloads_plist_str, domain) → value: string`
+- `payloads_get_payload(payloads_plist_str, identifier) → value: string`
   - **Params**:
     - `payloads_plist_str` (string).
-    - `domain` (string): PayloadIdentifier to select (e.g. `\"com.google.chrome\"`). PayloadContent only — not MCX.
+    - `identifier` (string): PayloadIdentifier, unique PayloadType, or unique PayloadUUID. PayloadContent only — not MCX.
   - **Returns**:
-    - `value`: plist `<dict>...</dict>` fragment for the payload with `PayloadIdentifier == domain`.
+    - `value`: plist `<dict>...</dict>` fragment for the selected payload.
 
-- `payloads_replace_payload(payloads_plist_str, domain, new_payload) → value: string`
+- `payloads_replace_payload(payloads_plist_str, identifier, new_payload) → value: string`
   - **Params**:
     - `payloads_plist_str` (string).
-    - `domain` (string).
+    - `identifier` (string).
     - `new_payload` (dict or string): **Full** replacement payload dict or plist XML (not a merge; use `profile_xml_patch_payload` to merge).
   - **Returns**:
-    - `value`: updated payloads plist XML with the payload for `domain` replaced.
+    - `value`: updated payloads plist XML with the selected payload replaced.
 
 - `payloads_get_mcx_dict(payloads_plist_str, domain) → value: string`
   - **Params**:
     - `payloads_plist_str` (string).
-    - `domain` (string): MCX preference-domain key.
+    - `domain` (string): MCX preference-domain key (not PayloadType `com.apple.MCX`).
   - **Returns**:
     - `value`: bare `<dict>...</dict>` for `mcx_preference_settings`.
 
 - `payloads_replace_mcx_dict(payloads_plist_str, domain, dict_xml_str) → value: string`
   - **Params**:
     - `payloads_plist_str` (string).
-    - `domain` (string).
+    - `domain` (string): MCX preference-domain key.
     - `dict_xml_str` (string): Replacement MCX `<dict>...</dict>` fragment.
   - **Returns**:
     - `value`: updated payloads plist XML.
@@ -331,20 +331,20 @@ Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…
   - **Returns**:
     - `value`: payloads plist XML with `PayloadContent` set to `content`.
 
-- `payloads_add_payload(payloads_plist_str, domain, new_payload) → value: string`
+- `payloads_add_payload(payloads_plist_str, identifier, new_payload) → value: string`
   - **Params**:
     - `payloads_plist_str` (string): Existing payloads plist, or `\"\"` to create one.
-    - `domain` (string): PayloadIdentifier.
-    - `new_payload` (dict or string): Payload to append (or replace if domain already present).
+    - `identifier` (string): Selector, or new PayloadIdentifier on create.
+    - `new_payload` (dict or string): Payload to append (or replace if identifier= already matches).
   - **Returns**:
-    - `value`: updated payloads plist XML. Sets `PayloadIdentifier` to `domain` when missing.
+    - `value`: updated payloads plist XML. Sets `PayloadIdentifier` to `identifier` when missing on create.
 
-- `payloads_remove_payload(payloads_plist_str, domain) → value: string`
+- `payloads_remove_payload(payloads_plist_str, identifier) → value: string`
   - **Params**:
     - `payloads_plist_str` (string).
-    - `domain` (string).
+    - `identifier` (string).
   - **Returns**:
-    - `value`: payloads plist XML with that domain removed. Fails if not found.
+    - `value`: payloads plist XML with that payload removed. Fails if not found.
 
 - `plist_normalise_dict(data_str) → value: string`
   - **Params**:
@@ -355,11 +355,12 @@ Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…
 **Recommended pattern for editing a payload:**
 
 ```python
-# Fetch profile XML, then offline-edit payloads
+# Fetch Classic envelope, list PayloadContent, then merge-patch.
 xml = profile_xml(id = 42)
-
-# One-shot merge patch (PayloadContent keys merge; MCX = settings-only):
-xml = profile_xml_patch_payload(xml, "com.google.chrome", {"SomeKey": "NewValue"})
+plist = profile_xml_extract_payloads(xml)
+rows = payloads_list_identifiers(plist)
+ident = rows[0]["type"]  # or rows[0]["identifier"] (often a UUID on Jamf Apple payloads)
+xml = profile_xml_patch_payload(xml, identifier=ident, new_payload={"SomeKey": "NewValue"})
 profile_put_xml(id = 42, xml_str = xml)
 ```
 
@@ -379,10 +380,10 @@ profile_put_xml(id = 42, xml_str = xml2)
 xml = profile_xml(id = 42)
 payloads = profile_xml_extract_payloads(xml)
 
-chrome = plist_decode(payloads_get_payload(payloads, "com.google.chrome"))
+chrome = plist_decode(payloads_get_payload(payloads, identifier="com.google.chrome"))
 chrome["SomeKey"] = "NewValue"
 
-payloads = payloads_replace_payload(payloads, "com.google.chrome", chrome)
+payloads = payloads_replace_payload(payloads, identifier="com.google.chrome", new_payload=chrome)
 xml = profile_xml_replace_payloads(xml, payloads)
 profile_put_xml(id = 42, xml_str = xml)
 ```

@@ -310,7 +310,7 @@ Builtins and payload editing: [profile payloads](/docs/docs/profile-payloads).
 
 - List/get/clone still go through Classic XML. There is no public v1/v2 profile CRUD; ACS JSON is the undocumented UI API for Application & Custom Settings only.
 - `--redeploy` sets `redeploy_on_update` to `All` in the XML before the **metadata** Classic PUT, causing Jamf to push the profile to all currently-assigned devices rather than only new assignments.
-- **Payload handling**: The profile XML contains a `<general><payloads>` element whose content is entity-encoded plist XML. Buddy supports PayloadContent (`PayloadIdentifier`) and MCX (`mcx_preference_settings`). **Get/list** (`get payload`, `list-payloads`, `profile_get_payload`) are PayloadContent only; **set/patch** merge PayloadContent keys or replace MCX settings. See [profile payloads](/docs/docs/profile-payloads).
+- **Payload handling**: The profile XML contains a `<general><payloads>` element whose content is entity-encoded plist XML. Buddy supports PayloadContent (`identifier=` matches PayloadIdentifier, unique PayloadType, or unique PayloadUUID) and MCX (`mcx_preference_settings` preference domains). **Get/list** (`get payload`, `list-payloads`, `profile_get_payload`, `payloads_list_identifiers`) are PayloadContent only and list `{identifier, type, uuid}`; **set/patch** merge PayloadContent keys or replace MCX settings. See [profile payloads](/docs/docs/profile-payloads).
 - **UUID preservation**: When updating a profile via `set xml` or `set payload`, the existing profile UUID is preserved (the fetched body is only modified in the payloads section or redeploy flag). Preserving the same UUID avoids duplicate or orphaned profiles on devices when updating from another instance.
 
 ---
@@ -587,11 +587,11 @@ buddy profile get xml <id>
 buddy profile get payloads <id>
   └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (extract payloads plist; same ACS merge as get xml)
 
-buddy profile get payload <id> <domain>
-  └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (extract single payload by PayloadIdentifier)
+buddy profile get payload <id> <identifier>
+  └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (extract one PayloadContent payload by identifier=)
 
 buddy profile get list-payloads <id>
-  └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (list PayloadIdentifier values)
+  └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (list {identifier, type, uuid})
 
 buddy profile clone <profile-id> <name>
   └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (same ACS merge as get xml)
@@ -607,7 +607,7 @@ buddy profile set xml <id> [--redeploy]
   └─ PUT /JSSResource/osxconfigurationprofiles/id/{id}   (Classic payloads sync; Apply-form fallback)
   └─ PUT /JSSResource/osxconfigurationprofiles/id/{id}   (metadata: name / scope / redeploy)
 
-buddy profile set payload <id> <domain> <file> [--redeploy]
+buddy profile set payload <id> <identifier> <file> [--redeploy]
   └─ GET /JSSResource/osxconfigurationprofiles/id/{id}   (raw Classic XML; no ACS merge)
   └─ PUT …                                              (same write path as set xml)
 

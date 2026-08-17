@@ -23,7 +23,11 @@ Payload / MCX / ACS editing is covered in [profile payloads](/docs/docs/profile-
 ```python
 def main():
     xml = profile_xml(id=42)
-    xml = profile_xml_patch_payload(xml, "com.example", {"Key": "New"})
+    plist = profile_xml_extract_payloads(xml)
+    rows = payloads_list_identifiers(plist)
+    # Custom payloads: identifier is often reverse-DNS. Jamf Apple payloads: identifier is often a UUID; type is reverse-DNS.
+    ident = rows[0]["identifier"]
+    xml = profile_xml_patch_payload(xml, identifier=ident, new_payload={"Key": "New"})
     profile_put_xml(id=42, xml_str=xml)
     return "ok"
 ```
