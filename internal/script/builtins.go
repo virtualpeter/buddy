@@ -266,6 +266,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "step_create_ss", stepCreateSSBuiltin)
 
 	putBuiltin(dict, "script_get_contents", scriptGetContents(credName, logger))
+	putBuiltin(dict, "script_create", scriptCreate(credName, logger))
 	putBuiltin(dict, "script_update", scriptUpdate(credName, logger))
 	putBuiltin(dict, "script_put", scriptPutBuiltin(credName, logger))
 
@@ -2094,6 +2095,75 @@ func scriptGetContents(credName string, logger *slog.Logger) func(*starlark.Thre
 			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(contents)), nil
+	}
+}
+
+// script_create(name, contents, category_id?, priority?, info?, notes?, os_requirements?,
+// parameter4?…parameter11?, tenant?, surface?, auth?) → {id, name}
+func scriptCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var name, contents, categoryID, priority, info, notes, osRequirements starlark.String
+		var p4, p5, p6, p7, p8, p9, p10, p11 starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("script_create", args, kwargs,
+			"name", &name,
+			"contents", &contents,
+			"category_id?", &categoryID,
+			"priority?", &priority,
+			"info?", &info,
+			"notes?", &notes,
+			"os_requirements?", &osRequirements,
+			"parameter4?", &p4,
+			"parameter5?", &p5,
+			"parameter6?", &p6,
+			"parameter7?", &p7,
+			"parameter8?", &p8,
+			"parameter9?", &p9,
+			"parameter10?", &p10,
+			"parameter11?", &p11,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
+		); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		pri := strings.TrimSpace(string(priority))
+		if pri != "" {
+			pri = strings.ToUpper(pri)
+		}
+		created, err := buddy.ScriptPostDetail(sessionPin, scriptOpts, buddy.ScriptDetail{
+			Name:           string(name),
+			ScriptContents: string(contents),
+			CategoryID:     strings.TrimSpace(string(categoryID)),
+			Priority:       pri,
+			Info:           string(info),
+			Notes:          string(notes),
+			OSRequirements: string(osRequirements),
+			Parameter4:     string(p4),
+			Parameter5:     string(p5),
+			Parameter6:     string(p6),
+			Parameter7:     string(p7),
+			Parameter8:     string(p8),
+			Parameter9:     string(p9),
+			Parameter10:    string(p10),
+			Parameter11:    string(p11),
+		}, logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		if created == nil {
+			return resultErr("script_create: cancelled")
+		}
+		out, err := GoValueToStarlark(map[string]interface{}{"id": created.ID, "name": created.Name})
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(out), nil
 	}
 }
 

@@ -23,7 +23,7 @@ var ScriptsTopic = docspec.Topic{
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List", BuddyScript: "`scripts(filter?)`", CLI: "`buddy script list`", Notes: "Summaries `{id, name, categoryId, categoryName}` only; bodies stripped"},
 		{Action: "Load", BuddyScript: "`script(id=…)` / `script_get_contents(script_id=…)`", CLI: "`buddy script get` / `get contents`", Notes: "Full record / body"},
-		{Action: "Create / update", BuddyScript: "`script_put` / `script_update`", CLI: "`buddy script create` / `upload`", Notes: "Full dict or from file"},
+		{Action: "Create / update", BuddyScript: "`script_create` / `script_put` / `script_update`", CLI: "`buddy script create` / `upload`", Notes: "Create from string body; PUT dict or replace from file"},
 		{Action: "Copy / migrate", BuddyScript: "`script_copy` / `script_migrate`", Notes: "Upsert by name; category remapped on destination"},
 	},
 	Notes: []string{
@@ -83,6 +83,14 @@ var ScriptsTopic = docspec.Topic{
       Does: Return the raw script body only.
       → value: str
       Params: script_id: str/int.
+  script_create(name, contents, category_id?, priority?, info?, notes?, os_requirements?,
+                parameter4?, parameter5?, parameter6?, parameter7?, parameter8?,
+                parameter9?, parameter10?, parameter11?, tenant?, surface?, auth?)
+      Does: Create a Jamf Pro script (POST /api/v1/scripts). Body is the contents string (not a file).
+      → value: dict {id, name}
+      Params: name: str; contents: str (script body). category_id?: str. priority?: BEFORE|AFTER|AT_REBOOT.
+        info?/notes?/os_requirements?: str. parameter4?…parameter11?: str (Jamf script parameters).
+        tenant?/surface?/auth?: omit for process defaults.
   script_update(script_id, file, tenant?, surface?, auth?)
       Does: Replace a script's body from a local file.
       → None

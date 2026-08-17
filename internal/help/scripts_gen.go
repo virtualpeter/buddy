@@ -18,6 +18,14 @@ const ScriptsBuiltinsSection = `SCRIPT (Jamf Pro scripts)
       Does: Return the raw script body only.
       → value: str
       Params: script_id: str/int.
+  script_create(name, contents, category_id?, priority?, info?, notes?, os_requirements?,
+                parameter4?, parameter5?, parameter6?, parameter7?, parameter8?,
+                parameter9?, parameter10?, parameter11?, tenant?, surface?, auth?)
+      Does: Create a Jamf Pro script (POST /api/v1/scripts). Body is the contents string (not a file).
+      → value: dict {id, name}
+      Params: name: str; contents: str (script body). category_id?: str. priority?: BEFORE|AFTER|AT_REBOOT.
+        info?/notes?/os_requirements?: str. parameter4?…parameter11?: str (Jamf script parameters).
+        tenant?/surface?/auth?: omit for process defaults.
   script_update(script_id, file, tenant?, surface?, auth?)
       Does: Replace a script's body from a local file.
       → None
