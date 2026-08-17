@@ -69,7 +69,7 @@ func TestStepFromStarlark_SetPackage_KeepSource(t *testing.T) {
 }
 
 func TestStepFromStarlark_SetPackage_PolicyID(t *testing.T) {
-	d := stepDict(stepTypeSetPackage, "name", "santa", "version", "2026.3", "from_trigger", "cache-santa-2026.2", "policy_id", 10)
+	d := stepDict(stepTypeSetPackage, "name", "santa", "version", "2026.3", "from_trigger", "cache-santa-2026.2", "id", 10)
 	s, err := stepFromStarlark(d)
 	if err != nil {
 		t.Fatalf("stepFromStarlark: %v", err)
@@ -167,7 +167,7 @@ func TestStepFromStarlark_UpgradeApp_Valid(t *testing.T) {
 }
 
 func TestStepFromStarlark_SetSS_Valid(t *testing.T) {
-	d := stepDict(stepTypeSetSS, "policy_id", 10, "version", "2.0")
+	d := stepDict(stepTypeSetSS, "id", 10, "version", "2.0")
 	s, err := stepFromStarlark(d)
 	if err != nil {
 		t.Fatalf("stepFromStarlark: %v", err)
@@ -178,18 +178,18 @@ func TestStepFromStarlark_SetSS_Valid(t *testing.T) {
 }
 
 func TestStepFromStarlark_SetSS_MissingVersion(t *testing.T) {
-	d := stepDict(stepTypeSetSS, "policy_id", 10)
+	d := stepDict(stepTypeSetSS, "id", 10)
 	_, err := stepFromStarlark(d)
 	if err == nil {
 		t.Fatal("expected error when version missing")
 	}
-	if !strings.Contains(err.Error(), "policy_id, version") {
+	if !strings.Contains(err.Error(), "id, version") {
 		t.Errorf("error = %v", err)
 	}
 }
 
 func TestStepFromStarlark_EnablePolicy_Valid(t *testing.T) {
-	d := stepDict(stepTypeEnablePolicy, "policy_id", 5)
+	d := stepDict(stepTypeEnablePolicy, "id", 5)
 	s, err := stepFromStarlark(d)
 	if err != nil {
 		t.Fatalf("stepFromStarlark: %v", err)
@@ -201,7 +201,7 @@ func TestStepFromStarlark_EnablePolicy_Valid(t *testing.T) {
 
 func TestStepFromStarlark_SetScope_Valid(t *testing.T) {
 	l := starlark.NewList([]starlark.Value{starlark.MakeInt(1), starlark.MakeInt(2)})
-	d := stepDict(stepTypeSetScope, "policy_id", 7, "group_ids", l)
+	d := stepDict(stepTypeSetScope, "id", 7, "group_ids", l)
 	s, err := stepFromStarlark(d)
 	if err != nil {
 		t.Fatalf("stepFromStarlark: %v", err)
@@ -212,12 +212,12 @@ func TestStepFromStarlark_SetScope_Valid(t *testing.T) {
 }
 
 func TestStepFromStarlark_SetScope_MissingGroupIDs(t *testing.T) {
-	d := stepDict(stepTypeSetScope, "policy_id", 7)
+	d := stepDict(stepTypeSetScope, "id", 7)
 	_, err := stepFromStarlark(d)
 	if err == nil {
 		t.Fatal("expected error when group_ids missing")
 	}
-	if !strings.Contains(err.Error(), "policy_id, group_ids") {
+	if !strings.Contains(err.Error(), "id, group_ids") {
 		t.Errorf("error = %v", err)
 	}
 }
@@ -245,7 +245,7 @@ func TestStepFromStarlark_CreatePolicy_VersionSubstitution(t *testing.T) {
 }
 
 func TestStepFromStarlark_SetProfilePayload_Valid(t *testing.T) {
-	d := stepDict(stepTypeSetProfilePayload, "profile_id", 99, "domain", "com.example.app", "dict_file", "/path/to/dict.plist")
+	d := stepDict(stepTypeSetProfilePayload, "id", 99, "domain", "com.example.app", "dict_file", "/path/to/dict.plist")
 	s, err := stepFromStarlark(d)
 	if err != nil {
 		t.Fatalf("stepFromStarlark: %v", err)
@@ -256,12 +256,12 @@ func TestStepFromStarlark_SetProfilePayload_Valid(t *testing.T) {
 }
 
 func TestStepFromStarlark_SetProfilePayload_MissingField(t *testing.T) {
-	d := stepDict(stepTypeSetProfilePayload, "profile_id", 99, "domain", "com.example")
+	d := stepDict(stepTypeSetProfilePayload, "id", 99, "domain", "com.example")
 	_, err := stepFromStarlark(d)
 	if err == nil {
 		t.Fatal("expected error when dict_file missing")
 	}
-	if !strings.Contains(err.Error(), "profile_id, domain, dict_file") {
+	if !strings.Contains(err.Error(), "id, domain, dict_file") {
 		t.Errorf("error = %v", err)
 	}
 }

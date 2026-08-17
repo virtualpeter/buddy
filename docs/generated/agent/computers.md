@@ -126,13 +126,13 @@ Returns: None
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "computer_ids": {
-      "description": "computer_ids",
+    "ids": {
+      "description": "ids",
       "type": "array"
     }
   },
   "required": [
-    "computer_ids"
+    "ids"
   ],
   "title": "computer_reboot",
   "type": "object"

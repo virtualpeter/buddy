@@ -64,10 +64,10 @@ func TestLookupBuiltinAndFormatHelp(t *testing.T) {
 
 func TestParseDoesNotesAndWrappedParams(t *testing.T) {
 	src := `SAMPLE
-  sample_put(group_id, body, tenant?, surface?, auth?)
+  sample_put(id, body, tenant?, surface?, auth?)
       Does: Replace a smart group's full JSON document.
       → None
-      Params: group_id: str; body: dict (same shape as
+      Params: id: str; body: dict (same shape as
         smart_group(id=…)); tenant?/surface?/auth?: session overrides.
       Notes: PUT /api/v3/computer-groups/smart-groups/{id}.
         SkipConfirm.
@@ -102,10 +102,10 @@ func TestParseDoesNotesAndWrappedParams(t *testing.T) {
 
 func TestBuiltinsMarkdownRendersDoesNotCodeFence(t *testing.T) {
 	src := `SAMPLE
-  sample_put(group_id, body)
+  sample_put(id, body)
       Does: Replace a smart group's full JSON document.
       → None
-      Params: group_id: str; body: dict.
+      Params: id: str; body: dict.
       Notes: PUT the full document.
 `
 	md := formatBuiltinsMarkdown(src)
@@ -116,7 +116,7 @@ func TestBuiltinsMarkdownRendersDoesNotCodeFence(t *testing.T) {
 		t.Fatalf("missing returns:\n%s", md)
 	}
 	if !strings.Contains(md, "<dt>Params</dt>") ||
-		!strings.Contains(md, "<code>group_id</code>") ||
+		!strings.Contains(md, "<code>id</code>") ||
 		!strings.Contains(md, "<code>body</code>") {
 		t.Fatalf("missing params:\n%s", md)
 	}

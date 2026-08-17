@@ -83,13 +83,13 @@ Returns: dict
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "category_id": {
-      "description": "category_id",
+    "id": {
+      "description": "id",
       "type": "string"
     }
   },
   "required": [
-    "category_id"
+    "id"
   ],
   "title": "category_copy",
   "type": "object"
@@ -100,5 +100,5 @@ Returns: dict
 
 ```python
 def main():
-    return category_copy(category_id="5", upsert=True, to_tenant="sandbox")
+    return category_copy(id="5", upsert=True, to_tenant="sandbox")
 ```

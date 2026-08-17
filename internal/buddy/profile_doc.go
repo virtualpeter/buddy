@@ -23,10 +23,10 @@ var ProfilesTopic = docspec.Topic{
 	Summary: `Jamf Classic macOS configuration profiles — lifecycle (list, get, create, clone, copy, delete, redeploy). For **payload / MCX / ACS** editing, use the dedicated [profile payloads](/docs/docs/profile-payloads) cookbook.`,
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / load", BuddyScript: "`profiles(...)` / `profile(id=…)` / `profile_xml(id=…)`", CLI: "`buddy profile list` / `get xml`", Notes: "XML string is the same Classic document"},
-		{Action: "Clone", BuddyScript: "`profile_clone(profile_id, name)`", CLI: "`buddy profile clone`", Notes: "Same tenant; new UUIDs; unassigned scope"},
+		{Action: "Clone", BuddyScript: "`profile_clone(id, name)`", CLI: "`buddy profile clone`", Notes: "Same tenant; new UUIDs; unassigned scope"},
 		{Action: "Copy / migrate", BuddyScript: "`profile_copy(..., to_tenant?, to_auth?)`", Notes: "Source = tenant/auth; dest = to_*"},
 		{Action: "Create", BuddyScript: "`profile_xml_prepare_for_create` → `profile_create_xml`", Notes: "Or greenfield `profile_create` + payloads"},
-		{Action: "Write back", BuddyScript: "`profile_put_xml(profile_id, xml_str)`", CLI: "`buddy profile set xml`", Notes: "After offline edits"},
+		{Action: "Write back", BuddyScript: "`profile_put_xml(id, xml_str)`", CLI: "`buddy profile set xml`", Notes: "After offline edits"},
 		{Action: "Redeploy / ACS", BuddyScript: "`profile_redeploy` / `profile_acs_bind_uuid`", CLI: "`buddy profile redeploy`", Notes: "ACS bind is BuddyScript-only when HTML scrape fails"},
 	},
 	Notes: []string{
@@ -56,7 +56,7 @@ var ProfilesTopic = docspec.Topic{
 				Summary: `Copy/migrate profile`,
 				Returns: `dict {id,name}`,
 				Params: []docspec.Param{
-					{Name: `profile_id`, Type: `string`, Required: true, Description: `profile_id`},
+					{Name: `id`, Type: `string`, Required: true, Description: `id`},
 				},
 			},
 			{
@@ -64,7 +64,7 @@ var ProfilesTopic = docspec.Topic{
 				Summary: `Save profile XML`,
 				Returns: `None`,
 				Params: []docspec.Param{
-					{Name: `profile_id`, Type: `string`, Required: true, Description: `profile_id`},
+					{Name: `id`, Type: `string`, Required: true, Description: `id`},
 					{Name: `xml_str`, Type: `string`, Required: true, Description: `xml_str`},
 				},
 			},
@@ -73,7 +73,7 @@ var ProfilesTopic = docspec.Topic{
 		`def main():
     xml = profile_xml(id=42)
     xml = profile_xml_patch_payload(xml, "com.example", {"Key": "New"})
-    profile_put_xml(profile_id=42, xml_str=xml)
+    profile_put_xml(id=42, xml_str=xml)
     return "ok"`,
 	},
 	Related: []docspec.RelatedLink{
@@ -102,16 +102,16 @@ var ProfilesTopic = docspec.Topic{
       Params: name: str; pass payloads_plist_str and/or content (list of payload
         dicts). category?: str. scope_all defaults true when scope_group_ids omitted.
         redeploy_on_update?: bool.
-  profile_clone(profile_id, name, tenant?, surface?, auth?)
+  profile_clone(id, name, tenant?, surface?, auth?)
       Does: Clone a profile in the same session (UUID remap, unassigned scope).
       → value: dict {id, name}
-      Params: profile_id: int/str; name: str (new profile name).
+      Params: id: int/str; name: str (new profile name).
       Notes: Alias of profile_copy without to_* (same-session UUID remap).
-  profile_copy(profile_id, name?, category_id?, scope_all?, scope_group_ids?, upsert?=False,
+  profile_copy(id, name?, category_id?, scope_all?, scope_group_ids?, upsert?=False,
                tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
       Does: Copy a profile to another (or the same) session with new UUIDs and unassigned scope.
       → value: dict {id, name} or +created when upsert
-      Params: profile_id: source. name?: dest name (optional → source name on upsert).
+      Params: id: source. name?: dest name (optional → source name on upsert).
         category_id?: dest category. scope_all?/scope_group_ids?: dest scope.
         upsert?: bool. Source = tenant?/auth?; dest = to_* (omit = same session).
       Notes: upsert=True: upsert by exact name.
@@ -122,36 +122,36 @@ var ProfilesTopic = docspec.Topic{
       Does: POST prepared profile XML to create a profile.
       → value: dict {id, name}
       Params: xml_str: str (after profile_xml_prepare_for_create); name?: override name.
-  profile_delete(profile_id, tenant?, surface?, auth?)
+  profile_delete(id, tenant?, surface?, auth?)
       Does: Delete a configuration profile.
       → None
-      Params: profile_id: int/str.
-  profile_redeploy(profile_id, tenant?, surface?, auth?)
+      Params: id: int/str.
+  profile_redeploy(id, tenant?, surface?, auth?)
       Does: Redeploy the profile to all currently assigned devices.
       → None
-      Params: profile_id: int/str.
-  profile_acs_bind_uuid(profile_id, payload_uuid)
+      Params: id: int/str.
+  profile_acs_bind_uuid(id, payload_uuid)
       Does: Seed process cache of Classic id → ACS payload UUID when HTML scrape is unavailable.
       → None
-      Params: profile_id: int/str; payload_uuid: str.
+      Params: id: int/str; payload_uuid: str.
       Notes: Needed when API-token clients cannot scrape legacy HTML; lets profile_xml merge ACS Forced into Classic XML, and enables ACS writes.
-  profile_get_payloads(profile_id)
+  profile_get_payloads(id)
       Does: Return the payloads plist XML embedded in the profile.
       → value: str (payloads plist XML)
-      Params: profile_id: int/str.
-  profile_get_payload(profile_id, domain)
+      Params: id: int/str.
+  profile_get_payload(id, domain)
       Does: Return one PayloadContent payload dict as plist XML.
       → value: str (plist <dict> fragment)
-      Params: profile_id: int/str; domain: str (PayloadIdentifier).
+      Params: id: int/str; domain: str (PayloadIdentifier).
       Notes: PayloadContent only; not MCX — use payloads_get_mcx_dict offline.
-  profile_list_payloads(profile_id)
+  profile_list_payloads(id)
       Does: List PayloadIdentifier values under PayloadContent.
       → value: list of str
-      Params: profile_id: int/str.
-  profile_set_payload(profile_id, domain, dict_file, redeploy?, tenant?, surface?, auth?)
+      Params: id: int/str.
+  profile_set_payload(id, domain, dict_file, redeploy?, tenant?, surface?, auth?)
       Does: Merge-patch one payload (PayloadContent keys or MCX settings) and PUT the profile.
       → None
-      Params: profile_id: int/str; domain: str; dict_file: str (path to dict/plist);
+      Params: id: int/str; domain: str; dict_file: str (path to dict/plist);
         redeploy?: bool (set redeploy_on_update=All).
       Notes: Same merge rules as profile_xml_patch_payload.
 

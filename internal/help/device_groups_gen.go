@@ -18,22 +18,22 @@ const DeviceGroupsBuiltinsSection = `PLATFORM DEVICE GROUP (not Pro smart/static
       Does: Create a Platform device group from a JSON body.
       → value: dict (created group, including id)
       Params: body: dict (create JSON).
-  device_group_set(group_id, body, tenant?, surface?, auth?)
+  device_group_set(id, body, tenant?, surface?, auth?)
       Does: PATCH a Platform device group with a JSON body.
       → None
-      Params: group_id: str; body: dict (merge-patch JSON).
-  device_group_delete(group_id, tenant?, surface?, auth?)
+      Params: id: str; body: dict (merge-patch JSON).
+  device_group_delete(id, tenant?, surface?, auth?)
       Does: Delete a Platform device group.
       → None
-      Params: group_id: str.
-  device_group_members(group_id, tenant?, surface?, auth?)
+      Params: id: str.
+  device_group_members(id, tenant?, surface?, auth?)
       Does: List members of a Platform device group.
       → value: JSON (membership document)
-      Params: group_id: str.
-  device_group_set_members(group_id, body, tenant?, surface?, auth?)
+      Params: id: str.
+  device_group_set_members(id, body, tenant?, surface?, auth?)
       Does: PATCH static Platform device-group membership.
       → None
-      Params: group_id: str; body: dict (membership JSON).
+      Params: id: str; body: dict (membership JSON).
 
 `
 

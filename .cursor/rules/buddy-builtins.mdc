@@ -32,8 +32,8 @@ When adding or changing builtins in `internal/script/builtins.go` / `builtins_v3
 - **Resource identifiers first**, then payload/options, then **tenant?/surface?/auth? last**.
 - `tenant` / `surface` / `auth` are always optional session kwargs (last). No builtin takes a required auth pin as the first positional.
 
-**Good:** `policy_set(policy_id, enable=True, tenant?, surface?, auth?)`, `smart_group_set_version(group_id, version, tenant?, surface?, auth?)`, `script(id=script_id, tenant?, surface?, auth?)`  
-**Avoid:** `policy_set(auth, policy_id, …)`, `script(id)` with bare `id` when a mutate helper takes `script_id` (use the named param)
+**Good:** `policy_set(id, enable=True, tenant?, surface?, auth?)`, `smart_group_set_version(id, version, tenant?, surface?, auth?)`, `script(id=…, tenant?, surface?, auth?)`  
+**Avoid:** `policy_set(auth, id, …)`, positional `script(id)` when a named `id=` is clearer
 
 ## Pagination (list builtins)
 
@@ -47,9 +47,9 @@ Go side: `buddy.PageOpts` + `fetchJamfPaged` in `internal/buddy/pagination.go` (
 
 ## Parameter names
 
-Use `{resource}_id` for mutate/action builtins: `policy_id`, `group_id`, `profile_id`, `package_id`, `script_id`, `computer_id`, `role_id`, `client_id`. For lists of IDs use e.g. `policy_ids`, `computer_ids`.
+Subject resource (the noun in the function name) uses `id=` / `ids=` on both load and mutate: `script(id=…)`, `script_put(id, dict)`, `policy_delete(ids)`, `computer_reboot(ids)`.
 
-Singular **load** builtins use kwargs `id=` (or a natural key like `trigger=` / `name=` / `name=`+`version=` for packages), not `policy_id` / `script_id` as the primary selector—see grammar above.
+Related resources stay typed: `category_id` on copy, `script_id` on `policy_create_ss` / `step_create_policy`, `computer_ids` on static-group membership, `scope_group_ids` / `group_ids` on policy scope.
 
 ## File I/O
 
@@ -105,17 +105,17 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
   - **Behavior**:
     - `POST`s `body` to `/api/v3/computer-groups/smart-groups`.
 
-- `smart_group_put(group_id, body, tenant?, surface?, auth?) → value: None`
+- `smart_group_put(id, body, tenant?, surface?, auth?) → value: None`
   - **Params**:
-    - `group_id` (string): Smart group ID.
+    - `id` (string): Smart group ID.
     - `body` (dict/list tree): Full smart group JSON, as returned by `smart_group(id=…)`.
     - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Behavior**:
-    - Encodes `body` to JSON and `PUT`s it to `/api/v3/computer-groups/smart-groups/{group_id}` using script opts with `SkipConfirm=true`.
+    - Encodes `body` to JSON and `PUT`s it to `/api/v3/computer-groups/smart-groups/{id}` using script opts with `SkipConfirm=true`.
 
-- `smart_group_get_criteria(group_id, tenant?, surface?, auth?) → value: list[dict]`
+- `smart_group_get_criteria(id, tenant?, surface?, auth?) → value: list[dict]`
   - **Params**:
-    - `group_id` (string).
+    - `id` (string).
     - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Returns**:
     - `value`: the `criteria` array from the smart group JSON (or `[]` if missing). Each element is a dict:
@@ -127,26 +127,26 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
       - `openingParen` (bool, optional)
       - `closingParen` (bool, optional)
 
-- `smart_group_set_criteria(group_id, criteria, tenant?, surface?, auth?) → value: None`
+- `smart_group_set_criteria(id, criteria, tenant?, surface?, auth?) → value: None`
   - **Params**:
-    - `group_id` (string).
+    - `id` (string).
     - `criteria` (list[dict]): New criteria array using the keys above.
     - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Behavior**:
     - Fetches the smart group, replaces its `criteria` field with `criteria`, and PUTs the updated JSON.
     - Other fields (`name`, `siteId`, etc.) are preserved.
 
-- `smart_group_find_criteria(group_id, name_substring, tenant?, surface?, auth?) → value: list[dict]`
+- `smart_group_find_criteria(id, name_substring, tenant?, surface?, auth?) → value: list[dict]`
   - **Params**:
-    - `group_id` (string).
+    - `id` (string).
     - `name_substring` (string): Case-insensitive substring to match on each criterion’s `name`.
     - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Returns**:
     - `value`: list of criteria dicts whose `name` contains `name_substring` (case-insensitive).
 
-- `smart_group_update_criterion_value(group_id, name_substring, new_value, tenant?, surface?, auth?) → value: None`
+- `smart_group_update_criterion_value(id, name_substring, new_value, tenant?, surface?, auth?) → value: None`
   - **Params**:
-    - `group_id` (string).
+    - `id` (string).
     - `name_substring` (string): Case-insensitive substring used to select criteria by `name`.
     - `new_value` (string): New `value` to set on matching criteria.
     - `tenant?` / `surface?` / `auth?` (string, optional).
@@ -154,9 +154,9 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
     - Fetches the smart group, scans its `criteria` list, and for each criterion whose `name` contains `name_substring`, sets `value` to `new_value`.
     - Raises if no criteria match.
 
-- `smart_group_list_computers(group_id, filter?, tenant?, surface?, auth?) → value: list[dict]`
+- `smart_group_list_computers(id, filter?, tenant?, surface?, auth?) → value: list[dict]`
   - **Params**:
-    - `group_id` (string): Smart computer group ID.
+    - `id` (string): Smart computer group ID.
     - `filter?` (string, optional): Client-side substring; matched case-insensitively against `id`, `name`, and `serial`.
     - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Returns**:
@@ -166,7 +166,7 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
 
 ```python
 smart_group_update_criterion_value(
-    group_id = "123",
+    id = "123",
     name_substring = "version",
     new_value = "2.0.0",
 )
@@ -181,9 +181,9 @@ These builtins manage **static** Jamf computer group membership. Listing prefers
 `PUT /api/v3/computer-groups/static-groups/{id}` with a full `assignments`
 array. They return bare values and raise on failure.
 
-- `static_group_list_computers(group_id, filter?, tenant?, surface?, auth?) → value: list[dict]`
+- `static_group_list_computers(id, filter?, tenant?, surface?, auth?) → value: list[dict]`
   - **Params**:
-    - `group_id` (string): Static computer group ID.
+    - `id` (string): Static computer group ID.
     - `filter?` (string, optional): Client-side substring; matched case-insensitively against `id`, `name`, and `serial`.
     - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Returns**:
@@ -198,23 +198,23 @@ array. They return bare values and raise on failure.
   - **Behavior**:
     - `POST`s `body` to `/api/v3/computer-groups/static-groups`.
 
-- `static_group_add_computers(group_id, computer_ids, tenant?, surface?, auth?) → value: None`
+- `static_group_add_computers(id, computer_ids, tenant?, surface?, auth?) → value: None`
   - **Params**:
-    - `group_id` (string).
+    - `id` (string).
     - `computer_ids` (list of int or str): IDs to add (merge into membership).
     - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Behavior**: Read-modify-write; no-op if all IDs are already members.
 
-- `static_group_remove_computers(group_id, computer_ids, tenant?, surface?, auth?) → value: None`
+- `static_group_remove_computers(id, computer_ids, tenant?, surface?, auth?) → value: None`
   - **Params**:
-    - `group_id` (string).
+    - `id` (string).
     - `computer_ids` (list of int or str): IDs to remove.
     - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Behavior**: Read-modify-write; no-op if none of the IDs are members.
 
-- `static_group_set_computers(group_id, computer_ids, tenant?, surface?, auth?) → value: None`
+- `static_group_set_computers(id, computer_ids, tenant?, surface?, auth?) → value: None`
   - **Params**:
-    - `group_id` (string).
+    - `id` (string).
     - `computer_ids` (list of int or str): Replaces the entire membership list.
     - `tenant?` / `surface?` / `auth?` (string, optional).
 
@@ -225,7 +225,7 @@ Typed MCP and buddyscript expose CRUD plus cross-session copy. Multi-step releas
 release bumps use change batches (`step_clone_policy` / `step_set_package`) or
 compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.
 
-- `policy_copy(policy_id, name?, trigger?, category_id?, scope_all?, scope_group_ids?, upsert?=False, match_trigger?, tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name, trigger}` (+ `created` when upsert)
+- `policy_copy(id, name?, trigger?, category_id?, scope_all?, scope_group_ids?, upsert?=False, match_trigger?, tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name, trigger}` (+ `created` when upsert)
   - Source session = `tenant`/`auth`/`surface` (same as other builtins). Destination = `to_*` (omit = same as source).
   - Fetch Classic XML on source; prepare (strip id, set name/trigger, default **unassigned** scope); remap category/scripts/packages by **name** on destination (missing scripts/packages fail; missing category → uncategorized); POST (or upsert PUT/POST when `upsert=True`).
 - `policy_migrate(...)` — alias of `policy_copy(..., upsert=True)`.
@@ -252,11 +252,11 @@ Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…
 **Clone/copy:** do not hand-edit UUIDs. `profile_clone` / `profile_copy` randomize general + PayloadUUID and default to unassigned scope. `profile_xml_prepare_for_create` is the offline equivalent before `profile_create_xml`.
 
 - `uuid_new() → value: str` — offline random UUID.
-- `profile_clone(profile_id, name, tenant?, surface?, auth?) → value: dict {id, name}` — same session; UUID remap + unassigned scope.
-- `profile_acs_bind_uuid(profile_id, payload_uuid) → value: None` — seed process cache for ACS payload UUID when legacy HTML scrape fails (API tokens).
-- `profile_copy(profile_id, name, category_id?, scope_all?, scope_group_ids?, tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name}` — source = tenant/auth; dest = to_* (omit = same).
+- `profile_clone(id, name, tenant?, surface?, auth?) → value: dict {id, name}` — same session; UUID remap + unassigned scope.
+- `profile_acs_bind_uuid(id, payload_uuid) → value: None` — seed process cache for ACS payload UUID when legacy HTML scrape fails (API tokens).
+- `profile_copy(id, name, category_id?, scope_all?, scope_group_ids?, tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?) → value: dict {id, name}` — source = tenant/auth; dest = to_* (omit = same).
 - `profile_create_xml(xml_str, name?, tenant?, surface?, auth?) → value: dict {id, name}` — POST prepared XML.
-- `profile_delete(profile_id, tenant?, surface?, auth?) → value: None`
+- `profile_delete(id, tenant?, surface?, auth?) → value: None`
 - `profile_xml_randomize_uuids(profile_xml_str) → value: str` — offline UUID remap only.
 - `profile_xml_prepare_for_create(profile_xml_str, name, scope_all?, scope_group_ids?) → value: str` — offline name/id/scope/UUID prep for POST.
 - `payloads_collect_uuids(payloads_plist_str) → value: list[string]` — every PayloadUUID in plist.
@@ -360,7 +360,7 @@ xml = profile_xml(id = 42)
 
 # One-shot merge patch (PayloadContent keys merge; MCX = settings-only):
 xml = profile_xml_patch_payload(xml, "com.google.chrome", {"SomeKey": "NewValue"})
-profile_put_xml(profile_id = 42, xml_str = xml)
+profile_put_xml(id = 42, xml_str = xml)
 ```
 
 See also `docs/profile-payloads.md` for PayloadContent vs MCX and full-replace via `payloads_replace_payload`.
@@ -370,7 +370,7 @@ See also `docs/profile-payloads.md` for PayloadContent vs MCX and full-replace v
 ```python
 plist = payloads_set_content(content = [chrome, other_payload])
 xml2 = profile_xml_replace_payloads(xml, plist)
-profile_put_xml(profile_id = 42, xml_str = xml2)
+profile_put_xml(id = 42, xml_str = xml2)
 ```
 
 **Longer extract / decode / replace pattern:**
@@ -384,7 +384,7 @@ chrome["SomeKey"] = "NewValue"
 
 payloads = payloads_replace_payload(payloads, "com.google.chrome", chrome)
 xml = profile_xml_replace_payloads(xml, payloads)
-profile_put_xml(profile_id = 42, xml_str = xml)
+profile_put_xml(id = 42, xml_str = xml)
 ```
 
 ## XML helpers (offline)

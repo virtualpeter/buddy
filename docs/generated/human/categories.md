@@ -18,7 +18,7 @@ Typical migrate order: categories → [scripts](/docs/docs/scripts) → [policie
 
 ```python
 def main():
-    return category_copy(category_id="5", upsert=True, to_tenant="sandbox")
+    return category_copy(id="5", upsert=True, to_tenant="sandbox")
 ```
 
 ## Related

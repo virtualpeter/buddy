@@ -25,7 +25,7 @@ var MacappsTopic = docspec.Topic{
 		{Action: "List", BuddyScript: "`macapps(filter?)`", CLI: "`buddy macapp list`", Notes: "Client-side substring; Classic list has no RSQL"},
 		{Action: "Load", BuddyScript: "`macapp(id=…)` / `macapp(name=…)`", CLI: "`buddy macapp get`", Notes: "Full Classic record"},
 		{Action: "Create", BuddyScript: "`macapp_create(...)`", CLI: "`buddy macapp create`", Notes: "Requires name, version, bundle_id, url"},
-		{Action: "Delete", BuddyScript: "`macapp_delete(macapp_id)`", CLI: "`buddy macapp delete`", Notes: ""},
+		{Action: "Delete", BuddyScript: "`macapp_delete(id)`", CLI: "`buddy macapp delete`", Notes: ""},
 	},
 	Notes: []string{
 		"Classic `/JSSResource/macapplications` only — no Pro JSON catalog CRUD. Instance-surface auth with Classic privileges is required.",
@@ -66,7 +66,7 @@ var MacappsTopic = docspec.Topic{
 				Summary: `Delete MAS app`,
 				Returns: `None`,
 				Params: []docspec.Param{
-					{Name: `macapp_id`, Type: `string`, Required: true, Description: `macapp_id`},
+					{Name: `id`, Type: `string`, Required: true, Description: `id`},
 				},
 			},
 		},
@@ -101,10 +101,10 @@ var MacappsTopic = docspec.Topic{
       Does: Create a Classic Mac App Store app record.
       → value: dict {id, name}
       Params: name/version/bundle_id/url: str (required); free?: bool; category?: str (exact category name).
-  macapp_delete(macapp_id, tenant?, surface?, auth?)
+  macapp_delete(id, tenant?, surface?, auth?)
       Does: Delete a Classic Mac App Store app record.
       → None
-      Params: macapp_id: int or str.
+      Params: id: int or str.
 
 `,
 	CLIHelp: `buddy macapp - Manage Classic Mac App Store apps

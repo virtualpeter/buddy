@@ -202,7 +202,7 @@ func TestExtractTOCHTMLHeadings(t *testing.T) {
 }
 
 func TestExtractTOCFnNameNotFullSignature(t *testing.T) {
-	md := `<h3 id="policy_set_ss"><code class="fn-sig"><b class="fn-name">policy_set_ss</b>(policy_id, version?)</code></h3>`
+	md := `<h3 id="policy_set_ss"><code class="fn-sig"><b class="fn-name">policy_set_ss</b>(id, version?)</code></h3>`
 	toc := extractTOC(md)
 	if len(toc) != 1 || toc[0].ID != "policy_set_ss" || toc[0].Text != "policy_set_ss" {
 		t.Fatalf("toc=%+v", toc)

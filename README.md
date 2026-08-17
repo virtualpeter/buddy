@@ -250,9 +250,9 @@ def main():
     version = args[0]
 
     policy_id = policy(trigger=TRIGGER_PREFIX + version)["id"]
-    policy_set_package(name=PACKAGE_NAME, version=version, policy_id=policy_id)
+    policy_set_package(name=PACKAGE_NAME, version=version, id=policy_id)
     # If install params or self-service live on other policies, add policy_set_install / policy_set_ss
-    # with those policy IDs. To bump a smart-group version criterion: smart_group_set_version(group_id="...", version=version).
+    # with those policy IDs. To bump a smart-group version criterion: smart_group_set_version(id="...", version=version).
 ```
 
 A runnable file with the same ideas (and optional steps you can uncomment) lives at [examples/bump-release.buddy](examples/bump-release.buddy).

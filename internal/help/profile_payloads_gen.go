@@ -5,10 +5,10 @@ package help
 
 // ProfilePayloadsBuiltinsSection is spliced into Builtins.
 const ProfilePayloadsBuiltinsSection = `PROFILE — component
-  profile_put_xml(profile_id, xml_str, redeploy?, tenant?, surface?, auth?)
+  profile_put_xml(id, xml_str, redeploy?, tenant?, surface?, auth?)
       Does: PUT full profile XML (ACS quirks handled inside).
       → None
-      Params: profile_id: int/str; xml_str: str; redeploy?: bool (set redeploy_on_update=All).
+      Params: id: int/str; xml_str: str; redeploy?: bool (set redeploy_on_update=All).
   profile_xml_extract_payloads(profile_xml_str)
       Does: Extract the payloads plist from profile XML (entities unescaped).
       → value: str (payloads plist XML from <payloads>)

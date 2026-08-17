@@ -308,7 +308,7 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		if s.Name == "" || s.Version == "" || s.FromTrigger == "" {
 			return nil, fmt.Errorf("step_set_package requires name, version, from_trigger")
 		}
-		if s.PolicyID, _, err = getInt("policy_id"); err != nil {
+		if s.PolicyID, _, err = getInt("id"); err != nil {
 			return nil, err
 		}
 		s.PackagePattern, _, _ = getStr("package_pattern")
@@ -347,14 +347,14 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		}
 
 	case stepTypeSetSS:
-		if s.PolicyID, _, err = getInt("policy_id"); err != nil {
+		if s.PolicyID, _, err = getInt("id"); err != nil {
 			return nil, err
 		}
 		if s.Version, _, err = getStr("version"); err != nil {
 			return nil, err
 		}
 		if s.PolicyID == 0 || s.Version == "" {
-			return nil, fmt.Errorf("step_set_ss requires policy_id, version")
+			return nil, fmt.Errorf("step_set_ss requires id, version")
 		}
 		s.GroupIDs, _, err = getIntList("group_ids")
 		if err != nil {
@@ -362,25 +362,25 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		}
 
 	case stepTypeSetGroupVersion:
-		if s.GroupID, _, err = getStr("group_id"); err != nil {
+		if s.GroupID, _, err = getStr("id"); err != nil {
 			return nil, err
 		}
 		if s.Version, _, err = getStr("version"); err != nil {
 			return nil, err
 		}
 		if s.GroupID == "" || s.Version == "" {
-			return nil, fmt.Errorf("step_set_group_version requires group_id, version")
+			return nil, fmt.Errorf("step_set_group_version requires id, version")
 		}
 
 	case stepTypeSetInstall:
-		if s.PolicyID, _, err = getInt("policy_id"); err != nil {
+		if s.PolicyID, _, err = getInt("id"); err != nil {
 			return nil, err
 		}
 		if s.Version, _, err = getStr("version"); err != nil {
 			return nil, err
 		}
 		if s.PolicyID == 0 || s.Version == "" {
-			return nil, fmt.Errorf("step_set_install requires policy_id, version")
+			return nil, fmt.Errorf("step_set_install requires id, version")
 		}
 		s.Params, _, err = getIntList("params")
 		if err != nil {
@@ -391,41 +391,41 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		}
 
 	case stepTypeEnablePolicy, stepTypeDisablePolicy, stepTypeSetScopeAll:
-		if s.PolicyID, _, err = getInt("policy_id"); err != nil {
+		if s.PolicyID, _, err = getInt("id"); err != nil {
 			return nil, err
 		}
 		if s.PolicyID == 0 {
-			return nil, fmt.Errorf("step_%s requires policy_id", typVal)
+			return nil, fmt.Errorf("step_%s requires id", typVal)
 		}
 
 	case stepTypeSetTrigger:
-		if s.PolicyID, _, err = getInt("policy_id"); err != nil {
+		if s.PolicyID, _, err = getInt("id"); err != nil {
 			return nil, err
 		}
 		if s.Trigger, _, err = getStr("trigger"); err != nil {
 			return nil, err
 		}
 		if s.PolicyID == 0 || s.Trigger == "" {
-			return nil, fmt.Errorf("step_set_trigger requires policy_id, trigger")
+			return nil, fmt.Errorf("step_set_trigger requires id, trigger")
 		}
 
 	case stepTypeSetScope:
-		if s.PolicyID, _, err = getInt("policy_id"); err != nil {
+		if s.PolicyID, _, err = getInt("id"); err != nil {
 			return nil, err
 		}
 		if s.GroupIDs, _, err = getIntList("group_ids"); err != nil {
 			return nil, err
 		}
 		if s.PolicyID == 0 || len(s.GroupIDs) == 0 {
-			return nil, fmt.Errorf("step_set_scope requires policy_id, group_ids")
+			return nil, fmt.Errorf("step_set_scope requires id, group_ids")
 		}
 
 	case stepTypeDeletePolicy:
-		if s.PolicyIDs, _, err = getIntList("policy_ids"); err != nil {
+		if s.PolicyIDs, _, err = getIntList("ids"); err != nil {
 			return nil, err
 		}
 		if len(s.PolicyIDs) == 0 {
-			return nil, fmt.Errorf("step_delete_policy requires policy_ids (non-empty list)")
+			return nil, fmt.Errorf("step_delete_policy requires ids (non-empty list)")
 		}
 
 	case stepTypeCreatePolicy:
@@ -509,7 +509,7 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 		}
 
 	case stepTypeSetProfilePayload:
-		if s.ProfileID, _, err = getInt("profile_id"); err != nil {
+		if s.ProfileID, _, err = getInt("id"); err != nil {
 			return nil, err
 		}
 		if s.Domain, _, err = getStr("domain"); err != nil {
@@ -519,21 +519,21 @@ func stepFromStarlark(v starlark.Value) (*Step, error) {
 			return nil, err
 		}
 		if s.ProfileID == 0 || s.Domain == "" || s.DictFile == "" {
-			return nil, fmt.Errorf("step_set_profile_payload requires profile_id, domain, dict_file")
+			return nil, fmt.Errorf("step_set_profile_payload requires id, domain, dict_file")
 		}
 		if s.Redeploy, _, err = getBool("redeploy"); err != nil {
 			return nil, err
 		}
 
 	case stepTypeSetProfileXML:
-		if s.ProfileID, _, err = getInt("profile_id"); err != nil {
+		if s.ProfileID, _, err = getInt("id"); err != nil {
 			return nil, err
 		}
 		if s.XMLFile, _, err = getStr("xml_file"); err != nil {
 			return nil, err
 		}
 		if s.ProfileID == 0 || s.XMLFile == "" {
-			return nil, fmt.Errorf("step_set_profile_xml requires profile_id, xml_file")
+			return nil, fmt.Errorf("step_set_profile_xml requires id, xml_file")
 		}
 		if s.Redeploy, _, err = getBool("redeploy"); err != nil {
 			return nil, err

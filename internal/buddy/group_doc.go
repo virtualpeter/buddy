@@ -26,7 +26,7 @@ var SmartGroupsTopic = docspec.Topic{
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List", BuddyScript: "`smart_groups(search=…)`", CLI: "`buddy group list smart`", Notes: "Summary list"},
 		{Action: "Load", BuddyScript: "`smart_group(id=…)` / `smart_group(name=…)`", CLI: "`buddy group get`", Notes: "Full JSON; pass id or name, not both"},
-		{Action: "List members", BuddyScript: "`smart_group_list_computers(group_id, filter?)`", CLI: "`buddy group smart members`", Notes: "Pro membership endpoint; IDs only (`name`/`serial` empty)"},
+		{Action: "List members", BuddyScript: "`smart_group_list_computers(id, filter?)`", CLI: "`buddy group smart members`", Notes: "Pro membership endpoint; IDs only (`name`/`serial` empty)"},
 		{Action: "Criteria", BuddyScript: "`smart_group_get_criteria` / `smart_group_set_criteria` / …", CLI: "`buddy group smart criteria` / `set-criteria`", Notes: "Round-trip JSON array; version helpers: `version` / `set-version`"},
 		{Action: "Create / replace", BuddyScript: "`smart_group_create` / `smart_group_put`", CLI: "`buddy group create smart`", Notes: "Full body PUT; create from JSON file supported"},
 		{Action: "Copy / migrate", BuddyScript: "`smart_group_copy` / `smart_group_migrate`", Notes: "Upsert by exact name; clears siteId unless set"},
@@ -56,7 +56,7 @@ var SmartGroupsTopic = docspec.Topic{
 			Summary: `List effective membership`,
 			Returns: `list of {id,name,serial}`,
 			Params: []docspec.Param{
-				{Name: `group_id`, Type: `string`, Required: true, Description: `group_id`},
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
 				{Name: `filter`, Type: `string`, Required: false, Description: `client-side substring on id/name/serial`},
 			},
 		},
@@ -65,7 +65,7 @@ var SmartGroupsTopic = docspec.Topic{
 			Summary: `Replace criteria`,
 			Returns: `None`,
 			Params: []docspec.Param{
-				{Name: `group_id`, Type: `string`, Required: true, Description: `group_id`},
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
 			},
 		},
 		{
@@ -73,15 +73,15 @@ var SmartGroupsTopic = docspec.Topic{
 			Summary: `Copy/migrate smart group`,
 			Returns: `dict`,
 			Params: []docspec.Param{
-				{Name: `group_id`, Type: `string`, Required: true, Description: `group_id`},
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
 			},
 		},
 	},
 	ExamplesBuddy: []string{
 		`def main():
-    members = smart_group_list_computers(group_id="123")
+    members = smart_group_list_computers(id="123")
     smart_group_update_criterion_value(
-        group_id="123",
+        id="123",
         name_substring="version",
         new_value="2.0.0",
     )
@@ -112,87 +112,87 @@ var SmartGroupsTopic = docspec.Topic{
       Does: Load one static computer group summary.
       → value: dict {id, name, description}
       Params: id: str (group ID).
-  smart_group_get_version(group_id, tenant?, surface?, auth?)
+  smart_group_get_version(id, tenant?, surface?, auth?)
       Does: Read the current version criterion value from a smart group.
       → value: str
-      Params: group_id: str.
-  smart_group_set_version(group_id, version, tenant?, surface?, auth?)
+      Params: id: str.
+  smart_group_set_version(id, version, tenant?, surface?, auth?)
       Does: Set matching version criteria on a smart group to a new value.
       → None
-      Params: group_id: str; version: str.
-  group_delete(group_id, tenant?, surface?, auth?)
+      Params: id: str; version: str.
+  group_delete(id, tenant?, surface?, auth?)
       Does: Delete a smart computer group.
       → None
-      Params: group_id: str.
+      Params: id: str.
   smart_group_create(body, tenant?, surface?, auth?)
       Does: Create a smart computer group from a JSON body.
       → value: dict {"id", "href"?}
       Params: body: dict (name required; criteria optional; id: -1 optional create convention).
-  smart_group_clone(group_id, name, site_id?, tenant?, surface?, auth?)
+  smart_group_clone(id, name, site_id?, tenant?, surface?, auth?)
       Does: Clone a smart group in the same session (alias of smart_group_copy without to_*).
       → value: dict {"id", "href"?}
-      Params: group_id: str; name: str (new group name); site_id?: str.
+      Params: id: str; name: str (new group name); site_id?: str.
       Notes: Alias of smart_group_copy without to_* (same-session).
-  smart_group_copy(group_id, name?, site_id?, upsert?=False,
+  smart_group_copy(id, name?, site_id?, upsert?=False,
                    tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
       Does: Copy a smart group's criteria/description to another (or the same) session.
       → value: dict {"id", "href"?} or +name/created when upsert
-      Params: group_id: str; name?: dest name (optional → source name on upsert);
+      Params: id: str; name?: dest name (optional → source name on upsert);
         site_id?: dest site (clears siteId unless set). upsert?: bool.
         Source = tenant?/auth?; dest = to_* (omit = same session).
       Notes: upsert=True: upsert by exact name.
   smart_group_migrate(...)
       Does: Alias of smart_group_copy with upsert=True.
       → value: dict {"id", "href"?, "name"?, "created"?}
-  smart_group_put(group_id, body, tenant?, surface?, auth?)
+  smart_group_put(id, body, tenant?, surface?, auth?)
       Does: Replace a smart group's full JSON document (name, criteria, siteId, …).
       → None
-      Params: group_id: str; body: dict (same shape as smart_group(id=…)).
+      Params: id: str; body: dict (same shape as smart_group(id=…)).
       Notes: PUT /api/v3/computer-groups/smart-groups/{id}. SkipConfirm.
-  smart_group_get_criteria(group_id, tenant?, surface?, auth?)
+  smart_group_get_criteria(id, tenant?, surface?, auth?)
       Does: Return the criteria array from a smart group (or [] if missing).
       → value: list of dict {name, priority, andOr, searchType, value, openingParen?, closingParen?}
-      Params: group_id: str.
-  smart_group_set_criteria(group_id, criteria, tenant?, surface?, auth?)
+      Params: id: str.
+  smart_group_set_criteria(id, criteria, tenant?, surface?, auth?)
       Does: Replace a smart group's criteria array, preserving other fields.
       → None
-      Params: group_id: str; criteria: list of criteria dicts (same keys as get_criteria).
-  smart_group_find_criteria(group_id, name_substring, tenant?, surface?, auth?)
+      Params: id: str; criteria: list of criteria dicts (same keys as get_criteria).
+  smart_group_find_criteria(id, name_substring, tenant?, surface?, auth?)
       Does: Find criteria whose name contains a substring (case-insensitive).
       → value: list of matching criteria dicts
-      Params: group_id: str; name_substring: str.
-  smart_group_update_criterion_value(group_id, name_substring, new_value, tenant?, surface?, auth?)
+      Params: id: str; name_substring: str.
+  smart_group_update_criterion_value(id, name_substring, new_value, tenant?, surface?, auth?)
       Does: Set value= on every criterion whose name contains name_substring.
       → None
-      Params: group_id: str; name_substring: str; new_value: str.
+      Params: id: str; name_substring: str; new_value: str.
       Notes: Raises if no criteria match.
-  smart_group_list_computers(group_id, filter?, tenant?, surface?, auth?)
+  smart_group_list_computers(id, filter?, tenant?, surface?, auth?)
       Does: List effective smart-group membership (Pro IDs).
       → value: list of {id, name, serial}
-      Params: group_id: str; filter?: client-side substring on id/name/serial.
+      Params: id: str; filter?: client-side substring on id/name/serial.
       Notes: Pro GET smart-group-membership; name/serial empty (IDs only).
-  static_group_list_computers(group_id, filter?, tenant?, surface?, auth?)
+  static_group_list_computers(id, filter?, tenant?, surface?, auth?)
       Does: List computers assigned to a static group.
       → value: list of {id, name, serial}
-      Params: group_id: str; filter?: client-side substring on id/name/serial.
+      Params: id: str; filter?: client-side substring on id/name/serial.
       Notes: name may be empty when the API returns only assignment IDs.
   static_group_create(body, tenant?, surface?, auth?)
       Does: Create a static computer group.
       → value: dict {"id", "href"?}
       Params: body: dict (name required; assignments optional list of computer id strings;
         description?/siteId? optional).
-  static_group_add_computers(group_id, computer_ids, tenant?, surface?, auth?)
+  static_group_add_computers(id, computer_ids, tenant?, surface?, auth?)
       Does: Merge computer IDs into a static group's membership (no-op if already members).
       → None
-      Params: group_id: str; computer_ids: list of int or str.
-  static_group_remove_computers(group_id, computer_ids, tenant?, surface?, auth?)
+      Params: id: str; computer_ids: list of int or str.
+  static_group_remove_computers(id, computer_ids, tenant?, surface?, auth?)
       Does: Remove computer IDs from a static group's membership (no-op if none match).
       → None
-      Params: group_id: str; computer_ids: list of int or str.
-  static_group_set_computers(group_id, computer_ids, tenant?, surface?, auth?)
+      Params: id: str; computer_ids: list of int or str.
+  static_group_set_computers(id, computer_ids, tenant?, surface?, auth?)
       Does: Replace a static group's entire membership list.
       → None
-      Params: group_id: str; computer_ids: list of int or str.
+      Params: id: str; computer_ids: list of int or str.
 
 `,
 	CLIHelp: `buddy group - Manage Jamf computer groups
@@ -289,7 +289,7 @@ var StaticGroupsTopic = docspec.Topic{
 	Summary: "Pro v3 static computer groups — membership is an explicit list of **computer IDs**. Distinct from smart computer groups (`smart_group*`) and Platform device groups (`device_group*`).",
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List groups", BuddyScript: "`static_groups(search=…)`", CLI: "`buddy group list static`", Notes: ""},
-		{Action: "List members", BuddyScript: "`static_group_list_computers(group_id, filter?)`", CLI: "`buddy group static members`", Notes: "`[{id, name, serial}, …]`; name may be empty"},
+		{Action: "List members", BuddyScript: "`static_group_list_computers(id, filter?)`", CLI: "`buddy group static members`", Notes: "`[{id, name, serial}, …]`; name may be empty"},
 		{Action: "Mutate membership", BuddyScript: "`static_group_add_computers` / `remove` / `set`", CLI: "`buddy group static add|remove`", Notes: "Read-modify-write; add/remove no-op when already satisfied; no CLI set-all"},
 		{Action: "Create", BuddyScript: "`static_group_create(body)`", CLI: "`buddy group create static`", Notes: "`name` required; `assignments` optional"},
 	},
@@ -304,7 +304,7 @@ var StaticGroupsTopic = docspec.Topic{
 			Summary: `List membership`,
 			Returns: `list of {id,name,serial}`,
 			Params: []docspec.Param{
-				{Name: `group_id`, Type: `string`, Required: true, Description: `group_id`},
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
 			},
 		},
 		{
@@ -312,7 +312,7 @@ var StaticGroupsTopic = docspec.Topic{
 			Summary: `Add members`,
 			Returns: `None`,
 			Params: []docspec.Param{
-				{Name: `group_id`, Type: `string`, Required: true, Description: `group_id`},
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
 				{Name: `computer_ids`, Type: `list`, Required: true, Description: `computer_ids`},
 			},
 		},
@@ -321,15 +321,15 @@ var StaticGroupsTopic = docspec.Topic{
 			Summary: `Replace membership`,
 			Returns: `None`,
 			Params: []docspec.Param{
-				{Name: `group_id`, Type: `string`, Required: true, Description: `group_id`},
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
 				{Name: `computer_ids`, Type: `list`, Required: true, Description: `computer_ids`},
 			},
 		},
 	},
 	ExamplesBuddy: []string{
 		`def main():
-    members = static_group_list_computers(group_id="10")
-    static_group_add_computers(group_id="10", computer_ids=["42", "43"])
+    members = static_group_list_computers(id="10")
+    static_group_add_computers(id="10", computer_ids=["42", "43"])
     return members`,
 	},
 	Related: []docspec.RelatedLink{

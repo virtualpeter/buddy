@@ -115,7 +115,7 @@ func deviceSetBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		var deviceID starlark.String
 		var body starlark.Value
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("device_set", args, kwargs, "device_id", &deviceID, "body", &body,
+		if err := starlark.UnpackArgs("device_set", args, kwargs, "id", &deviceID, "body", &body,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -142,7 +142,7 @@ func deviceDeleteBuiltin(credName string, logger *slog.Logger) func(*starlark.Th
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var deviceID starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("device_delete", args, kwargs, "device_id", &deviceID,
+		if err := starlark.UnpackArgs("device_delete", args, kwargs, "id", &deviceID,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -167,7 +167,7 @@ func deviceApplicationsBuiltin(credName string, logger *slog.Logger) func(*starl
 		page := starlark.Value(starlark.None)
 		var pageSize starlark.Int
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("device_applications", args, kwargs, "device_id", &deviceID, "filter?", &filter, "page?", &page, "page_size?", &pageSize,
+		if err := starlark.UnpackArgs("device_applications", args, kwargs, "id", &deviceID, "filter?", &filter, "page?", &page, "page_size?", &pageSize,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -192,7 +192,7 @@ func deviceActionBuiltin(credName string, logger *slog.Logger, name string, fn f
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var deviceID starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("device_"+name, args, kwargs, "device_id", &deviceID,
+		if err := starlark.UnpackArgs("device_"+name, args, kwargs, "id", &deviceID,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -297,7 +297,7 @@ func deviceGroupSetBuiltin(credName string, logger *slog.Logger) func(*starlark.
 		var groupID starlark.String
 		var body starlark.Value
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("device_group_set", args, kwargs, "group_id", &groupID, "body", &body,
+		if err := starlark.UnpackArgs("device_group_set", args, kwargs, "id", &groupID, "body", &body,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -324,7 +324,7 @@ func deviceGroupDeleteBuiltin(credName string, logger *slog.Logger) func(*starla
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var groupID starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("device_group_delete", args, kwargs, "group_id", &groupID,
+		if err := starlark.UnpackArgs("device_group_delete", args, kwargs, "id", &groupID,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -347,7 +347,7 @@ func deviceGroupMembersBuiltin(credName string, logger *slog.Logger) func(*starl
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var groupID starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("device_group_members", args, kwargs, "group_id", &groupID,
+		if err := starlark.UnpackArgs("device_group_members", args, kwargs, "id", &groupID,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -369,7 +369,7 @@ func deviceGroupSetMembersBuiltin(credName string, logger *slog.Logger) func(*st
 		var groupID starlark.String
 		var body starlark.Value
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("device_group_set_members", args, kwargs, "group_id", &groupID, "body", &body,
+		if err := starlark.UnpackArgs("device_group_set_members", args, kwargs, "id", &groupID, "body", &body,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -425,7 +425,7 @@ func ddmDeviceDeclarationsBuiltin(credName string, logger *slog.Logger) func(*st
 		page := starlark.Value(starlark.None)
 		var pageSize starlark.Int
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("ddm_device_declarations", args, kwargs, "device_id", &deviceID, "filter?", &filter, "sort?", &sort, "page?", &page, "page_size?", &pageSize,
+		if err := starlark.UnpackArgs("ddm_device_declarations", args, kwargs, "id", &deviceID, "filter?", &filter, "sort?", &sort, "page?", &page, "page_size?", &pageSize,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -450,7 +450,7 @@ func ddmDeviceChannelsBuiltin(credName string, logger *slog.Logger) func(*starla
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var deviceID starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("ddm_device_channels", args, kwargs, "device_id", &deviceID,
+		if err := starlark.UnpackArgs("ddm_device_channels", args, kwargs, "id", &deviceID,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {

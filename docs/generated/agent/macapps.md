@@ -31,7 +31,7 @@ Bare `buddy app` / `apps(...)` manage **policy apps** (Self Service + packages) 
 - List: `macapps(filter?)` · `buddy macapp list` — Client-side substring; Classic list has no RSQL
 - Load: `macapp(id=…)` / `macapp(name=…)` · `buddy macapp get` — Full Classic record
 - Create: `macapp_create(...)` · `buddy macapp create` — Requires name, version, bundle_id, url
-- Delete: `macapp_delete(macapp_id)` · `buddy macapp delete`
+- Delete: `macapp_delete(id)` · `buddy macapp delete`
 - Classic `/JSSResource/macapplications` only — no Pro JSON catalog CRUD. Instance-surface auth with Classic privileges is required.
 
 ## Builtins
@@ -127,13 +127,13 @@ Returns: None
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "macapp_id": {
-      "description": "macapp_id",
+    "id": {
+      "description": "id",
       "type": "string"
     }
   },
   "required": [
-    "macapp_id"
+    "id"
   ],
   "title": "macapp_delete",
   "type": "object"

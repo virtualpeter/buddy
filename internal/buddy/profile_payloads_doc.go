@@ -26,7 +26,7 @@ var ProfilePayloadsTopic = docspec.Topic{
 		{Action: "Load XML", BuddyScript: "`profile_xml(id=…)`", CLI: "`buddy profile get xml`", Notes: "Preserves outer UUID"},
 		{Action: "Inspect", BuddyScript: "`profile_xml_extract_payloads` → `payloads_list_identifiers` / `payloads_get_mcx_dict`", CLI: "`buddy profile get list-payloads` / `get payload`", Notes: "PayloadContent vs MCX; CLI is PayloadContent only"},
 		{Action: "Patch", BuddyScript: "`profile_xml_patch_payload(xml, domain, new_payload)`", CLI: "`buddy profile set payload`", Notes: "Offline merge for PayloadContent"},
-		{Action: "Write back", BuddyScript: "`profile_put_xml(profile_id, xml_str)`", CLI: "`buddy profile set xml`", Notes: "ACS quirks handled inside"},
+		{Action: "Write back", BuddyScript: "`profile_put_xml(id, xml_str)`", CLI: "`buddy profile set xml`", Notes: "ACS quirks handled inside"},
 		{Action: "Clone / copy", BuddyScript: "`profile_clone` / `profile_copy`", CLI: "`buddy profile clone`", Notes: "Randomizes UUIDs; unassigned scope; copy/migrate is BuddyScript-only"},
 		{Action: "Create prep", BuddyScript: "`profile_xml_prepare_for_create` → `profile_create_xml`", Notes: "Offline then POST"},
 		{Action: "Greenfield", BuddyScript: "`profile_create` + `payloads_set_content`", Notes: ""},
@@ -67,17 +67,17 @@ var ProfilePayloadsTopic = docspec.Topic{
 		`def main():
     xml = profile_xml(id=42)
     xml = profile_xml_patch_payload(xml, "com.example", {"Key": "New"})
-    profile_put_xml(profile_id=42, xml_str=xml)
+    profile_put_xml(id=42, xml_str=xml)
     return "ok"`,
 		`./buddy --tenant=sandbox --user=sandbox-admin scripts/integration_test.buddy
 # or: make integration-test`,
 	},
 	HelpExport: `profile_payloads`,
 	BuiltinsHelp: `PROFILE — component
-  profile_put_xml(profile_id, xml_str, redeploy?, tenant?, surface?, auth?)
+  profile_put_xml(id, xml_str, redeploy?, tenant?, surface?, auth?)
       Does: PUT full profile XML (ACS quirks handled inside).
       → None
-      Params: profile_id: int/str; xml_str: str; redeploy?: bool (set redeploy_on_update=All).
+      Params: id: int/str; xml_str: str; redeploy?: bool (set redeploy_on_update=All).
   profile_xml_extract_payloads(profile_xml_str)
       Does: Extract the payloads plist from profile XML (entities unescaped).
       → value: str (payloads plist XML from <payloads>)

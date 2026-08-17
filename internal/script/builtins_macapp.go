@@ -128,11 +128,11 @@ func macappDeleteBuiltin(credName string, logger *slog.Logger) func(*starlark.Th
 		var macappID starlark.Value
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("macapp_delete", args, kwargs,
-			"macapp_id", &macappID,
+			"id", &macappID,
 			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
-		id, err := starlarkIDInt(macappID, "macapp_id")
+		id, err := starlarkIDInt(macappID, "id")
 		if err != nil {
 			return nil, err
 		}

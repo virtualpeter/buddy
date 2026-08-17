@@ -136,10 +136,10 @@ var PackagesTopic = docspec.Topic{
       Does: Delete one or more package records.
       → None
       Params: ids: str/int or list of package IDs.
-  package_put(package_id, dict, tenant?, surface?, auth?)
+  package_put(id, dict, tenant?, surface?, auth?)
       Does: PUT a full package JSON body (omits server-managed size).
       → value: dict (updated package record)
-      Params: package_id: str; dict: full package body.
+      Params: id: str; dict: full package body.
 
 `,
 	CLIHelp: `buddy package - Manage Jamf Pro package records

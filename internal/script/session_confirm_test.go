@@ -61,7 +61,7 @@ func TestSessionConfirmBridge_ProfilePutXMLPendingWithoutSkip(t *testing.T) {
 	done := make(chan EvalResult, 1)
 	go func() {
 		done <- s.EvalOpts("mcp", `def main():
-    profile_put_xml(profile_id=1, xml_str="<os_x_configuration_profile></os_x_configuration_profile>")
+    profile_put_xml(id=1, xml_str="<os_x_configuration_profile></os_x_configuration_profile>")
     return "done"
 `, EvalOptions{CallMain: true})
 	}()
@@ -100,7 +100,7 @@ func TestSessionConfirmBridge_ProfilePutXMLSkipsWithSkipConfirm(t *testing.T) {
 	go func() {
 		// Will fail at Jamf (no cred / bad id) — but must not leave a pending confirm.
 		done <- s.EvalOpts("mcp", `def main():
-    profile_put_xml(profile_id=1, xml_str="<os_x_configuration_profile></os_x_configuration_profile>")
+    profile_put_xml(id=1, xml_str="<os_x_configuration_profile></os_x_configuration_profile>")
     return "done"
 `, EvalOptions{CallMain: true})
 	}()

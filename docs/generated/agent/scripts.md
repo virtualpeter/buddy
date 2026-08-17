@@ -24,7 +24,7 @@ Jamf Pro scripts — list summaries vs full body, create/update, and copy/migrat
 ## Facts
 
 - List: `scripts(filter?)` · `buddy script list` — Summaries `{id, name, categoryId, categoryName}` only; bodies stripped
-- Load: `script(id=…)` / `script(name=…)` / `script_get_contents(script_id=…)` · `buddy script get` / `get contents` — Full Jamf JSON dict (id= and name=); or body only
+- Load: `script(id=…)` / `script(name=…)` / `script_get_contents(id=…)` · `buddy script get` / `get contents` — Full Jamf JSON dict (id= and name=); or body only
 - Create / update: `script_create` / `script_put` / `script_update` · `buddy script create` / `upload` — Create from string body; PUT dict or replace from file
 - Copy / migrate: `script_copy` / `script_migrate` — Upsert by name; category remapped on destination
 - Bare `filter` terms become `name=="*term*"` on the server. List JSON never yields usable `scriptContents` — load with `script(id=…)`.
@@ -82,13 +82,13 @@ Returns: dict
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "script_id": {
-      "description": "script_id",
+    "id": {
+      "description": "id",
       "type": "string"
     }
   },
   "required": [
-    "script_id"
+    "id"
   ],
   "title": "script_copy",
   "type": "object"

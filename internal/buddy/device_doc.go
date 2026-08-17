@@ -71,39 +71,39 @@ var DevicesTopic = docspec.Topic{
       Does: Fetch one Platform device JSON document.
       → value: dict (full device record)
       Params: id=: str (device UUID).
-  device_set(device_id, body, tenant?, surface?, auth?)
+  device_set(id, body, tenant?, surface?, auth?)
       Does: PATCH a Platform device with a JSON body.
       → None
-      Params: device_id: str; body: dict (merge-patch JSON).
-  device_delete(device_id, tenant?, surface?, auth?)
+      Params: id: str; body: dict (merge-patch JSON).
+  device_delete(id, tenant?, surface?, auth?)
       Does: Delete a Platform device record.
       → None
-      Params: device_id: str.
-  device_applications(device_id, filter?, page?, page_size?, tenant?, surface?, auth?)
+      Params: id: str.
+  device_applications(id, filter?, page?, page_size?, tenant?, surface?, auth?)
       Does: List applications installed on a Platform device.
       → value: list of dicts
-      Params: device_id: str; filter?: bare term → name=="*term*", or full RSQL.
+      Params: id: str; filter?: bare term → name=="*term*", or full RSQL.
         page?: int (omit = all); page_size?: int.
-  device_check_in(device_id, tenant?, surface?, auth?)
+  device_check_in(id, tenant?, surface?, auth?)
       Does: Request a Platform device check-in.
       → None
-      Params: device_id: str.
-  device_restart(device_id, tenant?, surface?, auth?)
+      Params: id: str.
+  device_restart(id, tenant?, surface?, auth?)
       Does: Restart a Platform device.
       → None
-      Params: device_id: str.
-  device_shutdown(device_id, tenant?, surface?, auth?)
+      Params: id: str.
+  device_shutdown(id, tenant?, surface?, auth?)
       Does: Shut down a Platform device.
       → None
-      Params: device_id: str.
-  device_erase(device_id, tenant?, surface?, auth?)
+      Params: id: str.
+  device_erase(id, tenant?, surface?, auth?)
       Does: Erase a Platform device.
       → None
-      Params: device_id: str.
-  device_unmanage(device_id, tenant?, surface?, auth?)
+      Params: id: str.
+  device_unmanage(id, tenant?, surface?, auth?)
       Does: Remove remote management from a Platform device.
       → None
-      Params: device_id: str.
+      Params: id: str.
 
 `,
 	CLIHelp: `buddy device - Manage Jamf Platform API devices (inventory + actions)

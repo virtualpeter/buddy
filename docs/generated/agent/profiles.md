@@ -26,10 +26,10 @@ Jamf Classic macOS configuration profiles — lifecycle (list, get, create, clon
 ## Facts
 
 - List / load: `profiles(...)` / `profile(id=…)` / `profile_xml(id=…)` · `buddy profile list` / `get xml` — XML string is the same Classic document
-- Clone: `profile_clone(profile_id, name)` · `buddy profile clone` — Same tenant; new UUIDs; unassigned scope
+- Clone: `profile_clone(id, name)` · `buddy profile clone` — Same tenant; new UUIDs; unassigned scope
 - Copy / migrate: `profile_copy(..., to_tenant?, to_auth?)` — Source = tenant/auth; dest = to_*
 - Create: `profile_xml_prepare_for_create` → `profile_create_xml` — Or greenfield `profile_create` + payloads
-- Write back: `profile_put_xml(profile_id, xml_str)` · `buddy profile set xml` — After offline edits
+- Write back: `profile_put_xml(id, xml_str)` · `buddy profile set xml` — After offline edits
 - Redeploy / ACS: `profile_redeploy` / `profile_acs_bind_uuid` · `buddy profile redeploy` — ACS bind is BuddyScript-only when HTML scrape fails
 - Payload / MCX / ACS editing is covered in [profile payloads](/docs/docs/profile-payloads).
 
@@ -86,13 +86,13 @@ Returns: dict {id,name}
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "profile_id": {
-      "description": "profile_id",
+    "id": {
+      "description": "id",
       "type": "string"
     }
   },
   "required": [
-    "profile_id"
+    "id"
   ],
   "title": "profile_copy",
   "type": "object"
@@ -111,8 +111,8 @@ Returns: None
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "profile_id": {
-      "description": "profile_id",
+    "id": {
+      "description": "id",
       "type": "string"
     },
     "xml_str": {
@@ -121,7 +121,7 @@ Returns: None
     }
   },
   "required": [
-    "profile_id",
+    "id",
     "xml_str"
   ],
   "title": "profile_put_xml",
@@ -135,6 +135,6 @@ Returns: None
 def main():
     xml = profile_xml(id=42)
     xml = profile_xml_patch_payload(xml, "com.example", {"Key": "New"})
-    profile_put_xml(profile_id=42, xml_str=xml)
+    profile_put_xml(id=42, xml_str=xml)
     return "ok"
 ```

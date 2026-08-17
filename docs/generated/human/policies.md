@@ -21,6 +21,6 @@ Versioned release bumps use [change batches](/docs/docs/change-batches) (`step_c
 ```python
 def main():
     p = policy(trigger="install-example")
-    policy_set(policy_id=p["general"]["id"], enable=True)
+    policy_set(id=p["general"]["id"], enable=True)
     return p["general"]["name"]
 ```

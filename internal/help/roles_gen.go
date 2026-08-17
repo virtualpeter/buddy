@@ -17,10 +17,10 @@ const RolesBuiltinsSection = `ROLE
       Does: Load one API role JSON document.
       → value: dict (full role record)
       Params: id: str/int (role ID).
-  role_put(role_id, dict, tenant?, surface?, auth?)
+  role_put(id, dict, tenant?, surface?, auth?)
       Does: PUT a full API role JSON body (name and privileges).
       → value: dict (updated role)
-      Params: role_id: str/int; dict: full role body.
+      Params: id: str/int; dict: full role body.
   role_create(display_name, privileges, tenant?, surface?, auth?)
       Does: Create an API role with the given privilege names.
       → value: str (new role ID)

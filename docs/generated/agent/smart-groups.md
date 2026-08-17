@@ -29,7 +29,7 @@ Pro v3 smart computer groups — dynamic membership via **criteria**. Distinct f
 
 - List: `smart_groups(search=…)` · `buddy group list smart` — Summary list
 - Load: `smart_group(id=…)` / `smart_group(name=…)` · `buddy group get` — Full JSON; pass id or name, not both
-- List members: `smart_group_list_computers(group_id, filter?)` · `buddy group smart members` — Pro membership endpoint; IDs only (`name`/`serial` empty)
+- List members: `smart_group_list_computers(id, filter?)` · `buddy group smart members` — Pro membership endpoint; IDs only (`name`/`serial` empty)
 - Criteria: `smart_group_get_criteria` / `smart_group_set_criteria` / … · `buddy group smart criteria` / `set-criteria` — Round-trip JSON array; version helpers: `version` / `set-version`
 - Create / replace: `smart_group_create` / `smart_group_put` · `buddy group create smart` — Full body PUT; create from JSON file supported
 - Copy / migrate: `smart_group_copy` / `smart_group_migrate` — Upsert by exact name; clears siteId unless set
@@ -91,13 +91,13 @@ Returns: list of {id,name,serial}
       "description": "client-side substring on id/name/serial",
       "type": "string"
     },
-    "group_id": {
-      "description": "group_id",
+    "id": {
+      "description": "id",
       "type": "string"
     }
   },
   "required": [
-    "group_id"
+    "id"
   ],
   "title": "smart_group_list_computers",
   "type": "object"
@@ -116,13 +116,13 @@ Returns: None
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "group_id": {
-      "description": "group_id",
+    "id": {
+      "description": "id",
       "type": "string"
     }
   },
   "required": [
-    "group_id"
+    "id"
   ],
   "title": "smart_group_set_criteria",
   "type": "object"
@@ -141,13 +141,13 @@ Returns: dict
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "group_id": {
-      "description": "group_id",
+    "id": {
+      "description": "id",
       "type": "string"
     }
   },
   "required": [
-    "group_id"
+    "id"
   ],
   "title": "smart_group_copy",
   "type": "object"
@@ -158,9 +158,9 @@ Returns: dict
 
 ```python
 def main():
-    members = smart_group_list_computers(group_id="123")
+    members = smart_group_list_computers(id="123")
     smart_group_update_criterion_value(
-        group_id="123",
+        id="123",
         name_substring="version",
         new_value="2.0.0",
     )

@@ -10,15 +10,15 @@ const DdmBuiltinsSection = `DDM REPORT (read-only Platform declaration reporting
       → value: JSON (device report list)
       Params: declaration_id: str; filter?: bare term → name=="*term*", or full RSQL;
         sort?: str; page?: int (omit = all); page_size?: int.
-  ddm_device_declarations(device_id, filter?, sort?, page?, page_size?, tenant?, surface?, auth?)
+  ddm_device_declarations(id, filter?, sort?, page?, page_size?, tenant?, surface?, auth?)
       Does: List DDM declarations reported for a Platform device.
       → value: JSON (declaration report list)
-      Params: device_id: str; filter?: bare term → name=="*term*", or full RSQL;
+      Params: id: str; filter?: bare term → name=="*term*", or full RSQL;
         sort?: str; page?: int (omit = all); page_size?: int.
-  ddm_device_channels(device_id, tenant?, surface?, auth?)
+  ddm_device_channels(id, tenant?, surface?, auth?)
       Does: List DDM channels available for a Platform device.
       → value: JSON (channel list)
-      Params: device_id: str.
+      Params: id: str.
 
 `
 

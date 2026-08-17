@@ -86,13 +86,13 @@ Returns: dict {id,name,trigger}
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "policy_id": {
-      "description": "policy_id",
+    "id": {
+      "description": "id",
       "type": "string"
     }
   },
   "required": [
-    "policy_id"
+    "id"
   ],
   "title": "policy_copy",
   "type": "object"
@@ -111,13 +111,13 @@ Returns: None
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "policy_id": {
-      "description": "policy_id",
+    "id": {
+      "description": "id",
       "type": "string"
     }
   },
   "required": [
-    "policy_id"
+    "id"
   ],
   "title": "policy_set",
   "type": "object"
@@ -129,6 +129,6 @@ Returns: None
 ```python
 def main():
     p = policy(trigger="install-example")
-    policy_set(policy_id=p["general"]["id"], enable=True)
+    policy_set(id=p["general"]["id"], enable=True)
     return p["general"]["name"]
 ```

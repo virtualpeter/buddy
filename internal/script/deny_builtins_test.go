@@ -47,3 +47,14 @@ func TestDenyBuiltinsRaisesOnCall(t *testing.T) {
 		t.Fatalf("expected uuid_new denied: %#v", res)
 	}
 }
+
+func TestScriptPutRejectsScriptIDKwarg(t *testing.T) {
+	s, err := NewSession("", buddy.Opts{SkipConfirm: true}, slog.Default(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := s.Eval("oldkw", `script_put(script_id="1", dict={})`)
+	if res.Error == "" || !strings.Contains(res.Error, "unexpected keyword argument") || !strings.Contains(res.Error, "script_id") {
+		t.Fatalf("expected unknown script_id kwarg, got %#v", res)
+	}
+}

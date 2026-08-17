@@ -156,8 +156,10 @@ Builtins return bare values on success and raise on failure.
 
 Conventions: plural nouns enumerate (policies, packages, computers);
 singular nouns load one resource (policy, package, computer); singular_verb
-mutates (policy_set, policy_put_xml, computer_reboot). Pass either id= or a
-natural key (trigger=/name=/name=+version=), not both. Resource IDs first;
+mutates (policy_set, policy_put_xml, computer_reboot). Subject resource uses
+id= / ids= on load and mutate. Related IDs stay typed (category_id, script_id
+on policy create, computer_ids on static-group membership). Pass either id=
+or a natural key (trigger=/name=/name=+version=), not both. Resource IDs first;
 payload/options next; tenant?/surface?/auth? always last (source session).
 Auth alone soft-switches tenant. Dual-session copy builtins add
 to_tenant?/to_surface?/to_auth? for destination (omit = same as source).
@@ -401,11 +403,11 @@ DECLARATIVE WORKFLOW (step constructors + executor)
   (human notes, markdown plan without predicted create IDs, outcomes after apply).
 
   step_set_package(name, version, from_trigger, package_pattern?,
-                   policy_id?, disable_source?, keep_source?, note?)
+                   id?, disable_source?, keep_source?, note?)
       Does: Step: attach a package version to an Install/Cache policy (from a source trigger).
       → value: step dict
       Params: name: str package name keyword; version: str; from_trigger: str
-        (required source selector); policy_id?: int (pin source policy, skip trigger search);
+        (required source selector); id?: int (pin source policy, skip trigger search);
         package_pattern?, disable_source?, keep_source?, note?: optional.
   step_clone_policy(from_trigger, version, name?, old_version?,
                     package_pattern?, params?, keep_source?, note?)
@@ -421,50 +423,50 @@ DECLARATIVE WORKFLOW (step constructors + executor)
       Does: Attach a human note to any step dict.
       → value: step dict
       Params: step: step dict; note: str.
-  step_set_ss(policy_id, version, group_ids?)
+  step_set_ss(id, version, group_ids?)
       Does: Step: update Self Service display fields on a policy.
       → value: step dict
-      Params: policy_id: int; version?: str; group_ids?: list of int.
-  step_set_group_version(group_id, version)
+      Params: id: int; version?: str; group_ids?: list of int.
+  step_set_group_version(id, version)
       Does: Step: set a smart group's version criterion.
       → value: step dict
-      Params: group_id: int or str; version: str.
-  step_set_install(policy_id, version, params?)
+      Params: id: int or str; version: str.
+  step_set_install(id, version, params?)
       Does: Step: point an Install policy at a package version.
       → value: step dict
-      Params: policy_id: int; version: str; params?: dict.
-  step_enable_policy(policy_id)
+      Params: id: int; version: str; params?: dict.
+  step_enable_policy(id)
       Does: Step: enable a policy.
       → value: step dict
-      Params: policy_id: int.
-  step_disable_policy(policy_id)
+      Params: id: int.
+  step_disable_policy(id)
       Does: Step: disable a policy.
       → value: step dict
-      Params: policy_id: int.
-  step_set_trigger(policy_id, trigger)
+      Params: id: int.
+  step_set_trigger(id, trigger)
       Does: Step: set a policy's custom trigger.
       → value: step dict
-      Params: policy_id: int; trigger: str.
-  step_set_scope(policy_id, group_ids)
+      Params: id: int; trigger: str.
+  step_set_scope(id, group_ids)
       Does: Step: set a policy's computer-group scope.
       → value: step dict
-      Params: policy_id: int; group_ids: list of int.
-  step_set_scope_all(policy_id)
+      Params: id: int; group_ids: list of int.
+  step_set_scope_all(id)
       Does: Step: set a policy's scope to all computers.
       → value: step dict
-      Params: policy_id: int.
-  step_delete_policy(policy_ids)
+      Params: id: int.
+  step_delete_policy(ids)
       Does: Step: delete one or more policies.
       → value: step dict
-      Params: policy_ids: list of int.
-  step_set_profile_payload(profile_id, domain, dict_file, redeploy?)
+      Params: ids: list of int.
+  step_set_profile_payload(id, domain, dict_file, redeploy?)
       Does: Step: merge-patch a profile payload from a dict file.
       → value: step dict
-      Params: profile_id: int; domain: str; dict_file: str; redeploy?: bool.
-  step_set_profile_xml(profile_id, xml_file, redeploy?)
+      Params: id: int; domain: str; dict_file: str; redeploy?: bool.
+  step_set_profile_xml(id, xml_file, redeploy?)
       Does: Step: PUT a profile from a local XML file.
       → value: step dict
-      Params: profile_id: int; xml_file: str; redeploy?: bool.
+      Params: id: int; xml_file: str; redeploy?: bool.
   step_create_package_policy(name, version, action?, scope_all?, scope_group_ids?,
                              category?, package_pattern?, note?)
       Does: Step: create an Install or Cache policy for a package version.
@@ -558,14 +560,14 @@ MISC
 
 EXAMPLE — imperative style
     policy_id = policy(trigger="install-chrome")["id"]
-    policy_set_install(policy_id=policy_id, version="130.0", auth="default")
+    policy_set_install(id=policy_id, version="130.0", auth="default")
 
 EXAMPLE — declarative workflow
     steps = [
         step_set_package(name="Google Chrome", version="130.0",
                          from_trigger="install-chrome"),
-        step_set_group_version(group_id=42, version="130.0"),
-        step_enable_policy(policy_id=101),
+        step_set_group_version(id=42, version="130.0"),
+        step_enable_policy(id=101),
     ]
     run_workflow(steps)
 `

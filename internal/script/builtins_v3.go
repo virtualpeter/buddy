@@ -152,7 +152,7 @@ func policySetBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		var name, trigger, frequency starlark.String
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("policy_set", args, kwargs,
-			"policy_id", &policyID,
+			"id", &policyID,
 			"enable?", &enable, "name?", &name, "trigger?", &trigger, "frequency?", &frequency,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
@@ -989,7 +989,7 @@ func smartGroupGetVersionNamed(credName string, logger *slog.Logger) func(*starl
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var groupID starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("smart_group_get_version", args, kwargs, "group_id", &groupID,
+		if err := starlark.UnpackArgs("smart_group_get_version", args, kwargs, "id", &groupID,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -1013,7 +1013,7 @@ func smartGroupSetVersionNamed(credName string, logger *slog.Logger) func(*starl
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var groupID, version starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("smart_group_set_version", args, kwargs, "group_id", &groupID, "version", &version,
+		if err := starlark.UnpackArgs("smart_group_set_version", args, kwargs, "id", &groupID, "version", &version,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -1152,7 +1152,7 @@ func blueprintSetBuiltin(credName string, logger *slog.Logger) func(*starlark.Th
 		var blueprintID starlark.String
 		var body starlark.Value
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("blueprint_set", args, kwargs, "blueprint_id", &blueprintID, "body", &body,
+		if err := starlark.UnpackArgs("blueprint_set", args, kwargs, "id", &blueprintID, "body", &body,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -1179,7 +1179,7 @@ func blueprintDeleteBuiltin(credName string, logger *slog.Logger) func(*starlark
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var blueprintID starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("blueprint_delete", args, kwargs, "blueprint_id", &blueprintID,
+		if err := starlark.UnpackArgs("blueprint_delete", args, kwargs, "id", &blueprintID,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -1202,7 +1202,7 @@ func blueprintDeployBuiltin(credName string, logger *slog.Logger) func(*starlark
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var blueprintID starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("blueprint_deploy", args, kwargs, "blueprint_id", &blueprintID,
+		if err := starlark.UnpackArgs("blueprint_deploy", args, kwargs, "id", &blueprintID,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -1225,7 +1225,7 @@ func blueprintUndeployBuiltin(credName string, logger *slog.Logger) func(*starla
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var blueprintID starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("blueprint_undeploy", args, kwargs, "blueprint_id", &blueprintID,
+		if err := starlark.UnpackArgs("blueprint_undeploy", args, kwargs, "id", &blueprintID,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -1248,7 +1248,7 @@ func blueprintStatusBuiltin(credName string, logger *slog.Logger) func(*starlark
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var blueprintID starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("blueprint_status", args, kwargs, "blueprint_id", &blueprintID,
+		if err := starlark.UnpackArgs("blueprint_status", args, kwargs, "id", &blueprintID,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {

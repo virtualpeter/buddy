@@ -108,7 +108,7 @@ func categoryCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		upsert := starlark.Bool(false)
 		var dual dualSessionKwargs
 		tail := append([]any{
-			"category_id", &categoryID, "name?", &name, "priority?", &priority, "upsert?", &upsert,
+			"id", &categoryID, "name?", &name, "priority?", &priority, "upsert?", &upsert,
 		}, dual.unpackTail()...)
 		if err := starlark.UnpackArgs("category_copy", args, kwargs, tail...); err != nil {
 			return nil, err
@@ -199,7 +199,7 @@ func scriptCopy(credName string, logger *slog.Logger) func(*starlark.Thread, *st
 		upsert := starlark.Bool(false)
 		var dual dualSessionKwargs
 		tail := append([]any{
-			"script_id", &scriptID, "name?", &name, "category_id?", &categoryID, "upsert?", &upsert,
+			"id", &scriptID, "name?", &name, "category_id?", &categoryID, "upsert?", &upsert,
 		}, dual.unpackTail()...)
 		if err := starlark.UnpackArgs("script_copy", args, kwargs, tail...); err != nil {
 			return nil, err
@@ -284,7 +284,7 @@ func smartGroupCopy(credName string, logger *slog.Logger) func(*starlark.Thread,
 		upsert := starlark.Bool(false)
 		var dual dualSessionKwargs
 		tail := append([]any{
-			"group_id", &groupID, "name?", &name, "site_id?", &siteID, "upsert?", &upsert,
+			"id", &groupID, "name?", &name, "site_id?", &siteID, "upsert?", &upsert,
 		}, dual.unpackTail()...)
 		if err := starlark.UnpackArgs("smart_group_copy", args, kwargs, tail...); err != nil {
 			return nil, err

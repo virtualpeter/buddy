@@ -15,10 +15,10 @@ const ScriptsBuiltinsSection = `SCRIPT (Jamf Pro scripts)
       → value: dict (full Jamf JSON: id, name, categoryId, scriptContents, …)
       Params: pass either id= or name=, not both. name= uses RSQL name=="…" and
         returns that list row when it includes scriptContents; otherwise GET by id.
-  script_get_contents(script_id, tenant?, surface?, auth?)
+  script_get_contents(id, tenant?, surface?, auth?)
       Does: Return the raw script body only.
       → value: str
-      Params: script_id: str/int.
+      Params: id: str/int.
   script_create(name, script_contents, category_id?, priority?, info?, notes?, os_requirements?,
                 parameter4?, parameter5?, parameter6?, parameter7?, parameter8?,
                 parameter9?, parameter10?, parameter11?, tenant?, surface?, auth?)
@@ -29,23 +29,23 @@ const ScriptsBuiltinsSection = `SCRIPT (Jamf Pro scripts)
         tenant?/surface?/auth?: omit for process defaults.
       Notes: Jamf POST returns {id, href}. The builtin returns the posted script with id applied
         (plus any extra Script fields in the POST body). No follow-up GET.
-  script_update(script_id, file, tenant?, surface?, auth?)
+  script_update(id, file, tenant?, surface?, auth?)
       Does: Replace a script's body from a local file.
       → None
-      Params: script_id: str/int; file: str (filesystem path).
-  script_put(script_id, dict, tenant?, surface?, auth?)
+      Params: id: str/int; file: str (filesystem path).
+  script_put(id, dict, tenant?, surface?, auth?)
       Does: PUT a full script JSON record.
       → value: dict (updated script; PUT body confirms the write)
-      Params: script_id: str/int; dict: full script body.
-  script_clone(script_id, name, category_id?, tenant?, surface?, auth?)
+      Params: id: str/int; dict: full script body.
+  script_clone(id, name, category_id?, tenant?, surface?, auth?)
       Does: Clone a script in the same session (alias of script_copy without to_*).
       → value: dict (created script; same shape as script(id=…))
-      Params: script_id: str/int; name: str; category_id?: str.
-  script_copy(script_id, name?, category_id?, upsert?=False,
+      Params: id: str/int; name: str; category_id?: str.
+  script_copy(id, name?, category_id?, upsert?=False,
               tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
       Does: Copy a script to another (or the same) session, remapping category by name.
       → value: dict (dest script; same shape as script(id=…); +created when upsert)
-      Params: script_id: source. name?: dest name. category_id?: dest category.
+      Params: id: source. name?: dest name. category_id?: dest category.
         upsert?: bool (upsert by exact name). Source = tenant?/auth?; dest = to_* (omit = same).
       Notes: Create is POST (posted script + id). Existing dest is PUT (response confirms the write).
   script_migrate(...)

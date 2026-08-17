@@ -14,10 +14,10 @@ const ClientsBuiltinsSection = `CLIENT
       Does: Load one API integration JSON document.
       → value: dict (full client record)
       Params: id: str/int (integration ID).
-  client_put(client_id, dict, tenant?, surface?, auth?)
+  client_put(id, dict, tenant?, surface?, auth?)
       Does: PUT a full API integration JSON body (name and role scopes).
       → value: dict (updated client)
-      Params: client_id: str/int; dict: full client body.
+      Params: id: str/int; dict: full client body.
   client_create(display_name, scopes, tenant?, surface?, auth?)
       Does: Create an API integration with the given role scopes.
       → value: dict {id, client_id}

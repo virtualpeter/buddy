@@ -255,7 +255,7 @@ Jamf-related builtins return **bare values** on success and **raise** on failure
 
 ```python
 xml = profile_xml(id=42)          # str
-profile_put_xml(profile_id=42, xml_str=xml)  # None; raises on API error
+profile_put_xml(id=42, xml_str=xml)  # None; raises on API error
 ```
 
 `unwrap` is optional JSON-print for CLI/`jq` — not the error model. Scripts that used `r["ok"]` / `r["value"]` must use return values and let errors raise. For rare expected-reject checks, `attempt(fn)` returns a soft `{ok, value, error}` without aborting.
@@ -278,7 +278,7 @@ That output lists every builtin with parameter names, types, and return shapes. 
 
 - **Grammar:** plural nouns enumerate (`policies`, `smart_groups`, `computers`); singular nouns load one (`policy(id=…)` or `policy(trigger=…)`, `smart_group(name=…)`); singular_verb mutates (`policy_set`, `computer_reboot`).
 - **Notebook:** Libraries drawer shows Getting started / Advanced; bare builtin names print help; `policies()` lists all.
-- Resource IDs come first on mutate helpers (`policy_id`, `group_id`, …); singular loaders use `id=` or a natural key; then options; optional `tenant?` / `surface?` / `auth?` last.
+- Resource IDs come first (`id=` / `ids=` for the subject resource; related IDs stay typed); singular loaders also use `id=` or a natural key; then options; optional `tenant?` / `surface?` / `auth?` last.
 - Use `tenant="name"` and/or `auth="name"` (and optional `surface="instance"|"platform"`) to override session selection for a single call. `cred=` was removed.
 - Paginated list builtins take `page?` (0-based) and `page_size?` (default 200). **Omit `page`** to walk every page and return the full list.
 - Plural lists return summary dicts `{id, name, …}`; use `ids=True` on `policies` / `computers` when you need bare ID lists.

@@ -12,7 +12,7 @@ Bare `buddy app` / `apps(...)` manage **policy apps** (Self Service + packages) 
 | List | `macapps(filter?)` | `buddy macapp list` | Client-side substring; Classic list has no RSQL |
 | Load | `macapp(id=…)` / `macapp(name=…)` | `buddy macapp get` | Full Classic record |
 | Create | `macapp_create(...)` | `buddy macapp create` | Requires name, version, bundle_id, url |
-| Delete | `macapp_delete(macapp_id)` | `buddy macapp delete` |  |
+| Delete | `macapp_delete(id)` | `buddy macapp delete` |  |
 
 ## Notes
 

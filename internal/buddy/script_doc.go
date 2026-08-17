@@ -22,7 +22,7 @@ var ScriptsTopic = docspec.Topic{
 	Summary: `Jamf Pro scripts — list summaries vs full body, create/update, and copy/migrate.`,
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List", BuddyScript: "`scripts(filter?)`", CLI: "`buddy script list`", Notes: "Summaries `{id, name, categoryId, categoryName}` only; bodies stripped"},
-		{Action: "Load", BuddyScript: "`script(id=…)` / `script(name=…)` / `script_get_contents(script_id=…)`", CLI: "`buddy script get` / `get contents`", Notes: "Full Jamf JSON dict (id= and name=); or body only"},
+		{Action: "Load", BuddyScript: "`script(id=…)` / `script(name=…)` / `script_get_contents(id=…)`", CLI: "`buddy script get` / `get contents`", Notes: "Full Jamf JSON dict (id= and name=); or body only"},
 		{Action: "Create / update", BuddyScript: "`script_create` / `script_put` / `script_update`", CLI: "`buddy script create` / `upload`", Notes: "Create from string body; PUT dict or replace from file"},
 		{Action: "Copy / migrate", BuddyScript: "`script_copy` / `script_migrate`", Notes: "Upsert by name; category remapped on destination"},
 	},
@@ -52,7 +52,7 @@ var ScriptsTopic = docspec.Topic{
 				Summary: `Copy/migrate script`,
 				Returns: `dict`,
 				Params: []docspec.Param{
-					{Name: `script_id`, Type: `string`, Required: true, Description: `script_id`},
+					{Name: `id`, Type: `string`, Required: true, Description: `id`},
 				},
 			},
 		},
@@ -80,10 +80,10 @@ var ScriptsTopic = docspec.Topic{
       → value: dict (full Jamf JSON: id, name, categoryId, scriptContents, …)
       Params: pass either id= or name=, not both. name= uses RSQL name=="…" and
         returns that list row when it includes scriptContents; otherwise GET by id.
-  script_get_contents(script_id, tenant?, surface?, auth?)
+  script_get_contents(id, tenant?, surface?, auth?)
       Does: Return the raw script body only.
       → value: str
-      Params: script_id: str/int.
+      Params: id: str/int.
   script_create(name, script_contents, category_id?, priority?, info?, notes?, os_requirements?,
                 parameter4?, parameter5?, parameter6?, parameter7?, parameter8?,
                 parameter9?, parameter10?, parameter11?, tenant?, surface?, auth?)
@@ -94,23 +94,23 @@ var ScriptsTopic = docspec.Topic{
         tenant?/surface?/auth?: omit for process defaults.
       Notes: Jamf POST returns {id, href}. The builtin returns the posted script with id applied
         (plus any extra Script fields in the POST body). No follow-up GET.
-  script_update(script_id, file, tenant?, surface?, auth?)
+  script_update(id, file, tenant?, surface?, auth?)
       Does: Replace a script's body from a local file.
       → None
-      Params: script_id: str/int; file: str (filesystem path).
-  script_put(script_id, dict, tenant?, surface?, auth?)
+      Params: id: str/int; file: str (filesystem path).
+  script_put(id, dict, tenant?, surface?, auth?)
       Does: PUT a full script JSON record.
       → value: dict (updated script; PUT body confirms the write)
-      Params: script_id: str/int; dict: full script body.
-  script_clone(script_id, name, category_id?, tenant?, surface?, auth?)
+      Params: id: str/int; dict: full script body.
+  script_clone(id, name, category_id?, tenant?, surface?, auth?)
       Does: Clone a script in the same session (alias of script_copy without to_*).
       → value: dict (created script; same shape as script(id=…))
-      Params: script_id: str/int; name: str; category_id?: str.
-  script_copy(script_id, name?, category_id?, upsert?=False,
+      Params: id: str/int; name: str; category_id?: str.
+  script_copy(id, name?, category_id?, upsert?=False,
               tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
       Does: Copy a script to another (or the same) session, remapping category by name.
       → value: dict (dest script; same shape as script(id=…); +created when upsert)
-      Params: script_id: source. name?: dest name. category_id?: dest category.
+      Params: id: source. name?: dest name. category_id?: dest category.
         upsert?: bool (upsert by exact name). Source = tenant?/auth?; dest = to_* (omit = same).
       Notes: Create is POST (posted script + id). Existing dest is PUT (response confirms the write).
   script_migrate(...)

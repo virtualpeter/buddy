@@ -8,7 +8,7 @@ Pro v3 static computer groups — membership is an explicit list of **computer I
 | Do this | BuddyScript | CLI | Notes |
 |---------|-------------|-----|-------|
 | List groups | `static_groups(search=…)` | `buddy group list static` |  |
-| List members | `static_group_list_computers(group_id, filter?)` | `buddy group static members` | `[{id, name, serial}, …]`; name may be empty |
+| List members | `static_group_list_computers(id, filter?)` | `buddy group static members` | `[{id, name, serial}, …]`; name may be empty |
 | Mutate membership | `static_group_add_computers` / `remove` / `set` | `buddy group static add\|remove` | Read-modify-write; add/remove no-op when already satisfied; no CLI set-all |
 | Create | `static_group_create(body)` | `buddy group create static` | `name` required; `assignments` optional |
 
@@ -16,8 +16,8 @@ Pro v3 static computer groups — membership is an explicit list of **computer I
 
 ```python
 def main():
-    members = static_group_list_computers(group_id="10")
-    static_group_add_computers(group_id="10", computer_ids=["42", "43"])
+    members = static_group_list_computers(id="10")
+    static_group_add_computers(id="10", computer_ids=["42", "43"])
     return members
 ```
 

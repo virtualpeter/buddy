@@ -43,16 +43,16 @@ def bump_release(
     trigger = trigger_prefix + version
 
     policy_id = policy(trigger = trigger, **sk)["id"]
-    policy_set_package(name = name, version = version, policy_id = policy_id, **sk)
+    policy_set_package(name = name, version = version, id = policy_id, **sk)
 
     install_id = install_policy_id if install_policy_id else policy_id
-    policy_set_install(policy_id = install_id, version = version, **sk)
+    policy_set_install(id = install_id, version = version, **sk)
 
     ss_id = self_service_policy_id if self_service_policy_id else policy_id
-    policy_set_ss(policy_id = ss_id, version = version, **sk)
+    policy_set_ss(id = ss_id, version = version, **sk)
 
     if version_group_id:
-        smart_group_set_version(group_id = version_group_id, version = version, **sk)
+        smart_group_set_version(id = version_group_id, version = version, **sk)
 
     return {"policy_id": policy_id}
 

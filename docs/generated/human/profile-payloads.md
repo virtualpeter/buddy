@@ -10,7 +10,7 @@ Edit Jamf macOS configuration profile payloads with buddy (PayloadContent and MC
 | Load XML | `profile_xml(id=…)` | `buddy profile get xml` | Preserves outer UUID |
 | Inspect | `profile_xml_extract_payloads` → `payloads_list_identifiers` / `payloads_get_mcx_dict` | `buddy profile get list-payloads` / `get payload` | PayloadContent vs MCX; CLI is PayloadContent only |
 | Patch | `profile_xml_patch_payload(xml, domain, new_payload)` | `buddy profile set payload` | Offline merge for PayloadContent |
-| Write back | `profile_put_xml(profile_id, xml_str)` | `buddy profile set xml` | ACS quirks handled inside |
+| Write back | `profile_put_xml(id, xml_str)` | `buddy profile set xml` | ACS quirks handled inside |
 | Clone / copy | `profile_clone` / `profile_copy` | `buddy profile clone` | Randomizes UUIDs; unassigned scope; copy/migrate is BuddyScript-only |
 | Create prep | `profile_xml_prepare_for_create` → `profile_create_xml` | — | Offline then POST |
 | Greenfield | `profile_create` + `payloads_set_content` | — |  |
@@ -21,7 +21,7 @@ Edit Jamf macOS configuration profile payloads with buddy (PayloadContent and MC
 def main():
     xml = profile_xml(id=42)
     xml = profile_xml_patch_payload(xml, "com.example", {"Key": "New"})
-    profile_put_xml(profile_id=42, xml_str=xml)
+    profile_put_xml(id=42, xml_str=xml)
     return "ok"
 ```
 

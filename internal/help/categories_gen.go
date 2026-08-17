@@ -14,15 +14,15 @@ const CategoriesBuiltinsSection = `CATEGORY (Jamf Pro categories)
       Does: Load one category by id or exact name.
       → value: dict {id, name, priority}
       Params: pass either id= or name=, not both.
-  category_clone(category_id, name, priority?, tenant?, surface?, auth?)
+  category_clone(id, name, priority?, tenant?, surface?, auth?)
       Does: Clone a category in the same session (alias of category_copy without to_*).
       → value: dict {id, name, priority?}
-      Params: category_id: str; name: str; priority?: int 1–20.
-  category_copy(category_id, name?, priority?, upsert?=False,
+      Params: id: str; name: str; priority?: int 1–20.
+  category_copy(id, name?, priority?, upsert?=False,
                 tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
       Does: Copy a category {name, priority} to another (or the same) session.
       → value: dict {id, name, priority?} or +created when upsert
-      Params: category_id: source. name?: dest name. priority?: int. upsert?: bool.
+      Params: id: source. name?: dest name. priority?: int. upsert?: bool.
         Source = tenant?/auth?; dest = to_* (omit = same).
       Notes: upsert=True: upsert by exact name.
   category_migrate(...)

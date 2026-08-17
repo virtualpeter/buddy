@@ -17,26 +17,26 @@ const BlueprintsBuiltinsSection = `BLUEPRINT (Platform API Gateway credential re
       Does: Create a blueprint from a JSON body.
       → value: dict (created blueprint, including id)
       Params: body: dict (create JSON).
-  blueprint_set(blueprint_id, body, tenant?, surface?, auth?)
+  blueprint_set(id, body, tenant?, surface?, auth?)
       Does: Merge-patch a blueprint.
       → None
-      Params: blueprint_id: str; body: dict (merge-patch JSON).
-  blueprint_delete(blueprint_id, tenant?, surface?, auth?)
+      Params: id: str; body: dict (merge-patch JSON).
+  blueprint_delete(id, tenant?, surface?, auth?)
       Does: Delete a blueprint.
       → None
-      Params: blueprint_id: str.
-  blueprint_deploy(blueprint_id, tenant?, surface?, auth?)
+      Params: id: str.
+  blueprint_deploy(id, tenant?, surface?, auth?)
       Does: Deploy a blueprint to assigned devices.
       → None
-      Params: blueprint_id: str.
-  blueprint_undeploy(blueprint_id, tenant?, surface?, auth?)
+      Params: id: str.
+  blueprint_undeploy(id, tenant?, surface?, auth?)
       Does: Undeploy a blueprint.
       → None
-      Params: blueprint_id: str.
-  blueprint_status(blueprint_id, tenant?, surface?, auth?)
+      Params: id: str.
+  blueprint_status(id, tenant?, surface?, auth?)
       Does: Fetch the blueprint deployment status report.
       → value: dict (status report)
-      Params: blueprint_id: str.
+      Params: id: str.
   blueprint_components(page?, page_size?, tenant?, surface?, auth?)
       Does: List available blueprint components.
       → value: list of dicts

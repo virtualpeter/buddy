@@ -31,8 +31,8 @@ func TestBuiltinsMarkdownHasSectionsAndFuncs(t *testing.T) {
 }
 
 func TestFormatSignatureHTML(t *testing.T) {
-	got := formatSignatureHTML("policy_set_ss", "policy_set_ss(policy_id, version?, group_ids?)")
-	want := `<b class="fn-name">policy_set_ss</b>(policy_id, version?, group_ids?)`
+	got := formatSignatureHTML("policy_set_ss", "policy_set_ss(id, version?, group_ids?)")
+	want := `<b class="fn-name">policy_set_ss</b>(id, version?, group_ids?)`
 	if got != want {
 		t.Fatalf("got %s", got)
 	}

@@ -17,10 +17,10 @@ const MacappsBuiltinsSection = `MAC APP STORE (Classic macapplications)
       Does: Create a Classic Mac App Store app record.
       → value: dict {id, name}
       Params: name/version/bundle_id/url: str (required); free?: bool; category?: str (exact category name).
-  macapp_delete(macapp_id, tenant?, surface?, auth?)
+  macapp_delete(id, tenant?, surface?, auth?)
       Does: Delete a Classic Mac App Store app record.
       → None
-      Params: macapp_id: int or str.
+      Params: id: int or str.
 
 `
 

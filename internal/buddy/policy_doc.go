@@ -56,7 +56,7 @@ var PoliciesTopic = docspec.Topic{
 				Summary: `Copy/migrate policy`,
 				Returns: `dict {id,name,trigger}`,
 				Params: []docspec.Param{
-					{Name: `policy_id`, Type: `string`, Required: true, Description: `policy_id`},
+					{Name: `id`, Type: `string`, Required: true, Description: `id`},
 				},
 			},
 			{
@@ -64,14 +64,14 @@ var PoliciesTopic = docspec.Topic{
 				Summary: `Mutate policy fields`,
 				Returns: `None`,
 				Params: []docspec.Param{
-					{Name: `policy_id`, Type: `string`, Required: true, Description: `policy_id`},
+					{Name: `id`, Type: `string`, Required: true, Description: `id`},
 				},
 			},
 		},
 	ExamplesBuddy: []string{
 		`def main():
     p = policy(trigger="install-example")
-    policy_set(policy_id=p["general"]["id"], enable=True)
+    policy_set(id=p["general"]["id"], enable=True)
     return p["general"]["name"]`,
 	},
 	HelpExport: `policies`,
@@ -91,20 +91,20 @@ var PoliciesTopic = docspec.Topic{
       Does: Fetch the raw Classic policy XML document.
       → value: str (raw policy XML)
       Params: id: int/str (policy ID).
-  policy_set(policy_id, enable?=, name?=, trigger?=, frequency?=, tenant?, surface?, auth?)
+  policy_set(id, enable?=, name?=, trigger?=, frequency?=, tenant?, surface?, auth?)
       Does: Patch general policy fields (enable, name, trigger, frequency).
       → None
-      Params: policy_id: int/str; at least one of enable?/name?/trigger?/frequency?.
-  policy_put_xml(policy_id, xml_str, tenant?, surface?, auth?)
+      Params: id: int/str; at least one of enable?/name?/trigger?/frequency?.
+  policy_put_xml(id, xml_str, tenant?, surface?, auth?)
       Does: Replace a policy by PUTting full Classic XML.
       → None
-      Params: policy_id: int/str; xml_str: str (full policy XML).
-  policy_copy(policy_id, name?, trigger?, category_id?, match_trigger?, upsert?=False,
+      Params: id: int/str; xml_str: str (full policy XML).
+  policy_copy(id, name?, trigger?, category_id?, match_trigger?, upsert?=False,
               scope_all?, scope_group_ids?,
               tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
       Does: Copy a policy to another (or the same) session, remapping category/scripts/packages by name.
       → value: dict {id, name, trigger} or {id, name, trigger, created} when upsert
-      Params: policy_id: source policy. name?/trigger?: dest identity. category_id?: dest category.
+      Params: id: source policy. name?/trigger?: dest identity. category_id?: dest category.
         match_trigger?: bool (upsert match on trigger_other). upsert?: bool.
         scope_all?/scope_group_ids?: dest scope (default unassigned).
         Source session = tenant?/auth?/surface? (or process default).
@@ -115,31 +115,31 @@ var PoliciesTopic = docspec.Topic{
   policy_migrate(...)
       Does: Alias of policy_copy with upsert=True.
       → value: dict {id, name, trigger, created}
-  policy_set_ss(policy_id, version?, group_ids?, display_name?,
+  policy_set_ss(id, version?, group_ids?, display_name?,
                 description?, install_text?, reinstall_text?,
                 force_view?, feature?, self_service?, tenant?, surface?, auth?)
       Does: Update a policy's Self Service display (name, description, buttons, feature, scope groups).
       → None
-      Params: policy_id: int; version?: str (shown in Self Service); group_ids?: list of int
+      Params: id: int; version?: str (shown in Self Service); group_ids?: list of int
         (Self Service group scope); display_name?/description?/install_text?/reinstall_text?: str;
         force_view?/feature?/self_service?: bool.
-  policy_set_install(policy_id, version, tenant?, surface?, auth?)
+  policy_set_install(id, version, tenant?, surface?, auth?)
       Does: Point an Install policy at the package matching name+version (after READY).
       → None
-      Params: policy_id: int; version: str (package version to attach).
-  policy_set_package(name, version, policy_id?, trigger?, package_pattern?,
+      Params: id: int; version: str (package version to attach).
+  policy_set_package(name, version, id?, trigger?, package_pattern?,
                      disable_source?, keep_source?, tenant?, surface?, auth?)
       Does: Attach a package to an Install/Cache policy, optionally cloning a same-trigger replacement.
       → None
       Params: name: str package name keyword ("" to derive from the source
-        trigger); version: str; pass trigger= or policy_id= for the source Install/Cache
+        trigger); version: str; pass trigger= or id= for the source Install/Cache
         policy (one is required). package_pattern?: package name glob.
         disable_source?/keep_source?: optional bool overrides (mutually exclusive).
       Notes: Default: disable source only when creating a same-trigger replacement.
-  policy_set_scope_all(policy_id, tenant?, surface?, auth?)
+  policy_set_scope_all(id, tenant?, surface?, auth?)
       Does: Set the policy scope to all computers (unrestricted).
       → None
-      Params: policy_id: int/str.
+      Params: id: int/str.
   policy_create_ss(trigger, display_name, category?, scope_group_id?, script_id?, tenant?, surface?, auth?)
       Does: Create a Self Service policy that runs a script (parameter4 = trigger).
       → value: int (new policy ID)
@@ -153,10 +153,10 @@ var PoliciesTopic = docspec.Topic{
         "cache". scope_all?: bool (defaults true when no scope_group_ids).
         scope_group_ids?: list of int. category?: str. package_pattern?: package name glob.
       Notes: Default triggers: install-<name>-next / cache-<name>-<version>.
-  policy_delete(policy_ids, tenant?, surface?, auth?)
+  policy_delete(ids, tenant?, surface?, auth?)
       Does: Delete one or more Classic policies.
       → None
-      Params: policy_ids: int/str or list of int/str.
+      Params: ids: int/str or list of int/str.
 
 `,
 	CLIHelp: `buddy policy - Manage Jamf policies
