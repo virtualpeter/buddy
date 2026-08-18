@@ -117,7 +117,7 @@ Ask in natural language; the agent calls tools for you:
 
 Optional tool arguments `tenant`, `surface` (`instance`|`platform`), and `auth` select the session for a call (tenant-first; `auth` pins like CLI `--user`). `cred` was removed.
 
-MCP blocks Jamf token/keep-alive paths via `jamf_*` / `buddyscript` and refuses `file_read` of buddy config/secrets/token cache files.
+MCP denies `jamf_*` builtins by default on the **channel** layer (override with `channels.mcp.allow_builtins`; `["*"]` unblocks that layer). Tenants and auths may have their own `deny_builtins` / `allow_builtins`; a builtin is blocked if any layer blocks it. Buddy also refuses `file_read` of buddy config/secrets/token cache files.
 
 **Tool priority for agents:** call `get_instructions` once first, then `docs` → `buddyscript` with named builtins → `jamf_get`/`jamf_put` only if no helper exists. See [mcp-tools.md](mcp-tools.md) for the lean scorecard, smart vs static vs Platform groups, the profile payload cookbook, and how buddy relates to Jamf’s hosted MCP (`developer.jamf.com/mcp`). The MCP server also advertises that split in Initialize `instructions` and via the `get_instructions` tool.
 
@@ -203,7 +203,7 @@ Reports the buddy binary version (same as the MCP handshake `Implementation.Vers
 }
 ```
 
-`tenant` / `auth` reflect the process default (`--tenant` / `--user`, or `channels.mcp.tenant` / `tenant.default`). Empty `auth` means auto-pick. `auths` is filtered by each auth’s `channels:` list (omit = all). `channel_access` / `channel_tenants` / `deny_builtins` come from top-level `channels.mcp` policy. `deny_builtins` (exact names or trailing-`*` prefix globs like `jamf_*`) makes matching buddyscript builtins raise on call so agents cannot fall back to generic HTTP — treat that raise as a coverage gap. Live Jamf auth is proven by the first `buddyscript` Jamf call, or CLI `buddy auth test`.
+`tenant` / `auth` reflect the process default (`--tenant` / `--user`, or `channels.mcp.tenant` / `tenant.default`). Empty `auth` means auto-pick. `auths` is filtered by each auth’s `channels:` list (omit = all). `channel_access` / `channel_tenants` come from top-level `channels.mcp` policy. MCP **always** includes `jamf_*` in `deny_builtins` (channel layer, union with any extra YAML denials). `allow_builtins` overrides **that layer only**. Process-default tenant/auth lists appear as `tenant_deny_builtins` / `auth_deny_builtins` (and matching allow keys) when set. A builtin is blocked when **any** layer matches deny and that layer’s allow does not — treat that raise as a coverage gap, not a cue to invent HTTP. Live Jamf auth is proven by the first `buddyscript` Jamf call, or CLI `buddy auth test`.
 
 ### `jamf_schema` tips
 

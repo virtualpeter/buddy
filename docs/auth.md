@@ -56,13 +56,18 @@ Top-level `channels.<client>` can clamp what that client is allowed to do:
 
 - `access`: `readonly` or `full` — the most restrictive of channel vs auth wins for mutates.
 - `tenant` / `tenants` — default and allowlist for that client.
-- `deny_builtins` — exact builtin names or trailing-`*` globs (for example `jamf_*`). Blocked builtins raise; they are a gap, not a cue to invent HTTP from the schema.
+- `deny_builtins` / `allow_builtins` — also valid on **tenants.** and **auths.** (same list/glob form). Each layer is independent: a builtin is blocked if **any** layer matches deny and that layer’s allow does not match. Channel allow cannot unblock a tenant deny.
+
+MCP already denies `jamf_*` on the channel layer even when the YAML list is empty. `deny_builtins: ["*"]` is deny-all at that layer (explicit allowlist when paired with `allow_builtins`). Quote `"*"` so YAML does not treat it as an alias. Blocked builtins raise; they are a gap, not a cue to invent HTTP from the schema.
 
 The IDE uses the `ide` client channel (there is no shared `serve` channel). Legacy `channels.notebook` migrates onto `channels.ide` on load.
 
 ```sh
 buddy cred set channel mcp --access=readonly --tenant=sandbox
-buddy cred set channel mcp --deny-builtins=jamf_*,computer_erase
+buddy cred set channel mcp --deny-builtins=computer_erase
+buddy cred set channel mcp --allow-builtins=*
+buddy cred set tenant prod --deny-builtins=* --allow-builtins=policies,policy
+buddy cred set auth mcp-ro --type=oauth --tenants=prod --client-id=… --deny-builtins=computer_erase
 buddy cred use --mcp sandbox
 ```
 

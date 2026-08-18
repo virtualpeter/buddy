@@ -163,7 +163,7 @@ func runCredUse(cfg *buddy.Config, args []string) error {
 		fmt.Printf("tenant.default set to %q\n", name)
 		return nil
 	}
-	if err := cfg.SetChannelPolicy(surface, "", name, nil, false, true, false, nil, false); err != nil {
+	if err := cfg.SetChannelPolicy(surface, "", name, nil, false, true, false, nil, false, nil, false); err != nil {
 		return err
 	}
 	if err := buddy.SaveConfig(cfg); err != nil {
@@ -241,24 +241,42 @@ func runCredShowChannel(cfg *buddy.Config, name string) error {
 	} else {
 		fmt.Printf("tenants:  %s\n", strings.Join(p.Tenants, ", "))
 	}
-	if len(p.DenyBuiltins) == 0 {
+	deny := buddy.EffectiveDenyBuiltins(cfg, name)
+	if len(deny) == 0 {
 		fmt.Printf("deny_builtins:  (none)\n")
 	} else {
-		fmt.Printf("deny_builtins:  %s\n", strings.Join(p.DenyBuiltins, ", "))
+		fmt.Printf("deny_builtins:  %s\n", strings.Join(deny, ", "))
+		if name == buddy.ChannelMCP && !containsExact(p.DenyBuiltins, buddy.DefaultMCPDenyBuiltin) {
+			fmt.Printf("                (MCP default includes %s)\n", buddy.DefaultMCPDenyBuiltin)
+		}
+	}
+	if len(p.AllowBuiltins) == 0 {
+		fmt.Printf("allow_builtins: (none)\n")
+	} else {
+		fmt.Printf("allow_builtins: %s\n", strings.Join(p.AllowBuiltins, ", "))
 	}
 	return nil
 }
 
+func containsExact(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
 func runCredSetChannel(cfg *buddy.Config, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: buddy cred set channel <cli|mcp|ide> [--access=readonly|full] [--tenant=…] [--tenants=a,b] [--deny-builtins=a,b,jamf_*]")
+		return fmt.Errorf("usage: buddy cred set channel <cli|mcp|ide> [--access=readonly|full] [--tenant=…] [--tenants=a,b] [--deny-builtins=a,b] [--allow-builtins=a,b]")
 	}
 	name, err := resolveCredChannelName(args[0])
 	if err != nil {
 		return err
 	}
-	var access, tenant, tenantsCSV, denyCSV string
-	var setAccess, setTenant, setTenants, setDeny bool
+	var access, tenant, tenantsCSV, denyCSV, allowCSV string
+	var setAccess, setTenant, setTenants, setDeny, setAllow bool
 	for _, a := range args[1:] {
 		switch {
 		case strings.HasPrefix(a, "--access="):
@@ -279,12 +297,18 @@ func runCredSetChannel(cfg *buddy.Config, args []string) error {
 		case strings.HasPrefix(a, "--deny-builtins="):
 			denyCSV = strings.TrimPrefix(a, "--deny-builtins=")
 			setDeny = true
+		case a == "--allow-builtins=" || a == "--allow-builtins":
+			allowCSV = ""
+			setAllow = true
+		case strings.HasPrefix(a, "--allow-builtins="):
+			allowCSV = strings.TrimPrefix(a, "--allow-builtins=")
+			setAllow = true
 		default:
-			return fmt.Errorf("unknown flag %q; usage: buddy cred set channel <name> [--access=…] [--tenant=…] [--tenants=…] [--deny-builtins=…]", a)
+			return fmt.Errorf("unknown flag %q; usage: buddy cred set channel <name> [--access=…] [--tenant=…] [--tenants=…] [--deny-builtins=…] [--allow-builtins=…]", a)
 		}
 	}
-	if !setAccess && !setTenant && !setTenants && !setDeny {
-		return fmt.Errorf("specify at least one of --access, --tenant, --tenants, --deny-builtins")
+	if !setAccess && !setTenant && !setTenants && !setDeny && !setAllow {
+		return fmt.Errorf("specify at least one of --access, --tenant, --tenants, --deny-builtins, --allow-builtins")
 	}
 	var tenants []string
 	if setTenants && tenantsCSV != "" {
@@ -304,6 +328,15 @@ func runCredSetChannel(cfg *buddy.Config, args []string) error {
 			}
 		}
 	}
+	var allowBuiltins []string
+	if setAllow && allowCSV != "" {
+		for _, p := range strings.Split(allowCSV, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				allowBuiltins = append(allowBuiltins, p)
+			}
+		}
+	}
 	if setTenant && tenant != "" {
 		if _, ok := cfg.Tenants[tenant]; !ok {
 			return fmt.Errorf("tenant %q not found; run 'buddy cred list'", tenant)
@@ -316,7 +349,7 @@ func runCredSetChannel(cfg *buddy.Config, args []string) error {
 			}
 		}
 	}
-	if err := cfg.SetChannelPolicy(name, access, tenant, tenants, setAccess, setTenant, setTenants, denyBuiltins, setDeny); err != nil {
+	if err := cfg.SetChannelPolicy(name, access, tenant, tenants, setAccess, setTenant, setTenants, denyBuiltins, setDeny, allowBuiltins, setAllow); err != nil {
 		return err
 	}
 	if err := cfg.ValidateTenantSelectionAndChannels(); err != nil {
@@ -545,6 +578,7 @@ func runCredShowTenant(cfg *buddy.Config, name string) error {
 	if tid := t.EffectiveTenantID(); tid != "" {
 		fmt.Printf("tenantId: %s\n", tid)
 	}
+	printBuiltinLists(t.DenyBuiltins, t.AllowBuiltins)
 	fmt.Printf("default:  %v\n", name == cfg.Tenant.Default)
 	linked := cfg.AuthsForTenant(name)
 	sort.Strings(linked)
@@ -585,6 +619,7 @@ func runCredShowAuth(cfg *buddy.Config, name string) error {
 		fmt.Printf("channels: %s\n", strings.Join(a.Channels, ", "))
 	}
 	fmt.Printf("tenants:  %s\n", strings.Join(a.Tenants, ", "))
+	printBuiltinLists(a.DenyBuiltins, a.AllowBuiltins)
 	storeAvailable := buddy.SecretStoreAvailable()
 	inlineWarn := false
 	switch a.Type {
@@ -617,6 +652,19 @@ func runCredShowAuth(cfg *buddy.Config, name string) error {
 	return nil
 }
 
+func printBuiltinLists(deny, allow []string) {
+	if len(deny) == 0 {
+		fmt.Printf("deny_builtins:  (none)\n")
+	} else {
+		fmt.Printf("deny_builtins:  %s\n", strings.Join(deny, ", "))
+	}
+	if len(allow) == 0 {
+		fmt.Printf("allow_builtins: (none)\n")
+	} else {
+		fmt.Printf("allow_builtins: %s\n", strings.Join(allow, ", "))
+	}
+}
+
 func redact(s string) string {
 	if len(s) <= 4 {
 		return strings.Repeat("*", len(s))
@@ -629,10 +677,29 @@ func runCredSetTenant(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	if err != nil {
 		return err
 	}
+	prev, existing := cfg.Tenants[parsed.Name]
+	if existing {
+		t := parsed.Tenant
+		if strings.TrimSpace(t.URL) == "" {
+			t.URL = prev.URL
+		}
+		if strings.TrimSpace(t.Region) == "" {
+			t.Region = prev.Region
+		}
+		if strings.TrimSpace(t.TenantID) == "" {
+			t.TenantID = prev.TenantID
+		}
+		if !parsed.SetDeny {
+			t.DenyBuiltins = prev.DenyBuiltins
+		}
+		if !parsed.SetAllow {
+			t.AllowBuiltins = prev.AllowBuiltins
+		}
+		parsed.Tenant = t
+	}
 	if err := parsed.Tenant.Validate(); err != nil {
 		return err
 	}
-	_, existing := cfg.Tenants[parsed.Name]
 	if existing && !parsed.SkipConfirm {
 		if !buddy.AskYesNo(fmt.Sprintf("Tenant %q already exists. Overwrite?", parsed.Name), false, nil) {
 			return nil
@@ -677,6 +744,12 @@ func runCredSetAuth(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	}
 	if existing && !parsed.ChannelsSet {
 		parsed.Auth.Channels = prev.Channels
+	}
+	if existing && !parsed.SetDeny {
+		parsed.Auth.DenyBuiltins = prev.DenyBuiltins
+	}
+	if existing && !parsed.SetAllow {
+		parsed.Auth.AllowBuiltins = prev.AllowBuiltins
 	}
 	if cfg.Auths == nil {
 		cfg.Auths = map[string]buddy.AuthEntry{}
@@ -746,10 +819,13 @@ type tenantSetParsed struct {
 	Name        string
 	Tenant      buddy.TenantConfig
 	SkipConfirm bool
+	SetDeny     bool
+	SetAllow    bool
 }
 
 func parseCredSetTenantArgs(args []string, skipConfirm bool) (tenantSetParsed, error) {
-	var name, url, region, tenantID string
+	var name, url, region, tenantID, denyCSV, allowCSV string
+	var setDeny, setAllow bool
 	flags := map[string]*string{
 		"url":       &url,
 		"region":    &region,
@@ -782,6 +858,24 @@ func parseCredSetTenantArgs(args []string, skipConfirm bool) (tenantSetParsed, e
 				}
 				i++
 				name = args[i]
+			}
+			continue
+		}
+		if fname == "deny-builtins" {
+			setDeny = true
+			if !hasVal {
+				denyCSV = ""
+			} else {
+				denyCSV = val
+			}
+			continue
+		}
+		if fname == "allow-builtins" {
+			setAllow = true
+			if !hasVal {
+				allowCSV = ""
+			} else {
+				allowCSV = val
 			}
 			continue
 		}
@@ -819,11 +913,15 @@ func parseCredSetTenantArgs(args []string, skipConfirm bool) (tenantSetParsed, e
 	return tenantSetParsed{
 		Name: name,
 		Tenant: buddy.TenantConfig{
-			URL:      strings.TrimSpace(url),
-			Region:   region,
-			TenantID: strings.TrimSpace(tenantID),
+			URL:           strings.TrimSpace(url),
+			Region:        region,
+			TenantID:      strings.TrimSpace(tenantID),
+			DenyBuiltins:  splitCSV(denyCSV),
+			AllowBuiltins: splitCSV(allowCSV),
 		},
 		SkipConfirm: skipConfirm,
+		SetDeny:     setDeny,
+		SetAllow:    setAllow,
 	}, nil
 }
 
@@ -832,13 +930,16 @@ type authSetParsed struct {
 	Auth        buddy.AuthEntry
 	SkipConfirm bool
 	ChannelsSet bool
+	SetDeny     bool
+	SetAllow    bool
 }
 
 func parseCredSetAuthArgs(args []string, skipConfirm bool) (authSetParsed, error) {
 	var (
 		name, authType, runCommand, username, password, clientID, clientSecret string
 		tenants, access, surface, channels                                     string
-		channelsSet                                                            bool
+		denyCSV, allowCSV                                                      string
+		channelsSet, setDeny, setAllow                                         bool
 	)
 	stringFlags := map[string]*string{
 		"name":          &name,
@@ -874,6 +975,20 @@ func parseCredSetAuthArgs(args []string, skipConfirm bool) (authSetParsed, error
 		}
 		dest, ok := stringFlags[fname]
 		if !ok {
+			if fname == "deny-builtins" {
+				setDeny = true
+				if hasVal {
+					denyCSV = val
+				}
+				continue
+			}
+			if fname == "allow-builtins" {
+				setAllow = true
+				if hasVal {
+					allowCSV = val
+				}
+				continue
+			}
 			return authSetParsed{}, fmt.Errorf("unknown flag --%s", fname)
 		}
 		if !hasVal {
@@ -929,9 +1044,11 @@ func parseCredSetAuthArgs(args []string, skipConfirm bool) (authSetParsed, error
 		}
 	}
 	entry := buddy.AuthEntry{
-		Type:    authType,
-		Tenants: tenantList,
-		Access:  strings.TrimSpace(access),
+		Type:          authType,
+		Tenants:       tenantList,
+		Access:        strings.TrimSpace(access),
+		DenyBuiltins:  splitCSV(denyCSV),
+		AllowBuiltins: splitCSV(allowCSV),
 	}
 	if channelsSet {
 		ch, err := buddy.ParseAuthChannels(channels)
@@ -961,7 +1078,7 @@ func parseCredSetAuthArgs(args []string, skipConfirm bool) (authSetParsed, error
 	default:
 		return authSetParsed{}, fmt.Errorf("unknown auth type %q", authType)
 	}
-	return authSetParsed{Name: name, Auth: entry, SkipConfirm: skipConfirm, ChannelsSet: channelsSet}, nil
+	return authSetParsed{Name: name, Auth: entry, SkipConfirm: skipConfirm, ChannelsSet: channelsSet, SetDeny: setDeny, SetAllow: setAllow}, nil
 }
 
 func parseFlag(a string) (name, val string, hasVal bool, err error) {

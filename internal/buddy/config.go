@@ -104,23 +104,103 @@ func (a AuthConfig) MarshalYAML() (interface{}, error) {
 
 // TenantConfig is a Jamf environment: instance URL and/or Platform gateway identity.
 type TenantConfig struct {
-	Region   string `yaml:"region,omitempty"`   // Platform API Gateway region (us|eu|apac|…)
-	URL      string `yaml:"url,omitempty"`      // Instance or gateway URL; optional when region is set
-	TenantID string `yaml:"tenantId,omitempty"` // Platform API Gateway tenant id
+	Region        string   `yaml:"region,omitempty"`         // Platform API Gateway region (us|eu|apac|…)
+	URL           string   `yaml:"url,omitempty"`            // Instance or gateway URL; optional when region is set
+	TenantID      string   `yaml:"tenantId,omitempty"`       // Platform API Gateway tenant id
+	DenyBuiltins  []string `yaml:"deny_builtins,omitempty"`  // exact names, trailing-* globs, or "*"
+	AllowBuiltins []string `yaml:"allow_builtins,omitempty"` // override this tenant's deny (allow follows deny)
+}
+
+// UnmarshalYAML accepts deny_builtins / allow_builtins as a sequence or a single scalar.
+func (t *TenantConfig) UnmarshalYAML(value *yaml.Node) error {
+	if t == nil {
+		return fmt.Errorf("tenant config is nil")
+	}
+	var raw struct {
+		Region        string    `yaml:"region"`
+		URL           string    `yaml:"url"`
+		TenantID      string    `yaml:"tenantId"`
+		DenyBuiltins  yaml.Node `yaml:"deny_builtins"`
+		AllowBuiltins yaml.Node `yaml:"allow_builtins"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	deny, err := decodeBuiltinPatternList(&raw.DenyBuiltins)
+	if err != nil {
+		return fmt.Errorf("deny_builtins: %w", err)
+	}
+	allow, err := decodeBuiltinPatternList(&raw.AllowBuiltins)
+	if err != nil {
+		return fmt.Errorf("allow_builtins: %w", err)
+	}
+	t.Region = raw.Region
+	t.URL = raw.URL
+	t.TenantID = raw.TenantID
+	t.DenyBuiltins = deny
+	t.AllowBuiltins = allow
+	return nil
 }
 
 // AuthEntry is a secret-bearing principal linked to one or more tenants.
 type AuthEntry struct {
-	Type         string   `yaml:"type"`
-	RunCommand   string   `yaml:"runCommand,omitempty"`
-	Username     string   `yaml:"username,omitempty"`
-	Password     string   `yaml:"password,omitempty"`
-	ClientID     string   `yaml:"clientId,omitempty"`
-	ClientSecret string   `yaml:"clientSecret,omitempty"`
-	Tenants      []string `yaml:"tenants"`
-	Access       string   `yaml:"access,omitempty"`  // readonly | full (default full)
-	Surface      string   `yaml:"surface,omitempty"` // legacy; folded into type on load
-	Channels     []string `yaml:"channels,omitempty"` // buddy clients cli|mcp|ide; empty = all
+	Type          string   `yaml:"type"`
+	RunCommand    string   `yaml:"runCommand,omitempty"`
+	Username      string   `yaml:"username,omitempty"`
+	Password      string   `yaml:"password,omitempty"`
+	ClientID      string   `yaml:"clientId,omitempty"`
+	ClientSecret  string   `yaml:"clientSecret,omitempty"`
+	Tenants       []string `yaml:"tenants"`
+	Access        string   `yaml:"access,omitempty"`         // readonly | full (default full)
+	Surface       string   `yaml:"surface,omitempty"`        // legacy; folded into type on load
+	Channels      []string `yaml:"channels,omitempty"`       // buddy clients cli|mcp|ide; empty = all
+	DenyBuiltins  []string `yaml:"deny_builtins,omitempty"`  // exact names, trailing-* globs, or "*"
+	AllowBuiltins []string `yaml:"allow_builtins,omitempty"` // override this auth's deny (allow follows deny)
+}
+
+// UnmarshalYAML accepts deny_builtins / allow_builtins as a sequence or a single scalar.
+func (a *AuthEntry) UnmarshalYAML(value *yaml.Node) error {
+	if a == nil {
+		return fmt.Errorf("auth entry is nil")
+	}
+	var raw struct {
+		Type          string    `yaml:"type"`
+		RunCommand    string    `yaml:"runCommand"`
+		Username      string    `yaml:"username"`
+		Password      string    `yaml:"password"`
+		ClientID      string    `yaml:"clientId"`
+		ClientSecret  string    `yaml:"clientSecret"`
+		Tenants       []string  `yaml:"tenants"`
+		Access        string    `yaml:"access"`
+		Surface       string    `yaml:"surface"`
+		Channels      []string  `yaml:"channels"`
+		DenyBuiltins  yaml.Node `yaml:"deny_builtins"`
+		AllowBuiltins yaml.Node `yaml:"allow_builtins"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	deny, err := decodeBuiltinPatternList(&raw.DenyBuiltins)
+	if err != nil {
+		return fmt.Errorf("deny_builtins: %w", err)
+	}
+	allow, err := decodeBuiltinPatternList(&raw.AllowBuiltins)
+	if err != nil {
+		return fmt.Errorf("allow_builtins: %w", err)
+	}
+	a.Type = raw.Type
+	a.RunCommand = raw.RunCommand
+	a.Username = raw.Username
+	a.Password = raw.Password
+	a.ClientID = raw.ClientID
+	a.ClientSecret = raw.ClientSecret
+	a.Tenants = raw.Tenants
+	a.Access = raw.Access
+	a.Surface = raw.Surface
+	a.Channels = raw.Channels
+	a.DenyBuiltins = deny
+	a.AllowBuiltins = allow
+	return nil
 }
 
 // AuthConfig returns the secret/type block for this entry.
@@ -455,6 +535,9 @@ func (t TenantConfig) Validate() error {
 			return fmt.Errorf("Platform API Gateway tenants require region (e.g. us) when url is an instance host")
 		}
 	}
+	if _, _, err := normalizeDenyAllowLists(t.DenyBuiltins, t.AllowBuiltins); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -480,6 +563,9 @@ func (a AuthEntry) Validate() error {
 	}
 	if a.EffectiveSurface() == SurfacePlatform && !a.UsesClientCredentials() {
 		return fmt.Errorf("platform surface requires type %q (got %q)", AuthTypePlatform, a.Type)
+	}
+	if _, _, err := normalizeDenyAllowLists(a.DenyBuiltins, a.AllowBuiltins); err != nil {
+		return err
 	}
 	return nil
 }
@@ -809,9 +895,30 @@ func (cfg *Config) ValidateTenantSelectionAndChannels() error {
 			return fmt.Errorf("channels.%s.deny_builtins: %w", ch, err)
 		}
 		p.DenyBuiltins = normalized
+		allow, err := NormalizeAllowBuiltins(p.AllowBuiltins)
+		if err != nil {
+			return fmt.Errorf("channels.%s.allow_builtins: %w", ch, err)
+		}
+		p.AllowBuiltins = allow
 		cfg.Channels[ch] = p
 	}
+	for name, t := range cfg.Tenants {
+		deny, allow, err := normalizeDenyAllowLists(t.DenyBuiltins, t.AllowBuiltins)
+		if err != nil {
+			return fmt.Errorf("tenants.%s: %w", name, err)
+		}
+		t.DenyBuiltins = deny
+		t.AllowBuiltins = allow
+		cfg.Tenants[name] = t
+	}
 	for name, a := range cfg.Auths {
+		deny, allow, err := normalizeDenyAllowLists(a.DenyBuiltins, a.AllowBuiltins)
+		if err != nil {
+			return fmt.Errorf("auths.%s: %w", name, err)
+		}
+		a.DenyBuiltins = deny
+		a.AllowBuiltins = allow
+		cfg.Auths[name] = a
 		for _, c := range a.Channels {
 			c = strings.ToLower(strings.TrimSpace(c))
 			if c == "" {
@@ -1116,6 +1223,9 @@ func mergeChannelPolicyEmpty(dst, src ChannelPolicy) ChannelPolicy {
 	if len(dst.DenyBuiltins) == 0 && len(src.DenyBuiltins) > 0 {
 		dst.DenyBuiltins = append([]string(nil), src.DenyBuiltins...)
 	}
+	if len(dst.AllowBuiltins) == 0 && len(src.AllowBuiltins) > 0 {
+		dst.AllowBuiltins = append([]string(nil), src.AllowBuiltins...)
+	}
 	return dst
 }
 
@@ -1381,6 +1491,26 @@ func marshalConfig(cfg *Config, existing []byte) ([]byte, error) {
 	return marshalConfigWith(cfg, existing, marshalConfigOptions{fillDefault: true})
 }
 
+// appendBuiltinPatternsYAML writes deny_builtins / allow_builtins as a sequence.
+// Quote "*" so YAML does not treat it as an alias.
+func appendBuiltinPatternsYAML(entry *yaml.Node, key string, patterns []string) {
+	if len(patterns) == 0 {
+		return
+	}
+	seq := &yaml.Node{Kind: yaml.SequenceNode}
+	for _, p := range patterns {
+		n := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: p}
+		if p == "*" {
+			n.Style = yaml.DoubleQuotedStyle
+		}
+		seq.Content = append(seq.Content, n)
+	}
+	entry.Content = append(entry.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		seq,
+	)
+}
+
 type marshalConfigOptions struct {
 	fillDefault   bool
 	omitEmptyMaps bool
@@ -1414,13 +1544,25 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 
 	tenantsNode := &yaml.Node{Kind: yaml.MappingNode}
 	for _, name := range tenantOrder {
-		var n yaml.Node
-		if err := n.Encode(cfg.Tenants[name]); err != nil {
-			return nil, err
+		t := cfg.Tenants[name]
+		entry := &yaml.Node{Kind: yaml.MappingNode}
+		addTenantStr := func(k, v string) {
+			if v == "" {
+				return
+			}
+			entry.Content = append(entry.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k},
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v},
+			)
 		}
+		addTenantStr("region", t.Region)
+		addTenantStr("url", t.URL)
+		addTenantStr("tenantId", t.TenantID)
+		appendBuiltinPatternsYAML(entry, "deny_builtins", t.DenyBuiltins)
+		appendBuiltinPatternsYAML(entry, "allow_builtins", t.AllowBuiltins)
 		tenantsNode.Content = append(tenantsNode.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name},
-			&n,
+			entry,
 		)
 	}
 	authsNode := &yaml.Node{Kind: yaml.MappingNode}
@@ -1468,6 +1610,8 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 				seq,
 			)
 		}
+		appendBuiltinPatternsYAML(entry, "deny_builtins", a.DenyBuiltins)
+		appendBuiltinPatternsYAML(entry, "allow_builtins", a.AllowBuiltins)
 		authsNode.Content = append(authsNode.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name},
 			entry,
@@ -1534,16 +1678,8 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 					seq,
 				)
 			}
-			if len(p.DenyBuiltins) > 0 {
-				seq := &yaml.Node{Kind: yaml.SequenceNode}
-				for _, d := range p.DenyBuiltins {
-					seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: d})
-				}
-				entry.Content = append(entry.Content,
-					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "deny_builtins"},
-					seq,
-				)
-			}
+			appendBuiltinPatternsYAML(entry, "deny_builtins", p.DenyBuiltins)
+			appendBuiltinPatternsYAML(entry, "allow_builtins", p.AllowBuiltins)
 			if len(entry.Content) == 0 {
 				continue
 			}

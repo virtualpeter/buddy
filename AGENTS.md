@@ -31,7 +31,7 @@ Resource cookbooks: edit `internal/buddy/*_doc.go`, then `make gendocs` (writes 
 - Auth/secrets: `.cursor/rules/buddy-auth-secrets.mdc` and [docs/auth.md](docs/auth.md)
 - Scripts use `.buddy`. `load("stdlib/….buddy", …)` is reserved (no modules yet; recipes live in `examples/`).
 - Prefer named builtins over inventing Classic PUTs from `jamf_schema`.
-- MCP: `get_instructions` first; `docs` → named builtins via `buddyscript` → `jamf_*` last. Envelope `{ok, value}` is MCP-only; builtins return bare values and raise.
+- MCP: `get_instructions` first; `docs` → named builtins via `buddyscript` → `jamf_*` last (MCP defaults deny `jamf_*` on the channel layer; tenant/auth may add deny/allow). Envelope `{ok, value}` is MCP-only; builtins return bare values and raise.
 - Tests that need a secret store: `secrets.SetStore(mock)`.
 - No org-specific tenant/auth names, hostnames, or client IDs in docs, help, tests, or commit messages — use generics (`sandbox`, `prod`, `example.jamfcloud.com`).
 - Minimal diffs; match existing patterns.

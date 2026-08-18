@@ -313,25 +313,36 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	return dict
 }
 
-// wrapDeniedBuiltins replaces channel-denied builtins with raisers so calls fail loudly.
+// wrapDeniedBuiltins gates every builtin at call time so tenant=/auth=/to_* kwargs apply.
 func wrapDeniedBuiltins(dict starlark.StringDict) {
-	patterns := buddy.ActiveChannelDenyBuiltins()
-	if len(patterns) == 0 {
-		return
-	}
-	channel := buddy.ActiveChannel()
 	for name, val := range dict {
-		if _, ok := val.(*starlark.Builtin); !ok {
-			continue
-		}
-		if !buddy.BuiltinNameDenied(patterns, name) {
+		orig, ok := val.(*starlark.Builtin)
+		if !ok {
 			continue
 		}
 		bName := name
-		dict[bName] = starlark.NewBuiltin(bName, func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-			return nil, buddy.ErrBuiltinDenied(channel, bName)
+		dict[bName] = starlark.NewBuiltin(bName, func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			if err := buddy.CheckBuiltinAllowed(bName, kwString(kwargs, "tenant"), kwString(kwargs, "auth"), kwString(kwargs, "to_tenant"), kwString(kwargs, "to_auth")); err != nil {
+				return nil, err
+			}
+			return orig.CallInternal(thread, args, kwargs)
 		})
 	}
+}
+
+func kwString(kwargs []starlark.Tuple, key string) string {
+	for _, kv := range kwargs {
+		if len(kv) != 2 {
+			continue
+		}
+		k, ok := starlark.AsString(kv[0])
+		if !ok || k != key {
+			continue
+		}
+		s, _ := starlark.AsString(kv[1])
+		return strings.TrimSpace(s)
+	}
+	return ""
 }
 
 func policyDetailsToStarlark(d *buddy.PolicyDetails) *starlark.Dict {

@@ -123,6 +123,8 @@ Flags for 'set tenant':
   --url=<url>                       Jamf Pro instance URL (and/or platform gateway URL)
   --region=<region>                 Platform API Gateway region (us|eu|apac|…)
   --tenant-id=<tenant-id>           Platform tenant id (with region)
+  --deny-builtins=<a,b>             Block builtins on this tenant (* = deny all; empty clears)
+  --allow-builtins=<a,b>            Override this tenant's deny (empty clears)
 
 Flags for 'set auth':
   --type=command|basic|oauth|platform
@@ -131,6 +133,8 @@ Flags for 'set auth':
   --access=full|readonly            Default full; readonly preferred for reads
   --channels=cli,mcp,ide|all
                                     Buddy clients that may use this auth (default all)
+  --deny-builtins=<a,b>             Block builtins for this auth (* = deny all; empty clears)
+  --allow-builtins=<a,b>            Override this auth's deny (empty clears)
   --run=<cmd>                       Command auth
   --username=<user>                 Basic auth
   --password=<password>             Basic password inline (dev/test)
@@ -141,7 +145,8 @@ Flags for 'set channel':
   --access=readonly|full            Clamp mutates for this client (omit = full)
   --tenant=<name>                   Default tenant for this client
   --tenants=<a,b>                   Optional tenant allowlist (empty clears)
-  --deny-builtins=<a,b,jamf_*>      Block named buddyscript builtins (empty clears)
+  --deny-builtins=<a,b>             Extra blocked builtins (MCP already denies jamf_*; * = deny all; empty clears)
+  --allow-builtins=<a,b>            Override this channel's deny (allow follows deny; empty clears)
 
 Flags for 'set secret':
   --password[=value]                Store basic-auth password (no-echo prompt if omitted)
@@ -181,9 +186,11 @@ Flags for 'backup' / 'restore':
   Auth channels (cli/mcp/ide) default to all. Channel policy access and
   auth access both clamp mutates (most restrictive wins). Restrict MCP e.g.:
   channels.mcp.access=readonly and/or auth channels excluding mcp from full auths.
-  channels.mcp.deny_builtins blocks named builtins (exact or trailing-* glob, e.g.
-  jamf_*) so MCP agents cannot fall back to generic jamf_get/jamf_put; treat raises
-  as coverage gaps.
+  MCP denies jamf_* builtins by default on the channel layer (union with channels.mcp.deny_builtins).
+  deny_builtins / allow_builtins also apply on tenants and auths; each layer is independent
+  (channel allow cannot unblock a tenant deny). deny_builtins: ["*"] is an allowlist at that layer.
+  Extra deny_builtins (exact or trailing-* glob) still block named builtins so MCP
+  agents cannot fall back to generic jamf_get/jamf_put; treat raises as coverage gaps.
 
 Examples:
   buddy cred status
@@ -193,7 +200,9 @@ Examples:
   buddy cred set auth platform-ro --type=platform --client-id=… --tenants=sandbox --access=readonly --channels=mcp,ide
   buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox --channels=cli,ide
   buddy cred set channel mcp --access=readonly --tenant=sandbox --tenants=sandbox
-  buddy cred set channel mcp --deny-builtins=jamf_*,computer_erase
+  buddy cred set channel mcp --deny-builtins=computer_erase
+  buddy cred set channel mcp --allow-builtins=*
+  buddy cred set tenant prod --deny-builtins=* --allow-builtins=policies,policy
   buddy cred set secret platform-ro --client-secret
   buddy cred delete auth sandbox-admin
   buddy cred delete tenant sandbox

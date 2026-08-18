@@ -243,7 +243,7 @@ func overlayConfig(base, overlay *Config) *Config {
 			out.Tenants = map[string]TenantConfig{}
 		}
 		for name, t := range overlay.Tenants {
-			out.Tenants[name] = t
+			out.Tenants[name] = cloneTenantConfig(t)
 		}
 	}
 	if len(overlay.Auths) > 0 {
@@ -276,7 +276,7 @@ func cloneConfig(c *Config) *Config {
 	if c.Tenants != nil {
 		out.Tenants = make(map[string]TenantConfig, len(c.Tenants))
 		for k, v := range c.Tenants {
-			out.Tenants[k] = v
+			out.Tenants[k] = cloneTenantConfig(v)
 		}
 	}
 	if c.Auths != nil {
@@ -298,12 +298,21 @@ func cloneConfig(c *Config) *Config {
 func cloneAuthEntry(a AuthEntry) AuthEntry {
 	a.Tenants = append([]string(nil), a.Tenants...)
 	a.Channels = append([]string(nil), a.Channels...)
+	a.DenyBuiltins = append([]string(nil), a.DenyBuiltins...)
+	a.AllowBuiltins = append([]string(nil), a.AllowBuiltins...)
 	return a
+}
+
+func cloneTenantConfig(t TenantConfig) TenantConfig {
+	t.DenyBuiltins = append([]string(nil), t.DenyBuiltins...)
+	t.AllowBuiltins = append([]string(nil), t.AllowBuiltins...)
+	return t
 }
 
 func cloneChannelPolicy(p ChannelPolicy) ChannelPolicy {
 	p.Tenants = append([]string(nil), p.Tenants...)
 	p.DenyBuiltins = append([]string(nil), p.DenyBuiltins...)
+	p.AllowBuiltins = append([]string(nil), p.AllowBuiltins...)
 	return p
 }
 
@@ -343,7 +352,7 @@ func userOverlayForSave(cfg *Config) *Config {
 			if out.Tenants == nil {
 				out.Tenants = map[string]TenantConfig{}
 			}
-			out.Tenants[name] = t
+			out.Tenants[name] = cloneTenantConfig(t)
 		}
 	}
 
@@ -395,7 +404,9 @@ func userOverlayForSave(cfg *Config) *Config {
 func tenantConfigEqual(a, b TenantConfig) bool {
 	return strings.TrimSpace(a.URL) == strings.TrimSpace(b.URL) &&
 		strings.TrimSpace(a.Region) == strings.TrimSpace(b.Region) &&
-		strings.TrimSpace(a.TenantID) == strings.TrimSpace(b.TenantID)
+		strings.TrimSpace(a.TenantID) == strings.TrimSpace(b.TenantID) &&
+		stringSliceEqual(a.DenyBuiltins, b.DenyBuiltins) &&
+		stringSliceEqual(a.AllowBuiltins, b.AllowBuiltins)
 }
 
 func authEntryEqual(a, b AuthEntry) bool {
@@ -409,7 +420,8 @@ func authEntryEqual(a, b AuthEntry) bool {
 	if a.EffectiveAccess() != b.EffectiveAccess() || a.EffectiveSurface() != b.EffectiveSurface() {
 		return false
 	}
-	return stringSliceEqual(a.Tenants, b.Tenants) && stringSliceEqual(a.normalizedChannels(), b.normalizedChannels())
+	return stringSliceEqual(a.Tenants, b.Tenants) && stringSliceEqual(a.normalizedChannels(), b.normalizedChannels()) &&
+		stringSliceEqual(a.DenyBuiltins, b.DenyBuiltins) && stringSliceEqual(a.AllowBuiltins, b.AllowBuiltins)
 }
 
 func channelPolicyEqual(a, b ChannelPolicy) bool {
@@ -419,7 +431,7 @@ func channelPolicyEqual(a, b ChannelPolicy) bool {
 	if strings.TrimSpace(a.Tenant) != strings.TrimSpace(b.Tenant) {
 		return false
 	}
-	return stringSliceEqual(a.Tenants, b.Tenants) && stringSliceEqual(a.DenyBuiltins, b.DenyBuiltins)
+	return stringSliceEqual(a.Tenants, b.Tenants) && stringSliceEqual(a.DenyBuiltins, b.DenyBuiltins) && stringSliceEqual(a.AllowBuiltins, b.AllowBuiltins)
 }
 
 func stringSliceEqual(a, b []string) bool {

@@ -17,15 +17,20 @@ type AuthSummary struct {
 // SessionSelection describes the active tenant/auth pin and available choices
 // for a buddy client channel (cli|mcp|ide).
 type SessionSelection struct {
-	Channel        string        `json:"channel"`
-	Tenant         string        `json:"tenant"`
-	Auth           string        `json:"auth"` // pin; empty means auto-pick
-	Tenants        []string      `json:"tenants"`
-	Auths          []AuthSummary `json:"auths"`
-	ChannelAccess  string        `json:"channel_access,omitempty"`
-	ChannelTenant  string        `json:"channel_tenant,omitempty"`
-	ChannelTenants []string      `json:"channel_tenants,omitempty"`
-	DenyBuiltins   []string      `json:"deny_builtins,omitempty"`
+	Channel             string        `json:"channel"`
+	Tenant              string        `json:"tenant"`
+	Auth                string        `json:"auth"` // pin; empty means auto-pick
+	Tenants             []string      `json:"tenants"`
+	Auths               []AuthSummary `json:"auths"`
+	ChannelAccess       string        `json:"channel_access,omitempty"`
+	ChannelTenant       string        `json:"channel_tenant,omitempty"`
+	ChannelTenants      []string      `json:"channel_tenants,omitempty"`
+	DenyBuiltins        []string      `json:"deny_builtins,omitempty"`  // channel effective (MCP includes default jamf_*)
+	AllowBuiltins       []string      `json:"allow_builtins,omitempty"` // channel allow
+	TenantDenyBuiltins  []string      `json:"tenant_deny_builtins,omitempty"`
+	TenantAllowBuiltins []string      `json:"tenant_allow_builtins,omitempty"`
+	AuthDenyBuiltins    []string      `json:"auth_deny_builtins,omitempty"`
+	AuthAllowBuiltins   []string      `json:"auth_allow_builtins,omitempty"`
 	// Legacy keys kept for /api/creds compatibility (auth pin / auth names).
 	Active string   `json:"active,omitempty"`
 	Creds  []string `json:"creds,omitempty"`
@@ -56,6 +61,8 @@ func SessionSelectionFor(channel, defaultTenant, defaultAuth string) SessionSele
 		Tenants: []string{},
 		Auths:   []AuthSummary{},
 	}
+	out.DenyBuiltins = EffectiveDenyBuiltins(cfg, channel)
+	out.AllowBuiltins = EffectiveAllowBuiltins(cfg, channel)
 	if cfg == nil {
 		return out
 	}
@@ -63,7 +70,19 @@ func SessionSelectionFor(channel, defaultTenant, defaultAuth string) SessionSele
 	out.ChannelAccess = pol.EffectiveAccess()
 	out.ChannelTenant = strings.TrimSpace(pol.Tenant)
 	out.ChannelTenants = append([]string(nil), pol.Tenants...)
-	out.DenyBuiltins = append([]string(nil), pol.DenyBuiltins...)
+
+	if tenant != "" && cfg.Tenants != nil {
+		if t, ok := cfg.Tenants[tenant]; ok {
+			out.TenantDenyBuiltins = append([]string(nil), t.DenyBuiltins...)
+			out.TenantAllowBuiltins = append([]string(nil), t.AllowBuiltins...)
+		}
+	}
+	if authPin != "" && cfg.Auths != nil {
+		if a, ok := cfg.Auths[authPin]; ok {
+			out.AuthDenyBuiltins = append([]string(nil), a.DenyBuiltins...)
+			out.AuthAllowBuiltins = append([]string(nil), a.AllowBuiltins...)
+		}
+	}
 
 	if tenant == "" {
 		tenant = cfg.DefaultTenant(channel)
@@ -100,6 +119,20 @@ func SessionSelectionFor(channel, defaultTenant, defaultAuth string) SessionSele
 	}
 	if tenant != "" && !cfg.TenantAllowedOnChannel(channel, tenant) {
 		out.Tenant = cfg.DefaultTenant(channel)
+		tenant = out.Tenant
+	}
+	if authPin != "" && out.Auth == "" {
+		authPin = ""
+	}
+	if t, ok := cfg.Tenants[tenant]; ok {
+		out.TenantDenyBuiltins = append([]string(nil), t.DenyBuiltins...)
+		out.TenantAllowBuiltins = append([]string(nil), t.AllowBuiltins...)
+	}
+	if authPin != "" {
+		if a, ok := cfg.Auths[authPin]; ok {
+			out.AuthDenyBuiltins = append([]string(nil), a.DenyBuiltins...)
+			out.AuthAllowBuiltins = append([]string(nil), a.AllowBuiltins...)
+		}
 	}
 
 	credNames := make([]string, 0, len(out.Auths))
@@ -113,7 +146,7 @@ func SessionSelectionFor(channel, defaultTenant, defaultAuth string) SessionSele
 
 // ToMap returns the /api/creds JSON shape.
 func (s SessionSelection) ToMap() map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"channel":         s.Channel,
 		"tenant":          s.Tenant,
 		"auth":            s.Auth,
@@ -126,6 +159,22 @@ func (s SessionSelection) ToMap() map[string]any {
 		"active":          s.Active,
 		"creds":           s.Creds,
 	}
+	if len(s.AllowBuiltins) > 0 {
+		m["allow_builtins"] = s.AllowBuiltins
+	}
+	if len(s.TenantDenyBuiltins) > 0 {
+		m["tenant_deny_builtins"] = s.TenantDenyBuiltins
+	}
+	if len(s.TenantAllowBuiltins) > 0 {
+		m["tenant_allow_builtins"] = s.TenantAllowBuiltins
+	}
+	if len(s.AuthDenyBuiltins) > 0 {
+		m["auth_deny_builtins"] = s.AuthDenyBuiltins
+	}
+	if len(s.AuthAllowBuiltins) > 0 {
+		m["auth_allow_builtins"] = s.AuthAllowBuiltins
+	}
+	return m
 }
 
 // InfoMap returns a channel-aware snapshot including binary version (MCP buddy_info).
@@ -133,7 +182,7 @@ func (s SessionSelection) InfoMap(version string) map[string]any {
 	if version == "" {
 		version = "dev"
 	}
-	return map[string]any{
+	m := map[string]any{
 		"version":         version,
 		"channel":         s.Channel,
 		"tenant":          s.Tenant,
@@ -145,4 +194,20 @@ func (s SessionSelection) InfoMap(version string) map[string]any {
 		"channel_tenants": s.ChannelTenants,
 		"deny_builtins":   s.DenyBuiltins,
 	}
+	if len(s.AllowBuiltins) > 0 {
+		m["allow_builtins"] = s.AllowBuiltins
+	}
+	if len(s.TenantDenyBuiltins) > 0 {
+		m["tenant_deny_builtins"] = s.TenantDenyBuiltins
+	}
+	if len(s.TenantAllowBuiltins) > 0 {
+		m["tenant_allow_builtins"] = s.TenantAllowBuiltins
+	}
+	if len(s.AuthDenyBuiltins) > 0 {
+		m["auth_deny_builtins"] = s.AuthDenyBuiltins
+	}
+	if len(s.AuthAllowBuiltins) > 0 {
+		m["auth_allow_builtins"] = s.AuthAllowBuiltins
+	}
+	return m
 }

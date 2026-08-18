@@ -202,7 +202,7 @@ func RestoreCreds(cfg *Config, opts CredBackupOpts) (*CredRestoreResult, error) 
 	cfg.Tenant = payload.Tenant
 	cfg.Tenants = map[string]TenantConfig{}
 	for n, t := range payload.Tenants {
-		cfg.Tenants[n] = t
+		cfg.Tenants[n] = cloneTenantConfig(t)
 	}
 	cfg.Channels = map[string]ChannelPolicy{}
 	for n, p := range payload.Channels {
@@ -321,7 +321,7 @@ func collectCredBackup(cfg *Config) (credBackupPayload, []string) {
 		Auths:   map[string]AuthEntry{},
 	}
 	for n, t := range cfg.Tenants {
-		out.Tenants[n] = t
+		out.Tenants[n] = cloneTenantConfig(t)
 	}
 	if len(cfg.Channels) > 0 {
 		out.Channels = map[string]ChannelPolicy{}

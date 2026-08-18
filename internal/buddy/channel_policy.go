@@ -3,13 +3,15 @@ package buddy
 import (
 	"fmt"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Buddy client channel names (distinct from Jamf auth surface).
 const (
-	ChannelCLI  = "cli"
-	ChannelMCP  = "mcp"
-	ChannelIDE  = "ide"
+	ChannelCLI = "cli"
+	ChannelMCP = "mcp"
+	ChannelIDE = "ide"
 	// ChannelNotebook is a legacy name. LoadConfig migrates it onto ChannelIDE.
 	ChannelNotebook = "notebook"
 )
@@ -21,10 +23,64 @@ func AllBuddyChannels() []string {
 
 // ChannelPolicy is per-client policy under top-level channels:.
 type ChannelPolicy struct {
-	Access       string   `yaml:"access,omitempty"`        // readonly | full (omit = full)
-	Tenant       string   `yaml:"tenant,omitempty"`        // default tenant for this channel
-	Tenants      []string `yaml:"tenants,omitempty"`       // optional allowlist
-	DenyBuiltins []string `yaml:"deny_builtins,omitempty"` // exact names or trailing-* prefix globs
+	Access        string   `yaml:"access,omitempty"`         // readonly | full (omit = full)
+	Tenant        string   `yaml:"tenant,omitempty"`         // default tenant for this channel
+	Tenants       []string `yaml:"tenants,omitempty"`        // optional allowlist
+	DenyBuiltins  []string `yaml:"deny_builtins,omitempty"`  // exact names or trailing-* prefix globs; "*" deny-all
+	AllowBuiltins []string `yaml:"allow_builtins,omitempty"` // override deny at this layer; ["*"] unblocks all
+}
+
+// UnmarshalYAML accepts deny_builtins / allow_builtins as a sequence (canonical)
+// or a single scalar. Quote "*" so YAML does not treat it as an alias.
+func (p *ChannelPolicy) UnmarshalYAML(value *yaml.Node) error {
+	if p == nil {
+		return fmt.Errorf("channel policy is nil")
+	}
+	var raw struct {
+		Access        string    `yaml:"access"`
+		Tenant        string    `yaml:"tenant"`
+		Tenants       []string  `yaml:"tenants"`
+		DenyBuiltins  yaml.Node `yaml:"deny_builtins"`
+		AllowBuiltins yaml.Node `yaml:"allow_builtins"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	deny, err := decodeBuiltinPatternList(&raw.DenyBuiltins)
+	if err != nil {
+		return fmt.Errorf("deny_builtins: %w", err)
+	}
+	allow, err := decodeBuiltinPatternList(&raw.AllowBuiltins)
+	if err != nil {
+		return fmt.Errorf("allow_builtins: %w", err)
+	}
+	p.Access = raw.Access
+	p.Tenant = raw.Tenant
+	p.Tenants = raw.Tenants
+	p.DenyBuiltins = deny
+	p.AllowBuiltins = allow
+	return nil
+}
+
+func decodeBuiltinPatternList(n *yaml.Node) ([]string, error) {
+	if n == nil || n.Kind == 0 {
+		return nil, nil
+	}
+	switch n.Kind {
+	case yaml.ScalarNode:
+		if n.Tag == "!!null" || n.Value == "" || n.Value == "~" || n.Value == "null" {
+			return nil, nil
+		}
+		return []string{strings.TrimSpace(n.Value)}, nil
+	case yaml.SequenceNode:
+		var items []string
+		if err := n.Decode(&items); err != nil {
+			return nil, err
+		}
+		return items, nil
+	default:
+		return nil, fmt.Errorf("must be a string or a list of strings")
+	}
 }
 
 // EffectiveAccess returns channel access, defaulting to full.
@@ -50,7 +106,7 @@ func (cfg *Config) ChannelPolicy(channel string) ChannelPolicy {
 }
 
 // SetChannelPolicy merges fields into channels[channel] (creates map/entry as needed).
-func (cfg *Config) SetChannelPolicy(channel string, access, tenant string, tenants []string, setAccess, setTenant, setTenants bool, denyBuiltins []string, setDenyBuiltins bool) error {
+func (cfg *Config) SetChannelPolicy(channel string, access, tenant string, tenants []string, setAccess, setTenant, setTenants bool, denyBuiltins []string, setDenyBuiltins bool, allowBuiltins []string, setAllowBuiltins bool) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
@@ -88,6 +144,17 @@ func (cfg *Config) SetChannelPolicy(channel string, access, tenant string, tenan
 			p.DenyBuiltins = nil
 		} else {
 			p.DenyBuiltins = normalized
+		}
+	}
+	if setAllowBuiltins {
+		normalized, err := NormalizeAllowBuiltins(allowBuiltins)
+		if err != nil {
+			return err
+		}
+		if len(normalized) == 0 {
+			p.AllowBuiltins = nil
+		} else {
+			p.AllowBuiltins = normalized
 		}
 	}
 	cfg.Channels[channel] = p

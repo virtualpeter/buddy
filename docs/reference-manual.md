@@ -51,7 +51,7 @@ Default config path: `~/.config/buddy/config.yaml` (override config root with `X
 
 On macOS, org defaults may also come from managed preferences (`virtualpete.buddy.cli`); user YAML overlays them. See [Auth, secrets, and tokens](auth.md#org-defaults-macos-managed-preferences).
 
-Config is split into **tenant selection** (`tenant.default`), **channel policies** (`channels.cli|mcp|ide` with optional `access` / `tenant` / `tenants` / `deny_builtins`), **tenants** (instance URL and/or Platform `region`+`tenantId`), and **auths** (command/basic/oauth principals linked to one or more tenants). Optional auth `channels:` (`cli`/`mcp`/`ide`; omit = all) limits which buddy clients may use that auth. Legacy shapes migrate on load; `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` client names are removed (use `channels.ide`).
+Config is split into **tenant selection** (`tenant.default`), **channel policies** (`channels.cli|mcp|ide` with optional `access` / `tenant` / `tenants` / `deny_builtins` / `allow_builtins`; MCP defaults deny `jamf_*`), **tenants** (instance URL and/or Platform `region`+`tenantId`, optional deny/allow builtins), and **auths** (command/basic/oauth principals linked to one or more tenants, optional deny/allow). Optional auth `channels:` (`cli`/`mcp`/`ide`; omit = all) limits which buddy clients may use that auth. Builtin deny/allow is per layer (channel allow cannot unblock a tenant deny). `deny_builtins: ["*"]` is an allowlist at that layer. Legacy shapes migrate on load; `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` client names are removed (use `channels.ide`).
 
 Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, secrets, and tokens](auth.md)**.
 

@@ -76,6 +76,9 @@ channels:
     access: readonly               # clamp mutates on this client
     tenant: sandbox                # optional per-client default
     tenants: [sandbox]             # optional allowlist
+    # jamf_* is denied on MCP by default; extra denials union with that
+    deny_builtins: [computer_erase]
+    # allow_builtins: ["*"]        # cowboy: unblock all denials (including jamf_*)
   ide:
     tenant: sandbox
   # cli omitted → full access; default tenant = tenant.default
@@ -85,6 +88,8 @@ tenants:
     url: https://your-instance.jamfcloud.com   # instance (Pro/Classic)
     region: us                                  # optional Platform gateway
     tenantId: e77c1408-10c8-4007-b177-abc9157fbcaa
+    # deny_builtins: ["*"]         # tenant-layer allowlist
+    # allow_builtins: [policies, policy]
 
 auths:
   sandbox-admin:
@@ -118,7 +123,9 @@ buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=us --
 buddy cred set auth sandbox-admin --type=oauth --client-id=abc --tenants=sandbox --channels=cli,ide
 buddy cred set auth sandbox-platform-ro --type=platform --client-id=… --tenants=sandbox --access=readonly --channels=mcp,ide
 buddy cred set channel mcp --access=readonly --tenant=sandbox
-buddy cred set channel mcp --deny-builtins=jamf_*,computer_erase
+buddy cred set channel mcp --deny-builtins=computer_erase
+buddy cred set channel mcp --allow-builtins=*
+buddy cred set tenant sandbox --deny-builtins=* --allow-builtins=policies,policy
 buddy cred set secret sandbox-admin --client-secret
 buddy cred backup ./buddy.creds
 buddy cred restore ./buddy.creds
@@ -131,7 +138,7 @@ buddy cred erase secrets               # wipe all store secrets (both macOS Keyc
 buddy cred clean tokens                # delete expired/corrupt disk token cache files
 ```
 
-Legacy shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auths:`) migrate automatically on load (breaking; only the new form is written back). Inline secrets: `buddy cred migrate`. Selection: `--tenant` (auto-pick auth by operation) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all). Per-client policy lives under top-level `channels:` (`access` / `tenant` / `tenants`); `tenant.cli|mcp|serve|ide` and the `serve` client are removed.
+Legacy shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auths:`) migrate automatically on load (breaking; only the new form is written back). Inline secrets: `buddy cred migrate`. Selection: `--tenant` (auto-pick auth by operation) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all). Per-client policy lives under top-level `channels:` (`access` / `tenant` / `tenants` / `deny_builtins` / `allow_builtins`; MCP defaults deny `jamf_*`). The same deny/allow lists may be set on tenants and auths (per-layer; channel allow cannot unblock a tenant deny). `tenant.cli|mcp|serve|ide` and the `serve` client are removed.
 ### Setting up a role and client for buddy
 
 If you have **no config yet**, bootstrap an instance tenant + basic auth first:
