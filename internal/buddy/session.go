@@ -153,7 +153,7 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 		if err != nil {
 			return nil, err
 		}
-		surface := surfaceForOp(cfg, op, authName, auth, tenantName, tenant)
+		surface := surfaceForOp(cfg, op, auth)
 		surface = overlaySurfacePref(cfg, op, auth, tenant, surface, channel)
 		if err := checkAuthForOp(cfg, auth, tenant, op, surface, channel); err != nil {
 			if isSurfaceIncompatible(err) {
@@ -268,44 +268,14 @@ func isSurfaceIncompatible(err error) bool {
 	return errors.As(err, &e)
 }
 
-func surfaceForOp(cfg *Config, op OpClass, authName string, auth AuthEntry, tenantName string, tenant TenantConfig) string {
+func surfaceForOp(cfg *Config, op OpClass, auth AuthEntry) string {
 	if s := requiredSurfaceForOp(cfg, op); s != "" {
 		return s
 	}
-	switch op {
-	case OpPro, OpRead, OpMutate, OpAny, OpClassic, OpClassicWrite:
-		switch auth.EffectiveSurface() {
-		case SurfacePlatform:
-			return SurfacePlatform
-		case SurfaceInstance:
-			return SurfaceInstance
-		default:
-			if tenant.HasPlatform() && tenant.HasInstanceURL() {
-				inst := LoadCaps(authName, tenantName, SurfaceInstance, "")
-				plat := LoadCaps(authName, tenantName, SurfacePlatform, tenant.EffectiveTenantID())
-				instOK := capsTokenOK(inst)
-				platOK := capsTokenOK(plat)
-				if platOK && !instOK {
-					return SurfacePlatform
-				}
-				if instOK && !platOK {
-					return SurfaceInstance
-				}
-			}
-			if tenant.HasPlatform() && (op == OpPlatform || (!tenant.HasInstanceURL() && tenant.HasPlatform())) {
-				return SurfacePlatform
-			}
-			if tenant.HasInstanceURL() {
-				return SurfaceInstance
-			}
-			if tenant.HasPlatform() {
-				return SurfacePlatform
-			}
-			return SurfaceAny
-		}
-	default:
-		return auth.EffectiveSurface()
+	if auth.EffectiveSurface() == SurfacePlatform {
+		return SurfacePlatform
 	}
+	return SurfaceInstance
 }
 
 func checkAuthForOp(cfg *Config, auth AuthEntry, tenant TenantConfig, op OpClass, surface, channel string) error {
@@ -323,8 +293,8 @@ func checkAuthForOp(cfg *Config, auth AuthEntry, tenant TenantConfig, op OpClass
 		if auth.EffectiveSurface() == SurfaceInstance {
 			return surfaceIncompatible("surface=instance cannot be used for platform operations")
 		}
-		if auth.Type != "oauth" {
-			return surfaceIncompatible("platform operations require oauth auth")
+		if !auth.UsesClientCredentials() {
+			return surfaceIncompatible("platform operations require type=platform")
 		}
 	case SurfaceInstance:
 		if tenant.InstanceBaseURL() == "" && !tenant.HasInstanceURL() {
@@ -355,7 +325,7 @@ func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []
 			errs = append(errs, name+": "+err.Error())
 			continue
 		}
-		surface := surfaceForOp(cfg, op, name, auth, tenantName, tenant)
+		surface := surfaceForOp(cfg, op, auth)
 		if err := checkAuthForOp(cfg, auth, tenant, op, surface, channel); err != nil {
 			errs = append(errs, name+": "+err.Error())
 			continue
@@ -370,7 +340,7 @@ func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []
 		// --surface= is a bias for ops that can use either surface. Do not skip
 		// auths required by Classic/schema/ACS (instance) or Platform product APIs.
 		if pref != "" && requiredSurfaceForOp(cfg, op) == "" &&
-			surface != pref && auth.EffectiveSurface() != SurfaceAny && auth.EffectiveSurface() != pref {
+			surface != pref && auth.EffectiveSurface() != pref {
 			errs = append(errs, name+": surface preference "+pref+" (auth surface="+auth.EffectiveSurface()+")")
 			continue
 		}
@@ -409,7 +379,7 @@ func scoreAuth(cfg *Config, authName string, auth AuthEntry, tenantName string, 
 			score += 100
 		}
 	case OpPlatform, OpPlatformWrite:
-		if surf == SurfacePlatform || surf == SurfaceAny {
+		if surf == SurfacePlatform {
 			score += 100
 		}
 		if surface == SurfacePlatform {
@@ -419,7 +389,7 @@ func scoreAuth(cfg *Config, authName string, auth AuthEntry, tenantName string, 
 			score += 30
 		}
 	case OpClassic, OpClassicWrite, OpACS, OpACSWrite, OpSchema, OpProUI, OpProUIWrite:
-		if surf == SurfaceInstance || surf == SurfaceAny {
+		if surf == SurfaceInstance {
 			score += 100
 		}
 		if surface == SurfaceInstance {
@@ -433,9 +403,6 @@ func scoreAuth(cfg *Config, authName string, auth AuthEntry, tenantName string, 
 			score += 60
 		} else {
 			score += 40
-		}
-		if surf == SurfaceAny {
-			score += 10
 		}
 	}
 	tid := ""

@@ -2721,7 +2721,7 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		fmt.Println("This configures your first Jamf Pro *instance* tenant and a basic")
 		fmt.Println("(username/password) auth in ~/.config/buddy/config.yaml.")
 		fmt.Println("The password is stored in the platform secret store (Keychain/file),")
-		fmt.Println("not inline in config. surface=instance (not Platform gateway oauth).")
+		fmt.Println("not inline in config. type=oauth (instance; not Platform gateway).")
 		fmt.Println()
 		fmt.Println("Afterward you can auth test with basic, and optionally create a Jamf")
 		fmt.Println("API role/client and store instance oauth (buddy setup write-script /")
@@ -2734,7 +2734,7 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		if res == nil {
 			return nil
 		}
-		fmt.Printf("Configured tenant %q (%s) and basic auth %q (user %s, surface=instance).\n",
+		fmt.Printf("Configured tenant %q (%s) and basic auth %q (user %s, type=basic).\n",
 			res.TenantName, res.URL, res.AuthName, res.Username)
 		fmt.Printf("Password stored in the platform secret store. Default tenant is %q.\n", cfg.Tenant.Default)
 		fmt.Println()
@@ -2793,10 +2793,10 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 			return nil // user declined
 		}
 		if res.Updated {
-			fmt.Printf("Updated instance oauth auth %q on tenant %q (surface=instance; secret in platform store). Use: buddy --user %s ...\n",
+			fmt.Printf("Updated instance oauth auth %q on tenant %q (type=oauth; secret in platform store). Use: buddy --user %s ...\n",
 				res.AuthName, res.TenantName, res.AuthName)
 		} else {
-			fmt.Printf("Created instance oauth auth %q on tenant %q (surface=instance; secret in platform store). Use: buddy --user %s ...\n",
+			fmt.Printf("Created instance oauth auth %q on tenant %q (type=oauth; secret in platform store). Use: buddy --user %s ...\n",
 				res.AuthName, res.TenantName, res.AuthName)
 		}
 		return nil

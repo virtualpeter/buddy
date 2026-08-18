@@ -125,7 +125,7 @@ func TestSetupBasic(t *testing.T) {
 		t.Fatalf("tenant %+v", tn)
 	}
 	au, ok := cfg.Auths["sandbox-admin"]
-	if !ok || au.Type != "basic" || au.Username != "admin" || au.Surface != SurfaceInstance {
+	if !ok || au.Type != "basic" || au.Username != "admin" || au.EffectiveSurface() != SurfaceInstance {
 		t.Fatalf("auth %+v", au)
 	}
 	okHas, err := HasCredentialSecret("sandbox-admin", secrets.KindPassword)

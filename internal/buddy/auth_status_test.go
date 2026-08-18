@@ -160,28 +160,16 @@ func TestScoreAuthCapsBonusAndPenalty(t *testing.T) {
 	}
 }
 
-func TestSurfaceForOpPrefersLastGood(t *testing.T) {
-	dir := t.TempDir()
-	t.Cleanup(SetCapsCacheDirForTest(dir))
-	auth := AuthEntry{Type: "oauth", ClientID: "c", Surface: SurfaceAny}
-	tenant := TenantConfig{
-		URL:      "https://example.jamfcloud.com",
-		Region:   "us",
-		TenantID: "11111111-1111-1111-1111-111111111111",
-	}
-	got := surfaceForOp(nil, OpRead, "dual", auth, "sandbox", tenant)
+func TestSurfaceForOpHonorsAuthSurface(t *testing.T) {
+	auth := AuthEntry{Type: AuthTypeOAuth, ClientID: "c"}
+	got := surfaceForOp(nil, OpRead, auth)
 	if got != SurfaceInstance {
-		t.Fatalf("default without cache=%q", got)
+		t.Fatalf("instance auth=%q", got)
 	}
-	if err := SaveCaps(CapsRecord{
-		Auth: "dual", Tenant: "sandbox", Surface: SurfacePlatform, TenantID: tenant.TenantID,
-		Live: LiveOK, TokenOk: true, ExpiresAt: time.Now().Add(time.Hour),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	got = surfaceForOp(nil, OpRead, "dual", auth, "sandbox", tenant)
+	auth.Type = AuthTypePlatform
+	got = surfaceForOp(nil, OpRead, auth)
 	if got != SurfacePlatform {
-		t.Fatalf("prefer platform last-good=%q", got)
+		t.Fatalf("platform auth=%q", got)
 	}
 }
 
@@ -217,7 +205,7 @@ func TestSetupSecretsFillsPlatformGap(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, ok := cfg.Auths["sandbox-platform"]
-	if !ok || a.Surface != SurfacePlatform || a.ClientID != "plat-cid" {
+	if !ok || a.Type != AuthTypePlatform || a.ClientID != "plat-cid" {
 		t.Fatalf("auth=%+v", a)
 	}
 	okHas, err := HasCredentialSecret("sandbox-platform", secrets.KindClientSecret)

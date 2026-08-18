@@ -276,8 +276,8 @@ func restoreAuthFromBackup(cfg *Config, name string, a AuthEntry) (stored int, e
 func authRestorePrompt(name string, a AuthEntry) string {
 	tenants := strings.Join(a.Tenants, ",")
 	switch strings.ToLower(strings.TrimSpace(a.Type)) {
-	case "oauth":
-		return fmt.Sprintf("Restore auth %q (oauth clientId=%s tenants=%s)?", name, a.ClientID, tenants)
+	case "oauth", "platform":
+		return fmt.Sprintf("Restore auth %q (%s clientId=%s tenants=%s)?", name, a.Type, a.ClientID, tenants)
 	case "basic":
 		return fmt.Sprintf("Restore auth %q (basic user=%s tenants=%s)?", name, a.Username, tenants)
 	case "command":
@@ -351,7 +351,7 @@ func collectCredBackup(cfg *Config) (credBackupPayload, []string) {
 					missing = append(missing, name+" password")
 				}
 			}
-		case "oauth":
+		case "oauth", "platform":
 			if a.ClientSecret == "" {
 				if cs := peekStoreSecret(name, secrets.KindClientSecret); cs != "" {
 					a.ClientSecret = cs

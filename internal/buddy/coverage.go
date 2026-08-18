@@ -44,12 +44,9 @@ func AuthCoversSurface(auth AuthEntry, surface string) bool {
 	surf := auth.EffectiveSurface()
 	switch surface {
 	case SurfaceInstance:
-		return surf == SurfaceInstance || surf == SurfaceAny
+		return surf == SurfaceInstance
 	case SurfacePlatform:
-		if auth.Type != "oauth" {
-			return false
-		}
-		return surf == SurfacePlatform || surf == SurfaceAny
+		return auth.EffectiveSurface() == SurfacePlatform
 	default:
 		return false
 	}
@@ -78,7 +75,7 @@ func AuthSecretPresence(cfg *Config, authName string) string {
 			return SecretPresenceStored
 		}
 		return SecretPresenceMissing
-	case "oauth":
+	case AuthTypeOAuth, AuthTypePlatform:
 		if strings.TrimSpace(auth.ClientSecret) != "" {
 			return SecretPresenceInline
 		}
@@ -101,7 +98,7 @@ func tenantSurfaces(t TenantConfig) []string {
 	}
 	if len(out) == 0 {
 		// Invalid tenant, but still show a row so status is honest.
-		out = append(out, SurfaceAny)
+		out = append(out, SurfaceInstance)
 	}
 	return out
 }

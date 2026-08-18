@@ -100,66 +100,55 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 		res.CreatedTenant = true
 	}
 
-	surface := strings.ToLower(strings.TrimSpace(opts.Surface))
-	if surface == "" && interactive {
-		def := SurfaceAny
-		if tenant.HasInstanceURL() && !tenant.HasPlatform() {
-			def = SurfaceInstance
-		} else if tenant.HasPlatform() && !tenant.HasInstanceURL() {
-			def = SurfacePlatform
+	typ := NormalizeAuthType(opts.Type)
+	if surf := strings.ToLower(strings.TrimSpace(opts.Surface)); surf != "" {
+		if surf != SurfaceInstance && surf != SurfacePlatform {
+			return nil, fmt.Errorf("surface was folded into type; use --type=oauth|basic|platform (got --surface=%q)", opts.Surface)
 		}
-		line, err := PromptSecretLine(fmt.Sprintf("Auth surface any|instance|platform [%s]", def))
-		if err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(line) != "" {
-			surface = strings.ToLower(strings.TrimSpace(line))
-		} else {
-			surface = def
+		if surf == SurfacePlatform {
+			if typ != "" && typ != AuthTypeOAuth && typ != AuthTypePlatform {
+				return nil, fmt.Errorf("surface was folded into type; platform oauth is --type=platform")
+			}
+			typ = AuthTypePlatform
 		}
 	}
-	if surface == "" {
+	if typ == "" && interactive {
+		def := AuthTypeOAuth
+		hint := "oauth|basic"
 		if tenant.HasPlatform() && !tenant.HasInstanceURL() {
-			surface = SurfacePlatform
-		} else if tenant.HasInstanceURL() && !tenant.HasPlatform() {
-			surface = SurfaceInstance
-		} else {
-			surface = SurfaceAny
+			def = AuthTypePlatform
+			hint = "platform"
+		} else if tenant.HasPlatform() {
+			hint = "oauth|basic|platform"
 		}
-	}
-	switch surface {
-	case SurfaceAny, SurfaceInstance, SurfacePlatform:
-	default:
-		return nil, fmt.Errorf("surface must be any, instance, or platform (got %q)", surface)
-	}
-
-	typ := strings.ToLower(strings.TrimSpace(opts.Type))
-	if typ == "" {
-		typ = "oauth"
-	}
-	if interactive && opts.Type == "" && surface != SurfacePlatform {
-		line, err := PromptSecretLine("Auth type oauth|basic [oauth]")
+		line, err := PromptSecretLine(fmt.Sprintf("Auth type %s [%s]", hint, def))
 		if err != nil {
 			return nil, err
 		}
 		if strings.TrimSpace(line) != "" {
-			typ = strings.ToLower(strings.TrimSpace(line))
+			typ = NormalizeAuthType(line)
+		} else {
+			typ = def
 		}
 	}
-	if surface == SurfacePlatform {
-		typ = "oauth"
+	if typ == "" {
+		if tenant.HasPlatform() && !tenant.HasInstanceURL() {
+			typ = AuthTypePlatform
+		} else {
+			typ = AuthTypeOAuth
+		}
 	}
 	switch typ {
-	case "oauth", "basic":
+	case AuthTypeOAuth, AuthTypeBasic, AuthTypePlatform:
 	default:
-		return nil, fmt.Errorf("auth type must be oauth or basic (got %q)", typ)
+		return nil, fmt.Errorf("auth type must be oauth, basic, or platform (got %q)", typ)
+	}
+	if typ == AuthTypePlatform && !tenant.HasPlatform() {
+		return nil, fmt.Errorf("type=platform requires the tenant to have region + tenantId")
 	}
 
 	authName := strings.TrimSpace(opts.AuthName)
-	defName := defaultAuthNameForSurface(tenantName, surface, typ)
-	if surface == SurfaceAny && typ == "oauth" {
-		defName = defaultOAuthAuthName(tenantName)
-	}
+	defName := defaultAuthNameForSurface(tenantName, AuthEntry{Type: typ}.EffectiveSurface(), typ)
 	if authName == "" {
 		if interactive {
 			line, err := PromptSecretLine(fmt.Sprintf("Auth name [%s]", defName))
@@ -184,12 +173,11 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 		Type:    typ,
 		Tenants: []string{tenantName},
 		Access:  AccessFull,
-		Surface: surface,
 	}
 	if prev, ok := cfg.Auths[authName]; ok {
 		auth = prev
 		auth.Type = typ
-		auth.Surface = surface
+		auth.Surface = ""
 		if !auth.LinkedTo(tenantName) {
 			auth.Tenants = append(append([]string{}, auth.Tenants...), tenantName)
 		}
@@ -204,7 +192,7 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 	}
 
 	switch typ {
-	case "oauth":
+	case AuthTypeOAuth, AuthTypePlatform:
 		cid := strings.TrimSpace(opts.ClientID)
 		if cid == "" {
 			cid = strings.TrimSpace(auth.ClientID)
@@ -287,11 +275,8 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 		doTest = false
 	}
 	if doTest {
-		wantSurf := surface
-		if wantSurf == SurfaceAny {
-			wantSurf = ""
-		}
-		err := WithSessionOverrides(SessionOverrides{Tenant: tenantName, Auth: authName, Surface: wantSurf}, func() error {
+		surface := auth.EffectiveSurface()
+		err := WithSessionOverrides(SessionOverrides{Tenant: tenantName, Auth: authName, Surface: surface}, func() error {
 			_, err := AuthTestValue(authName, log)
 			return err
 		})
@@ -303,15 +288,7 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 		if surface == SurfacePlatform {
 			tid = tenant.EffectiveTenantID()
 		}
-		testSurf := surface
-		if testSurf == SurfaceAny {
-			if tenant.HasInstanceURL() {
-				testSurf = SurfaceInstance
-			} else {
-				testSurf = SurfacePlatform
-			}
-		}
-		if rec := LoadCaps(authName, tenantName, testSurf, tid); rec != nil {
+		if rec := LoadCaps(authName, tenantName, surface, tid); rec != nil {
 			res.Live = rec.Live
 		}
 	}

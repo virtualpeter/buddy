@@ -728,7 +728,7 @@ function fillAuthSelect(selected) {
     o.value = a.name;
     let label = a.name;
     if (a.access && a.access !== "full") label += " · " + a.access;
-    if (a.surface && a.surface !== "any") label += " · " + a.surface;
+    if (a.type && a.type !== "oauth") label += " · " + a.type;
     o.textContent = label;
     sel.appendChild(o);
   });

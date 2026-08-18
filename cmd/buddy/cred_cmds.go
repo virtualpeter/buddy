@@ -473,8 +473,8 @@ func runCredList(cfg *buddy.Config) error {
 	}
 	fmt.Printf("\n* = default tenant\n\n")
 	fmt.Println("AUTHS")
-	fmt.Printf("%-18s  %-8s  %-10s  %-10s  %-14s  %s\n", "NAME", "TYPE", "ACCESS", "SURFACE", "CHANNELS", "TENANTS")
-	fmt.Printf("%-18s  %-8s  %-10s  %-10s  %-14s  %s\n", "------------------", "--------", "----------", "----------", "--------------", "-------")
+	fmt.Printf("%-18s  %-10s  %-10s  %-14s  %s\n", "NAME", "TYPE", "ACCESS", "CHANNELS", "TENANTS")
+	fmt.Printf("%-18s  %-10s  %-10s  %-14s  %s\n", "------------------", "----------", "----------", "--------------", "-------")
 	anames := make([]string, 0, len(cfg.Auths))
 	for n := range cfg.Auths {
 		anames = append(anames, n)
@@ -486,7 +486,7 @@ func runCredList(cfg *buddy.Config) error {
 		if len(a.Channels) > 0 {
 			ch = strings.Join(a.Channels, ",")
 		}
-		fmt.Printf("%-18s  %-8s  %-10s  %-10s  %-14s  %s\n", name, a.Type, a.EffectiveAccess(), a.EffectiveSurface(), ch, strings.Join(a.Tenants, ","))
+		fmt.Printf("%-18s  %-10s  %-10s  %-14s  %s\n", name, a.Type, a.EffectiveAccess(), ch, strings.Join(a.Tenants, ","))
 	}
 	sel := cfg.Channels
 	if len(sel) > 0 {
@@ -579,7 +579,6 @@ func runCredShowAuth(cfg *buddy.Config, name string) error {
 	fmt.Printf("auth:     %s\n", name)
 	fmt.Printf("type:     %s\n", a.Type)
 	fmt.Printf("access:   %s\n", a.EffectiveAccess())
-	fmt.Printf("surface:  %s\n", a.EffectiveSurface())
 	if len(a.Channels) == 0 {
 		fmt.Printf("channels: all\n")
 	} else {
@@ -601,7 +600,7 @@ func runCredShowAuth(cfg *buddy.Config, name string) error {
 		} else {
 			fmt.Printf("password: (not set)\n")
 		}
-	case "oauth":
+	case "oauth", "platform":
 		fmt.Printf("clientId:     %s\n", a.ClientID)
 		if a.ClientSecret != "" {
 			fmt.Printf("clientSecret: %s (inline in config)\n", redact(a.ClientSecret))
@@ -707,7 +706,7 @@ func offerStoreSecret(authName string, cred buddy.CredentialConfig, skipConfirm 
 		label = fmt.Sprintf("Basic auth password for %q", authName)
 		kindName = "password"
 		flagHint = "--password"
-	case "oauth":
+	case "oauth", "platform":
 		if cred.Auth.ClientSecret != "" {
 			return nil
 		}
@@ -912,17 +911,27 @@ func parseCredSetAuthArgs(args []string, skipConfirm bool) (authSetParsed, error
 		return authSetParsed{}, fmt.Errorf("auth name required; usage: buddy cred set auth <name> --type=… --tenants=…")
 	}
 	if authType == "" {
-		return authSetParsed{}, fmt.Errorf("--type is required (command, basic, or oauth)")
+		return authSetParsed{}, fmt.Errorf("--type is required (command, basic, oauth, or platform)")
 	}
 	if strings.TrimSpace(tenants) == "" {
 		return authSetParsed{}, fmt.Errorf("--tenants is required (comma-separated tenant names)")
 	}
 	tenantList := splitCSV(tenants)
+	authType = strings.ToLower(strings.TrimSpace(authType))
+	surf := strings.ToLower(strings.TrimSpace(surface))
+	if surf != "" {
+		if surf == buddy.SurfacePlatform && (authType == "" || authType == buddy.AuthTypeOAuth || authType == buddy.AuthTypePlatform) {
+			authType = buddy.AuthTypePlatform
+		} else if surf == buddy.SurfaceInstance {
+			// ignored — instance is type oauth/basic/command
+		} else {
+			return authSetParsed{}, fmt.Errorf("auth surface was folded into type; use --type=platform (not --surface=%s)", surface)
+		}
+	}
 	entry := buddy.AuthEntry{
 		Type:    authType,
 		Tenants: tenantList,
 		Access:  strings.TrimSpace(access),
-		Surface: strings.TrimSpace(surface),
 	}
 	if channelsSet {
 		ch, err := buddy.ParseAuthChannels(channels)
@@ -943,9 +952,9 @@ func parseCredSetAuthArgs(args []string, skipConfirm bool) (authSetParsed, error
 		}
 		entry.Username = username
 		entry.Password = password
-	case "oauth":
+	case "oauth", "platform":
 		if clientID == "" {
-			return authSetParsed{}, fmt.Errorf("--client-id is required for type oauth")
+			return authSetParsed{}, fmt.Errorf("--client-id is required for type %s", authType)
 		}
 		entry.ClientID = clientID
 		entry.ClientSecret = clientSecret
@@ -1105,7 +1114,7 @@ func secretSelectionForAuthType(authType, authName string) (wantPassword, wantCl
 	switch authType {
 	case "basic":
 		return true, false, nil
-	case "oauth":
+	case "oauth", "platform":
 		return false, true, nil
 	case "command":
 		return false, false, fmt.Errorf("auth %q uses command auth and has no stored secret", authName)

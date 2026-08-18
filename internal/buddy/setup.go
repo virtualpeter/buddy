@@ -236,18 +236,16 @@ func SetupStoreOAuth(cfg *Config, so StoreOAuthOpts, logger *slog.Logger) (*Stor
 	}
 	prev := cfg.Auths[authName]
 	// Jamf Pro API integrations are instance oauth (not Platform gateway).
-	surface := SurfaceInstance
 	access := AccessFull
 	if prev.Access != "" {
 		access = prev.Access
 	}
 	tenants := mergeTenantList(prev.Tenants, tenantName)
 	cfg.Auths[authName] = AuthEntry{
-		Type:     "oauth",
+		Type:     AuthTypeOAuth,
 		ClientID: clientID,
 		Tenants:  tenants,
 		Access:   access,
-		Surface:  surface,
 		Channels: prev.Channels,
 	}
 	if err := SetCredentialSecret(authName, secrets.KindClientSecret, clientSecret); err != nil {
@@ -280,7 +278,7 @@ func findOAuthAuthForClient(cfg *Config, tenantName, clientID string) (string, b
 	}
 	var matches []string
 	for name, a := range cfg.Auths {
-		if a.Type != "oauth" || a.ClientID != clientID {
+		if a.Type != AuthTypeOAuth || a.ClientID != clientID {
 			continue
 		}
 		if authLinkedToTenant(a, tenantName) {
@@ -618,7 +616,7 @@ func tenantHasCoveringAuth(cfg *Config, tenantName, surface string) bool {
 }
 
 func defaultAuthNameForSurface(tenantName, surface, typ string) string {
-	if surface == SurfacePlatform {
+	if surface == SurfacePlatform || NormalizeAuthType(typ) == AuthTypePlatform {
 		t := strings.TrimSpace(tenantName)
 		if t == "" {
 			t = "buddy"
@@ -641,7 +639,7 @@ func setupSecretsCreateAuth(cfg *Config, tenantName, surface string, opts SetupS
 		typ = "oauth"
 	}
 	if surface == SurfacePlatform {
-		typ = "oauth"
+		typ = AuthTypePlatform
 	}
 	if interactive && opts.Type == "" && surface != SurfacePlatform {
 		line, err := PromptSecretLine(fmt.Sprintf("Tenant %q has no %s auth. Type [oauth]", tenantName, surface))
@@ -649,16 +647,16 @@ func setupSecretsCreateAuth(cfg *Config, tenantName, surface string, opts SetupS
 			return "", err
 		}
 		if strings.TrimSpace(line) != "" {
-			typ = strings.ToLower(strings.TrimSpace(line))
+			typ = NormalizeAuthType(line)
 		}
 	}
 	switch typ {
-	case "oauth", "basic":
+	case AuthTypeOAuth, AuthTypeBasic, AuthTypePlatform:
 	default:
-		return "", fmt.Errorf("auth type must be oauth or basic (got %q)", typ)
+		return "", fmt.Errorf("auth type must be oauth, basic, or platform (got %q)", typ)
 	}
-	if surface == SurfacePlatform && typ != "oauth" {
-		return "", fmt.Errorf("platform auth requires oauth")
+	if surface == SurfacePlatform {
+		typ = AuthTypePlatform
 	}
 
 	defName := defaultAuthNameForSurface(tenantName, surface, typ)
@@ -688,17 +686,13 @@ func setupSecretsCreateAuth(cfg *Config, tenantName, surface string, opts SetupS
 		return "", fmt.Errorf("auth %q already exists — pick another name or run 'buddy cred set auth'", authName)
 	}
 
-	if surface == "" {
-		surface = SurfaceInstance
-	}
 	auth := AuthEntry{
 		Type:    typ,
 		Tenants: []string{tenantName},
 		Access:  AccessFull,
-		Surface: surface,
 	}
 	switch typ {
-	case "oauth":
+	case AuthTypeOAuth, AuthTypePlatform:
 		cid := strings.TrimSpace(opts.ClientID)
 		if cid == "" {
 			if !interactive {
@@ -777,9 +771,9 @@ func setupSecretsFillAuth(cfg *Config, authName string, opts SetupSecretsOpts, i
 		return false, "", "", nil
 	}
 	switch auth.Type {
-	case "command":
+	case AuthTypeCommand:
 		return false, "", "", nil
-	case "oauth":
+	case AuthTypeOAuth, AuthTypePlatform:
 		if strings.TrimSpace(auth.ClientID) == "" {
 			cid := strings.TrimSpace(opts.ClientID)
 			if cid == "" && interactive {

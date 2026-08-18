@@ -24,12 +24,39 @@ const (
 	AccessReadonly = "readonly"
 )
 
-// Surface hints for an auth entry.
+// Surface values for a resolved session / tenant identity (not stored on auths).
 const (
-	SurfaceAny      = "any"
 	SurfacePlatform = "platform"
 	SurfaceInstance = "instance"
 )
+
+// Auth types. Platform oauth is type platform (not oauth + surface: platform).
+// command remains an instance token helper.
+const (
+	AuthTypeCommand  = "command"
+	AuthTypeBasic    = "basic"
+	AuthTypeOAuth    = "oauth"    // instance OAuth client
+	AuthTypePlatform = "platform" // Platform API Gateway OAuth client
+)
+
+// NormalizeAuthType lowercases and trims an auth type string.
+func NormalizeAuthType(typ string) string {
+	return strings.ToLower(strings.TrimSpace(typ))
+}
+
+// AuthTypeUsesClientCredentials reports oauth or platform (both use clientId + secret).
+func AuthTypeUsesClientCredentials(typ string) bool {
+	t := NormalizeAuthType(typ)
+	return t == AuthTypeOAuth || t == AuthTypePlatform
+}
+
+// AuthMechanismType maps stored auth type onto the token layer (platform → oauth).
+func AuthMechanismType(typ string) string {
+	if NormalizeAuthType(typ) == AuthTypePlatform {
+		return AuthTypeOAuth
+	}
+	return NormalizeAuthType(typ)
+}
 
 // AuthConfig holds the authentication method fields (type + secrets/identifiers).
 type AuthConfig struct {
@@ -91,15 +118,16 @@ type AuthEntry struct {
 	ClientID     string   `yaml:"clientId,omitempty"`
 	ClientSecret string   `yaml:"clientSecret,omitempty"`
 	Tenants      []string `yaml:"tenants"`
-	Access       string   `yaml:"access,omitempty"`   // readonly | full (default full)
-	Surface      string   `yaml:"surface,omitempty"`  // platform | instance | any (default any)
-	Channels     []string `yaml:"channels,omitempty"` // buddy clients cli|mcp|serve; empty = all
+	Access       string   `yaml:"access,omitempty"`  // readonly | full (default full)
+	Surface      string   `yaml:"surface,omitempty"` // legacy; folded into type on load
+	Channels     []string `yaml:"channels,omitempty"` // buddy clients cli|mcp|ide; empty = all
 }
 
 // AuthConfig returns the secret/type block for this entry.
+// type platform is oauth client-credentials against the gateway.
 func (a AuthEntry) AuthConfig() AuthConfig {
 	return AuthConfig{
-		Type:         a.Type,
+		Type:         AuthMechanismType(a.Type),
 		RunCommand:   a.RunCommand,
 		Username:     a.Username,
 		Password:     a.Password,
@@ -118,14 +146,20 @@ func (a AuthEntry) EffectiveAccess() string {
 	}
 }
 
-// EffectiveSurface returns surface, defaulting to any.
+// EffectiveSurface is instance unless type is platform (or legacy surface: platform).
 func (a AuthEntry) EffectiveSurface() string {
-	switch strings.ToLower(strings.TrimSpace(a.Surface)) {
-	case SurfacePlatform, SurfaceInstance:
-		return strings.ToLower(strings.TrimSpace(a.Surface))
-	default:
-		return SurfaceAny
+	if NormalizeAuthType(a.Type) == AuthTypePlatform {
+		return SurfacePlatform
 	}
+	if strings.EqualFold(strings.TrimSpace(a.Surface), SurfacePlatform) {
+		return SurfacePlatform
+	}
+	return SurfaceInstance
+}
+
+// UsesClientCredentials reports oauth or platform.
+func (a AuthEntry) UsesClientCredentials() bool {
+	return AuthTypeUsesClientCredentials(a.Type)
 }
 
 // LinkedTo reports whether this auth lists tenantName.
@@ -426,12 +460,12 @@ func (t TenantConfig) Validate() error {
 
 // Validate checks auth entry fields.
 func (a AuthEntry) Validate() error {
-	switch a.Type {
-	case "command", "basic", "oauth":
+	switch NormalizeAuthType(a.Type) {
+	case AuthTypeCommand, AuthTypeBasic, AuthTypeOAuth, AuthTypePlatform:
 	case "":
-		return fmt.Errorf("auth type is required (command, basic, or oauth)")
+		return fmt.Errorf("auth type is required (command, basic, oauth, or platform)")
 	default:
-		return fmt.Errorf("unknown auth type %q (supported: command, basic, oauth)", a.Type)
+		return fmt.Errorf("unknown auth type %q (supported: command, basic, oauth, platform)", a.Type)
 	}
 	if len(a.Tenants) == 0 {
 		return fmt.Errorf("auth must list at least one tenant under tenants:")
@@ -441,13 +475,11 @@ func (a AuthEntry) Validate() error {
 	default:
 		return fmt.Errorf("access must be %q or %q", AccessFull, AccessReadonly)
 	}
-	switch a.EffectiveSurface() {
-	case SurfaceAny, SurfacePlatform, SurfaceInstance:
-	default:
-		return fmt.Errorf("surface must be %q, %q, or %q", SurfaceAny, SurfacePlatform, SurfaceInstance)
+	if surf := strings.ToLower(strings.TrimSpace(a.Surface)); surf != "" && surf != SurfaceInstance && surf != SurfacePlatform && surf != "any" {
+		return fmt.Errorf("legacy auth surface must be %q or %q (got %q); prefer type: platform", SurfaceInstance, SurfacePlatform, a.Surface)
 	}
-	if a.EffectiveSurface() == SurfacePlatform && a.Type != "oauth" {
-		return fmt.Errorf("surface=platform requires auth type oauth (got %q)", a.Type)
+	if a.EffectiveSurface() == SurfacePlatform && !a.UsesClientCredentials() {
+		return fmt.Errorf("platform surface requires type %q (got %q)", AuthTypePlatform, a.Type)
 	}
 	return nil
 }
@@ -468,8 +500,8 @@ func (c CredentialConfig) Validate() error {
 	if c.EffectiveTenantID() == "" {
 		return fmt.Errorf("Platform API Gateway credentials require tenantId; see 'buddy cred help'")
 	}
-	if c.Auth.Type != "oauth" {
-		return fmt.Errorf("Platform API Gateway credentials require auth.type=oauth (got %q); basic and command auth are not supported", c.Auth.Type)
+	if c.Auth.Type != AuthTypeOAuth {
+		return fmt.Errorf("Platform API Gateway credentials require oauth client credentials (got auth.type=%q); basic and command are instance-only", c.Auth.Type)
 	}
 	if c.EffectiveBaseURL() == "" {
 		return fmt.Errorf("Platform API Gateway credentials require region (e.g. us) or url (e.g. https://us.apigw.jamf.com)")
@@ -609,7 +641,7 @@ type legacyConfigFile struct {
 }
 
 // ComposeCredential builds a resolved CredentialConfig for the given tenant+auth
-// and desired surface (platform / instance / any).
+// and desired surface (platform or instance).
 func ComposeCredential(tenant TenantConfig, auth AuthEntry, surface string) CredentialConfig {
 	surface = strings.ToLower(strings.TrimSpace(surface))
 	if surface == "" {
@@ -623,27 +655,10 @@ func ComposeCredential(tenant TenantConfig, auth AuthEntry, surface string) Cred
 		if gw := tenant.GatewayBaseURL(); gw != "" {
 			cred.URL = gw
 		}
-	case SurfaceInstance:
+	default: // instance
 		cred.URL = tenant.InstanceBaseURL()
 		if cred.URL == "" && !LooksLikePlatformGateway(tenant.URL) {
 			cred.URL = strings.TrimRight(strings.TrimSpace(tenant.URL), "/")
-		}
-	default: // any — prefer platform when tenant has it and auth allows, else instance
-		if tenant.HasPlatform() && auth.EffectiveSurface() != SurfaceInstance {
-			cred.TenantID = tenant.EffectiveTenantID()
-			cred.Region = tenant.EffectiveRegion()
-			if gw := tenant.GatewayBaseURL(); gw != "" {
-				cred.URL = gw
-			} else if tenant.HasInstanceURL() {
-				cred.URL = tenant.InstanceBaseURL()
-			}
-		} else {
-			cred.URL = tenant.InstanceBaseURL()
-			if cred.URL == "" {
-				cred.TenantID = tenant.EffectiveTenantID()
-				cred.Region = tenant.EffectiveRegion()
-				cred.URL = tenant.GatewayBaseURL()
-			}
 		}
 	}
 	return cred
@@ -875,6 +890,7 @@ func LoadConfig() (*Config, error) {
 	}
 	merged.user = cloneConfig(user)
 	merged.mdm = cloneConfig(mdm)
+	migrateAuthSurfaceIntoType(merged)
 
 	if strings.TrimSpace(merged.Tenant.Default) == "" {
 		if len(merged.Tenants) == 0 {
@@ -938,6 +954,9 @@ func parseAndMigrateUserYAML(data []byte) (*Config, []string, error) {
 	}
 	if migrateNotebookChannel(cfg) {
 		notes = append(notes, "channels.notebook to channels.ide")
+	}
+	if migrateAuthSurfaceIntoType(cfg) {
+		notes = append(notes, "auth surface into type (platform oauth → type: platform)")
 	}
 	if strings.TrimSpace(cfg.Tenant.Default) == "" {
 		if raw.Cred != "" && cfg.Tenants != nil {
@@ -1051,6 +1070,33 @@ func migrateNotebookChannel(cfg *Config) bool {
 		if mutated {
 			a.Channels = out
 			cfg.Auths[name] = a
+			changed = true
+		}
+	}
+	return changed
+}
+
+// migrateAuthSurfaceIntoType folds legacy auth surface into type:
+//   - surface: any / instance → dropped (instance is the default)
+//   - type: oauth + surface: platform → type: platform
+func migrateAuthSurfaceIntoType(cfg *Config) bool {
+	if cfg == nil {
+		return false
+	}
+	changed := false
+	for name, a := range cfg.Auths {
+		surf := strings.ToLower(strings.TrimSpace(a.Surface))
+		typ := NormalizeAuthType(a.Type)
+		next := a
+		if surf == SurfacePlatform && (typ == AuthTypeOAuth || typ == "") {
+			next.Type = AuthTypePlatform
+			typ = AuthTypePlatform
+		}
+		if surf != "" {
+			next.Surface = ""
+		}
+		if next.Type != a.Type || next.Surface != a.Surface {
+			cfg.Auths[name] = next
 			changed = true
 		}
 	}
@@ -1204,14 +1250,12 @@ func migrateCredentialsToTenantsAuths(raw *legacyConfigFile) (*Config, error) {
 			cfg.Tenants[tenantName] = tc
 			identityTenant[idKey] = tenantName
 		}
-		surface := SurfaceAny
-		if c.IsPlatform() {
-			surface = SurfacePlatform
-		} else {
-			surface = SurfaceInstance
+		typ := c.Auth.Type
+		if c.IsPlatform() && (typ == "" || typ == AuthTypeOAuth) {
+			typ = AuthTypePlatform
 		}
 		cfg.Auths[name] = AuthEntry{
-			Type:         c.Auth.Type,
+			Type:         typ,
 			RunCommand:   c.Auth.RunCommand,
 			Username:     c.Auth.Username,
 			Password:     c.Auth.Password,
@@ -1219,7 +1263,6 @@ func migrateCredentialsToTenantsAuths(raw *legacyConfigFile) (*Config, error) {
 			ClientSecret: c.Auth.ClientSecret,
 			Tenants:      []string{tenantName},
 			Access:       AccessFull,
-			Surface:      surface,
 		}
 	}
 	if raw.Cred != "" {
@@ -1260,6 +1303,7 @@ func normalizeConfigForSave(cfg *Config) {
 	cfg.Defaults = nil
 	cfg.AllowAuths = nil
 	normalizeAuthChannels(cfg)
+	migrateAuthSurfaceIntoType(cfg)
 	for name, t := range cfg.Tenants {
 		if strings.TrimSpace(t.Region) == "" {
 			if inferred := RegionFromGatewayURL(t.URL); inferred != "" {
@@ -1280,9 +1324,7 @@ func normalizeConfigForSave(cfg *Config) {
 		if a.Access == AccessFull {
 			a.Access = ""
 		}
-		if a.Surface == SurfaceAny {
-			a.Surface = ""
-		}
+		a.Surface = ""
 		cfg.Auths[name] = a
 	}
 }
@@ -1395,13 +1437,13 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 			)
 		}
 		addStr("type", a.Type, true)
-		switch a.Type {
-		case "command":
+		switch NormalizeAuthType(a.Type) {
+		case AuthTypeCommand:
 			addStr("runCommand", a.RunCommand, false)
-		case "basic":
+		case AuthTypeBasic:
 			addStr("username", a.Username, false)
 			addStr("password", a.Password, false)
-		case "oauth":
+		case AuthTypeOAuth, AuthTypePlatform:
 			addStr("clientId", a.ClientID, false)
 			addStr("clientSecret", a.ClientSecret, false)
 		}
@@ -1415,9 +1457,6 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 		)
 		if a.Access != "" && a.Access != AccessFull {
 			addStr("access", a.Access, true)
-		}
-		if a.Surface != "" && a.Surface != SurfaceAny {
-			addStr("surface", a.Surface, true)
 		}
 		if ch := a.normalizedChannels(); len(ch) > 0 {
 			seq := &yaml.Node{Kind: yaml.SequenceNode}

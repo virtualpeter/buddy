@@ -101,6 +101,9 @@ func TestMarshalConfig_OmitsEmptyAuthFields(t *testing.T) {
 	if got.Auths["basic1"].Username != "admin" {
 		t.Fatalf("round-trip basic1 = %+v", got.Auths["basic1"])
 	}
+	if strings.Contains(s, "surface:") {
+		t.Fatalf("default instance surface should be omitted:\n%s", s)
+	}
 }
 
 func TestMarshalConfig_PreservesOrder(t *testing.T) {
@@ -182,11 +185,11 @@ func TestMigrateCredentialsToTenantsAuths(t *testing.T) {
 		t.Fatalf("region = %q", gw.Region)
 	}
 	a := cfg.Auths["gw"]
-	if a.ClientID != "cid" || a.Surface != SurfacePlatform || len(a.Tenants) != 1 || a.Tenants[0] != "gw" {
+	if a.ClientID != "cid" || a.Type != AuthTypePlatform || len(a.Tenants) != 1 || a.Tenants[0] != "gw" {
 		t.Fatalf("auth gw = %+v", a)
 	}
-	if cfg.Auths["inst"].Surface != SurfaceInstance {
-		t.Fatalf("inst surface = %q", cfg.Auths["inst"].Surface)
+	if cfg.Auths["inst"].EffectiveSurface() != SurfaceInstance {
+		t.Fatalf("inst surface = %q", cfg.Auths["inst"].EffectiveSurface())
 	}
 }
 
@@ -199,10 +202,9 @@ func TestMultiTenantAuth(t *testing.T) {
 		},
 		Auths: map[string]AuthEntry{
 			"shared": {
-				Type:     "oauth",
+				Type:     AuthTypePlatform,
 				ClientID: "cid",
 				Tenants:  []string{"t1", "t2"},
-				Surface:  SurfacePlatform,
 			},
 		},
 	}
@@ -262,8 +264,8 @@ func TestPickAuthClassicWritePrefersInstance(t *testing.T) {
 		},
 		Auths: map[string]AuthEntry{
 			"plat": {
-				Type: "oauth", ClientID: "c", ClientSecret: "s",
-				Tenants: []string{"t"}, Access: AccessFull, Surface: SurfacePlatform,
+				Type: AuthTypePlatform, ClientID: "c", ClientSecret: "s",
+				Tenants: []string{"t"}, Access: AccessFull,
 			},
 			"inst": {
 				Type: "basic", Username: "a", Password: "b",
@@ -326,5 +328,47 @@ func TestClassicInstanceOnly_DefaultAndMarshal(t *testing.T) {
 	t.Setenv(EnvClassicInstanceOnly, "false")
 	if cfg.ClassicInstanceOnly() {
 		t.Fatal("env false should override YAML true")
+	}
+}
+
+func TestEffectiveSurface_FromType(t *testing.T) {
+	if got := (AuthEntry{}).EffectiveSurface(); got != SurfaceInstance {
+		t.Fatalf("omitted=%q", got)
+	}
+	if got := (AuthEntry{Type: AuthTypeOAuth}).EffectiveSurface(); got != SurfaceInstance {
+		t.Fatalf("oauth=%q", got)
+	}
+	if got := (AuthEntry{Type: AuthTypePlatform}).EffectiveSurface(); got != SurfacePlatform {
+		t.Fatalf("platform type=%q", got)
+	}
+	if got := (AuthEntry{Type: AuthTypeOAuth, Surface: SurfacePlatform}).EffectiveSurface(); got != SurfacePlatform {
+		t.Fatalf("legacy oauth+surface=%q", got)
+	}
+	if err := (AuthEntry{Type: AuthTypePlatform, ClientID: "c", Tenants: []string{"t"}}).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := (AuthEntry{Type: AuthTypeOAuth, ClientID: "c", Tenants: []string{"t"}}).Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMigrateAuthSurfaceIntoType(t *testing.T) {
+	cfg := &Config{
+		Auths: map[string]AuthEntry{
+			"dual": {Type: "oauth", ClientID: "c", Tenants: []string{"t"}, Surface: "any"},
+			"ok":   {Type: "oauth", ClientID: "c", Tenants: []string{"t"}, Surface: SurfacePlatform},
+		},
+	}
+	if !migrateAuthSurfaceIntoType(cfg) {
+		t.Fatal("expected rewrite")
+	}
+	if cfg.Auths["dual"].Surface != "" || cfg.Auths["dual"].Type != AuthTypeOAuth {
+		t.Fatalf("any should drop surface and stay oauth, got %+v", cfg.Auths["dual"])
+	}
+	if cfg.Auths["ok"].Type != AuthTypePlatform || cfg.Auths["ok"].Surface != "" {
+		t.Fatalf("oauth+platform surface → type platform, got %+v", cfg.Auths["ok"])
+	}
+	if migrateAuthSurfaceIntoType(cfg) {
+		t.Fatal("second pass should be a no-op")
 	}
 }

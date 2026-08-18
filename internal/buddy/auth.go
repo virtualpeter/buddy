@@ -334,15 +334,15 @@ func authSecretMissing(sess *Session) bool {
 		return false
 	}
 	switch sess.Auth.Type {
-	case "command":
+	case AuthTypeCommand:
 		return strings.TrimSpace(sess.Auth.RunCommand) == ""
-	case "basic":
+	case AuthTypeBasic:
 		if strings.TrimSpace(sess.Auth.Password) != "" {
 			return false
 		}
 		ok, _ := HasCredentialSecret(sess.AuthName, SecretKindPassword)
 		return !ok
-	case "oauth":
+	case AuthTypeOAuth, AuthTypePlatform:
 		if strings.TrimSpace(sess.Auth.ClientSecret) != "" {
 			return false
 		}
@@ -393,16 +393,16 @@ func authTestSession(sess *Session, log *slog.Logger) (map[string]interface{}, e
 		persistCaps(sess, rec)
 		kind := "secret"
 		switch sess.Auth.Type {
-		case "basic":
+		case AuthTypeBasic:
 			kind = "password"
-		case "oauth":
+		case AuthTypeOAuth, AuthTypePlatform:
 			kind = "client secret"
 		}
 		return nil, fmt.Errorf("auth test: %s missing for auth %q — run 'buddy cred set secret %s' (live=%s)", kind, sess.AuthName, sess.AuthName, LiveSecretMissing)
 	}
 
 	platform := sess.Surface == SurfacePlatform
-	if sess.Auth.Type == "basic" || sess.Auth.Type == "oauth" {
+	if sess.Auth.Type == AuthTypeBasic || sess.Auth.UsesClientCredentials() {
 		a, err := cachedAuthenticator(sessionCacheName(sess), sess.AuthName, sess.Credential)
 		if err != nil {
 			persistCaps(sess, CapsRecord{Live: LiveTokenFail, TokenOk: false, Error: err.Error()})

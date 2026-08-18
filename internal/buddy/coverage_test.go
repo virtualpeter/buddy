@@ -184,12 +184,16 @@ func TestAuthCoversSurface(t *testing.T) {
 	if !AuthCoversSurface(inst, SurfaceInstance) || AuthCoversSurface(inst, SurfacePlatform) {
 		t.Fatal("instance auth")
 	}
-	anyA := AuthEntry{Type: "oauth", Surface: SurfaceAny}
-	if !AuthCoversSurface(anyA, SurfaceInstance) || !AuthCoversSurface(anyA, SurfacePlatform) {
-		t.Fatal("any oauth should cover both")
+	omitted := AuthEntry{Type: "oauth"}
+	if !AuthCoversSurface(omitted, SurfaceInstance) || AuthCoversSurface(omitted, SurfacePlatform) {
+		t.Fatal("omitted surface is instance-only")
 	}
-	basic := AuthEntry{Type: "basic", Surface: SurfaceAny}
-	if AuthCoversSurface(basic, SurfacePlatform) {
+	plat := AuthEntry{Type: AuthTypePlatform}
+	if AuthCoversSurface(plat, SurfaceInstance) || !AuthCoversSurface(plat, SurfacePlatform) {
+		t.Fatal("platform oauth")
+	}
+	basic := AuthEntry{Type: "basic"}
+	if !AuthCoversSurface(basic, SurfaceInstance) || AuthCoversSurface(basic, SurfacePlatform) {
 		t.Fatal("basic cannot cover platform")
 	}
 }

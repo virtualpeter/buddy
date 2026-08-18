@@ -110,8 +110,7 @@ Flags for 'add':
   --url=<url>                       Jamf Pro instance URL (creating a tenant)
   --region=<region>                 Platform region (creating a tenant)
   --tenant-id=<tenant-id>           Platform tenant id (creating a tenant)
-  --surface=any|instance|platform   Surfaces this auth may use (default from tenant)
-  --type=oauth|basic                Auth type (default oauth; platform requires oauth)
+  --type=oauth|basic|platform       Auth type (default oauth; platform-only tenant → platform)
   --client-id=<id>                  OAuth client id
   --username=<user>                 Basic username
   --client-secret=<secret>          OAuth secret (non-interactive)
@@ -126,10 +125,10 @@ Flags for 'set tenant':
   --tenant-id=<tenant-id>           Platform tenant id (with region)
 
 Flags for 'set auth':
-  --type=command|basic|oauth        Auth type (required)
+  --type=command|basic|oauth|platform
+                                    Auth type (required). platform = gateway oauth; oauth = instance oauth
   --tenants=<a,b>                   Comma-separated tenant names this auth may use (required)
   --access=full|readonly            Default full; readonly preferred for reads
-  --surface=any|platform|instance   Jamf API surface (default any; platform requires oauth)
   --channels=cli,mcp,ide|all
                                     Buddy clients that may use this auth (default all)
   --run=<cmd>                       Command auth
@@ -191,8 +190,8 @@ Examples:
   buddy cred status --test
   buddy cred add --tenant=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
   buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=apac --tenant-id=…
-  buddy cred set auth platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp,ide
-  buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox --surface=instance --channels=cli,ide
+  buddy cred set auth platform-ro --type=platform --client-id=… --tenants=sandbox --access=readonly --channels=mcp,ide
+  buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox --channels=cli,ide
   buddy cred set channel mcp --access=readonly --tenant=sandbox --tenants=sandbox
   buddy cred set channel mcp --deny-builtins=jamf_*,computer_erase
   buddy cred set secret platform-ro --client-secret
@@ -382,8 +381,8 @@ Subcommands:
 
   secrets
     For each tenant with no linked auth, prompt to create one (oauth by default).
-    Then fill instance/platform coverage gaps (instance URL with no instance/any
-    auth, or platform identity with no platform/any oauth). Then prompt for any
+    Then fill instance/platform coverage gaps (instance URL with no instance
+    auth, or platform identity with no platform oauth). Then prompt for any
     missing client IDs / usernames and store missing passwords or OAuth client
     secrets in the platform secret store.
     Org MDM profiles typically ship tenants and channel policy. Auths in the
@@ -414,7 +413,7 @@ Subcommands:
       ./<path> -y
       buddy <path> -y
     Then rotate the instance client secret and store it as a buddy oauth auth
-    with surface=instance:
+    (type=oauth, not type=platform):
       buddy setup store-oauth
       buddy --user <auth-name> auth test
     Or get the client secret once with:
@@ -433,7 +432,7 @@ Subcommands:
   store-oauth
     Rotates OAuth client credentials on a Jamf Pro *instance* API integration
     (invalidates the previous secret) and stores clientId + secret as a buddy
-    oauth auth with surface=instance, linked to a tenant. The secret goes in the
+    oauth auth (type=oauth), linked to a tenant. The secret goes in the
     platform secret store (Keychain/file — not Platform API oauth).
 
     Matching: if an oauth auth already exists for the target tenant with the same

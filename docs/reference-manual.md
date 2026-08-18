@@ -71,11 +71,11 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 
 For `basic` auth, buddy exchanges username/password for a Bearer token via Jamf’s `POST /api/v1/auth/token`.
 
-**Platform API Gateway:** put `region` + `tenantId` on the **tenant**, and link an oauth auth with `surface: platform` (or `any`). Example:
+**Platform API Gateway:** put `region` + `tenantId` on the **tenant**, and link an auth with `type: platform`. Auth types are `basic` / `oauth` (instance) or `platform` (gateway oauth). Example:
 
 ```sh
 buddy cred set tenant gateway --region=us --tenant-id=<tenant-id>
-buddy cred set auth gateway --type=oauth --client-id=<client-id> --tenants=gateway --surface=platform
+buddy cred set auth gateway --type=platform --client-id=<client-id> --tenants=gateway
 ```
 
 Classic (`/JSSResource/…`) calls are rewritten to `/api/proclassic/tenant/{id}/…` (the `/JSSResource` prefix is stripped). Classic follows a platform pin by default (`features.classic_instance_only`, false). Set it true (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force Classic onto instance. ACS (`/api/config-profiles/…`) and undocumented Pro `GET /api/v1/policies` are always instance; they are not on the gateway and are **not** gated by that flag.

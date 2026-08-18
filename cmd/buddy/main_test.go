@@ -407,6 +407,9 @@ func TestParseCredSetAuthArgs(t *testing.T) {
 	if got.Name != "ro" || got.Auth.ClientID != "cid" || got.Auth.EffectiveAccess() != buddy.AccessReadonly {
 		t.Fatalf("%+v", got)
 	}
+	if got.Auth.Type != buddy.AuthTypePlatform {
+		t.Fatalf("oauth+surface=platform should fold to type platform, got %q", got.Auth.Type)
+	}
 	if len(got.Auth.Tenants) != 2 {
 		t.Fatalf("tenants=%v", got.Auth.Tenants)
 	}
@@ -424,9 +427,9 @@ func TestSecretSelectionForAuthType(t *testing.T) {
 	if err != nil || !wantPw || wantCs {
 		t.Fatalf("basic => pw=%v cs=%v err=%v", wantPw, wantCs, err)
 	}
-	wantPw, wantCs, err = secretSelectionForAuthType("oauth", "c")
+	wantPw, wantCs, err = secretSelectionForAuthType("platform", "c")
 	if err != nil || wantPw || !wantCs {
-		t.Fatalf("oauth => pw=%v cs=%v err=%v", wantPw, wantCs, err)
+		t.Fatalf("platform => pw=%v cs=%v err=%v", wantPw, wantCs, err)
 	}
 	if _, _, err = secretSelectionForAuthType("command", "c"); err == nil {
 		t.Fatal("command auth should have no stored secret")

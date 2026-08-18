@@ -16,15 +16,17 @@ An **auth** is a secret-bearing principal linked to one or more tenants (`tenant
 
 | Type | What you configure | How buddy authenticates |
 |------|--------------------|-------------------------|
-| `basic` | `username`; password in the secret store (or inline for tests) | Username/password → `POST /api/v1/auth/token` |
-| `oauth` | `clientId`; client secret in the store | Client credentials → instance `/api/oauth/token`, or Platform `{gateway}/auth/token` |
+| `basic` | `username`; password in the secret store (or inline for tests) | Username/password → instance `POST /api/v1/auth/token` |
+| `oauth` | `clientId`; client secret in the store | Client credentials → instance `/api/oauth/token` |
+| `platform` | `clientId`; client secret in the store | Client credentials → Platform `{gateway}/auth/token` |
 | `command` | `runCommand` | Runs the command each time; its stdout is the bearer token |
 
 Optional auth fields:
 
 - `access`: `full` (default) or `readonly` — readonly auths are preferred for reads; mutates need `full`.
-- `surface`: `any` (default), `platform`, or `instance` — which Jamf API surface this auth may use.
 - `channels:` — which buddy clients may use this auth (`cli`, `mcp`, `ide`). Omit the list to allow all.
+
+`type` encodes the Jamf surface: `basic` / `oauth` / `command` are instance; `platform` is the API Gateway. An OAuth client is never valid on both. Legacy `surface: platform` on `type: oauth` migrates to `type: platform` on load.
 
 Legacy config shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auths:`) migrate automatically on load. Only the new form is written back.
 
@@ -78,7 +80,7 @@ Search order:
 
 Typical profile content: `tenant.default`, `tenants`, and `channels` policy. Auths (`clientId`, usernames, secrets, even auth *names*) are per-user: **accepted** if present in the plist, but `buddy setup managed-plist` omits the whole `auths` map. Prefer `buddy setup secrets` for client IDs and secrets (managed plists are typically world-readable).
 
-`buddy setup secrets` creates an auth for any tenant that has none, fills instance/platform coverage gaps (instance URL with no instance/`any` auth, or platform identity with no platform/`any` oauth), then prompts for missing client IDs and store secrets. `buddy cred add` is the one-shot guided path for a named tenant+auth. `buddy setup managed-plist [path]` dumps tenants and channel policy as XML plist for Jamf ACS.
+`buddy setup secrets` creates an auth for any tenant that has none, fills instance/platform coverage gaps (instance URL with no instance auth, or platform identity with no platform oauth), then prompts for missing client IDs and store secrets. `buddy cred add` is the one-shot guided path for a named tenant+auth. `buddy setup managed-plist [path]` dumps tenants and channel policy as XML plist for Jamf ACS.
 
 `buddy cred list` prints a `managed: …` line when prefs contributed. `buddy cred status` is the coverage matrix. Deleting a managed tenant or auth from YAML warns: it comes back on the next load until the profile changes or you keep a local override.
 
@@ -152,7 +154,7 @@ buddy cred clean tokens                 # delete expired or corrupt disk cache f
 
 `--raw` prints only the bearer token on stdout (no `Authorization:` prefix). Use it when another program should consume the token as a single line.
 
-Last `auth test` results (token ok / probe, and instance privilege names when `/api/v1/auth` succeeded) are cached under `~/.config/buddy/caps/` with the same 0600 + obfuscation style as tokens. Buddy uses that cache when auto-picking among auths and when an auth is `surface: any` on a tenant that has both instance and platform identities: prefer the surface whose last check minted a token. Missing or stale cache is ignored (fail open).
+Last `auth test` results (token ok / probe, and instance privilege names when `/api/v1/auth` succeeded) are cached under `~/.config/buddy/caps/` with the same 0600 + obfuscation style as tokens. Buddy uses that cache when auto-picking among auths. Missing or stale cache is ignored (fail open). Legacy `type: oauth` + `surface: platform` migrates to `type: platform` on load.
 
 ---
 

@@ -94,11 +94,10 @@ auths:
     channels: [cli, ide]           # omit = all (cli/mcp/ide)
     # clientSecret: buddy cred set secret sandbox-admin --client-secret
   sandbox-platform-ro:
-    type: oauth
+    type: platform
     clientId: your_integration_client_id
     tenants: [sandbox]
     access: readonly
-    surface: platform
     channels: [mcp, ide]           # restrict MCP/IDE to this readonly auth
 
 features:
@@ -117,7 +116,7 @@ features:
 ```sh
 buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=us --tenant-id=…
 buddy cred set auth sandbox-admin --type=oauth --client-id=abc --tenants=sandbox --channels=cli,ide
-buddy cred set auth sandbox-platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp,ide
+buddy cred set auth sandbox-platform-ro --type=platform --client-id=… --tenants=sandbox --access=readonly --channels=mcp,ide
 buddy cred set channel mcp --access=readonly --tenant=sandbox
 buddy cred set channel mcp --deny-builtins=jamf_*,computer_erase
 buddy cred set secret sandbox-admin --client-secret

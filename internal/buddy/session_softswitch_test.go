@@ -71,8 +71,8 @@ func TestResolveSession_SurfacePreference(t *testing.T) {
 				Tenants: []string{"sandbox"}, Access: AccessFull, Surface: SurfaceInstance,
 			},
 			"plat": {
-				Type: "oauth", ClientID: "c", ClientSecret: "s",
-				Tenants: []string{"sandbox"}, Access: AccessFull, Surface: SurfacePlatform,
+				Type: AuthTypePlatform, ClientID: "c", ClientSecret: "s",
+				Tenants: []string{"sandbox"}, Access: AccessFull,
 			},
 		},
 	}
@@ -132,8 +132,8 @@ func TestResolveSession_SoftSwitchSurfacePin(t *testing.T) {
 				Tenants: []string{"sandbox"}, Access: AccessFull, Surface: SurfaceInstance,
 			},
 			"plat": {
-				Type: "oauth", ClientID: "c", ClientSecret: "s",
-				Tenants: []string{"sandbox"}, Access: AccessFull, Surface: SurfacePlatform,
+				Type: AuthTypePlatform, ClientID: "c", ClientSecret: "s",
+				Tenants: []string{"sandbox"}, Access: AccessFull,
 			},
 		},
 	}
@@ -175,8 +175,8 @@ func TestResolveSession_SurfacePinNoFallback(t *testing.T) {
 		},
 		Auths: map[string]AuthEntry{
 			"plat": {
-				Type: "oauth", ClientID: "c", ClientSecret: "s",
-				Tenants: []string{"sandbox"}, Access: AccessFull, Surface: SurfacePlatform,
+				Type: AuthTypePlatform, ClientID: "c", ClientSecret: "s",
+				Tenants: []string{"sandbox"}, Access: AccessFull,
 			},
 		},
 	}
@@ -206,8 +206,8 @@ func dualSurfaceTestConfig() *Config {
 				Tenants: []string{"sandbox"}, Access: AccessFull, Surface: SurfaceInstance,
 			},
 			"plat": {
-				Type: "oauth", ClientID: "c", ClientSecret: "s",
-				Tenants: []string{"sandbox"}, Access: AccessFull, Surface: SurfacePlatform,
+				Type: AuthTypePlatform, ClientID: "c", ClientSecret: "s",
+				Tenants: []string{"sandbox"}, Access: AccessFull,
 			},
 		},
 	}
@@ -275,8 +275,8 @@ func TestClassicInstanceOnly_PlatformOnlyWhenOff(t *testing.T) {
 		},
 		Auths: map[string]AuthEntry{
 			"plat": {
-				Type: "oauth", ClientID: "c", ClientSecret: "s",
-				Tenants: []string{"sandbox"}, Access: AccessFull, Surface: SurfacePlatform,
+				Type: AuthTypePlatform, ClientID: "c", ClientSecret: "s",
+				Tenants: []string{"sandbox"}, Access: AccessFull,
 			},
 		},
 	}
@@ -348,8 +348,8 @@ func TestPickAuthHybridReadResourceClassFlip(t *testing.T) {
 		},
 		Auths: map[string]AuthEntry{
 			"aaa-plat": {
-				Type: "oauth", ClientID: "c", ClientSecret: "s",
-				Tenants: []string{"sandbox"}, Access: AccessFull, Surface: SurfacePlatform,
+				Type: AuthTypePlatform, ClientID: "c", ClientSecret: "s",
+				Tenants: []string{"sandbox"}, Access: AccessFull,
 			},
 			"zzz-inst": {
 				Type: "oauth", ClientID: "c2", ClientSecret: "s2",

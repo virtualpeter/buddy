@@ -274,7 +274,7 @@ func TestNormalizeConfigForSave_InfersRegionDropsDefaultURL(t *testing.T) {
 			},
 		},
 		Auths: map[string]AuthEntry{
-			"gw": {Type: "oauth", ClientID: "c", Tenants: []string{"gw"}, Surface: SurfacePlatform},
+			"gw": {Type: AuthTypePlatform, ClientID: "c", Tenants: []string{"gw"}},
 		},
 	}
 	normalizeConfigForSave(cfg)
