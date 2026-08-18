@@ -90,6 +90,7 @@ func PrintCredentialSecretStatus(cfg *Config, authName string, w io.Writer) erro
 	fmt.Fprintf(w, "  password in store:        %t\n", st.PasswordInStore)
 	fmt.Fprintf(w, "  clientSecret in config:   %t\n", st.ClientSecretInConfig)
 	fmt.Fprintf(w, "  clientSecret in store:    %t\n", st.ClientSecretInStore)
+	fmt.Fprintf(w, "  (presence only — run 'buddy auth test' to prove the secret)\n")
 	return nil
 }
 

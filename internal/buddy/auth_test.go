@@ -75,6 +75,10 @@ func TestCompactAuthInfo(t *testing.T) {
 	if s["username"] != "buddy-cli" || s["privilegeCount"] != 2 {
 		t.Fatalf("%v", s)
 	}
+	privs, ok := s["privileges"].([]string)
+	if !ok || len(privs) != 2 || privs[0] != "Read Computers" {
+		t.Fatalf("privileges=%v", s["privileges"])
+	}
 	if _, ok := s["account"]; ok {
 		t.Fatal("compact form should not include full account")
 	}

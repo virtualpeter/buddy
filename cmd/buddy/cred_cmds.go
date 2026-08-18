@@ -11,7 +11,7 @@ import (
 	"buddy/internal/clispec"
 )
 
-func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) error {
+func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, log *slog.Logger) error {
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpCred)
 		return nil
@@ -19,6 +19,10 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) 
 	switch args[0] {
 	case clispec.SubList:
 		return runCredList(cfg)
+	case clispec.SubStatus:
+		return runCredStatus(cfg, args[1:], log)
+	case clispec.SubAdd:
+		return runCredAdd(cfg, opts, args[1:], log)
 	case clispec.SubGet:
 		return runCredGet(cfg, args[1:])
 	case clispec.SubSet:
@@ -43,7 +47,7 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) 
 		return runCredRestore(cfg, opts, args[1:])
 	default:
 		return errUnknownSubcommand("cred", args[0], []string{
-			clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubDelete, "use", "store", "migrate", "clean", "erase", "backup", "restore", clispec.SubHelp,
+			clispec.SubList, clispec.SubStatus, clispec.SubAdd, clispec.SubGet, clispec.SubSet, clispec.SubDelete, "use", "store", "migrate", "clean", "erase", "backup", "restore", clispec.SubHelp,
 		})
 	}
 }
@@ -325,6 +329,112 @@ func runCredSetChannel(cfg *buddy.Config, args []string) error {
 	return runCredShowChannel(cfg, name)
 }
 
+func runCredStatus(cfg *buddy.Config, args []string, log *slog.Logger) error {
+	test := false
+	for _, a := range args {
+		switch a {
+		case "--test":
+			test = true
+		case "-y":
+			// live tests do not prompt
+		default:
+			return fmt.Errorf("unknown argument %q; usage: buddy cred status [--test]", a)
+		}
+	}
+	var testErr error
+	if test {
+		results, err := buddy.AuthTestAll(cfg, log)
+		if len(results) > 0 {
+			buddy.PrintAuthTestAll(results)
+			fmt.Println()
+		}
+		testErr = err
+	}
+	buddy.FormatCoverageReport(buddy.BuildCoverageReport(cfg), os.Stdout)
+	return testErr
+}
+
+func runCredAdd(cfg *buddy.Config, opts buddy.Opts, args []string, log *slog.Logger) error {
+	addOpts, err := parseCredAddArgs(args, opts.SkipConfirm)
+	if err != nil {
+		return err
+	}
+	res, err := buddy.CredAdd(cfg, addOpts, log)
+	if res != nil {
+		if res.CreatedTenant {
+			fmt.Printf("Added tenant %q\n", res.TenantName)
+		}
+		fmt.Printf("Added auth %q for tenant %q\n", res.AuthName, res.TenantName)
+		if res.Tested && res.Live != "" {
+			fmt.Printf("auth test: live=%s\n", res.Live)
+		}
+	}
+	return err
+}
+
+func parseCredAddArgs(args []string, skipConfirm bool) (buddy.CredAddOpts, error) {
+	out := buddy.CredAddOpts{SkipConfirm: skipConfirm}
+	stringFlags := map[string]*string{
+		"name":          &out.AuthName,
+		"tenant":        &out.TenantName,
+		"url":           &out.URL,
+		"region":        &out.Region,
+		"tenant-id":     &out.TenantID,
+		"surface":       &out.Surface,
+		"type":          &out.Type,
+		"client-id":     &out.ClientID,
+		"username":      &out.Username,
+		"password":      &out.Password,
+		"client-secret": &out.ClientSecret,
+	}
+	pos := ""
+	posSet := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch a {
+		case "-y":
+			out.SkipConfirm = true
+			continue
+		case "--test":
+			out.Test = true
+			continue
+		case "--no-test":
+			out.NoTest = true
+			continue
+		}
+		if !strings.HasPrefix(a, "-") {
+			if posSet {
+				return buddy.CredAddOpts{}, fmt.Errorf("unexpected argument %q", a)
+			}
+			pos, posSet = a, true
+			continue
+		}
+		fname, val, hasVal, err := parseFlag(a)
+		if err != nil {
+			return buddy.CredAddOpts{}, err
+		}
+		dest, ok := stringFlags[fname]
+		if !ok {
+			return buddy.CredAddOpts{}, fmt.Errorf("unknown flag --%s", fname)
+		}
+		if !hasVal {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return buddy.CredAddOpts{}, fmt.Errorf("flag --%s requires a value", fname)
+			}
+			i++
+			val = args[i]
+		}
+		*dest = val
+	}
+	if posSet {
+		if out.AuthName != "" && out.AuthName != pos {
+			return buddy.CredAddOpts{}, fmt.Errorf("auth name given twice")
+		}
+		out.AuthName = pos
+	}
+	return out, nil
+}
+
 func runCredList(cfg *buddy.Config) error {
 	if len(cfg.Tenants) == 0 && len(cfg.Auths) == 0 {
 		fmt.Printf("No tenants/auths configured. Use 'buddy cred set tenant|auth …' (see '%s').\n", clispec.UsageHelp(clispec.CmdCred))
@@ -439,6 +549,25 @@ func runCredShowTenant(cfg *buddy.Config, name string) error {
 	linked := cfg.AuthsForTenant(name)
 	sort.Strings(linked)
 	fmt.Printf("auths:    %s\n", strings.Join(linked, ", "))
+	rep := buddy.BuildCoverageReport(cfg)
+	for _, cell := range rep.Cells {
+		if cell.Tenant != name {
+			continue
+		}
+		names := make([]string, 0, len(cell.Auths))
+		for _, a := range cell.Auths {
+			names = append(names, a.Name)
+		}
+		line := strings.Join(names, ", ")
+		if line == "" {
+			line = "—"
+		}
+		if cell.Gap {
+			fmt.Printf("  %s: %s  GAP (%s)\n", cell.Surface, line, cell.GapReason)
+		} else {
+			fmt.Printf("  %s: %s\n", cell.Surface, line)
+		}
+	}
 	return nil
 }
 

@@ -2553,8 +2553,43 @@ func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 		return nil
 	}
 	switch args[0] {
-	case "test":
+	case clispec.SubTest:
+		all := false
+		for _, a := range args[1:] {
+			switch a {
+			case "--all":
+				all = true
+			case clispec.SubHelp:
+				fmt.Print(helpAuth)
+				return nil
+			default:
+				return fmt.Errorf("unknown argument %q; usage: buddy auth test [--all]", a)
+			}
+		}
+		if all {
+			cfg := buddy.GetActiveConfig()
+			results, err := buddy.AuthTestAll(cfg, log)
+			if len(results) == 0 {
+				return fmt.Errorf("no covering auths to test — run 'buddy cred status'")
+			}
+			buddy.PrintAuthTestAll(results)
+			return err
+		}
 		return buddy.AuthTest(credName, log)
+	case clispec.SubCaps:
+		all := false
+		for _, a := range args[1:] {
+			switch a {
+			case "--all":
+				all = true
+			case clispec.SubHelp:
+				fmt.Print(helpAuth)
+				return nil
+			default:
+				return fmt.Errorf("unknown argument %q; usage: buddy auth caps [--all]", a)
+			}
+		}
+		return buddy.PrintAuthCaps(buddy.GetActiveConfig(), credName, all)
 	case "token":
 		if len(args) > 1 && args[1] == clispec.SubHelp {
 			fmt.Print(helpAuth)
@@ -2568,7 +2603,7 @@ func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 		}
 		return runAuthRefresh(credName, args[1:], log)
 	default:
-		return errUnknownSubcommand("auth", args[0], []string{"token", "refresh", "test", clispec.SubHelp})
+		return errUnknownSubcommand("auth", args[0], []string{"token", "refresh", clispec.SubTest, clispec.SubCaps, clispec.SubHelp})
 	}
 }
 

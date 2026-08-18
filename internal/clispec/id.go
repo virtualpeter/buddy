@@ -50,6 +50,10 @@ const (
 	SubFind   = "find"
 	SubUpdate = "update"
 	SubUpload = "upload"
+	SubStatus = "status"
+	SubAdd    = "add"
+	SubTest   = "test"
+	SubCaps   = "caps"
 )
 
 // Flag names without leading dashes (never translated).

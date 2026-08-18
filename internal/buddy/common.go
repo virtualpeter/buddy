@@ -111,7 +111,18 @@ func resolveAuthHeaderOp(credName string, op OpClass) (string, error) {
 }
 
 func sessionCacheName(sess *Session) string {
-	return sess.AuthName + "@" + sess.TenantName
+	if sess == nil {
+		return ""
+	}
+	name := sess.AuthName + "@" + sess.TenantName
+	if sess.Surface == SurfacePlatform {
+		tid := sess.Credential.EffectiveTenantID()
+		if tid != "" {
+			return name + "@platform:" + tid
+		}
+		return name + "@platform"
+	}
+	return name
 }
 
 // resolveCommandToken runs the configured command and returns the trimmed stdout
@@ -146,7 +157,8 @@ func init() {
 }
 
 // cachedAuthenticator builds or returns a cached Authenticator.
-// cacheName is the process-cache key (auth@tenant); secretName is the secret-store key (auth name).
+// cacheName is the process-cache key (auth@tenant, or auth@tenant@platform:{id} on platform);
+// secretName is the secret-store key (auth name).
 func cachedAuthenticator(cacheName, secretName string, cred CredentialConfig) (*tokenauth.Authenticator, error) {
 	credAuthCache.mu.Lock()
 	defer credAuthCache.mu.Unlock()
@@ -165,7 +177,7 @@ func cachedAuthenticator(cacheName, secretName string, cred CredentialConfig) (*
 		return nil, fmt.Errorf("auth %q has no URL or region configured", secretName)
 	}
 	diskKey := cacheName
-	if cred.IsPlatform() {
+	if cred.IsPlatform() && !strings.Contains(cacheName, "@platform:") {
 		diskKey = cacheName + "@platform:" + cred.EffectiveTenantID()
 	}
 	cfg := tokenauth.Config{
@@ -237,6 +249,10 @@ func PerformRequestOp(req *http.Request, credName string, op OpClass) (*http.Res
 	if err != nil {
 		return nil, err
 	}
+	if req != nil && req.URL != nil {
+		restoreClass := setResourceClass(resourceClassForPath(req.URL.Path))
+		defer restoreClass()
+	}
 
 	authHeader, err := resolveAuthHeaderOp(credName, op)
 	if err != nil {
@@ -267,6 +283,7 @@ func PerformRequestOp(req *http.Request, credName string, op OpClass) (*http.Res
 	resp.Body.Close()
 
 	if err := a.RefreshToken(); err != nil {
+		invalidateCapsForSession(sess)
 		return nil, fmt.Errorf("refresh token after 401: %w", err)
 	}
 	authHeader, err = resolveAuthHeaderOp(credName, op)

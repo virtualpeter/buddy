@@ -24,6 +24,7 @@ If this Mac already has an org MDM profile for preference domain `virtualpete.bu
 
 ```sh
 buddy setup secrets                   # create missing auths; store client secrets / passwords
+buddy cred status                     # see tenant × surface coverage / gaps
 buddy auth test
 ```
 

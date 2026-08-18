@@ -10,14 +10,14 @@ import (
 type OpClass string
 
 const (
-	OpAny          OpClass = "any"           // general / unknown
-	OpRead         OpClass = "read"          // prefer readonly
-	OpMutate       OpClass = "mutate"        // require full
-	OpPlatform     OpClass = "platform"      // blueprints / gateway-only (read)
+	OpAny           OpClass = "any"            // general / unknown
+	OpRead          OpClass = "read"           // prefer readonly
+	OpMutate        OpClass = "mutate"         // require full
+	OpPlatform      OpClass = "platform"       // blueprints / gateway-only (read)
 	OpPlatformWrite OpClass = "platform_write" // blueprints mutate — platform + full
-	OpClassic      OpClass = "classic"       // Classic API — prefer instance
-	OpSchema       OpClass = "schema"        // live Pro/Classic schema — need instance URL
-	OpPro          OpClass = "pro"           // Jamf Pro JSON API — either surface
+	OpClassic       OpClass = "classic"        // Classic API — prefer instance
+	OpSchema        OpClass = "schema"         // live Pro/Classic schema — need instance URL
+	OpPro           OpClass = "pro"            // Jamf Pro JSON API — either surface
 )
 
 // Session is a resolved tenant + auth used for a request.
@@ -32,10 +32,10 @@ type Session struct {
 
 // activeSelection holds process-wide default tenant and optional auth pin.
 var activeSelection struct {
-	mu         sync.RWMutex
-	tenant     string
-	authPin    string // empty = auto-pick
-	channel    string // cli | mcp | ide
+	mu      sync.RWMutex
+	tenant  string
+	authPin string // empty = auto-pick
+	channel string // cli | mcp | ide
 }
 
 // SetActiveSelection sets the process default tenant and optional auth pin.
@@ -140,7 +140,12 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 		if err != nil {
 			return nil, err
 		}
-		surface := surfaceForOp(op, auth, tenant)
+		surface := surfaceForOp(op, authName, auth, tenantName, tenant)
+		if pref := SurfacePreference(); pref == SurfacePlatform || pref == SurfaceInstance {
+			if err := checkAuthForOp(cfg, auth, tenant, op, pref, channel); err == nil {
+				surface = pref
+			}
+		}
 		if err := checkAuthForOp(cfg, auth, tenant, op, surface, channel); err != nil {
 			return nil, fmt.Errorf("auth %q: %w", authName, err)
 		}
@@ -188,7 +193,7 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 	}, nil
 }
 
-func surfaceForOp(op OpClass, auth AuthEntry, tenant TenantConfig) string {
+func surfaceForOp(op OpClass, authName string, auth AuthEntry, tenantName string, tenant TenantConfig) string {
 	switch op {
 	case OpPlatform, OpPlatformWrite:
 		return SurfacePlatform
@@ -201,6 +206,18 @@ func surfaceForOp(op OpClass, auth AuthEntry, tenant TenantConfig) string {
 		case SurfaceInstance:
 			return SurfaceInstance
 		default:
+			if tenant.HasPlatform() && tenant.HasInstanceURL() {
+				inst := LoadCaps(authName, tenantName, SurfaceInstance, "")
+				plat := LoadCaps(authName, tenantName, SurfacePlatform, tenant.EffectiveTenantID())
+				instOK := capsTokenOK(inst)
+				platOK := capsTokenOK(plat)
+				if platOK && !instOK {
+					return SurfacePlatform
+				}
+				if instOK && !platOK {
+					return SurfaceInstance
+				}
+			}
 			if tenant.HasPlatform() && (op == OpPlatform || (!tenant.HasInstanceURL() && tenant.HasPlatform())) {
 				return SurfacePlatform
 			}
@@ -264,7 +281,7 @@ func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []
 			errs = append(errs, name+": "+err.Error())
 			continue
 		}
-		surface := surfaceForOp(op, auth, tenant)
+		surface := surfaceForOp(op, name, auth, tenantName, tenant)
 		if err := checkAuthForOp(cfg, auth, tenant, op, surface, channel); err != nil {
 			errs = append(errs, name+": "+err.Error())
 			continue
@@ -288,7 +305,7 @@ func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []
 				}
 			}
 		}
-		s := scoreAuth(cfg, auth, surface, op, channel)
+		s := scoreAuth(cfg, name, auth, tenantName, tenant, surface, op, channel)
 		if pref != "" && surface == pref {
 			s += 50
 		}
@@ -306,7 +323,7 @@ func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []
 	return best.name, best.auth, best.surface, nil
 }
 
-func scoreAuth(cfg *Config, auth AuthEntry, surface string, op OpClass, channel string) int {
+func scoreAuth(cfg *Config, authName string, auth AuthEntry, tenantName string, tenant TenantConfig, surface string, op OpClass, channel string) int {
 	score := 0
 	access := cfg.EffectiveAccessForChannel(auth, channel)
 	surf := auth.EffectiveSurface()
@@ -346,6 +363,29 @@ func scoreAuth(cfg *Config, auth AuthEntry, surface string, op OpClass, channel 
 		}
 		if surf == SurfaceAny {
 			score += 10
+		}
+	}
+	tid := ""
+	if surface == SurfacePlatform {
+		tid = tenant.EffectiveTenantID()
+	}
+	rec := LoadCaps(authName, tenantName, surface, tid)
+	if capsTokenOK(rec) {
+		score += 40
+		if rec != nil && rec.ProbeOk {
+			score += 10
+		}
+	}
+	if capsTokenFail(rec) {
+		score -= 80
+	}
+	if resource := ResourceClassPreference(); resource != "" {
+		if known, has := capsHasResourcePrivilege(rec, resource); known {
+			if has {
+				score += 25
+			} else {
+				score -= 15
+			}
 		}
 	}
 	return score

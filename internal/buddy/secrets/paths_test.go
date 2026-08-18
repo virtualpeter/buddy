@@ -8,11 +8,11 @@ import (
 func TestResolveConfigDir(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name          string
-		goos          string
+		name               string
+		goos               string
 		xdg, app, home, uc string
-		want          string
-		wantErr       bool
+		want               string
+		wantErr            bool
 	}{
 		{
 			name: "xdg wins on darwin",
@@ -88,5 +88,12 @@ func TestTokensAndSecretsDir(t *testing.T) {
 	}
 	if tok != filepath.Join(cfg, "tokens") || sec != filepath.Join(cfg, "secrets") {
 		t.Fatalf("cfg=%q tok=%q sec=%q", cfg, tok, sec)
+	}
+	caps, err := CapsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if caps != filepath.Join(cfg, "caps") {
+		t.Fatalf("caps=%q", caps)
 	}
 }

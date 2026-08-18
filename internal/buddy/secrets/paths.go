@@ -59,6 +59,15 @@ func TokensDir() (string, error) {
 	return filepath.Join(dir, "tokens"), nil
 }
 
+// CapsDir returns the directory for on-disk auth capability / last-check cache files.
+func CapsDir() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "caps"), nil
+}
+
 // PolicyCacheDir returns the root directory for on-disk Classic policy payload caches.
 func PolicyCacheDir() (string, error) {
 	dir, err := ConfigDir()

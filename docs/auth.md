@@ -2,7 +2,9 @@
 
 Buddy talks to Jamf using a **tenant** (which environment) plus an **auth** (which principal). Passwords and OAuth client secrets belong in the platform secret store, not in `config.yaml`. Tokens are cached and refreshed automatically.
 
-First-time install: [Getting started](index.md) (`buddy setup basic-setup` or, with an org MDM profile, `buddy setup secrets`). YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
+First-time install: [Getting started](index.md) (`buddy setup basic-setup` or, with an org MDM profile, `buddy setup secrets` / `buddy cred add`). YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
+
+Maintenance: `buddy cred status` shows each tenant × surface (instance URL vs platform identity), covering auths, whether a secret is **stored**, and the last `auth test` result. Gaps are tenants that have an identity but no covering auth (or no secret). Low-level `buddy cred set tenant|auth|secret` still works.
 
 ---
 
@@ -74,9 +76,9 @@ Search order:
 
 Typical profile content: `tenant.default`, `tenants`, and `channels` policy. Auths (`clientId`, usernames, secrets, even auth *names*) are per-user: **accepted** if present in the plist, but `buddy setup managed-plist` omits the whole `auths` map. Prefer `buddy setup secrets` for client IDs and secrets (managed plists are typically world-readable).
 
-`buddy setup secrets` creates an auth for any tenant that has none, then prompts for missing client IDs and store secrets. `buddy setup managed-plist [path]` dumps tenants and channel policy as XML plist for Jamf ACS.
+`buddy setup secrets` creates an auth for any tenant that has none, fills instance/platform coverage gaps (instance URL with no instance/`any` auth, or platform identity with no platform/`any` oauth), then prompts for missing client IDs and store secrets. `buddy cred add` is the one-shot guided path for a named tenant+auth. `buddy setup managed-plist [path]` dumps tenants and channel policy as XML plist for Jamf ACS.
 
-`buddy cred list` prints a `managed: …` line when prefs contributed. Deleting a managed tenant or auth from YAML warns: it comes back on the next load until the profile changes or you keep a local override.
+`buddy cred list` prints a `managed: …` line when prefs contributed. `buddy cred status` is the coverage matrix. Deleting a managed tenant or auth from YAML warns: it comes back on the next load until the profile changes or you keep a local override.
 
 ---
 
@@ -102,6 +104,8 @@ The signed release binary (`make buddy-darwin-arm64`, build tag `secitem`) uses 
 `make buddy-darwin-arm64` requires Darwin/arm64 and `BUDDY_CODESIGN_IDENTITY` (a Developer ID Application identity). The identifier defaults to `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) and must stay stable across releases so Keychain ACLs survive rebuilds. The Keychain service is hardcoded to that same reverse-DNS string (not read from the running binary), so overriding the identifier at sign time still stores items under `virtualpete.buddy.cli`. Ad-hoc signatures are rejected.
 
 ```sh
+buddy cred status                               # tenant × surface coverage (no Jamf call)
+buddy cred add --tenant=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
 buddy cred set secret sandbox-admin                  # password (basic)
 buddy cred set secret sandbox-admin --client-secret  # OAuth
 buddy cred migrate                                   # move inline YAML secrets into the store
@@ -111,6 +115,8 @@ buddy cred clean secrets                             # review / delete orphaned 
 buddy cred erase secrets                             # wipe all store secrets (both macOS Keychain services)
 buddy cred delete auth sandbox-admin                 # also clears store secrets
 ```
+
+`buddy cred get secret` and the SECRET column on `cred status` are **presence only**. `buddy auth test` discards any cached token and mints a new one: missing secret / token POST failure is an error; probe 403 after a good token is `live=token-ok` (the secret works, the role lacks that probe).
 
 `buddy cred backup` / `restore` encrypt tenants, auths (including store secrets), and channel policy with a passphrase (AES-256-GCM, PBKDF2-SHA256). Restore applies tenants and channels, then prompts once per auth unless `-y` (Enter/y writes that auth from the backup; `n` leaves the existing config entry). Auths not in the backup are kept. Secrets go back to the platform store.
 
@@ -134,13 +140,17 @@ Authenticated HTTP retries **once** after a refresh if Jamf returns 401.
 Tokens are also written under `~/.config/buddy/tokens/` (mode `0600`) so later CLI invocations can reuse them. The file is obfuscated enough to discourage casual `cat`; it is **not** a secret store. Expired, URL-mismatched, or corrupt files are deleted on load. `command` auth skips the disk cache.
 
 ```sh
-buddy auth test                         # verify the active tenant/auth
+buddy auth test                         # ForceRenew + probe the active tenant/auth
+buddy auth test --all                   # every covering auth × tenant × surface
+buddy auth caps                         # last-check / privileges cache for the current pin
 buddy auth token [--raw] [--tenant=T] [--user=A]
 buddy auth refresh --url=URL [TOKEN]    # keep-alive (instance; basic)
 buddy cred clean tokens                 # delete expired or corrupt disk cache files
 ```
 
 `--raw` prints only the bearer token on stdout (no `Authorization:` prefix). Use it when another program should consume the token as a single line.
+
+Last `auth test` results (token ok / probe, and instance privilege names when `/api/v1/auth` succeeded) are cached under `~/.config/buddy/caps/` with the same 0600 + obfuscation style as tokens. Buddy uses that cache when auto-picking among auths and when an auth is `surface: any` on a tenant that has both instance and platform identities: prefer the surface whose last check minted a token. Missing or stale cache is ignored (fail open).
 
 ---
 

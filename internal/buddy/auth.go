@@ -221,13 +221,28 @@ func AuthInfo(credName string, renew bool, log *slog.Logger) (map[string]interfa
 	if err != nil {
 		return nil, err
 	}
-	out := CompactAuthInfo(raw)
+	out := map[string]interface{}{}
+	if ai, ok := raw["authInfo"].(map[string]interface{}); ok {
+		for k, v := range ai {
+			out[k] = v
+		}
+	} else {
+		for k, v := range CompactAuthInfo(raw) {
+			out[k] = v
+		}
+	}
 	out["cred"] = sess.AuthName
 	out["auth"] = sess.AuthName
 	out["tenant"] = sess.TenantName
 	out["url"] = strings.TrimRight(cred.EffectiveBaseURL(), "/")
 	out["authType"] = cred.Auth.Type
 	out["renewed"] = renew
+	if live, ok := raw["live"]; ok {
+		out["live"] = live
+	}
+	if tok, ok := raw["tokenAcquired"]; ok {
+		out["tokenAcquired"] = tok
+	}
 	if cred.Auth.Type == "basic" || cred.Auth.Type == "oauth" {
 		if a, err := cachedAuthenticator(cacheName, sess.AuthName, cred); err == nil {
 			if exp := a.TokenExpiry(); !exp.IsZero() {
@@ -249,14 +264,22 @@ func CompactAuthInfo(info map[string]interface{}) map[string]interface{} {
 		out["username"] = acct["username"]
 		out["accessLevel"] = acct["accessLevel"]
 		out["privilegeSet"] = acct["privilegeSet"]
+		privs := privilegeNamesFromAuthPayload(info)
 		if bySite, ok := acct["privilegesBySite"].(map[string]interface{}); ok {
 			n := 0
-			for _, v := range bySite {
-				if list, ok := v.([]interface{}); ok {
-					n += len(list)
+			if len(privs) > 0 {
+				n = len(privs)
+			} else {
+				for _, v := range bySite {
+					if list, ok := v.([]interface{}); ok {
+						n += len(list)
+					}
 				}
 			}
 			out["privilegeCount"] = n
+		}
+		if len(privs) > 0 {
+			out["privileges"] = privs
 		}
 	}
 	if sites, ok := info["sites"]; ok {
@@ -265,28 +288,153 @@ func CompactAuthInfo(info map[string]interface{}) map[string]interface{} {
 	return out
 }
 
+func applyCompactToCaps(rec *CapsRecord, compact map[string]interface{}) {
+	if rec == nil || compact == nil {
+		return
+	}
+	if s, ok := compact["username"].(string); ok {
+		rec.Username = s
+	}
+	if s, ok := compact["accessLevel"].(string); ok {
+		rec.AccessLevel = s
+	}
+	if s, ok := compact["privilegeSet"].(string); ok {
+		rec.PrivilegeSet = s
+	}
+	if n, ok := compact["privilegeCount"].(int); ok {
+		rec.PrivilegeCount = n
+	}
+	if privs, ok := compact["privileges"].([]string); ok {
+		rec.Privileges = privs
+	}
+}
+
+func persistCaps(sess *Session, rec CapsRecord) {
+	if sess == nil || sess.Auth.Type == "command" {
+		return
+	}
+	rec.Auth = sess.AuthName
+	rec.Tenant = sess.TenantName
+	rec.Surface = sess.Surface
+	if sess.Surface == SurfacePlatform {
+		rec.TenantID = sess.Credential.EffectiveTenantID()
+	}
+	if rec.ExpiresAt.IsZero() {
+		if a, err := cachedAuthenticator(sessionCacheName(sess), sess.AuthName, sess.Credential); err == nil {
+			if exp := a.TokenExpiry(); !exp.IsZero() {
+				rec.ExpiresAt = exp.UTC()
+			}
+		}
+	}
+	_ = SaveCaps(rec)
+}
+
+func authSecretMissing(sess *Session) bool {
+	if sess == nil {
+		return false
+	}
+	switch sess.Auth.Type {
+	case "command":
+		return strings.TrimSpace(sess.Auth.RunCommand) == ""
+	case "basic":
+		if strings.TrimSpace(sess.Auth.Password) != "" {
+			return false
+		}
+		ok, _ := HasCredentialSecret(sess.AuthName, SecretKindPassword)
+		return !ok
+	case "oauth":
+		if strings.TrimSpace(sess.Auth.ClientSecret) != "" {
+			return false
+		}
+		ok, _ := HasCredentialSecret(sess.AuthName, SecretKindClientSecret)
+		return !ok
+	default:
+		return false
+	}
+}
+
+func authTestEnvelope(sess *Session, live string, extra map[string]interface{}) map[string]interface{} {
+	out := map[string]interface{}{
+		"ok":      live == LiveOK || live == LiveTokenOK,
+		"live":    live,
+		"auth":    sess.AuthName,
+		"tenant":  sess.TenantName,
+		"surface": sess.Surface,
+		"mode":    sess.Surface,
+		"url":     strings.TrimRight(sess.Credential.EffectiveBaseURL(), "/"),
+	}
+	if sess.Surface == SurfacePlatform {
+		out["tenantId"] = sess.Credential.EffectiveTenantID()
+	}
+	for k, v := range extra {
+		out[k] = v
+	}
+	return out
+}
+
 // AuthTestValue tests authentication and returns a JSON-friendly object.
-// Instance credentials use GET /api/v1/auth. Platform credentials obtain a token
-// and probe GET /api/v1/buildings (rewritten to the gateway); if buildings is
-// forbidden but the token succeeded, a token-acquired summary is returned.
+// Always ForceRenews basic/oauth tokens so a disk-cached bearer cannot mask a
+// bad secret. Instance probes GET /api/v1/auth; platform probes buildings.
+// Token success with a 401/403 probe is live=token-ok (exit 0).
 func AuthTestValue(credName string, log *slog.Logger) (map[string]interface{}, error) {
-	platform, err := IsPlatformCred(credName)
+	sess, err := ResolveSessionForCred(credName, OpAny)
+	if err != nil {
+		return nil, err
+	}
+	return authTestSession(sess, log)
+}
+
+func authTestSession(sess *Session, log *slog.Logger) (map[string]interface{}, error) {
+	if sess == nil {
+		return nil, fmt.Errorf("internal error: session is nil")
+	}
+	if authSecretMissing(sess) {
+		rec := CapsRecord{Live: LiveSecretMissing, TokenOk: false}
+		persistCaps(sess, rec)
+		kind := "secret"
+		switch sess.Auth.Type {
+		case "basic":
+			kind = "password"
+		case "oauth":
+			kind = "client secret"
+		}
+		return nil, fmt.Errorf("auth test: %s missing for auth %q — run 'buddy cred set secret %s' (live=%s)", kind, sess.AuthName, sess.AuthName, LiveSecretMissing)
+	}
+
+	platform := sess.Surface == SurfacePlatform
+	if sess.Auth.Type == "basic" || sess.Auth.Type == "oauth" {
+		a, err := cachedAuthenticator(sessionCacheName(sess), sess.AuthName, sess.Credential)
+		if err != nil {
+			persistCaps(sess, CapsRecord{Live: LiveTokenFail, TokenOk: false, Error: err.Error()})
+			return nil, fmt.Errorf("auth test: %w", err)
+		}
+		if err := a.ForceRenew(); err != nil {
+			persistCaps(sess, CapsRecord{Live: LiveTokenFail, TokenOk: false, Error: err.Error()})
+			return nil, fmt.Errorf("auth test: token failed: %w", err)
+		}
+	}
+
+	probePath := "/api/v1/auth"
+	probeName := "auth"
+	op := OpRead
+	if platform {
+		probePath = "/api/v1/buildings"
+		probeName = "buildings"
+		op = OpPlatform
+	}
+	endpoint, err := ResolveEndpointOp(sess.AuthName, probePath, op)
 	if err != nil {
 		return nil, err
 	}
 	if platform {
-		return authTestPlatform(credName, log)
-	}
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/auth")
-	if err != nil {
-		return nil, err
+		endpoint += "?page=0&page-size=1"
 	}
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	resp, err := PerformRequestOp(req, sess.AuthName, op)
 	if err != nil {
 		return nil, fmt.Errorf("auth test: %w", err)
 	}
@@ -295,95 +443,185 @@ func AuthTestValue(credName string, log *slog.Logger) (map[string]interface{}, e
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode == 401 {
-			return nil, fmt.Errorf("auth test returned 401 Unauthorized: %s — check username/password; for Jamf Pro API, OAuth (client credentials) may be required instead of Basic auth", string(body))
-		}
-		return nil, fmt.Errorf("auth test returned %d: %s", resp.StatusCode, string(body))
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return map[string]interface{}{"raw": string(body), "status": resp.StatusCode}, nil
-	}
-	return result, nil
-}
 
-func authTestPlatform(credName string, log *slog.Logger) (map[string]interface{}, error) {
-	// Force a fresh platform token so disk-cached tokens from a prior endpoint
-	// (e.g. /oauth2/token) cannot mask gateway REQUEST_CONTEXT failures.
-	sess, err := ResolveSessionForCred(credName, OpPlatform)
-	if err != nil {
-		return nil, err
-	}
-	cred := sess.Credential
-	a, err := cachedAuthenticator(sessionCacheName(sess), sess.AuthName, cred)
-	if err != nil {
-		return nil, fmt.Errorf("platform auth token: %w", err)
-	}
-	if err := a.ForceRenew(); err != nil {
-		return nil, fmt.Errorf("platform auth token: %w", err)
-	}
-	endpoint, err := ResolveEndpoint(credName, "/api/v1/buildings")
-	if err != nil {
-		return nil, err
-	}
-	endpoint += "?page=0&page-size=1"
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return nil, fmt.Errorf("platform auth test: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	tenantID, _ := tenantIDForCred(credName)
-	baseURL, _ := resolveURL(credName)
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return map[string]interface{}{
-			"ok":       true,
-			"mode":     "platform",
-			"url":      baseURL,
-			"tenantId": tenantID,
-			"probe":    "buildings",
-			"status":   resp.StatusCode,
-		}, nil
-	}
-	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
-		// Token was obtained; privilege for buildings may be missing.
-		if log != nil {
-			log.Debug("platform auth probe buildings not permitted; token acquired", "status", resp.StatusCode)
-		}
-		return map[string]interface{}{
-			"ok":            true,
-			"mode":          "platform",
-			"url":           baseURL,
-			"tenantId":      tenantID,
+		extra := map[string]interface{}{
 			"tokenAcquired": true,
-			"probe":         "buildings",
+			"probe":         probeName,
 			"probeStatus":   resp.StatusCode,
-			"note":          "Bearer token acquired; buildings probe not permitted (need read:pro:buildings for a full probe)",
-		}, nil
+			"status":        resp.StatusCode,
+		}
+		rec := CapsRecord{Live: LiveOK, TokenOk: true, ProbeOk: true, Probe: probeName, ProbeStatus: resp.StatusCode}
+		if !platform {
+			var result map[string]interface{}
+			if err := json.Unmarshal(body, &result); err == nil {
+				compact := CompactAuthInfo(result)
+				extra["authInfo"] = compact
+				applyCompactToCaps(&rec, compact)
+			} else {
+				extra["raw"] = string(body)
+			}
+		}
+		persistCaps(sess, rec)
+		return authTestEnvelope(sess, LiveOK, extra), nil
 	}
-	looksUUID := len(tenantID) == 36 && strings.Count(tenantID, "-") == 4
-	if strings.Contains(string(body), "REQUEST_CONTEXT_NOT_PROVIDED") && !looksUUID {
-		return nil, fmt.Errorf("platform auth test returned %d: %s\nHint: tenantId %q does not look like a Jamf Account tenant UUID. In Jamf Account → Integrations, open the integration and click the tenant pill to copy the tenant id (not the jamfcloud.com subdomain)", resp.StatusCode, string(body), tenantID)
+
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+		if log != nil {
+			log.Debug("auth probe not permitted; token acquired", "status", resp.StatusCode, "probe", probeName)
+		}
+		note := "Bearer token acquired; probe not permitted (privilege, not a bad secret)"
+		if platform {
+			note = "Bearer token acquired; buildings probe not permitted (need read:pro:buildings for a full probe)"
+		}
+		persistCaps(sess, CapsRecord{
+			Live: LiveTokenOK, TokenOk: true, ProbeOk: false,
+			Probe: probeName, ProbeStatus: resp.StatusCode,
+		})
+		return authTestEnvelope(sess, LiveTokenOK, map[string]interface{}{
+			"tokenAcquired": true,
+			"probe":         probeName,
+			"probeStatus":   resp.StatusCode,
+			"note":          note,
+		}), nil
 	}
-	return nil, fmt.Errorf("platform auth test returned %d: %s", resp.StatusCode, string(body))
+
+	if platform {
+		tenantID := sess.Credential.EffectiveTenantID()
+		looksUUID := len(tenantID) == 36 && strings.Count(tenantID, "-") == 4
+		if strings.Contains(string(body), "REQUEST_CONTEXT_NOT_PROVIDED") && !looksUUID {
+			return nil, fmt.Errorf("platform auth test returned %d: %s\nHint: tenantId %q does not look like a Jamf Account tenant UUID. In Jamf Account → Integrations, open the integration and click the tenant pill to copy the tenant id (not the jamfcloud.com subdomain)", resp.StatusCode, string(body), tenantID)
+		}
+	}
+	return nil, fmt.Errorf("auth test returned %d: %s", resp.StatusCode, string(body))
 }
 
-// AuthTest tests authentication against /api/v1/auth and pretty-prints the response.
+// AuthTest tests authentication and pretty-prints the response.
 func AuthTest(credName string, log *slog.Logger) error {
 	result, err := AuthTestValue(credName, log)
 	if err != nil {
 		return err
 	}
 	out, _ := json.MarshalIndent(result, "", "  ")
+	fmt.Println(string(out))
+	return nil
+}
+
+// AuthTestAllResult is one cell from buddy auth test --all.
+type AuthTestAllResult struct {
+	Tenant  string
+	Surface string
+	Auth    string
+	Live    string
+	OK      bool
+	Err     string
+	Result  map[string]interface{}
+}
+
+// AuthTestAll ForceRenews and probes every covering auth × tenant × surface.
+// Returns a non-nil error if any cell is secret-missing or token-fail.
+func AuthTestAll(cfg *Config, log *slog.Logger) ([]AuthTestAllResult, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("internal error: config is nil")
+	}
+	cells := CoverageTestCells(cfg)
+	if len(cells) == 0 {
+		return nil, nil
+	}
+	var out []AuthTestAllResult
+	var failN int
+	for _, cell := range cells {
+		row := AuthTestAllResult{Tenant: cell.Tenant, Surface: cell.Surface, Auth: cell.Auth}
+		err := WithSessionOverrides(SessionOverrides{Tenant: cell.Tenant, Auth: cell.Auth, Surface: cell.Surface}, func() error {
+			res, err := AuthTestValue(cell.Auth, log)
+			if err != nil {
+				row.Err = err.Error()
+				row.OK = false
+				switch {
+				case strings.Contains(err.Error(), "live="+LiveSecretMissing), strings.Contains(err.Error(), "missing for auth"):
+					row.Live = LiveSecretMissing
+				default:
+					row.Live = LiveTokenFail
+				}
+				return nil
+			}
+			row.Result = res
+			if s, ok := res["live"].(string); ok {
+				row.Live = s
+			}
+			if ok, _ := res["ok"].(bool); ok {
+				row.OK = ok
+			}
+			return nil
+		})
+		if err != nil {
+			row.Err = err.Error()
+			row.Live = LiveTokenFail
+		}
+		if row.Live == LiveTokenFail || row.Live == LiveSecretMissing {
+			failN++
+		}
+		out = append(out, row)
+	}
+	if failN > 0 {
+		return out, fmt.Errorf("auth test --all: %d of %d cells failed (secret missing or token failed)", failN, len(out))
+	}
+	return out, nil
+}
+
+// PrintAuthTestAll writes one JSON object per cell plus a one-line summary.
+func PrintAuthTestAll(results []AuthTestAllResult) {
+	var okN, tokenOkN, failN, missN int
+	for _, r := range results {
+		fmt.Printf("# %s / %s / %s\n", r.Tenant, r.Surface, r.Auth)
+		if r.Result != nil {
+			out, _ := json.MarshalIndent(r.Result, "", "  ")
+			fmt.Println(string(out))
+		} else if r.Err != "" {
+			fmt.Printf("{\n  \"ok\": false,\n  \"live\": %q,\n  \"auth\": %q,\n  \"tenant\": %q,\n  \"surface\": %q,\n  \"error\": %q\n}\n",
+				r.Live, r.Auth, r.Tenant, r.Surface, r.Err)
+		}
+		switch r.Live {
+		case LiveOK:
+			okN++
+		case LiveTokenOK:
+			tokenOkN++
+		case LiveSecretMissing:
+			missN++
+		default:
+			failN++
+		}
+	}
+	fmt.Printf("%d ok, %d token-ok, %d token-fail, %d secret-missing (%d cells)\n",
+		okN, tokenOkN, failN, missN, len(results))
+}
+
+// PrintAuthCaps dumps cached last-check records as JSON.
+func PrintAuthCaps(cfg *Config, credName string, all bool) error {
+	var recs []CapsRecord
+	if all {
+		recs = ListCapsRecords()
+	} else {
+		sess, err := ResolveSessionForCred(credName, OpAny)
+		if err != nil {
+			return err
+		}
+		tid := ""
+		if sess.Surface == SurfacePlatform {
+			tid = sess.Credential.EffectiveTenantID()
+		}
+		if rec := LoadCaps(sess.AuthName, sess.TenantName, sess.Surface, tid); rec != nil {
+			recs = []CapsRecord{*rec}
+		}
+	}
+	if len(recs) == 0 {
+		fmt.Println("[]")
+		return nil
+	}
+	out, err := json.MarshalIndent(recs, "", "  ")
+	if err != nil {
+		return err
+	}
 	fmt.Println(string(out))
 	return nil
 }

@@ -139,7 +139,7 @@ buddy setup basic-setup               # prompts for tenant, URL, username, passw
 buddy --user <admin-auth> auth test
 ```
 
-If an MDM profile already provides tenants, run `buddy setup secrets` instead.
+If an MDM profile already provides tenants, run `buddy setup secrets` instead (creates missing auths and fills instance/platform coverage gaps). `buddy cred status` shows remaining holes.
 
 Then (optional) create a Jamf Pro **instance** API role/client and store oauth (Platform gateway oauth cannot manage roles/integrations):
 

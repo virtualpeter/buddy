@@ -16,9 +16,16 @@ Usage:
   buddy [global-flags] auth <subcommand> [args...]
 
 Subcommands:
-  test                         Test auth (instance: GET /api/v1/auth; platform: token + buildings probe)
+  test [--all]                 Prove the secret (ForceRenew + probe); --all tests every tenant×surface×auth
+  caps [--all]                 Print cached last-check / privileges for the current pin (or every cell)
   token [flags]                Print Authorization header or raw bearer token
   refresh [flags] [<token>]    Refresh a bearer token via keep-alive (instance basic auth)
+
+Flags for 'test':
+  --all                        Test every covering auth × tenant × surface (not just the default session)
+
+Flags for 'caps':
+  --all                        Dump every still-valid caps cache entry
 
 Flags for 'token':
   --raw                        Print bearer token only (for scripts and token_command)
@@ -35,8 +42,17 @@ Flags for 'refresh':
   --url=<url>                    Jamf Pro base URL (defaults to --user credential URL)
   --token=<token>                Bearer token to refresh (or pass as positional arg)
 
+Notes:
+  auth test always discards the cached token and mints a new one. Exit 0 if the
+  secret works (probe 403 is live=token-ok, not a bad secret). Exit non-zero if
+  the secret is missing or the token POST fails. cred get secret is presence only.
+  Last results are cached under ~/.config/buddy/caps/ for cred status and session pick.
+
 Examples:
   buddy auth test
+  buddy auth test --all
+  buddy --user dev auth test
+  buddy auth caps
   buddy auth token
   buddy auth token --raw
   buddy --user dev auth token --raw
@@ -58,12 +74,14 @@ Usage:
   buddy cred restore <file> [--passphrase=] [-y]
 
 Subcommands:
+  status [--test]                   Tenant × surface coverage (gaps, secret presence, last live check)
+  add [auth-name] [args...]         Guided tenant + auth + secret (optional live test)
   list                              List tenants, auths, and channel policies
   get tenant <name>                 Show tenant details
   get auth <name>                   Show auth details (secrets redacted)
   get channel <cli|mcp|ide>
                                     Show channel policy
-  get secret <auth>                 Show where secrets are stored (values hidden)
+  get secret <auth>                 Show where secrets are stored (values hidden; presence only)
   set tenant <name> [args...]       Add or update a tenant
   set auth <name> [args...]         Add or update an auth (link to tenants)
   set channel <cli|mcp|ide> [args...]
@@ -81,6 +99,24 @@ Subcommands:
   migrate [auth]                    Move inline config.yaml secrets into the secure store
   backup <file>                     Encrypt tenants, auths (with secrets), and channels to a file
   restore <file>                    Decrypt a backup; prompt once per auth (or -y)
+
+Flags for 'status':
+  --test                            Run auth test --all first (ForceRenew), then print the matrix
+
+Flags for 'add':
+  --tenant=<name>                   Existing or new tenant name
+  --url=<url>                       Jamf Pro instance URL (creating a tenant)
+  --region=<region>                 Platform region (creating a tenant)
+  --tenant-id=<tenant-id>           Platform tenant id (creating a tenant)
+  --surface=any|instance|platform   Surfaces this auth may use (default from tenant)
+  --type=oauth|basic                Auth type (default oauth; platform requires oauth)
+  --client-id=<id>                  OAuth client id
+  --username=<user>                 Basic username
+  --client-secret=<secret>          OAuth secret (non-interactive)
+  --password=<password>             Basic password (non-interactive)
+  --test                            Force a live auth test after save
+  --no-test                         Skip the live test (default when -y / non-TTY)
+  -y                                Non-interactive; fail if required fields are missing
 
 Flags for 'set tenant':
   --url=<url>                       Jamf Pro instance URL (and/or platform gateway URL)
@@ -116,6 +152,10 @@ Flags for 'backup' / 'restore':
   -y                                Overwrite backup file / restore all auths without prompting
 
   Notes:
+  cred status is the maintenance view (tenant × surface coverage). cred list is
+  the raw dump. cred get secret / status SECRET column are presence only —
+  'buddy auth test' proves the secret (ForceRenew). Last live results live in
+  ~/.config/buddy/caps/ (same obfuscation style as tokens/).
   A platform clientId may list multiple tenants under --tenants.
   Old credentials: / string tenant: / defaults: / allow_auths: migrate on load.
   tenant.cli|mcp|serve|ide and the serve client channel are removed — use
@@ -123,7 +163,7 @@ Flags for 'backup' / 'restore':
   macOS managed preferences (domain virtualpete.buddy.cli) overlay as org
   defaults; config.yaml wins per name. 'buddy cred list' notes managed sources.
   Deleting a managed tenant/auth warns; it returns on next load until the MDM
-  profile changes. Fill secrets with 'buddy setup secrets'.
+  profile changes. Fill secrets with 'buddy setup secrets' or 'buddy cred add'.
   cred backup writes AES-256-GCM (PBKDF2-SHA256) JSON; auths include store
   secrets. Restore applies tenants/channels, then prompts once per auth
   (and its secrets) unless -y. Enter/y writes that auth from the backup;
@@ -145,6 +185,9 @@ Flags for 'backup' / 'restore':
   as coverage gaps.
 
 Examples:
+  buddy cred status
+  buddy cred status --test
+  buddy cred add --tenant=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
   buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=apac --tenant-id=…
   buddy cred set auth platform-ro --type=oauth --client-id=… --tenants=sandbox --access=readonly --surface=platform --channels=mcp,ide
   buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox --surface=instance --channels=cli,ide
@@ -337,15 +380,17 @@ Subcommands:
 
   secrets
     For each tenant with no linked auth, prompt to create one (oauth by default).
-    Then prompt for any missing client IDs / usernames and store missing
-    passwords or OAuth client secrets in the platform secret store.
+    Then fill instance/platform coverage gaps (instance URL with no instance/any
+    auth, or platform identity with no platform/any oauth). Then prompt for any
+    missing client IDs / usernames and store missing passwords or OAuth client
+    secrets in the platform secret store.
     Org MDM profiles typically ship tenants and channel policy. Auths in the
     plist (including client IDs and secrets) are accepted if present; prefer
     this command so they stay in the local store. 'buddy setup managed-plist'
-    omits auths entirely.
+    omits auths entirely. 'buddy cred status' shows remaining holes.
 
     Non-interactive / -y: report gaps and exit non-zero (use a terminal, or
-    'buddy cred set auth' / 'buddy cred set secret').
+    'buddy cred add' / 'buddy cred set auth' / 'buddy cred set secret').
 
   managed-plist [path]
     Write tenants and channel policy as XML plist to path, or stdout if path is

@@ -56,6 +56,8 @@ Config is split into **tenant selection** (`tenant.default`), **channel policies
 Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, secrets, and tokens](auth.md)**.
 
 - `buddy cred help` — set/list/get/delete tenants, auths, and channel policies; manage secrets; `cred use` / `cred set channel`
+- `buddy cred status` — tenant × surface coverage (gaps, secret presence, last live check); `--test` runs `auth test --all` first
+- `buddy cred add` — guided tenant + auth + secret (optional live test)
 - `buddy cred set secret <auth>` — store password/client secret in Keychain, file, or pass
 - `buddy cred delete auth|tenant <name>` — remove auth (+store secrets) or tenant (cascades sole-linked auths)
 - `buddy cred clean secrets` — review secret-store entries and prompt to delete orphans
@@ -63,8 +65,8 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`
 - `buddy cred migrate` — move inline config.yaml secrets into the secure store
 - `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of tenants, auths (with secrets), and channels; restore prompts once per auth (Enter restores, or `-y`)
-- `buddy setup secrets` — create missing tenant auths; store missing passwords / client secrets
-- `buddy auth test` — verify the active tenant/auth session
+- `buddy setup secrets` — create missing tenant auths and surface-coverage gaps; store missing passwords / client secrets
+- `buddy auth test` — ForceRenew + probe the active session (`--all` for every cell)
 - `buddy --tenant <name> ...` — select tenant (auto-picks auth); `--user`/`--auth` pins an auth
 
 For `basic` auth, buddy exchanges username/password for a Bearer token via Jamf’s `POST /api/v1/auth/token`.
@@ -93,7 +95,7 @@ buddy setup basic-setup               # prompts for tenant, URL, username, passw
 buddy --user <admin-auth> auth test
 ```
 
-If an MDM profile already provides tenants (preference domain `virtualpete.buddy.cli`), run `buddy setup secrets` instead to create missing auths and store client secrets.
+If an MDM profile already provides tenants (preference domain `virtualpete.buddy.cli`), run `buddy setup secrets` instead to create missing auths (including instance/platform coverage gaps) and store client secrets. `buddy cred status` shows remaining holes; `buddy cred add` is the one-shot guided path.
 
 Then (optional) create a Jamf Pro **instance** API role/client and store oauth (Platform gateway oauth cannot manage roles/integrations):
 

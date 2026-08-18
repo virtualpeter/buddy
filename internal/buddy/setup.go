@@ -505,8 +505,8 @@ type SetupSecretsOpts struct {
 	Password     string
 }
 
-// SetupSecrets creates missing auths for tenants that have none, then stores
-// missing passwords / client secrets in the platform secret store.
+// SetupSecrets creates missing auths for tenants that have none, fills
+// instance/platform coverage gaps, then stores missing passwords / client secrets.
 func SetupSecrets(cfg *Config, opts SetupSecretsOpts) (*SetupSecretsResult, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("internal error: config is nil")
@@ -525,16 +525,46 @@ func SetupSecrets(cfg *Config, opts SetupSecretsOpts) (*SetupSecretsResult, erro
 		if len(cfg.AuthsForTenant(tn)) > 0 {
 			continue
 		}
-		created, err := setupSecretsCreateAuth(cfg, tn, opts, interactive)
+		tenant := cfg.Tenants[tn]
+		surface := SurfaceInstance
+		if !tenant.HasInstanceURL() && tenant.HasPlatform() {
+			surface = SurfacePlatform
+		}
+		created, err := setupSecretsCreateAuth(cfg, tn, surface, opts, interactive)
 		if err != nil {
 			return res, err
 		}
 		if created == "" {
-			res.Missing = append(res.Missing, fmt.Sprintf("tenant %q has no auth — run 'buddy setup secrets' in a terminal or 'buddy cred set auth'", tn))
+			res.Missing = append(res.Missing, fmt.Sprintf("tenant %q has no auth — run 'buddy setup secrets' in a terminal or 'buddy cred add'", tn))
 			continue
 		}
 		res.CreatedAuths = append(res.CreatedAuths, created)
 		changed = true
+	}
+
+	for _, tn := range tenantNames {
+		tenant := cfg.Tenants[tn]
+		for _, surface := range tenantSurfaces(tenant) {
+			if surface != SurfaceInstance && surface != SurfacePlatform {
+				continue
+			}
+			if tenantHasCoveringAuth(cfg, tn, surface) {
+				continue
+			}
+			if len(cfg.AuthsForTenant(tn)) == 0 {
+				continue // already reported as "has no auth"
+			}
+			created, err := setupSecretsCreateAuth(cfg, tn, surface, opts, interactive)
+			if err != nil {
+				return res, err
+			}
+			if created == "" {
+				res.Missing = append(res.Missing, fmt.Sprintf("tenant %q has no %s-capable auth — run 'buddy setup secrets' in a terminal or 'buddy cred add'", tn, surface))
+				continue
+			}
+			res.CreatedAuths = append(res.CreatedAuths, created)
+			changed = true
+		}
 	}
 
 	authNames := make([]string, 0, len(cfg.Auths))
@@ -571,13 +601,50 @@ func SetupSecrets(cfg *Config, opts SetupSecretsOpts) (*SetupSecretsResult, erro
 	return res, nil
 }
 
-func setupSecretsCreateAuth(cfg *Config, tenantName string, opts SetupSecretsOpts, interactive bool) (string, error) {
+func tenantHasCoveringAuth(cfg *Config, tenantName, surface string) bool {
+	if cfg == nil {
+		return false
+	}
+	for _, name := range cfg.AuthsForTenant(tenantName) {
+		auth, err := cfg.ResolveAuth(name)
+		if err != nil {
+			continue
+		}
+		if AuthCoversSurface(auth, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func defaultAuthNameForSurface(tenantName, surface, typ string) string {
+	if surface == SurfacePlatform {
+		t := strings.TrimSpace(tenantName)
+		if t == "" {
+			t = "buddy"
+		}
+		return t + "-platform"
+	}
+	if typ == "oauth" {
+		return defaultOAuthAuthName(tenantName)
+	}
+	t := strings.TrimSpace(tenantName)
+	if t == "" {
+		t = "buddy"
+	}
+	return t + "-admin"
+}
+
+func setupSecretsCreateAuth(cfg *Config, tenantName, surface string, opts SetupSecretsOpts, interactive bool) (string, error) {
 	typ := strings.ToLower(strings.TrimSpace(opts.Type))
 	if typ == "" {
 		typ = "oauth"
 	}
-	if interactive && opts.Type == "" {
-		line, err := PromptSecretLine(fmt.Sprintf("Tenant %q has no auth. Type [oauth]", tenantName))
+	if surface == SurfacePlatform {
+		typ = "oauth"
+	}
+	if interactive && opts.Type == "" && surface != SurfacePlatform {
+		line, err := PromptSecretLine(fmt.Sprintf("Tenant %q has no %s auth. Type [oauth]", tenantName, surface))
 		if err != nil {
 			return "", err
 		}
@@ -590,11 +657,11 @@ func setupSecretsCreateAuth(cfg *Config, tenantName string, opts SetupSecretsOpt
 	default:
 		return "", fmt.Errorf("auth type must be oauth or basic (got %q)", typ)
 	}
-
-	defName := tenantName + "-admin"
-	if typ == "oauth" {
-		defName = defaultOAuthAuthName(tenantName)
+	if surface == SurfacePlatform && typ != "oauth" {
+		return "", fmt.Errorf("platform auth requires oauth")
 	}
+
+	defName := defaultAuthNameForSurface(tenantName, surface, typ)
 	authName := strings.TrimSpace(opts.AuthName)
 	if authName == "" {
 		if !interactive {
@@ -617,12 +684,18 @@ func setupSecretsCreateAuth(cfg *Config, tenantName string, opts SetupSecretsOpt
 	if authName == "" {
 		return "", nil
 	}
+	if _, exists := cfg.Auths[authName]; exists {
+		return "", fmt.Errorf("auth %q already exists — pick another name or run 'buddy cred set auth'", authName)
+	}
 
+	if surface == "" {
+		surface = SurfaceInstance
+	}
 	auth := AuthEntry{
 		Type:    typ,
 		Tenants: []string{tenantName},
 		Access:  AccessFull,
-		Surface: SurfaceInstance,
+		Surface: surface,
 	}
 	switch typ {
 	case "oauth":
