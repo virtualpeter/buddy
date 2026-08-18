@@ -109,3 +109,30 @@ r = jamf_get("/JSSResource/policies")
 		t.Fatalf("Accept=%q", accept)
 	}
 }
+
+func TestJamfURLBuiltin(t *testing.T) {
+	buddy.InitLogger()
+	buddy.SetActiveConfig(buddy.ConfigFromCredentialMap("t", map[string]buddy.CredentialConfig{
+		"t": {
+			URL:  "https://example.jamfcloud.com",
+			Auth: buddy.AuthConfig{Type: "command", RunCommand: "printf tok"},
+		},
+	}))
+	t.Cleanup(func() { buddy.SetActiveConfig(nil) })
+
+	thread, predeclared, err := newThread("t", buddy.Opts{}, slog.Default(), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	globals, err := starlark.ExecFile(thread, "jamf_url_test.buddy", `
+u = jamf_url("/JSSResource/policies/id/1")
+`, predeclared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := starlark.AsString(globals["u"])
+	want := "https://example.jamfcloud.com/JSSResource/policies/id/1"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}

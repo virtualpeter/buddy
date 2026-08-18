@@ -42,7 +42,7 @@ Legacy config shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auth
 
 When auto-picking, buddy prefers a **readonly** auth for reads, requires **full** for mutates, **platform** for blueprints and other Platform product APIs, and **instance** for Classic / schema work.
 
-`--user` / `--auth` (and buddyscript `auth=`) is a **preference**, not a lock across surfaces. Classic and schema calls need an instance auth; Platform product APIs need platform oauth. If the pin cannot serve that surface, buddy auto-picks another linked auth on the **same tenant**. Pinning a readonly auth still fails on mutates (that is access, not routing). `surface=` biases Pro/JSON calls that can use either surface; it does **not** override Classic’s instance lock while `classic_instance_only` is on (clone/copy destination sessions included).
+`--user` / `--auth` (and buddyscript `auth=`) is a **preference**, not a lock across surfaces. Classic (while `classic_instance_only` is on), ACS, schema, and undocumented Pro `GET /api/v1/policies` need an instance auth; Platform product APIs need platform oauth. If the pin cannot serve that surface, buddy auto-picks another linked auth on the **same tenant**. Pinning a readonly auth still fails on mutates (that is access, not routing). `surface=` biases published Pro/JSON calls that can use either surface, and Classic when `classic_instance_only` is off; it never sends ACS or `GET /api/v1/policies` through the gateway (clone/copy destination sessions included).
 
 Direct one-off flags (`--url`, `--tenant-id`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for a single command.
 
@@ -158,15 +158,19 @@ Last `auth test` results (token ok / probe, and instance privilege names when `/
 
 ## Instance vs Platform
 
-Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`). When the session is on a **platform** surface, buddy rewrites them (Pro → `/api/pro/vN/tenant/{id}/…`, Classic → `/api/proclassic/tenant/{id}/JSSResource/…`, Platform product APIs inject `/tenant/{id}` after the version).
+Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`). When the session is on a **platform** surface, buddy rewrites them (Pro → `/api/pro/vN/tenant/{id}/…`, Classic → `/api/proclassic/tenant/{id}/…` with the `/JSSResource` prefix stripped, Platform product APIs inject `/tenant/{id}` after the version).
 
-Classic path rewrite is implemented, but Jamf Account Platform integrations do not yet **publish Classic privileges**. That is why buddy forces Classic onto an **instance** auth (`OpClassic` / `OpClassicWrite`) even if the process pin is platform-only — not because Classic-on-Platform is unimplemented in buddy (`/api/proclassic/` rewrite already exists). Expect **401/403** on Classic through the gateway until Jamf ships those privileges.
+Classic follows a platform pin / auto-pick by default (`OpClassic` / `OpClassicWrite` → `/api/proclassic/tenant/{id}/…`, no `/JSSResource`). Auto-pick among mixed auths still prefers an instance auth when one is linked. Set `features.classic_instance_only: true` (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force **Classic `/JSSResource` only** onto instance even when the pin is platform. A gateway `403` means the OAuth client lacks Classic scopes.
 
-This forced instance routing is `features.classic_instance_only` (default **true**). Set it to **false** (or `BUDDY_CLASSIC_INSTANCE_ONLY=false`) to let Classic follow a platform pin / auto-pick once Platform Classic is available. Schema discovery (`/api/schema`, Classic swagger) and ACS (`/api/config-profiles/…`) always use the instance URL — ACS is a Jamf Pro UI API and is not published on the gateway.
+That toggle does **not** apply to surfaces that are never published on the gateway. These always use the instance URL (a platform pin auto-picks an instance auth on the same tenant):
+
+- **ACS** `/api/config-profiles/…` — Jamf Pro UI API; gateway POST is `404 page not found`
+- **Undocumented Pro policy list** `GET /api/v1/policies` — not in published OpenAPI; gateway is `403`. Policy writes and detail stay Classic XML (`/JSSResource/policies`)
+- **Schema discovery** `/api/schema` and Classic swagger — instance host only
 
 ```yaml
 features:
-  classic_instance_only: true    # default; false = Classic may use platform
+  classic_instance_only: true    # optional lock; default false = Classic may use /api/proclassic/
 ```
 
 Platform product commands (`buddy blueprint`, `device`, `device-group`, `ddm`, `benchmark`, and the matching builtins) need a platform-capable tenant + auth.

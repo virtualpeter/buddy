@@ -13,10 +13,12 @@ Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`)
 | Caller path | Gateway path |
 |-------------|--------------|
 | `/api/vN/rest…` | `/api/pro/vN/tenant/{tenantId}/rest…` |
-| `/JSSResource/…` | `/api/proclassic/tenant/{tenantId}/JSSResource/…` |
+| `/JSSResource/…` | `/api/proclassic/tenant/{tenantId}/…` (the `/JSSResource` prefix is stripped) |
 | `/api/blueprints/vN/…` | inject `/tenant/{tenantId}` after the version |
 
-**Limitation (Classic / proclassic):** Buddy already rewrites Classic paths for the gateway. Jamf Account Platform integrations do **not** yet publish Classic privileges, so those calls typically return `401`/`403 BAD_PERMISSIONS`. Buddy therefore routes Classic to an **instance** auth by default (`features.classic_instance_only: true`). When Jamf publishes Classic on Platform, set `features.classic_instance_only: false` (or `BUDDY_CLASSIC_INSTANCE_ONLY=false`) to allow Classic via `/api/proclassic/`. Until then, prefer an instance credential for Classic-heavy workflows (policies XML, profiles).
+**Limitation (Classic / proclassic):** Classic-on-Platform is `/api/proclassic/tenant/{tenantId}/…` with `/JSSResource` stripped (Jamf’s Classic OpenAPI). Buddy sends Classic through the gateway when the session is platform (`features.classic_instance_only` default **false**). Auto-pick among mixed auths still prefers instance. Set `features.classic_instance_only: true` (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force Classic onto an instance auth. A gateway `403` means the client lacks Classic privileges, not a bad path.
+
+That toggle does **not** control ACS or the undocumented Pro policy list — those never work on the gateway (see ACS and Policies notes below). If a Platform OAuth client lacks Classic scopes, pin an instance auth or set `classic_instance_only: true`.
 
 Authentication is config-driven per tenant + auth (command, basic, or OAuth). See **[Auth, secrets, and tokens](auth.md)**, `buddy auth help`, and `buddy cred help`. For **basic** (username/password), buddy obtains a Bearer token via `POST /api/v1/auth/token` with Basic auth, then uses that token for all API requests. Platform credentials use **OAuth only** (`POST {gateway}/auth/token`, fallback `/oauth2/token`); there is no keep-alive.
 
@@ -176,7 +178,7 @@ Base path: `/JSSResource/policies`
 
 ### Notes
 
-- **Hybrid list (undocumented Pro):** `getPolicyList` prefers `GET /api/v1/policies` (paginated `results`/`totalCount`; summary: `id`, `name`, `enabled`, `categoryId`, `executionFrequency`, `triggerCheckin`, `triggerManual`, `updateInventory`). On failure or empty, falls back to Classic. Not in published OpenAPI; not used for writes or detail. RSQL filter fields are those keys only — **no** Self Service boolean.
+- **Hybrid list (undocumented Pro):** `getPolicyList` prefers `GET /api/v1/policies` (paginated `results`/`totalCount`; summary: `id`, `name`, `enabled`, `categoryId`, `executionFrequency`, `triggerCheckin`, `triggerManual`, `updateInventory`). On failure or empty, falls back to Classic. Not in published OpenAPI; not used for writes or detail. RSQL filter fields are those keys only — **no** Self Service boolean. The Platform gateway returns **403** for this path; buddy always routes it to an **instance** auth. That is **not** `features.classic_instance_only` (that flag is Classic `/JSSResource` only).
 - `GET /JSSResource/policies` returns a summary list `{id, name}` only; detail fields (trigger, scripts, scope) require a subsequent `GET /JSSResource/policies/id/{id}`.
 - Buddy caches the summary list in process memory per resolved tenant+auth session (~60s TTL) so multi-step scripts and change batches don't re-fetch it for every trigger lookup. Policy creates/deletes in the same process invalidate the entry; there is no on-disk cache.
 - Phase 1 of trigger resolution fetches detail for a small set of name-matched candidate policies to verify `trigger_other` exactly, rather than relying on name heuristics alone.
@@ -294,7 +296,7 @@ Fixes:
 
 Do not invent Classic profile PUT bodies from `jamf_schema`. Live checks: `scripts/integration_test.buddy` (phase C create/edit/clone/delete with Apply-form and literal `&`) and `scripts/integration_test_acs_profile7.buddy` (same-tenant ACS document).
 
-ACS `/api/config-profiles/…` is the Jamf Pro **instance** UI API. It is not a Platform product API and is **not** rewritten to the gateway (a gateway POST returns `404 page not found`). Buddy always routes these calls to an instance auth, independent of `features.classic_instance_only`.
+ACS `/api/config-profiles/…` is the Jamf Pro **instance** UI API. It is not a Platform product API and is **not** rewritten to the gateway (a gateway POST returns `404 page not found`). Buddy always routes these calls to an instance auth. That is **not** `features.classic_instance_only` — that flag only gates Classic `/JSSResource` → `/api/proclassic/`.
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|

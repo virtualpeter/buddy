@@ -37,7 +37,7 @@ Classic **Mac App Store** records are separate — use [`macapp` / `macapps`](/d
 - Do not invent Classic PUTs for app upgrades — use `app_reconcile` / `app_upgrade` (or policy package / Self Service helpers).
 - Wait until the target package is READY in Jamf (`package_wait_ready` / `package_ready`) before reconcile apply or `app_upgrade`.
 - Prefer `docs/apps` then named builtins via `buddyscript`; Classic Mac App Store is `macapp` / `macapps`, not `app` / `apps`.
-- Platform-only auth cannot list/scan apps (Pro `/api/v1/policies` via gateway returns 403); use an instance-surface auth.
+- Platform-only auth cannot list/scan apps: undocumented Pro `GET /api/v1/policies` is instance-only (gateway 403; not gated by classic_instance_only). Use an instance-surface auth.
 
 ## Facts
 

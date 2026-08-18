@@ -250,8 +250,10 @@ func PerformRequestOp(req *http.Request, credName string, op OpClass) (*http.Res
 		return nil, err
 	}
 	if req != nil && req.URL != nil {
-		restoreClass := setResourceClass(resourceClassForPath(req.URL.Path))
-		defer restoreClass()
+		if ResourceClassPreference() == "" {
+			restoreClass := setResourceClass(resourceClassForPath(req.URL.Path))
+			defer restoreClass()
+		}
 	}
 
 	authHeader, err := resolveAuthHeaderOp(credName, op)

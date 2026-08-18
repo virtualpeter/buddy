@@ -66,8 +66,9 @@ const Cred = `buddy cred - Manage tenants, auths, secrets, and channel policies
 Config is split into tenants (Jamf host / platform tenantId), auths (secret-bearing
 principals linked to one or more tenants), and channels (per-client policy:
 access, default tenant, tenant allowlist). Global --tenant selects a tenant
-(auto-picks auth); --user / --auth prefers a specific auth (Classic still
-routes to an instance auth on the same tenant while classic_instance_only is on).
+(auto-picks auth); --user / --auth prefers a specific auth (Classic follows
+the pin unless classic_instance_only is on; ACS and GET /api/v1/policies are
+always instance).
 
 Usage:
   buddy cred <subcommand> [args...]

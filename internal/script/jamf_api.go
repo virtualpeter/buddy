@@ -49,6 +49,36 @@ func jamfRequestBuiltin(credName string, logger *slog.Logger) builtinFn {
 	}
 }
 
+func jamfURLBuiltin(credName string, logger *slog.Logger) builtinFn {
+	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		_ = logger
+		var path starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs(b.Name(), args, kwargs,
+			"path", &path,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
+		); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		norm, err := buddy.NormalizeJamfPath(string(path))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		endpoint, err := buddy.ResolveEndpoint(sessionPin, norm)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(starlark.String(endpoint)), nil
+	}
+}
+
 func jamfGetBuiltin(credName string, logger *slog.Logger) builtinFn {
 	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var path, accept starlark.String

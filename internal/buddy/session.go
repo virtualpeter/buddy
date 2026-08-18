@@ -16,12 +16,14 @@ const (
 	OpMutate        OpClass = "mutate"         // require full
 	OpPlatform      OpClass = "platform"       // blueprints / gateway-only (read)
 	OpPlatformWrite OpClass = "platform_write" // blueprints mutate — platform + full
-	OpClassic       OpClass = "classic"        // Classic API GET — instance until Platform Classic is published
-	OpClassicWrite  OpClass = "classic_write"  // Classic API mutate — instance + full (same caveat)
-	OpACS           OpClass = "acs"            // Jamf Pro ACS UI API GET — always instance
-	OpACSWrite      OpClass = "acs_write"      // ACS mutate — instance + full
-	OpSchema        OpClass = "schema"         // live Pro/Classic schema — need instance URL
-	OpPro           OpClass = "pro"            // Jamf Pro JSON API — either surface
+	OpClassic       OpClass = "classic"        // Classic API GET — either surface unless classic_instance_only
+	OpClassicWrite  OpClass = "classic_write"  // Classic API mutate — same toggle
+	OpACS           OpClass = "acs"            // Jamf Pro ACS UI API GET — always instance (not the Classic toggle)
+	OpACSWrite      OpClass = "acs_write"      // ACS mutate — always instance + full
+	OpProUI         OpClass = "pro_ui"         // undocumented Pro JSON GET (policy list) — always instance
+	OpProUIWrite    OpClass = "pro_ui_write"   // same paths, mutate — always instance + full
+	OpSchema        OpClass = "schema"         // live Pro/Classic schema — always instance URL
+	OpPro           OpClass = "pro"            // published Jamf Pro JSON API — either surface
 )
 
 // Session is a resolved tenant + auth used for a request.
@@ -87,8 +89,9 @@ func ActiveChannel() string {
 //	op:         operation class for ranking
 //
 // A pin is honored when that auth can serve the op's required surface. If it cannot
-// (Classic needs instance while features.classic_instance_only is on; ACS/schema
-// always need instance; Platform product APIs need platform oauth), buddy
+// (Classic needs instance only while features.classic_instance_only is on; ACS, schema, and
+// undocumented Pro GET /api/v1/policies always need instance — those are not the
+// Classic toggle; Platform product APIs need platform oauth), buddy
 // auto-picks another linked auth on the same tenant. Access mismatches (readonly vs
 // mutate) still fail — those are not a surface routing problem.
 func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Session, error) {
@@ -208,9 +211,12 @@ func (cfg *Config) autoPickSession(tenantName string, tenant TenantConfig, op Op
 }
 
 // requiredSurfaceForOp returns the Jamf surface this op must use, or "" when
-// either instance or platform is valid (Pro JSON / generic read-mutate).
-// Classic is instance-only while Jamf Account Platform integrations do not
-// publish Classic privileges (features.classic_instance_only, default true).
+// either instance or platform is valid (published Pro JSON / generic read-mutate).
+//
+// features.classic_instance_only (default false) can force Classic /JSSResource
+// onto instance. When off, Classic may use /api/proclassic/. It does not apply
+// to ACS, schema, or undocumented Pro GET /api/v1/policies — those are
+// instance-only because they are not published on the Platform gateway.
 func requiredSurfaceForOp(cfg *Config, op OpClass) string {
 	switch op {
 	case OpPlatform, OpPlatformWrite:
@@ -220,7 +226,7 @@ func requiredSurfaceForOp(cfg *Config, op OpClass) string {
 			return SurfaceInstance
 		}
 		return ""
-	case OpACS, OpACSWrite, OpSchema:
+	case OpACS, OpACSWrite, OpSchema, OpProUI, OpProUIWrite:
 		return SurfaceInstance
 	default:
 		return ""
@@ -228,10 +234,11 @@ func requiredSurfaceForOp(cfg *Config, op OpClass) string {
 }
 
 // overlaySurfacePref applies --surface= / session surface= when the op can use
-// either surface. A locked Classic (classic_instance_only), ACS, or Platform-product
-// surface is not overridden — otherwise a platform pin plus surface=platform
-// would send Classic through /api/proclassic/ (401/403 until Jamf publishes it)
-// or ACS to the gateway (404).
+// either surface. A locked Classic (classic_instance_only), ACS, undocumented
+// Pro policy list, schema, or Platform-product surface is not overridden —
+// otherwise a platform pin plus surface=platform would send Classic through
+// /api/proclassic/ while the instance lock is on, ACS to the gateway (404),
+// or GET /api/v1/policies through /api/pro/ (403).
 func overlaySurfacePref(cfg *Config, op OpClass, auth AuthEntry, tenant TenantConfig, surface, channel string) string {
 	pref := SurfacePreference()
 	if pref != SurfacePlatform && pref != SurfaceInstance {
@@ -302,7 +309,7 @@ func surfaceForOp(cfg *Config, op OpClass, authName string, auth AuthEntry, tena
 }
 
 func checkAuthForOp(cfg *Config, auth AuthEntry, tenant TenantConfig, op OpClass, surface, channel string) error {
-	if (op == OpMutate || op == OpPlatformWrite || op == OpClassicWrite || op == OpACSWrite) && cfg.EffectiveAccessForChannel(auth, channel) == AccessReadonly {
+	if (op == OpMutate || op == OpPlatformWrite || op == OpClassicWrite || op == OpACSWrite || op == OpProUIWrite) && cfg.EffectiveAccessForChannel(auth, channel) == AccessReadonly {
 		if cfg.ChannelAccessFor(channel) == AccessReadonly {
 			return fmt.Errorf("channel %s is readonly; mutating operations are not allowed", channel)
 		}
@@ -411,14 +418,14 @@ func scoreAuth(cfg *Config, authName string, auth AuthEntry, tenantName string, 
 		if op == OpPlatformWrite && access == AccessFull {
 			score += 30
 		}
-	case OpClassic, OpClassicWrite, OpACS, OpACSWrite, OpSchema:
+	case OpClassic, OpClassicWrite, OpACS, OpACSWrite, OpSchema, OpProUI, OpProUIWrite:
 		if surf == SurfaceInstance || surf == SurfaceAny {
 			score += 100
 		}
 		if surface == SurfaceInstance {
 			score += 20
 		}
-		if (op == OpClassicWrite || op == OpACSWrite) && access == AccessFull {
+		if (op == OpClassicWrite || op == OpACSWrite || op == OpProUIWrite) && access == AccessFull {
 			score += 30
 		}
 	case OpPro, OpAny:

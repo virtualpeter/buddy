@@ -216,7 +216,9 @@ func policyGetByID(credName string, policyID int) (*resourcePolicy, error) {
 const uriPoliciesV1 = "/api/v1/policies"
 
 // policyFetchList fetches the policy id/name list. Prefers undocumented Pro
-// GET /api/v1/policies (paginated); falls back to Classic GET /JSSResource/policies.
+// GET /api/v1/policies (paginated; instance-only — not on the Platform gateway
+// and not gated by features.classic_instance_only); falls back to Classic
+// GET /JSSResource/policies.
 func policyFetchList(credName string) ([]policyListItem, error) {
 	return policyFetchListHybrid(credName, nil)
 }

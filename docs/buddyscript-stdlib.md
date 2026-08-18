@@ -8,6 +8,7 @@ Compose [builtins](/docs/builtins) in your own `.buddy` files (bare returns; fai
 |---------|------|
 | [`examples/bump-release.buddy`](../examples/bump-release.buddy) | Resolve a policy by trigger, then set package / install / Self Service (optional smart-group version) |
 | [`examples/setup-app-classic.buddy`](../examples/setup-app-classic.buddy) | Build `step_*` dicts (prefs + PPPC profiles, cache/install, optional SS) for `plan_change` / `run_change` |
+| [`examples/classic-platform-route.buddy`](../examples/classic-platform-route.buddy) | GET-only Classic-on-Platform routing smoke (gateway `/api/proclassic/` vs instance ACS / policy list) |
 
 ```python
 load("re", "match")  # starlib regex; also predeclared as re

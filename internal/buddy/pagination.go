@@ -54,7 +54,11 @@ func fetchJamfPaged(credName, apiPath string, extra url.Values, opts PageOpts, o
 		q.Set("page", fmt.Sprintf("%d", page))
 		q.Set("page-size", fmt.Sprintf("%d", opts.PageSize))
 		// Match JamfRequest: pick auth/surface from the path (e.g. blueprints → platform).
+		// Bind resource class from the logical path for both URL pick and token pick
+		// so hybrid tenants cannot mix a platform gateway URL with an instance auth.
 		op := opClassForPath(http.MethodGet, apiPath)
+		restoreClass := setResourceClass(resourceClassForPath(apiPath))
+		defer restoreClass()
 		endpoint, err := ResolveEndpointOp(credName, apiPath, op)
 		if err != nil {
 			return 0, 0, err

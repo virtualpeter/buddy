@@ -1,0 +1,148 @@
+# Classic-on-Platform routing smoke (GETs only — no writes).
+#
+# Pin a *platform* OAuth auth on a hybrid tenant. Classic follows that pin by
+# default (/api/proclassic/). Set classic_instance_only true (or
+# BUDDY_CLASSIC_INSTANCE_ONLY=true) to force Classic onto instance — this
+# script then fails the Classic routing checks (that is the point of the gate).
+#
+#   buddy --tenant <hybrid> --auth <platform-oauth> examples/classic-platform-route.buddy
+#
+# Pass when:
+#   - Classic /JSSResource/… → https://{region}.apigw.jamf.com/api/proclassic/tenant/{id}/…
+#     with /JSSResource stripped, and list/detail GETs are 2xx
+#   - published Pro JSON → /api/pro/vN/tenant/{id}/…
+#   - ACS and undocumented GET /api/v1/policies stay on the instance host
+#
+# A Classic 403 with a correct /api/proclassic/ URL is a privilege gap, not a
+# rewrite bug. An instance URL for Classic means classic_instance_only is on
+# or the pin is not platform.
+
+def surface_of(url):
+    if "/api/proclassic/" in url:
+        if "/JSSResource" in url:
+            return "proclassic+jss"
+        return "proclassic"
+    if "/api/pro/" in url:
+        return "pro"
+    if "apigw.jamf.com" in url:
+        return "gateway"
+    return "instance"
+
+def first_xml_id(body):
+    start = body.find("<id>")
+    if start < 0:
+        return ""
+    start += len("<id>")
+    end = body.find("</id>", start)
+    if end < 0:
+        return ""
+    return body[start:end].strip()
+
+def resolve(path):
+    r = attempt(lambda: jamf_url(path))
+    if not r["ok"]:
+        return {"ok": False, "url": "", "error": r["error"]}
+    return {"ok": True, "url": r["value"], "error": ""}
+
+def get(path):
+    r = attempt(lambda: jamf_get(path, parse=False))
+    if not r["ok"]:
+        return {"ok": False, "status": 0, "body": "", "error": r["error"]}
+    v = r["value"]
+    return {"ok": True, "status": v["status"], "body": v["body"], "error": ""}
+
+def check(name, path, want_surface, http=True):
+    row = {
+        "name": name,
+        "path": path,
+        "want": want_surface,
+        "surface": "",
+        "url": "",
+        "http": None,
+        "ok": False,
+        "detail": "",
+    }
+    loc = resolve(path)
+    if not loc["ok"]:
+        row["detail"] = loc["error"]
+        print("FAIL  %s  resolve: %s" % (name, loc["error"]))
+        return row
+    url = loc["url"]
+    row["url"] = url
+    got = surface_of(url)
+    row["surface"] = got
+    if got != want_surface:
+        row["detail"] = "routed %s (want %s)" % (got, want_surface)
+        print("FAIL  %s  %s  %s" % (name, row["detail"], url))
+        return row
+    if not http:
+        row["ok"] = True
+        print("PASS  %s  %s  (url only)" % (name, got))
+        return row
+    resp = get(path)
+    if not resp["ok"]:
+        row["detail"] = resp["error"]
+        print("FAIL  %s  route=%s  HTTP %s" % (name, got, resp["error"]))
+        return row
+    row["http"] = resp["status"]
+    if resp["status"] < 200 or resp["status"] >= 300:
+        row["detail"] = "HTTP %d" % resp["status"]
+        print("FAIL  %s  route=%s  HTTP %d" % (name, got, resp["status"]))
+        return row
+    row["ok"] = True
+    row["body"] = resp["body"]
+    print("PASS  %s  %s  HTTP %d" % (name, got, resp["status"]))
+    return row
+
+def main():
+    print("session tenant=%s auth=%s" % (tenant, auth))
+    print("Classic-on-Platform smoke (GETs only)")
+    print("")
+
+    rows = []
+    rows.append(check("classic policies list", "/JSSResource/policies", "proclassic"))
+    pol = first_xml_id(rows[-1].get("body", "")) if rows[-1]["ok"] else ""
+    if pol != "":
+        rows.append(check("classic policy detail", "/JSSResource/policies/id/%s" % pol, "proclassic"))
+        rows.append(check("builtin policy_xml", "/JSSResource/policies/id/%s" % pol, "proclassic", http=False))
+        xml = attempt(lambda: policy_xml(id=int(pol)))
+        if xml["ok"]:
+            print("PASS  builtin policy_xml  HTTP (len=%d)" % len(xml["value"]))
+            rows.append({"name": "builtin policy_xml GET", "ok": True, "want": "proclassic", "surface": "proclassic"})
+        else:
+            print("FAIL  builtin policy_xml  %s" % xml["error"])
+            rows.append({"name": "builtin policy_xml GET", "ok": False, "detail": xml["error"]})
+
+    rows.append(check("classic profiles list", "/JSSResource/osxconfigurationprofiles", "proclassic"))
+    prof = first_xml_id(rows[-1].get("body", "")) if rows[-1]["ok"] else ""
+    if prof != "":
+        rows.append(check("classic profile detail", "/JSSResource/osxconfigurationprofiles/id/%s" % prof, "proclassic"))
+
+    rows.append(check("classic computer groups list", "/JSSResource/computergroups", "proclassic"))
+    grp = first_xml_id(rows[-1].get("body", "")) if rows[-1]["ok"] else ""
+    if grp != "":
+        rows.append(check("classic computer group detail", "/JSSResource/computergroups/id/%s" % grp, "proclassic"))
+
+    rows.append(check("classic packages list", "/JSSResource/packages", "proclassic"))
+    rows.append(check("classic scripts list", "/JSSResource/scripts", "proclassic"))
+    rows.append(check("classic categories list", "/JSSResource/categories", "proclassic"))
+    rows.append(check("classic mac apps list", "/JSSResource/macapplications", "proclassic"))
+
+    rows.append(check("pro packages page", "/api/v1/packages?page=0&page-size=1", "pro"))
+    rows.append(check("pro scripts page", "/api/v1/scripts?page=0&page-size=1", "pro"))
+
+    rows.append(check("pro UI policy list", "/api/v1/policies", "instance"))
+    rows.append(check("ACS config-profiles", "/api/config-profiles/macos/1", "instance", http=False))
+
+    failed = []
+    for row in rows:
+        if not row["ok"]:
+            failed.append(row["name"])
+    print("")
+    if failed:
+        print("FAILED %d/%d: %s" % (len(failed), len(rows), ", ".join(failed)))
+        print("If Classic rows show surface=instance, classic_instance_only is on or the pin is not platform.")
+        print("If Classic rows show proclassic+jss, the /JSSResource strip is missing.")
+        exit(1)
+    print("OK  %d checks (Classic via /api/proclassic/, Pro via /api/pro/, ACS+policy list on instance)" % len(rows))
+    return {"ok": True, "checks": len(rows)}

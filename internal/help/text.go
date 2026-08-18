@@ -162,7 +162,8 @@ on policy create, computer_ids on static-group membership). Pass either id=
 or a natural key (trigger=/name=/name=+version=), not both. Resource IDs first;
 payload/options next; tenant?/surface?/auth? always last (source session).
 Auth alone soft-switches tenant. A pin that cannot serve the call's required
-surface (Classic -> instance while classic_instance_only is on; Platform
+surface (Classic -> instance only while classic_instance_only is on; ACS and
+undocumented Pro GET /api/v1/policies -> always instance; Platform
 product APIs -> platform) auto-picks another linked auth on the same tenant.
 Dual-session copy builtins add
 to_tenant?/to_surface?/to_auth? for destination (omit = same as source).
@@ -188,8 +189,8 @@ cover aliases, upsert, READY gates, and other behavior.
 STDLIB
   Shared modules use load("stdlib/<name>.buddy", …). None are
   embedded yet. Multi-step recipes live in examples/ (copy and adapt):
-  bump-release.buddy, setup-app-classic.buddy. Browse builtins in the IDE
-  Libraries sidebar (buddy serve → /ide).
+  bump-release.buddy, setup-app-classic.buddy, classic-platform-route.buddy.
+  Browse builtins in the IDE Libraries sidebar (buddy serve → /ide).
 
 `
 
@@ -198,9 +199,14 @@ const builtinsTail = `JAMF API
   builtins when they exist; use these for endpoints buddy does not wrap yet.
   Path is host-relative (must start with /). Defaults: /JSSResource… → XML
   Classic API; /api/… → JSON Jamf Pro API.
-  value is always {status: int, body: str|dict|list|bytes, content_type: str}.
+  HTTP helpers return {status: int, body: str|dict|list|bytes, content_type: str}.
   On non-2xx: raises with status/path (and a short body preview).
+  jamf_url resolves the rewritten URL only (no HTTP).
 
+  jamf_url(path, tenant?, surface?, auth?)
+      Does: Resolve the full Jamf URL for path (host + Platform rewrite) without sending HTTP.
+      → value: str
+      Params: path: str (must start with /). Same session pick as jamf_get (Classic / ACS / Pro UI / published Pro).
   jamf_get(path, accept?, parse?=True, tenant?, surface?, auth?)
       Does: Authenticated GET against the Jamf host.
       → value: {status, body, content_type}

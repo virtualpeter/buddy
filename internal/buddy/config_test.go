@@ -282,20 +282,20 @@ func TestPickAuthClassicWritePrefersInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sess.AuthName != "inst" || sess.Surface != SurfaceInstance {
-		t.Fatalf("platform pin should soft-switch to inst, got %s/%s", sess.AuthName, sess.Surface)
+	if sess.AuthName != "plat" || sess.Surface != SurfacePlatform {
+		t.Fatalf("default: platform pin should use platform for Classic, got %s/%s", sess.AuthName, sess.Surface)
 	}
 }
 
 func TestClassicInstanceOnly_DefaultAndMarshal(t *testing.T) {
 	t.Setenv(EnvClassicInstanceOnly, "")
 	var nilCfg *Config
-	if !nilCfg.ClassicInstanceOnly() {
-		t.Fatal("nil config should default true")
+	if nilCfg.ClassicInstanceOnly() {
+		t.Fatal("nil config should default false")
 	}
 	cfg := &Config{}
-	if !cfg.ClassicInstanceOnly() {
-		t.Fatal("omitted YAML should default true")
+	if cfg.ClassicInstanceOnly() {
+		t.Fatal("omitted YAML should default false")
 	}
 	data, err := marshalConfig(cfg, nil)
 	if err != nil {
@@ -305,18 +305,26 @@ func TestClassicInstanceOnly_DefaultAndMarshal(t *testing.T) {
 		t.Fatalf("default should omit features:\n%s", data)
 	}
 	cfg.Features.ClassicInstanceOnly = boolPtr(false)
-	if cfg.ClassicInstanceOnly() {
-		t.Fatal("YAML false")
+	data, err = marshalConfig(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "classic_instance_only") {
+		t.Fatalf("explicit false is the default and should omit features:\n%s", data)
+	}
+	cfg.Features.ClassicInstanceOnly = boolPtr(true)
+	if !cfg.ClassicInstanceOnly() {
+		t.Fatal("YAML true")
 	}
 	data, err = marshalConfig(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "classic_instance_only: false") {
-		t.Fatalf("want persisted false, got:\n%s", data)
+	if !strings.Contains(string(data), "classic_instance_only: true") {
+		t.Fatalf("want persisted true, got:\n%s", data)
 	}
-	t.Setenv(EnvClassicInstanceOnly, "true")
-	if !cfg.ClassicInstanceOnly() {
-		t.Fatal("env true should override YAML false")
+	t.Setenv(EnvClassicInstanceOnly, "false")
+	if cfg.ClassicInstanceOnly() {
+		t.Fatal("env false should override YAML true")
 	}
 }

@@ -154,6 +154,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "exit", exitBuiltin(logger))
 
 	putBuiltin(dict, "jamf_request", jamfRequestBuiltin(credName, logger))
+	putBuiltin(dict, "jamf_url", jamfURLBuiltin(credName, logger))
 	putBuiltin(dict, "jamf_get", jamfGetBuiltin(credName, logger))
 	putBuiltin(dict, "jamf_post", jamfPostBuiltin(credName, logger))
 	putBuiltin(dict, "jamf_put", jamfPutBuiltin(credName, logger))

@@ -33,7 +33,29 @@ func TestRewriteJamfPath_Classic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/api/proclassic/tenant/tid-1/JSSResource/policies/id/42"
+	want := "/api/proclassic/tenant/tid-1/policies/id/42"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestRewriteJamfPath_ClassicExactPrefix(t *testing.T) {
+	got, err := RewriteJamfPath("tid-1", "/JSSResource")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/api/proclassic/tenant/tid-1/"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestRewriteJamfPath_ClassicQuery(t *testing.T) {
+	got, err := RewriteJamfPath("tid-1", "/JSSResource/policies?foo=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/api/proclassic/tenant/tid-1/policies?foo=1"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
@@ -93,8 +115,11 @@ func TestOpClassForPath_Classic(t *testing.T) {
 	if got := opClassForPath("POST", "/JSSResource/policies/id/0"); got != OpClassicWrite {
 		t.Fatalf("POST Classic → %q want %q", got, OpClassicWrite)
 	}
-	if got := opClassForPath("PUT", "/api/proclassic/tenant/tid/JSSResource/policies/id/1"); got != OpClassicWrite {
+	if got := opClassForPath("PUT", "/api/proclassic/tenant/tid/policies/id/1"); got != OpClassicWrite {
 		t.Fatalf("PUT proclassic → %q", got)
+	}
+	if got := opClassForPath("GET", "/api/proclassic/tenant/tid/JSSResource/policies/id/1"); got != OpClassic {
+		t.Fatalf("GET legacy proclassic+JSSResource → %q", got)
 	}
 }
 
@@ -107,6 +132,15 @@ func TestOpClassForPath_ACS(t *testing.T) {
 	}
 	if got := opClassForPath("PUT", "/api/config-profiles/macos/abc"); got != OpACSWrite {
 		t.Fatalf("PUT ACS → %q want %q", got, OpACSWrite)
+	}
+}
+
+func TestOpClassForPath_ProPoliciesList(t *testing.T) {
+	if got := opClassForPath("GET", "/api/v1/policies"); got != OpProUI {
+		t.Fatalf("GET policy list → %q want %q", got, OpProUI)
+	}
+	if got := opClassForPath("GET", "/api/v1/packages"); got != OpRead {
+		t.Fatalf("GET packages must stay published Pro OpRead, got %q", got)
 	}
 }
 
@@ -153,8 +187,22 @@ func TestRewriteJamfPath_ACSRejected(t *testing.T) {
 	}
 }
 
+func TestRewriteJamfPath_ProPoliciesListRejected(t *testing.T) {
+	_, err := RewriteJamfPath("tid", "/api/v1/policies")
+	if err == nil || !strings.Contains(err.Error(), "undocumented Pro policy list is instance-only") {
+		t.Fatalf("expected policy-list instance-only error, got %v", err)
+	}
+	got, err := RewriteJamfPath("", "/api/v1/policies")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/api/v1/policies" {
+		t.Fatalf("instance rewrite should leave policy list path, got %q", got)
+	}
+}
+
 func TestDefaultJamfMedia_Proclassic(t *testing.T) {
-	ct, accept := DefaultJamfMedia("/api/proclassic/tenant/x/JSSResource/policies")
+	ct, accept := DefaultJamfMedia("/api/proclassic/tenant/x/policies")
 	if ct != "application/xml" || accept != "application/xml" {
 		t.Fatalf("got ct=%q accept=%q", ct, accept)
 	}

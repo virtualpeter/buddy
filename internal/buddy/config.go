@@ -512,21 +512,25 @@ func (t *TenantSelection) UnmarshalYAML(value *yaml.Node) error {
 }
 
 // EnvClassicInstanceOnly overrides features.classic_instance_only when set
-// (1/true/yes/on or 0/false/no/off). Omit to use YAML, then default true.
+// (1/true/yes/on or 0/false/no/off). Omit to use YAML, then default false.
 const EnvClassicInstanceOnly = "BUDDY_CLASSIC_INSTANCE_ONLY"
 
 // FeatureFlags are optional buddy behavior toggles (omitted keys use defaults).
 type FeatureFlags struct {
-	// ClassicInstanceOnly routes Classic API calls to an instance auth.
-	// Default true: Jamf Account Platform integrations do not yet publish
-	// Classic privileges, so /api/proclassic/ typically 401/403. Set false
-	// (or BUDDY_CLASSIC_INSTANCE_ONLY=false) to let Classic use a platform
-	// session once those privileges exist.
+	// ClassicInstanceOnly routes Classic /JSSResource calls to an instance auth.
+	// Default false: Classic follows a platform pin / auto-pick
+	// (/api/proclassic/tenant/{id}/… with /JSSResource stripped). Set true
+	// (or BUDDY_CLASSIC_INSTANCE_ONLY=true) to force Classic onto instance.
+	// Gateway 403 then means the OAuth client lacks Classic scopes.
+	//
+	// This flag does not apply to ACS (/api/config-profiles/…) or the
+	// undocumented Pro policy list (GET /api/v1/policies). Those are always
+	// instance — they are not published on the Platform gateway.
 	ClassicInstanceOnly *bool `yaml:"classic_instance_only,omitempty"`
 }
 
 // ClassicInstanceOnly reports whether Classic API routing must use an
-// instance auth. Env wins over YAML; omitted means true.
+// instance auth. Env wins over YAML; omitted means false.
 func (cfg *Config) ClassicInstanceOnly() bool {
 	if v, ok := parseBoolishEnv(EnvClassicInstanceOnly); ok {
 		return v
@@ -534,7 +538,7 @@ func (cfg *Config) ClassicInstanceOnly() bool {
 	if cfg != nil && cfg.Features.ClassicInstanceOnly != nil {
 		return *cfg.Features.ClassicInstanceOnly
 	}
-	return true
+	return false
 }
 
 func parseBoolishEnv(key string) (value, ok bool) {
@@ -1517,15 +1521,11 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 		}
 	}
 
-	if cfg.Features.ClassicInstanceOnly != nil {
-		val := "true"
-		if !*cfg.Features.ClassicInstanceOnly {
-			val = "false"
-		}
+	if cfg.Features.ClassicInstanceOnly != nil && *cfg.Features.ClassicInstanceOnly {
 		feat := &yaml.Node{Kind: yaml.MappingNode}
 		feat.Content = append(feat.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "classic_instance_only"},
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: val},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"},
 		)
 		root.Content = append(root.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "features"},
