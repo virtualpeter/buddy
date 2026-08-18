@@ -6,23 +6,23 @@ package help
 // ComputersBuiltinsSection is spliced into Builtins.
 const ComputersBuiltinsSection = `COMPUTER
   computers(filter?, ids?=False, raw?=False, sort?, section?, page?, page_size?, tenant?, surface?, auth?)
-      Does: List computers from Pro inventory v3.
+      Does: List computers from Pro inventory v4.
       → value: list of summary dicts; list of int if ids=True; Jamf results[] dicts if raw=True
-      Params: filter?: bare term → general.name=="*term*", or full RSQL (v3: general.lastContactTime, general.reportDate, …).
+      Params: filter?: bare term → general.name=="*term*", or full RSQL (v4: general.lastContact, general.lastCheckIn, general.reportDate, …).
         ids?: bool (xor with raw). raw?: bool — unchanged Jamf results[] (xor with ids).
-        sort?: string — sort= (e.g. general.reportDate:desc); omit = Jamf general.name:asc.
+        sort?: string — sort= (e.g. general.lastContact:desc); omit = Jamf general.name:asc.
         section?: string or list → repeated section= on the list GET (omit = GENERAL).
         page?: int (omit = all); page_size?: int (default 200).
-      Notes: Summary dicts include lastContactTime, reportDate, lastEnrolledDate, platform from GENERAL.
-        reportDate is last inventory. Do not use v4/Platform names (lastCheckIn, lastInventory).
+      Notes: Summary dicts include lastContact, lastCheckIn, reportDate, lastEnrolledDate, platform from GENERAL.
+        reportDate is last inventory. Do not use v3 lastContactTime or Platform lastCheckInTime.
         ids and raw are mutually exclusive.
   computer(id, section?, tenant?, surface?, auth?)
       Does: Load one computer's inventory JSON (requested sections).
-      → value: dict (GET /api/v3/computers-inventory/{id} JSON)
+      → value: dict (GET /api/v4/computers-inventory/{id} JSON)
       Params: id: str; section?: string or list → ?section= (omit = Jamf GENERAL default).
   computer_detail(id, tenant?, surface?, auth?)
       Does: Load one computer with all inventory sections.
-      → value: dict (GET /api/v3/computers-inventory-detail/{id} JSON)
+      → value: dict (GET /api/v4/computers-inventory-detail/{id} JSON)
       Params: id: str.
   computer_send_mdm_command(ids, command_type, command_data?, tenant?, surface?, auth?)
       Does: Queue a named MDM command on one or more computers.
@@ -106,7 +106,7 @@ Subcommands:
 
 Flags for 'list':
   --filter=<term|rsql>           Bare term → general.name contains; or full RSQL
-  --sort=<field:dir>             Jamf sort= (e.g. general.lastContactTime:desc); omit for name
+  --sort=<field:dir>             Jamf sort= (e.g. general.lastContact:desc); omit for name
   --section=<name>[,<name>...]   Extra inventory sections on the list GET (omit = GENERAL)
   --json                         Print Jamf results[] as JSON
   --management-id=<uuid>         Look up by MDM management UUID
@@ -118,7 +118,7 @@ Examples:
   buddy computer list
   buddy computer list --filter=Example
   buddy computer list --filter='general.name=="*Example*"'
-  buddy computer list --filter='general.lastContactTime=ge=2026-01-01T00:00:00Z' --sort=general.lastContactTime:desc
+  buddy computer list --filter='general.lastContact=ge=2026-01-01T00:00:00Z' --sort=general.lastContact:desc
   buddy computer list --json
   buddy computer list --management-id=00000000-0000-4000-8000-000000000003
   buddy computer get 101

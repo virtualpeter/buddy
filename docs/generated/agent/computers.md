@@ -10,7 +10,8 @@ keywords:
   - computer_detail
   - inventory
   - section
-  - lastContactTime
+  - lastContact
+  - lastCheckIn
   - reportDate
   - reboot
   - lock
@@ -20,26 +21,26 @@ keywords:
 
 # Computers
 
-Jamf Pro computer inventory (v3) and MDM **actions** (reboot, lock, erase, …). For MDM **command history** queries, see [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices) — different API surface.
+Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …). For MDM **command history** queries, see [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices) — different API surface.
 
 ## Agent rules
 
 - Do not mix Pro `computer*` with Platform `device*` — different gateways and IDs.
 - Do not use this page for RSQL history of MDM commands — that is [mdm](/docs/docs/mdm).
-- Do not invent computers-inventory **v4** paths from schema; buddy and production stay on v3 for now (see [api-endpoints](/docs/docs/api-endpoints)).
-- Date filters: `general.lastContactTime` (last MDM/binary contact), `general.reportDate` (last inventory). Unquoted ISO-8601 UTC. Not `lastCheckIn` / `lastInventory` / `lastCheckInTime`.
-- `computers()` summary dicts include `lastContactTime`, `reportDate`, `lastEnrolledDate`, `platform` from GENERAL. `raw=True` is Jamf `results[]` passthrough (xor with `ids=True`). List `section=` adds HARDWARE/OS without N+1 gets.
+- Computer inventory is **v4** (`/api/v4/computers-inventory`). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime` (see [api-endpoints](/docs/docs/api-endpoints)).
+- Date filters: `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, `general.reportDate` (last inventory). Unquoted ISO-8601 UTC.
+- `computers()` summary dicts include `lastContact`, `lastCheckIn`, `reportDate`, `lastEnrolledDate`, `platform` from GENERAL. `raw=True` is Jamf `results[]` passthrough (xor with `ids=True`). List `section=` adds HARDWARE/OS without N+1 gets.
 - `computer(id)` returns full inventory JSON for requested sections (Jamf default GENERAL). Use `computer_detail(id)` for all sections.
 - Prefer named `computer_*` builtins over raw MDM POSTs.
 
 ## Facts
 
-- List / find: `computers(filter=…, sort?, section?, raw?, page?, page_size?)` · `buddy computer list [--sort=] [--json]` — v3 dates `lastContactTime` / `reportDate`; omit page to fetch all
+- List / find: `computers(filter=…, sort?, section?, raw?, page?, page_size?)` · `buddy computer list [--sort=] [--json]` — v4 dates `lastContact` / `lastCheckIn` / `reportDate`; omit page to fetch all
 - Load: `computer(id=…, section?)` · `buddy computer get [--section=…]` — Passthrough JSON; default GENERAL; `section` → `?section=`
 - Load all sections: `computer_detail(id=…)` · `buddy computer detail` — `GET …/computers-inventory-detail/{id}`
 - MDM actions: `computer_reboot` / `computer_lock` / … · `buddy computer reboot|lock|…` — Named builtins and matching CLI verbs
 - MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).
-- List RSQL dates are v3 `general.lastContactTime` (last MDM/binary contact) and `general.reportDate` (last inventory). Do not use v4/Platform names (`lastCheckIn`, `lastInventory`).
+- List RSQL dates are v4 `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, and `general.reportDate` (last inventory). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime`.
 
 ## Builtins
 
@@ -56,7 +57,7 @@ Returns: list of summary dicts (or ids / raw results)
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "filter": {
-      "description": "bare term or v3 RSQL",
+      "description": "bare term or v4 RSQL",
       "type": "string"
     },
     "ids": {
@@ -177,8 +178,8 @@ def main():
         sort="general.reportDate:desc",
     )
     seen = computers(
-        filter=rsql_ge("general.lastContactTime", rsql_days_ago(1)),
-        sort="general.lastContactTime:desc",
+        filter=rsql_ge("general.lastContact", rsql_days_ago(1)),
+        sort="general.lastContact:desc",
     )
     return {"inventory": len(recent), "contact": len(seen)}
 ```

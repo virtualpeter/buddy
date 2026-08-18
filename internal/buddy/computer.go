@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	uriComputersInventory       = "/api/v3/computers-inventory"
-	uriComputersInventoryDetail = "/api/v3/computers-inventory-detail"
+	uriComputersInventory       = "/api/v4/computers-inventory"
+	uriComputersInventoryDetail = "/api/v4/computers-inventory-detail"
 )
 
 var errComputerIDsRequired = errors.New("at least one computer ID required")
@@ -27,50 +27,52 @@ type ComputerRecord struct {
 	ManagementID     string `json:"managementId,omitempty"`
 	MacAddress       string `json:"macAddress,omitempty"`
 	Username         string `json:"username,omitempty"`
-	LastContactTime  string `json:"lastContactTime,omitempty"`
+	LastContact      string `json:"lastContact,omitempty"`
+	LastCheckIn      string `json:"lastCheckIn,omitempty"`
 	ReportDate       string `json:"reportDate,omitempty"`
 	LastEnrolledDate string `json:"lastEnrolledDate,omitempty"`
 	Platform         string `json:"platform,omitempty"`
 }
 
-// ComputerListQuery is filter, sort, and optional sections for GET /api/v3/computers-inventory.
+// ComputerListQuery is filter, sort, and optional sections for GET /api/v4/computers-inventory.
 type ComputerListQuery struct {
 	Filter   string
 	Sort     string
 	Sections []string
 }
 
-// computerInventoryListResponseV3 is the paginated response from GET /api/v3/computers-inventory.
-type computerInventoryListResponseV3 struct {
+// computerInventoryListResponseV4 is the paginated response from GET /api/v4/computers-inventory.
+type computerInventoryListResponseV4 struct {
 	TotalCount int                  `json:"totalCount"`
-	Results    []computerListItemV3 `json:"results"`
+	Results    []computerListItemV4 `json:"results"`
 }
 
-// computerListItemV3 is a single item in the v3 computers-inventory list.
-// v3 returns id as string; we use interface{} to accept both for robustness.
-type computerListItemV3 struct {
+// computerListItemV4 is a single item in the v4 computers-inventory list.
+// v4 returns id as string; we use interface{} to accept both for robustness.
+type computerListItemV4 struct {
 	ID           interface{}            `json:"id"`
 	UDID         string                 `json:"udid,omitempty"`
 	SerialNumber string                 `json:"serialNumber,omitempty"`
-	General      *computerListGeneralV3 `json:"general,omitempty"`
+	General      *computerListGeneralV4 `json:"general,omitempty"`
 	Hardware     *struct {
 		SerialNumber string `json:"serialNumber,omitempty"`
 	} `json:"hardware,omitempty"`
 }
 
-type computerListGeneralV3 struct {
+type computerListGeneralV4 struct {
 	Name             string `json:"name,omitempty"`
 	MacAddress       string `json:"macAddress,omitempty"`
 	Username         string `json:"username,omitempty"`
 	ManagementID     string `json:"managementId,omitempty"`
-	LastContactTime  string `json:"lastContactTime,omitempty"`
+	LastContact      string `json:"lastContact,omitempty"`
+	LastCheckIn      string `json:"lastCheckIn,omitempty"`
 	ReportDate       string `json:"reportDate,omitempty"`
 	LastEnrolledDate string `json:"lastEnrolledDate,omitempty"`
 	Platform         string `json:"platform,omitempty"`
 }
 
-// computerInventoryDetailResponseV3 is the response from GET /api/v3/computers-inventory/{id}.
-type computerInventoryDetailResponseV3 struct {
+// computerInventoryDetailResponseV4 is the response from GET /api/v4/computers-inventory/{id}.
+type computerInventoryDetailResponseV4 struct {
 	ID           interface{} `json:"id"`
 	UDID         string      `json:"udid,omitempty"`
 	SerialNumber string      `json:"serialNumber,omitempty"`
@@ -85,7 +87,7 @@ type computerInventoryDetailResponseV3 struct {
 	} `json:"hardware,omitempty"`
 }
 
-// parseComputerID extracts int from v3 id (string) or v1 id (number).
+// parseComputerID extracts int from v4 id (string) or numeric JSON.
 func parseComputerID(v interface{}) (int, error) {
 	switch x := v.(type) {
 	case float64:
@@ -130,7 +132,7 @@ func computerListQueryValues(q ComputerListQuery) (url.Values, error) {
 	return extra, nil
 }
 
-func computerRecordFromListItem(r computerListItemV3) (ComputerRecord, error) {
+func computerRecordFromListItem(r computerListItemV4) (ComputerRecord, error) {
 	id, err := parseComputerID(r.ID)
 	if err != nil {
 		return ComputerRecord{}, err
@@ -141,7 +143,8 @@ func computerRecordFromListItem(r computerListItemV3) (ComputerRecord, error) {
 		rec.MacAddress = r.General.MacAddress
 		rec.Username = r.General.Username
 		rec.ManagementID = r.General.ManagementID
-		rec.LastContactTime = r.General.LastContactTime
+		rec.LastContact = r.General.LastContact
+		rec.LastCheckIn = r.General.LastCheckIn
 		rec.ReportDate = r.General.ReportDate
 		rec.LastEnrolledDate = r.General.LastEnrolledDate
 		rec.Platform = r.General.Platform
@@ -164,7 +167,7 @@ func ComputerSearch(credName string, q ComputerListQuery, opts PageOpts, logger 
 	}
 	var all []ComputerRecord
 	err = fetchJamfPaged(credName, uriComputersInventory, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
-		var page []computerListItemV3
+		var page []computerListItemV4
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)
 		}
@@ -227,10 +230,10 @@ func ComputerSearchPrint(credName string, q ComputerListQuery, asJSON bool, logg
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%-8s  %-32s  %-16s  %-24s  %s\n", "ID", "Name", "Serial", "Last Contact", "Report Date")
+	fmt.Printf("%-8s  %-32s  %-16s  %-24s  %s\n", "ID", "Name", "Serial", "Last Contact", "Last Check-In")
 	fmt.Printf("%-8s  %-32s  %-16s  %-24s  %s\n", "--------", "--------------------------------", "----------------", "------------------------", "------------------------")
 	for _, r := range records {
-		fmt.Printf("%-8d  %-32s  %-16s  %-24s  %s\n", r.ID, truncateComputer(r.Name, 32), truncateComputer(r.SerialNumber, 16), truncateComputer(r.LastContactTime, 24), truncateComputer(r.ReportDate, 24))
+		fmt.Printf("%-8d  %-32s  %-16s  %-24s  %s\n", r.ID, truncateComputer(r.Name, 32), truncateComputer(r.SerialNumber, 16), truncateComputer(r.LastContact, 24), truncateComputer(r.LastCheckIn, 24))
 	}
 	fmt.Printf("\n%d computer(s)\n", len(records))
 	return nil
@@ -245,7 +248,7 @@ func truncateComputer(s string, n int) string {
 }
 
 // ComputerGet fetches a single computer by ID and prints full inventory JSON
-// (passthrough of GET /api/v3/computers-inventory/{id}; default section is GENERAL).
+// (passthrough of GET /api/v4/computers-inventory/{id}; default section is GENERAL).
 func ComputerGet(credName, idStr string, sections []string, logger *slog.Logger) error {
 	body, err := ComputerFetchInventory(credName, idStr, sections)
 	if err != nil {
@@ -260,7 +263,7 @@ func ComputerGet(credName, idStr string, sections []string, logger *slog.Logger)
 	return nil
 }
 
-// ComputerDetail prints full inventory from GET /api/v3/computers-inventory-detail/{id} (all sections).
+// ComputerDetail prints full inventory from GET /api/v4/computers-inventory-detail/{id} (all sections).
 func ComputerDetail(credName, idStr string, logger *slog.Logger) error {
 	body, err := ComputerFetchDetail(credName, idStr)
 	if err != nil {
@@ -312,7 +315,7 @@ func computerInventoryPath(idStr string, sections []string) (string, error) {
 	return path + "?" + q.Encode(), nil
 }
 
-// ComputerFetchInventory returns raw JSON from GET /api/v3/computers-inventory/{id}.
+// ComputerFetchInventory returns raw JSON from GET /api/v4/computers-inventory/{id}.
 // When sections is empty, Jamf defaults to the GENERAL section.
 func ComputerFetchInventory(credName, idStr string, sections []string) ([]byte, error) {
 	path, err := computerInventoryPath(idStr, sections)
@@ -326,7 +329,7 @@ func ComputerFetchInventory(credName, idStr string, sections []string) ([]byte, 
 	return body, nil
 }
 
-// ComputerFetchDetail returns raw JSON from GET /api/v3/computers-inventory-detail/{id} (all sections).
+// ComputerFetchDetail returns raw JSON from GET /api/v4/computers-inventory-detail/{id} (all sections).
 func ComputerFetchDetail(credName, idStr string) ([]byte, error) {
 	id, err := strconv.Atoi(strings.TrimSpace(idStr))
 	if err != nil || id <= 0 {
@@ -375,11 +378,11 @@ func computerGetManagementID(credName string, computerID int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("get computer %d: %w", computerID, err)
 	}
-	var detail computerInventoryDetailResponseV3
+	var detail computerInventoryDetailResponseV4
 	if err := json.Unmarshal(body, &detail); err != nil {
 		return "", fmt.Errorf("parse response: %w", err)
 	}
-	// managementId is in General (v3 schema)
+	// managementId is in General (v4 schema)
 	if detail.General != nil && detail.General.ManagementID != "" {
 		return detail.General.ManagementID, nil
 	}
@@ -404,7 +407,7 @@ func computerGetManagementID(credName string, computerID int) (string, error) {
 }
 
 // computerSendMDMCommand sends an MDM command to one or more computers via POST /api/v2/mdm/commands.
-// Each computer's managementId is fetched via GET /api/v3/computers-inventory/{id}?section=GENERAL.
+// Each computer's managementId is fetched via GET /api/v4/computers-inventory/{id}?section=GENERAL.
 func computerSendMDMCommand(credName string, computerIDs []int, commandType string, commandData map[string]interface{}, logger *slog.Logger) error {
 	if len(computerIDs) == 0 {
 		return errComputerIDsRequired

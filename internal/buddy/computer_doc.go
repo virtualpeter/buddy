@@ -18,30 +18,31 @@ var ComputersTopic = docspec.Topic{
 		`computer_detail`,
 		`inventory`,
 		`section`,
-		`lastContactTime`,
+		`lastContact`,
+		`lastCheckIn`,
 		`reportDate`,
 		`reboot`,
 		`lock`,
 		`erase`,
 		`mdm`,
 	},
-	Summary: `Jamf Pro computer inventory (v3) and MDM **actions** (reboot, lock, erase, …). For MDM **command history** queries, see [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices) — different API surface.`,
+	Summary: `Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …). For MDM **command history** queries, see [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices) — different API surface.`,
 	Surfaces: []docspec.SurfaceRow{
-		{Action: "List / find", BuddyScript: "`computers(filter=…, sort?, section?, raw?, page?, page_size?)`", CLI: "`buddy computer list [--sort=] [--json]`", Notes: "v3 dates `lastContactTime` / `reportDate`; omit page to fetch all"},
+		{Action: "List / find", BuddyScript: "`computers(filter=…, sort?, section?, raw?, page?, page_size?)`", CLI: "`buddy computer list [--sort=] [--json]`", Notes: "v4 dates `lastContact` / `lastCheckIn` / `reportDate`; omit page to fetch all"},
 		{Action: "Load", BuddyScript: "`computer(id=…, section?)`", CLI: "`buddy computer get [--section=…]`", Notes: "Passthrough JSON; default GENERAL; `section` → `?section=`"},
 		{Action: "Load all sections", BuddyScript: "`computer_detail(id=…)`", CLI: "`buddy computer detail`", Notes: "`GET …/computers-inventory-detail/{id}`"},
 		{Action: "MDM actions", BuddyScript: "`computer_reboot` / `computer_lock` / …", CLI: "`buddy computer reboot|lock|…`", Notes: "Named builtins and matching CLI verbs"},
 	},
 	Notes: []string{
 		"MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).",
-		"List RSQL dates are v3 `general.lastContactTime` (last MDM/binary contact) and `general.reportDate` (last inventory). Do not use v4/Platform names (`lastCheckIn`, `lastInventory`).",
+		"List RSQL dates are v4 `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, and `general.reportDate` (last inventory). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime`.",
 	},
 	AgentNotes: []string{
 		"Do not mix Pro `computer*` with Platform `device*` — different gateways and IDs.",
 		"Do not use this page for RSQL history of MDM commands — that is [mdm](/docs/docs/mdm).",
-		"Do not invent computers-inventory **v4** paths from schema; buddy and production stay on v3 for now (see [api-endpoints](/docs/docs/api-endpoints)).",
-		"Date filters: `general.lastContactTime` (last MDM/binary contact), `general.reportDate` (last inventory). Unquoted ISO-8601 UTC. Not `lastCheckIn` / `lastInventory` / `lastCheckInTime`.",
-		"`computers()` summary dicts include `lastContactTime`, `reportDate`, `lastEnrolledDate`, `platform` from GENERAL. `raw=True` is Jamf `results[]` passthrough (xor with `ids=True`). List `section=` adds HARDWARE/OS without N+1 gets.",
+		"Computer inventory is **v4** (`/api/v4/computers-inventory`). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime` (see [api-endpoints](/docs/docs/api-endpoints)).",
+		"Date filters: `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, `general.reportDate` (last inventory). Unquoted ISO-8601 UTC.",
+		"`computers()` summary dicts include `lastContact`, `lastCheckIn`, `reportDate`, `lastEnrolledDate`, `platform` from GENERAL. `raw=True` is Jamf `results[]` passthrough (xor with `ids=True`). List `section=` adds HARDWARE/OS without N+1 gets.",
 		"`computer(id)` returns full inventory JSON for requested sections (Jamf default GENERAL). Use `computer_detail(id)` for all sections.",
 		"Prefer named `computer_*` builtins over raw MDM POSTs.",
 	},
@@ -51,7 +52,7 @@ var ComputersTopic = docspec.Topic{
 			Summary: `List computers`,
 			Returns: `list of summary dicts (or ids / raw results)`,
 			Params: []docspec.Param{
-				{Name: `filter`, Type: `string`, Required: false, Description: `bare term or v3 RSQL`},
+				{Name: `filter`, Type: `string`, Required: false, Description: `bare term or v4 RSQL`},
 				{Name: `ids`, Type: `bool`, Required: false, Description: `return list of int (xor with raw)`},
 				{Name: `raw`, Type: `bool`, Required: false, Description: `Jamf results[] passthrough (xor with ids)`},
 				{Name: `sort`, Type: `string`, Required: false, Description: `sort= (e.g. general.reportDate:desc)`},
@@ -96,8 +97,8 @@ var ComputersTopic = docspec.Topic{
         sort="general.reportDate:desc",
     )
     seen = computers(
-        filter=rsql_ge("general.lastContactTime", rsql_days_ago(1)),
-        sort="general.lastContactTime:desc",
+        filter=rsql_ge("general.lastContact", rsql_days_ago(1)),
+        sort="general.lastContact:desc",
     )
     return {"inventory": len(recent), "contact": len(seen)}`,
 	},
@@ -109,23 +110,23 @@ var ComputersTopic = docspec.Topic{
 	HelpExport: `computers`,
 	BuiltinsHelp: `COMPUTER
   computers(filter?, ids?=False, raw?=False, sort?, section?, page?, page_size?, tenant?, surface?, auth?)
-      Does: List computers from Pro inventory v3.
+      Does: List computers from Pro inventory v4.
       → value: list of summary dicts; list of int if ids=True; Jamf results[] dicts if raw=True
-      Params: filter?: bare term → general.name=="*term*", or full RSQL (v3: general.lastContactTime, general.reportDate, …).
+      Params: filter?: bare term → general.name=="*term*", or full RSQL (v4: general.lastContact, general.lastCheckIn, general.reportDate, …).
         ids?: bool (xor with raw). raw?: bool — unchanged Jamf results[] (xor with ids).
-        sort?: string — sort= (e.g. general.reportDate:desc); omit = Jamf general.name:asc.
+        sort?: string — sort= (e.g. general.lastContact:desc); omit = Jamf general.name:asc.
         section?: string or list → repeated section= on the list GET (omit = GENERAL).
         page?: int (omit = all); page_size?: int (default 200).
-      Notes: Summary dicts include lastContactTime, reportDate, lastEnrolledDate, platform from GENERAL.
-        reportDate is last inventory. Do not use v4/Platform names (lastCheckIn, lastInventory).
+      Notes: Summary dicts include lastContact, lastCheckIn, reportDate, lastEnrolledDate, platform from GENERAL.
+        reportDate is last inventory. Do not use v3 lastContactTime or Platform lastCheckInTime.
         ids and raw are mutually exclusive.
   computer(id, section?, tenant?, surface?, auth?)
       Does: Load one computer's inventory JSON (requested sections).
-      → value: dict (GET /api/v3/computers-inventory/{id} JSON)
+      → value: dict (GET /api/v4/computers-inventory/{id} JSON)
       Params: id: str; section?: string or list → ?section= (omit = Jamf GENERAL default).
   computer_detail(id, tenant?, surface?, auth?)
       Does: Load one computer with all inventory sections.
-      → value: dict (GET /api/v3/computers-inventory-detail/{id} JSON)
+      → value: dict (GET /api/v4/computers-inventory-detail/{id} JSON)
       Params: id: str.
   computer_send_mdm_command(ids, command_type, command_data?, tenant?, surface?, auth?)
       Does: Queue a named MDM command on one or more computers.
@@ -207,7 +208,7 @@ Subcommands:
 
 Flags for 'list':
   --filter=<term|rsql>           Bare term → general.name contains; or full RSQL
-  --sort=<field:dir>             Jamf sort= (e.g. general.lastContactTime:desc); omit for name
+  --sort=<field:dir>             Jamf sort= (e.g. general.lastContact:desc); omit for name
   --section=<name>[,<name>...]   Extra inventory sections on the list GET (omit = GENERAL)
   --json                         Print Jamf results[] as JSON
   --management-id=<uuid>         Look up by MDM management UUID
@@ -219,7 +220,7 @@ Examples:
   buddy computer list
   buddy computer list --filter=Example
   buddy computer list --filter='general.name=="*Example*"'
-  buddy computer list --filter='general.lastContactTime=ge=2026-01-01T00:00:00Z' --sort=general.lastContactTime:desc
+  buddy computer list --filter='general.lastContact=ge=2026-01-01T00:00:00Z' --sort=general.lastContact:desc
   buddy computer list --json
   buddy computer list --management-id=00000000-0000-4000-8000-000000000003
   buddy computer get 101

@@ -78,7 +78,7 @@ func TestResourceClassForPath(t *testing.T) {
 	cases := map[string]string{
 		"/api/v1/packages":                     "packages",
 		"/api/v1/scripts":                      "scripts",
-		"/api/v3/computers-inventory":          "computers",
+		"/api/v4/computers-inventory":          "computers",
 		"/api/v3/computer-groups/smart-groups": "groups",
 		"/JSSResource/policies/id/1":           "policies",
 		"/api/v2/categories":                   "categories",

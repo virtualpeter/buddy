@@ -92,7 +92,8 @@ func TestComputerRecordFromListJSON(t *testing.T) {
       "macAddress": "AA:BB:CC:DD:EE:FF",
       "username": "ada",
       "managementId": "00000000-0000-4000-8000-000000000003",
-      "lastContactTime": "2026-01-15T10:30:00.000Z",
+      "lastContact": "2026-01-15T10:30:00.000Z",
+      "lastCheckIn": "2026-01-15T09:00:00.000Z",
       "reportDate": "2026-01-14T08:00:00.000Z",
       "lastEnrolledDate": "2025-06-01T12:00:00.000Z"
     },
@@ -101,7 +102,7 @@ func TestComputerRecordFromListJSON(t *testing.T) {
     }
   }
 ]`
-	var page []computerListItemV3
+	var page []computerListItemV4
 	if err := json.Unmarshal([]byte(raw), &page); err != nil {
 		t.Fatal(err)
 	}
@@ -133,8 +134,11 @@ func TestComputerRecordFromListJSON(t *testing.T) {
 	if rec.Username != "ada" {
 		t.Fatalf("username = %q", rec.Username)
 	}
-	if rec.LastContactTime != "2026-01-15T10:30:00.000Z" {
-		t.Fatalf("lastContactTime = %q", rec.LastContactTime)
+	if rec.LastContact != "2026-01-15T10:30:00.000Z" {
+		t.Fatalf("lastContact = %q", rec.LastContact)
+	}
+	if rec.LastCheckIn != "2026-01-15T09:00:00.000Z" {
+		t.Fatalf("lastCheckIn = %q", rec.LastCheckIn)
 	}
 	if rec.ReportDate != "2026-01-14T08:00:00.000Z" {
 		t.Fatalf("reportDate = %q", rec.ReportDate)
@@ -149,7 +153,7 @@ func TestComputerRecordFromListJSON(t *testing.T) {
 
 func TestComputerRecordFromListJSONMissingGeneral(t *testing.T) {
 	const raw = `[{"id": 7, "udid": "u", "serialNumber": "S1"}]`
-	var page []computerListItemV3
+	var page []computerListItemV4
 	if err := json.Unmarshal([]byte(raw), &page); err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +164,7 @@ func TestComputerRecordFromListJSONMissingGeneral(t *testing.T) {
 	if rec.ID != 7 || rec.SerialNumber != "S1" || rec.UDID != "u" {
 		t.Fatalf("got %+v", rec)
 	}
-	if rec.LastContactTime != "" || rec.ReportDate != "" || rec.Platform != "" {
+	if rec.LastContact != "" || rec.LastCheckIn != "" || rec.ReportDate != "" || rec.Platform != "" {
 		t.Fatalf("expected empty GENERAL fields, got %+v", rec)
 	}
 }
