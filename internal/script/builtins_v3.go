@@ -632,12 +632,15 @@ func mdmCommandsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 	}
 }
 
-// profiles(filter?)
+// profiles(filter?, tenant?, surface?, auth?)
 func profilesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var filter starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("profiles", args, kwargs, "filter?", &filter); err != nil {
+		if err := starlark.UnpackArgs("profiles", args, kwargs, "filter?", &filter,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)

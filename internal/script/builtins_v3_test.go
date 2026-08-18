@@ -159,3 +159,17 @@ func TestPolicyBuiltinRejectsAmbiguous(t *testing.T) {
 		t.Fatalf("expected ambiguous error, got %v", err)
 	}
 }
+
+func TestProfilesAcceptsSessionKwargs(t *testing.T) {
+	fn := profilesBuiltin("default", slog.Default())
+	thread := &starlark.Thread{Name: "t"}
+	kwargs := []starlark.Tuple{
+		{starlark.String("tenant"), starlark.String("sandbox")},
+		{starlark.String("surface"), starlark.String("instance")},
+		{starlark.String("auth"), starlark.String("sandbox-instance")},
+	}
+	_, err := fn(thread, nil, nil, kwargs)
+	if err != nil && strings.Contains(err.Error(), "unexpected keyword argument") {
+		t.Fatalf("profiles() should accept tenant/surface/auth, got %v", err)
+	}
+}

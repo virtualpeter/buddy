@@ -87,11 +87,11 @@ var ProfilesTopic = docspec.Topic{
 	},
 	HelpExport: `profiles`,
 	BuiltinsHelp: `PROFILE
-  profiles(filter?)
+  profiles(filter?, tenant?, surface?, auth?)
       Does: List macOS configuration profiles.
       → value: list of {id, name}
-      Params: filter?: str (client-side name substring).
-  profile(id=?) | profile(name=?, tenant?, surface?, auth?)
+      Params: filter?: str (client-side name substring). tenant?/surface?/auth?: omit for process defaults.
+  profile(id=?, tenant?, surface?, auth?) | profile(name=?, tenant?, surface?, auth?)
       Does: Load one profile as XML (id=) or resolve {id, name} (name=).
       → value: XML str (id=) or {id, name} (name=)
       Params: pass either id= or name=, not both.
@@ -139,16 +139,16 @@ var ProfilesTopic = docspec.Topic{
       → None
       Params: id: int/str; payload_uuid: str.
       Notes: Needed when API-token clients cannot scrape legacy HTML; lets profile_xml merge ACS Forced into Classic XML, and enables ACS writes.
-  profile_get_payloads(id)
+  profile_get_payloads(id, tenant?, surface?, auth?)
       Does: Return the payloads plist XML embedded in the profile.
       → value: str (payloads plist XML)
       Params: id: int/str.
-  profile_get_payload(id, identifier)
+  profile_get_payload(id, identifier, tenant?, surface?, auth?)
       Does: Return one PayloadContent payload dict as plist XML.
       → value: str (plist <dict> fragment)
       Params: id: int/str; identifier: str (PayloadIdentifier, unique PayloadType, or unique PayloadUUID).
       Notes: PayloadContent only; not MCX — use payloads_get_mcx_dict offline.
-  profile_list_payloads(id)
+  profile_list_payloads(id, tenant?, surface?, auth?)
       Does: List PayloadContent rows.
       → value: list of {identifier, type, uuid}
       Params: id: int/str.

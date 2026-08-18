@@ -3203,13 +3203,21 @@ func stepCreatePolicyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starl
 func profileGetPayloads(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var profileID starlark.Int
-		if err := starlark.UnpackArgs("profile_get_payloads", args, kwargs, "id", &profileID); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("profile_get_payloads", args, kwargs, "id", &profileID,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
 		pid, _ := profileID.Int64()
-		cred := credName
 		var buf bytes.Buffer
-		if err := buddy.ProfileGetPayloads(cred, int(pid), &buf, logger); err != nil {
+		if err := buddy.ProfileGetPayloads(sessionPin, int(pid), &buf, logger); err != nil {
 			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(buf.String())), nil
@@ -3233,13 +3241,21 @@ func profileGetPayload(credName string, logger *slog.Logger) func(*starlark.Thre
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var profileID starlark.Int
 		var identifier starlark.String
-		if err := starlark.UnpackArgs("profile_get_payload", args, kwargs, "id", &profileID, "identifier", &identifier); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("profile_get_payload", args, kwargs, "id", &profileID, "identifier", &identifier,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
 		pid, _ := profileID.Int64()
-		cred := credName
 		var buf bytes.Buffer
-		if err := buddy.ProfileGetPayloadByDomain(cred, int(pid), string(identifier), &buf, logger); err != nil {
+		if err := buddy.ProfileGetPayloadByDomain(sessionPin, int(pid), string(identifier), &buf, logger); err != nil {
 			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(buf.String())), nil
@@ -3250,12 +3266,20 @@ func profileGetPayload(credName string, logger *slog.Logger) func(*starlark.Thre
 func profileListPayloads(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var profileID starlark.Int
-		if err := starlark.UnpackArgs("profile_list_payloads", args, kwargs, "id", &profileID); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("profile_list_payloads", args, kwargs, "id", &profileID,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
 		pid, _ := profileID.Int64()
-		cred := credName
-		rows, err := buddy.ProfileListPayloads(cred, int(pid), logger)
+		rows, err := buddy.ProfileListPayloads(sessionPin, int(pid), logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
