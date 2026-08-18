@@ -69,6 +69,21 @@ func TestXorIDOrKey(t *testing.T) {
 	}
 }
 
+func TestComputersIdsRawConflict(t *testing.T) {
+	if err := computersIdsRawConflict(true, true); err == nil {
+		t.Fatal("expected error for ids and raw")
+	}
+	if err := computersIdsRawConflict(true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := computersIdsRawConflict(false, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := computersIdsRawConflict(false, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestIDListFromStarlark(t *testing.T) {
 	got, err := idListFromStarlark(starlark.String("7"), "ids")
 	if err != nil || len(got) != 1 || got[0] != "7" {

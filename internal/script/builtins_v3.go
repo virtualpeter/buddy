@@ -395,20 +395,29 @@ func scriptBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 	}
 }
 
-// computers(filter?, ids?=False, page?, page_size?, tenant?, surface?, auth?)
+// computers(filter?, ids?=False, raw?=False, sort?, section?, page?, page_size?, tenant?, surface?, auth?)
 func computersBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var filter starlark.String
+		var filter, sort starlark.String
 		page := starlark.Value(starlark.None)
+		section := starlark.Value(starlark.None)
 		var pageSize starlark.Int
-		var idsOnly starlark.Bool
+		var idsOnly, raw starlark.Bool
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("computers", args, kwargs,
-			"filter?", &filter, "ids?", &idsOnly, "page?", &page, "page_size?", &pageSize,
+			"filter?", &filter, "ids?", &idsOnly, "raw?", &raw, "sort?", &sort, "section?", &section,
+			"page?", &page, "page_size?", &pageSize,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth,
 		); err != nil {
+			return nil, err
+		}
+		if err := computersIdsRawConflict(bool(idsOnly), bool(raw)); err != nil {
+			return nil, err
+		}
+		sections, err := parseComputerSectionArg(section)
+		if err != nil {
 			return nil, err
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
@@ -421,7 +430,23 @@ func computersBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 		if err != nil {
 			return nil, err
 		}
-		records, err := buddy.ComputerSearch(c, string(filter), opts, logger)
+		q := buddy.ComputerListQuery{Filter: string(filter), Sort: string(sort), Sections: sections}
+		if bool(raw) {
+			rows, err := buddy.ComputerSearchRaw(c, q, opts, logger)
+			if err != nil {
+				return resultErr(err.Error())
+			}
+			body, err := json.Marshal(rows)
+			if err != nil {
+				return resultErr(err.Error())
+			}
+			val, err := JSONDecodeToStarlark(string(body))
+			if err != nil {
+				return resultErr(err.Error())
+			}
+			return resultOK(val), nil
+		}
+		records, err := buddy.ComputerSearch(c, q, opts, logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -441,6 +466,10 @@ func computersBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 				_ = d.SetKey(starlark.String("managementId"), starlark.String(r.ManagementID))
 				_ = d.SetKey(starlark.String("macAddress"), starlark.String(r.MacAddress))
 				_ = d.SetKey(starlark.String("username"), starlark.String(r.Username))
+				_ = d.SetKey(starlark.String("lastContactTime"), starlark.String(r.LastContactTime))
+				_ = d.SetKey(starlark.String("reportDate"), starlark.String(r.ReportDate))
+				_ = d.SetKey(starlark.String("lastEnrolledDate"), starlark.String(r.LastEnrolledDate))
+				_ = d.SetKey(starlark.String("platform"), starlark.String(r.Platform))
 				_ = list.Append(d)
 			}
 		}
@@ -518,6 +547,14 @@ func computerDetailBuiltin(credName string, logger *slog.Logger) func(*starlark.
 		}
 		return resultOK(val), nil
 	}
+}
+
+// computersIdsRawConflict reports an error when ids=True and raw=True are both set.
+func computersIdsRawConflict(ids, raw bool) error {
+	if ids && raw {
+		return fmt.Errorf("computers: ids and raw are mutually exclusive")
+	}
+	return nil
 }
 
 // parseComputerSectionArg accepts None, a string ("GENERAL" or "GENERAL,HARDWARE"), or a list of strings.

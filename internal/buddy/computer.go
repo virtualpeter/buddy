@@ -18,15 +18,26 @@ const (
 
 var errComputerIDsRequired = errors.New("at least one computer ID required")
 
-// ComputerRecord holds key fields from a computer inventory record.
+// ComputerRecord holds key fields from a computer inventory list row (GENERAL).
 type ComputerRecord struct {
-	ID           int    `json:"id"`
-	Name         string `json:"name,omitempty"`
-	SerialNumber string `json:"serialNumber,omitempty"`
-	UDID         string `json:"udid,omitempty"`
-	ManagementID string `json:"managementId,omitempty"`
-	MacAddress   string `json:"macAddress,omitempty"`
-	Username     string `json:"username,omitempty"`
+	ID               int    `json:"id"`
+	Name             string `json:"name,omitempty"`
+	SerialNumber     string `json:"serialNumber,omitempty"`
+	UDID             string `json:"udid,omitempty"`
+	ManagementID     string `json:"managementId,omitempty"`
+	MacAddress       string `json:"macAddress,omitempty"`
+	Username         string `json:"username,omitempty"`
+	LastContactTime  string `json:"lastContactTime,omitempty"`
+	ReportDate       string `json:"reportDate,omitempty"`
+	LastEnrolledDate string `json:"lastEnrolledDate,omitempty"`
+	Platform         string `json:"platform,omitempty"`
+}
+
+// ComputerListQuery is filter, sort, and optional sections for GET /api/v3/computers-inventory.
+type ComputerListQuery struct {
+	Filter   string
+	Sort     string
+	Sections []string
 }
 
 // computerInventoryListResponseV3 is the paginated response from GET /api/v3/computers-inventory.
@@ -38,18 +49,24 @@ type computerInventoryListResponseV3 struct {
 // computerListItemV3 is a single item in the v3 computers-inventory list.
 // v3 returns id as string; we use interface{} to accept both for robustness.
 type computerListItemV3 struct {
-	ID           interface{} `json:"id"`
-	UDID         string      `json:"udid,omitempty"`
-	SerialNumber string      `json:"serialNumber,omitempty"`
-	General      *struct {
-		Name         string `json:"name,omitempty"`
-		MacAddress   string `json:"macAddress,omitempty"`
-		Username     string `json:"username,omitempty"`
-		ManagementID string `json:"managementId,omitempty"`
-	} `json:"general,omitempty"`
-	Hardware *struct {
+	ID           interface{}            `json:"id"`
+	UDID         string                 `json:"udid,omitempty"`
+	SerialNumber string                 `json:"serialNumber,omitempty"`
+	General      *computerListGeneralV3 `json:"general,omitempty"`
+	Hardware     *struct {
 		SerialNumber string `json:"serialNumber,omitempty"`
 	} `json:"hardware,omitempty"`
+}
+
+type computerListGeneralV3 struct {
+	Name             string `json:"name,omitempty"`
+	MacAddress       string `json:"macAddress,omitempty"`
+	Username         string `json:"username,omitempty"`
+	ManagementID     string `json:"managementId,omitempty"`
+	LastContactTime  string `json:"lastContactTime,omitempty"`
+	ReportDate       string `json:"reportDate,omitempty"`
+	LastEnrolledDate string `json:"lastEnrolledDate,omitempty"`
+	Platform         string `json:"platform,omitempty"`
 }
 
 // computerInventoryDetailResponseV3 is the response from GET /api/v3/computers-inventory/{id}.
@@ -95,17 +112,55 @@ type mdmClientData struct {
 	ClientType   string `json:"clientType"`
 }
 
-// ComputerSearch fetches computers matching the filter and returns records.
-// Bare term → general.name=="*term*"; RSQL expression → pass-through.
-// When opts.Page is PageAll, all pages are fetched.
-func ComputerSearch(credName, filter string, opts PageOpts, logger *slog.Logger) ([]ComputerRecord, error) {
-	normalized, err := NormalizeListFilter(filter, FilterSpecComputers)
+func computerListQueryValues(q ComputerListQuery) (url.Values, error) {
+	normalized, err := NormalizeListFilter(q.Filter, FilterSpecComputers)
 	if err != nil {
 		return nil, err
 	}
 	extra := url.Values{}
 	if normalized != "" {
 		extra.Set("filter", normalized)
+	}
+	if s := strings.TrimSpace(q.Sort); s != "" {
+		extra.Set("sort", s)
+	}
+	for _, sec := range NormalizeComputerSections(q.Sections) {
+		extra.Add("section", sec)
+	}
+	return extra, nil
+}
+
+func computerRecordFromListItem(r computerListItemV3) (ComputerRecord, error) {
+	id, err := parseComputerID(r.ID)
+	if err != nil {
+		return ComputerRecord{}, err
+	}
+	rec := ComputerRecord{ID: id, UDID: r.UDID}
+	if r.General != nil {
+		rec.Name = r.General.Name
+		rec.MacAddress = r.General.MacAddress
+		rec.Username = r.General.Username
+		rec.ManagementID = r.General.ManagementID
+		rec.LastContactTime = r.General.LastContactTime
+		rec.ReportDate = r.General.ReportDate
+		rec.LastEnrolledDate = r.General.LastEnrolledDate
+		rec.Platform = r.General.Platform
+	}
+	if r.SerialNumber != "" {
+		rec.SerialNumber = r.SerialNumber
+	} else if r.Hardware != nil && r.Hardware.SerialNumber != "" {
+		rec.SerialNumber = r.Hardware.SerialNumber
+	}
+	return rec, nil
+}
+
+// ComputerSearch fetches computers matching the query and returns summary records.
+// Bare term → general.name=="*term*"; RSQL expression → pass-through.
+// When opts.Page is PageAll, all pages are fetched.
+func ComputerSearch(credName string, q ComputerListQuery, opts PageOpts, logger *slog.Logger) ([]ComputerRecord, error) {
+	extra, err := computerListQueryValues(q)
+	if err != nil {
+		return nil, err
 	}
 	var all []ComputerRecord
 	err = fetchJamfPaged(credName, uriComputersInventory, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
@@ -114,23 +169,10 @@ func ComputerSearch(credName, filter string, opts PageOpts, logger *slog.Logger)
 			return 0, fmt.Errorf("parse response: %w", err)
 		}
 		for _, r := range page {
-			id, err := parseComputerID(r.ID)
+			rec, err := computerRecordFromListItem(r)
 			if err != nil {
 				return 0, err
 			}
-			rec := ComputerRecord{ID: id}
-			if r.General != nil {
-				rec.Name = r.General.Name
-				rec.MacAddress = r.General.MacAddress
-				rec.Username = r.General.Username
-				rec.ManagementID = r.General.ManagementID
-			}
-			if r.SerialNumber != "" {
-				rec.SerialNumber = r.SerialNumber
-			} else if r.Hardware != nil && r.Hardware.SerialNumber != "" {
-				rec.SerialNumber = r.Hardware.SerialNumber
-			}
-			rec.UDID = r.UDID
 			all = append(all, rec)
 		}
 		return len(page), nil
@@ -141,16 +183,54 @@ func ComputerSearch(credName, filter string, opts PageOpts, logger *slog.Logger)
 	return all, nil
 }
 
-// ComputerSearchPrint prints a table of computers matching the filter.
-func ComputerSearchPrint(credName, filter string, logger *slog.Logger) error {
-	records, err := ComputerSearch(credName, filter, PageOpts{Page: PageAll}, logger)
+// ComputerSearchRaw fetches computers matching the query and returns Jamf results[] unchanged.
+func ComputerSearchRaw(credName string, q ComputerListQuery, opts PageOpts, logger *slog.Logger) ([]map[string]interface{}, error) {
+	extra, err := computerListQueryValues(q)
+	if err != nil {
+		return nil, err
+	}
+	all := make([]map[string]interface{}, 0)
+	err = fetchJamfPaged(credName, uriComputersInventory, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+		var page []map[string]interface{}
+		if err := json.Unmarshal(resultsJSON, &page); err != nil {
+			return 0, fmt.Errorf("parse response: %w", err)
+		}
+		all = append(all, page...)
+		return len(page), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return all, nil
+}
+
+// ComputerSearchPrint prints a table of computers matching the query, or Jamf results[] JSON when asJSON is true.
+func ComputerSearchPrint(credName string, q ComputerListQuery, asJSON bool, logger *slog.Logger) error {
+	if asJSON {
+		rows, err := ComputerSearchRaw(credName, q, PageOpts{Page: PageAll}, logger)
+		if err != nil {
+			return err
+		}
+		body, err := json.Marshal(rows)
+		if err != nil {
+			return err
+		}
+		var pretty bytes.Buffer
+		if err := json.Indent(&pretty, body, "", "  "); err != nil {
+			fmt.Println(string(body))
+			return nil
+		}
+		fmt.Println(pretty.String())
+		return nil
+	}
+	records, err := ComputerSearch(credName, q, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%-8s  %-40s  %-20s  %s\n", "ID", "Name", "Serial", "UDID")
-	fmt.Printf("%-8s  %-40s  %-20s  %s\n", "--------", "----------------------------------------", "--------------------", "--------------------")
+	fmt.Printf("%-8s  %-32s  %-16s  %-24s  %s\n", "ID", "Name", "Serial", "Last Contact", "Report Date")
+	fmt.Printf("%-8s  %-32s  %-16s  %-24s  %s\n", "--------", "--------------------------------", "----------------", "------------------------", "------------------------")
 	for _, r := range records {
-		fmt.Printf("%-8d  %-40s  %-20s  %s\n", r.ID, truncateComputer(r.Name, 40), truncateComputer(r.SerialNumber, 20), truncateComputer(r.UDID, 20))
+		fmt.Printf("%-8d  %-32s  %-16s  %-24s  %s\n", r.ID, truncateComputer(r.Name, 32), truncateComputer(r.SerialNumber, 16), truncateComputer(r.LastContactTime, 24), truncateComputer(r.ReportDate, 24))
 	}
 	fmt.Printf("\n%d computer(s)\n", len(records))
 	return nil

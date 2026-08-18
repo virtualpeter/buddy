@@ -7,7 +7,7 @@ Jamf Pro computer inventory (v3) and MDM **actions** (reboot, lock, erase, …).
 
 | Do this | BuddyScript | CLI | Notes |
 |---------|-------------|-----|-------|
-| List / find | `computers(filter=…, page?, page_size?)` | `buddy computer list` | Omit page to fetch all; inventory v3 |
+| List / find | `computers(filter=…, sort?, section?, raw?, page?, page_size?)` | `buddy computer list [--sort=] [--json]` | v3 dates `lastContactTime` / `reportDate`; omit page to fetch all |
 | Load | `computer(id=…, section?)` | `buddy computer get [--section=…]` | Passthrough JSON; default GENERAL; `section` → `?section=` |
 | Load all sections | `computer_detail(id=…)` | `buddy computer detail` | `GET …/computers-inventory-detail/{id}` |
 | MDM actions | `computer_reboot` / `computer_lock` / … | `buddy computer reboot\|lock\|…` | Named builtins and matching CLI verbs |
@@ -16,7 +16,9 @@ Jamf Pro computer inventory (v3) and MDM **actions** (reboot, lock, erase, …).
 
 MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).
 
-## Example
+List RSQL dates are v3 `general.lastContactTime` (last MDM/binary contact) and `general.reportDate` (last inventory). Do not use v4/Platform names (`lastCheckIn`, `lastInventory`).
+
+## Examples
 
 ```python
 def main():
@@ -24,6 +26,19 @@ def main():
     hw = computer(id="101", section=["GENERAL", "HARDWARE"])
     full = computer_detail(id="101")
     return {"name": general["general"]["name"], "sections": list(full.keys())}
+```
+
+```python
+def main():
+    recent = computers(
+        filter=rsql_ge("general.reportDate", rsql_days_ago(7)),
+        sort="general.reportDate:desc",
+    )
+    seen = computers(
+        filter=rsql_ge("general.lastContactTime", rsql_days_ago(1)),
+        sort="general.lastContactTime:desc",
+    )
+    return {"inventory": len(recent), "contact": len(seen)}
 ```
 
 ## Related

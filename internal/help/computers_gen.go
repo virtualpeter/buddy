@@ -5,11 +5,17 @@ package help
 
 // ComputersBuiltinsSection is spliced into Builtins.
 const ComputersBuiltinsSection = `COMPUTER
-  computers(filter?, ids?=False, page?, page_size?, tenant?, surface?, auth?)
+  computers(filter?, ids?=False, raw?=False, sort?, section?, page?, page_size?, tenant?, surface?, auth?)
       Does: List computers from Pro inventory v3.
-      → value: list of summary dicts (or list of int if ids=True)
-      Params: filter?: bare term → general.name=="*term*", or full RSQL. ids?: bool.
+      → value: list of summary dicts; list of int if ids=True; Jamf results[] dicts if raw=True
+      Params: filter?: bare term → general.name=="*term*", or full RSQL (v3: general.lastContactTime, general.reportDate, …).
+        ids?: bool (xor with raw). raw?: bool — unchanged Jamf results[] (xor with ids).
+        sort?: string — sort= (e.g. general.reportDate:desc); omit = Jamf general.name:asc.
+        section?: string or list → repeated section= on the list GET (omit = GENERAL).
         page?: int (omit = all); page_size?: int (default 200).
+      Notes: Summary dicts include lastContactTime, reportDate, lastEnrolledDate, platform from GENERAL.
+        reportDate is last inventory. Do not use v4/Platform names (lastCheckIn, lastInventory).
+        ids and raw are mutually exclusive.
   computer(id, section?, tenant?, surface?, auth?)
       Does: Load one computer's inventory JSON (requested sections).
       → value: dict (GET /api/v3/computers-inventory/{id} JSON)
@@ -82,21 +88,28 @@ Usage:
   buddy [global-flags] computer <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<term|rsql>] [--management-id=<uuid>]    List computers (bare term → general.name contains; --management-id looks up by MDM management UUID)
-  get <computer-id> [--section=<name>[,<name>...]]        Show inventory JSON (default GENERAL)
-  detail <computer-id>                                    Show all inventory sections (inventory-detail)
-  reboot <computer-id> [computer-id...]               Send RESTART_DEVICE MDM command
-  redeploy <computer-id> [computer-id...]            Trigger Jamf management framework redeploy
-  shutdown <computer-id> [computer-id...]            Send SHUT_DOWN_DEVICE MDM command
+  list [args...]                                              List computers
+  get <computer-id> [--section=<name>[,<name>...]]            Show inventory JSON (default GENERAL)
+  detail <computer-id>                                        Show all inventory sections (inventory-detail)
+  reboot <computer-id> [computer-id...]                       Send RESTART_DEVICE MDM command
+  redeploy <computer-id> [computer-id...]                     Trigger Jamf management framework redeploy
+  shutdown <computer-id> [computer-id...]                     Send SHUT_DOWN_DEVICE MDM command
   lock <computer-id> [computer-id...] [--message=...] [--phone=...] [--pin=...]  Send DEVICE_LOCK (extra confirm)
-  logout <computer-id> [computer-id...]               Send LOG_OUT_USER MDM command
+  logout <computer-id> [computer-id...]                       Send LOG_OUT_USER MDM command
   erase <computer-id> [computer-id...] [--pin=...] [--obliteration=...] Send ERASE_DEVICE (type 'erase' to confirm)
   device-info <computer-id> [computer-id...] [--queries=DeviceName,...]  Send DEVICE_INFORMATION (queued)
-  device-location <computer-id> [computer-id...]      Send DEVICE_LOCATION (queued)
-  security-info <computer-id> [computer-id...]        Send SECURITY_INFO (queued)
+  device-location <computer-id> [computer-id...]              Send DEVICE_LOCATION (queued)
+  security-info <computer-id> [computer-id...]                Send SECURITY_INFO (queued)
   installed-apps <computer-id> [computer-id...] [--identifiers=...]     Send INSTALLED_APPLICATION_LIST (queued)
   managed-apps <computer-id> [computer-id...] [--identifiers=...]       Send MANAGED_APPLICATION_LIST (queued)
-  certificates <computer-id> [computer-id...]         Send CERTIFICATE_LIST (queued)
+  certificates <computer-id> [computer-id...]                 Send CERTIFICATE_LIST (queued)
+
+Flags for 'list':
+  --filter=<term|rsql>           Bare term → general.name contains; or full RSQL
+  --sort=<field:dir>             Jamf sort= (e.g. general.lastContactTime:desc); omit for name
+  --section=<name>[,<name>...]   Extra inventory sections on the list GET (omit = GENERAL)
+  --json                         Print Jamf results[] as JSON
+  --management-id=<uuid>         Look up by MDM management UUID
 
 Flags for 'get':
   --section=<name>[,<name>...]   Inventory sections (e.g. GENERAL,HARDWARE); omit for GENERAL
@@ -105,6 +118,8 @@ Examples:
   buddy computer list
   buddy computer list --filter=Example
   buddy computer list --filter='general.name=="*Example*"'
+  buddy computer list --filter='general.lastContactTime=ge=2026-01-01T00:00:00Z' --sort=general.lastContactTime:desc
+  buddy computer list --json
   buddy computer list --management-id=00000000-0000-4000-8000-000000000003
   buddy computer get 101
   buddy computer get 101 --section=GENERAL,HARDWARE

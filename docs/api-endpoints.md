@@ -356,7 +356,7 @@ Base paths: `/api/v3/computers-inventory`, `/api/v2/mdm/commands`, `/api/v1/jamf
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v3/computers-inventory` | `ComputerSearch`, `ComputerSearchPrint` | List computers (paginated; all pages by default); optional RSQL `filter` |
+| `GET` | `/api/v3/computers-inventory` | `ComputerSearch`, `ComputerSearchRaw`, `ComputerSearchPrint`, `computers` | List computers (paginated; all pages by default); optional RSQL `filter`, `sort`, repeated `section=` |
 | `GET` | `/api/v3/computers-inventory/{id}` | `ComputerGet`, `ComputerGetValue`, `computer`, `computerGetManagementID` | Fetch computer inventory (default GENERAL; optional `?section=`) |
 | `GET` | `/api/v3/computers-inventory-detail/{id}` | `ComputerDetail`, `ComputerDetailValue`, `computer_detail` | Fetch all inventory sections |
 | `POST` | `/api/v2/mdm/commands` | `ComputerReboot`, `ComputerShutdown`, `ComputerLock`, `ComputerLogOut`, `ComputerErase`, `ComputerDeviceInfo`, `ComputerDeviceLocation`, `ComputerSecurityInfo`, `ComputerInstalledApps`, `ComputerManagedApps`, `ComputerCertificates` | Send MDM command (requires managementId from inventory) |
@@ -369,7 +369,9 @@ Base paths: `/api/v3/computers-inventory`, `/api/v2/mdm/commands`, `/api/v1/jamf
 - **Device control commands** (destructive; require confirmation unless `-y`): `RESTART_DEVICE`, `SHUT_DOWN_DEVICE`, `LOG_OUT_USER`. **DEVICE_LOCK** and **ERASE_DEVICE** require extra confirmation (LOCK: "Proceed?"; ERASE: type "erase" to confirm).
 - **Information/query commands** (non-destructive; queued; results reported asynchronously by device): `DEVICE_INFORMATION`, `DEVICE_LOCATION`, `SECURITY_INFO`, `INSTALLED_APPLICATION_LIST`, `MANAGED_APPLICATION_LIST`, `CERTIFICATE_LIST`.
 - `ComputerRedeploy` is a simple POST with no body; no v3 endpoint exists, so Buddy uses v1.
-- RSQL filter examples: `general.name=="*Example*"`, `hardware.serialNumber=="C02EXAMPLE0001"`, `udid=="00000000-0000-4000-8000-000000000001"`.
+- RSQL filter examples: `general.name=="*Example*"`, `hardware.serialNumber=="C02EXAMPLE0001"`, `udid=="00000000-0000-4000-8000-000000000001"`, `general.lastContactTime=ge=2026-01-01T00:00:00Z`, `general.reportDate=ge=2026-01-01T00:00:00Z`. Sort examples: `general.lastContactTime:desc`, `general.reportDate:desc` (omit = Jamf `general.name:asc`).
+- List `section=` is the same enum as get (`GENERAL`, `HARDWARE`, `OPERATING_SYSTEM`, …). Omit = GENERAL only. `computers(raw=True)` / `buddy computer list --json` returns Jamf `results[]` unchanged so extra sections are usable without N+1 `computer()` calls.
+- Date field names are **v3**: `general.lastContactTime` (last MDM/binary contact) and `general.reportDate` (last inventory). Do not use v4 (`lastCheckIn` / `lastContact`) or Platform (`lastCheckInTime` / `lastInventoryUpdateTime`) names on this API.
 
 ---
 
@@ -640,8 +642,8 @@ buddy package set <package-id> [--name=] [--notes=] [--info=] [--category=] [--p
   └─ GET /api/v1/packages/{id}               (fetch full record)
   └─ PUT /api/v1/packages/{id}               (update set fields)
 
-buddy computer list [--filter=<term|rsql>]
-  └─ GET /api/v3/computers-inventory          (bare → general.name=="*term*"; page-size=200)
+buddy computer list [--filter=<term|rsql>] [--sort=<field:dir>] [--section=HARDWARE] [--json]
+  └─ GET /api/v3/computers-inventory          (bare → general.name=="*term*"; optional sort/section; page-size=200)
 
 buddy computer get <id> [--section=GENERAL,HARDWARE]
   └─ GET /api/v3/computers-inventory/{id}[?section=…]
@@ -804,11 +806,14 @@ buddy package list --filter='cloudTransferStatus=="READY"'
 # Packages by specific IDs
 buddy package list --filter='id=in=(10,11,12)'
 
-# Computers by name, serial, or UDID
+# Computers by name, serial, UDID, last contact, or last inventory (v3 field names)
 buddy computer list --filter=Example
 buddy computer list --filter='general.name=="*Example*"'
 buddy computer list --filter='hardware.serialNumber=="C02EXAMPLE0001"'
 buddy computer list --filter='udid=="00000000-0000-4000-8000-000000000001"'
+buddy computer list --filter='general.lastContactTime=ge=2026-01-01T00:00:00Z' --sort=general.lastContactTime:desc
+buddy computer list --filter='general.reportDate=ge=2026-01-01T00:00:00Z' --sort=general.reportDate:desc
+buddy computer list --json
 
 # MDM commands by status (bare or RSQL)
 buddy mdm list --filter=Pending
@@ -828,6 +833,17 @@ filt = rsql_and([
     rsql_eq("status", "Acknowledged"),
 ])
 mdm_commands(filter=filt)
+
+# last inventory in the last 7 days, newest first (v3)
+computers(
+    filter=rsql_ge("general.reportDate", rsql_days_ago(7)),
+    sort="general.reportDate:desc",
+)
+# last MDM/binary contact
+computers(
+    filter=rsql_ge("general.lastContactTime", rsql_days_ago(1)),
+    sort="general.lastContactTime:desc",
+)
 ```
 
 ### Filterable Fields by Resource
@@ -835,7 +851,7 @@ mdm_commands(filter=filt)
 | Resource | Filterable fields |
 |---|---|
 | `/v1/packages` | `id`, `fileName`, `packageName`, `categoryId`, `info`, `notes`, `manifestFileName`, `cloudTransferStatus` |
-| `/v3/computers-inventory` | `id`, `udid`, `general.name`, `hardware.serialNumber`, `general.managementId`, etc. |
+| `/v3/computers-inventory` | `id`, `udid`, `general.name`, `general.lastContactTime`, `general.reportDate`, `general.lastEnrolledDate`, `general.lastCloudBackupDate`, `general.mdmCertificateExpiration`, `general.managementId`, `operatingSystem.version`, `hardware.model`, `hardware.serialNumber`, … (see OpenAPI). Sort: `general.lastContactTime`, `general.reportDate`, `general.name`, `udid`, `id`, … |
 | `/v2/mdm/commands` | `uuid`, `clientManagementId`, `command`, `status`, `clientType`, `dateSent`, `validAfter`, `dateCompleted`, `profileId`, `profileIdentifier`, `active` |
 | `/v1/scripts`, `/v1/categories`, computer-groups | `id`, `name`, … (see OpenAPI) |
 | `/v1/api-integrations` | `id`, `displayName` |
@@ -845,6 +861,7 @@ mdm_commands(filter=filt)
 
 - Wildcard `*` is only meaningful inside string equality (`==` / `!=`).
 - String values are case-insensitive in Jamf's RSQL implementation.
+- Computer inventory date filters (`general.lastContactTime`, `general.reportDate`, …) use **unquoted** ISO-8601 UTC (`2026-01-01T00:00:00Z`). `rsql_ge` + `rsql_days_ago` already produce that.
 - Quote RSQL values in the shell to prevent glob expansion: `--filter='packageName=="*Chrome*"'`. Bare simple terms like `--filter=Chrome` need no quotes.
 - The RSQL grammar is specified at [github.com/jirutka/rsql-parser](https://github.com/jirutka/rsql-parser).
 

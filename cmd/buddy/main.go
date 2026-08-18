@@ -1909,7 +1909,10 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 	case clispec.SubList:
 		fs := flag.NewFlagSet("computer list", flag.ContinueOnError)
 		filter := fs.String("filter", "", "RSQL filter expression")
+		sort := fs.String("sort", "", "Jamf sort= (e.g. general.lastContactTime:desc)")
+		sectionFlag := fs.String("section", "", "inventory section(s), comma-separated; omit for Jamf GENERAL default")
 		mgmtID := fs.String("management-id", "", "Look up computer by MDM management UUID (clientManagementId)")
+		asJSON := fs.Bool("json", false, "Print Jamf results[] as JSON")
 		if err := fs.Parse(args); err != nil {
 			return err
 		}
@@ -1922,7 +1925,12 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 				f = mgmtFilter
 			}
 		}
-		return buddy.ComputerSearchPrint(credName, f, log)
+		var sections []string
+		if *sectionFlag != "" {
+			sections = []string{*sectionFlag}
+		}
+		q := buddy.ComputerListQuery{Filter: f, Sort: *sort, Sections: sections}
+		return buddy.ComputerSearchPrint(credName, q, *asJSON, log)
 	case clispec.SubGet:
 		if len(args) < 1 {
 			return missingArg("computer-id", clispec.UsageHelp(clispec.CmdComputer))
