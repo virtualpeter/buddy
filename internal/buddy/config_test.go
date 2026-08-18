@@ -57,9 +57,9 @@ func TestMarshalConfig_OmitsEmptyAuthFields(t *testing.T) {
 		},
 		Auths: map[string]AuthEntry{
 			"oauth1": {
-				Type:    "oauth",
+				Type:     "oauth",
 				ClientID: "cid",
-				Tenants: []string{"oauth1"},
+				Tenants:  []string{"oauth1"},
 			},
 			"basic1": {
 				Type:     "basic",
@@ -225,8 +225,8 @@ func TestPickAuthReadonlyPrefer(t *testing.T) {
 			"t": {URL: "https://example.jamfcloud.com"},
 		},
 		Auths: map[string]AuthEntry{
-			"ro":  {Type: "basic", Username: "ro", Tenants: []string{"t"}, Access: AccessReadonly, Surface: SurfaceInstance},
-			"rw":  {Type: "basic", Username: "rw", Tenants: []string{"t"}, Access: AccessFull, Surface: SurfaceInstance},
+			"ro": {Type: "basic", Username: "ro", Tenants: []string{"t"}, Access: AccessReadonly, Surface: SurfaceInstance},
+			"rw": {Type: "basic", Username: "rw", Tenants: []string{"t"}, Access: AccessFull, Surface: SurfaceInstance},
 		},
 	}
 	sess, err := cfg.ResolveSession("t", "", OpRead)
@@ -246,5 +246,77 @@ func TestPickAuthReadonlyPrefer(t *testing.T) {
 	}
 	if sess.AuthName != "rw" {
 		t.Fatalf("want rw, got %s", sess.AuthName)
+	}
+}
+
+func TestPickAuthClassicWritePrefersInstance(t *testing.T) {
+	t.Setenv(EnvClassicInstanceOnly, "")
+	cfg := &Config{
+		Tenant: TenantSelection{Default: "t"},
+		Tenants: map[string]TenantConfig{
+			"t": {
+				URL:      "https://example.jamfcloud.com",
+				Region:   "us",
+				TenantID: "00000000-0000-4000-8000-000000000001",
+			},
+		},
+		Auths: map[string]AuthEntry{
+			"plat": {
+				Type: "oauth", ClientID: "c", ClientSecret: "s",
+				Tenants: []string{"t"}, Access: AccessFull, Surface: SurfacePlatform,
+			},
+			"inst": {
+				Type: "basic", Username: "a", Password: "b",
+				Tenants: []string{"t"}, Access: AccessFull, Surface: SurfaceInstance,
+			},
+		},
+	}
+	sess, err := cfg.ResolveSession("t", "", OpClassicWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.AuthName != "inst" || sess.Surface != SurfaceInstance {
+		t.Fatalf("want inst/instance, got %s/%s", sess.AuthName, sess.Surface)
+	}
+	sess, err = cfg.ResolveSession("t", "plat", OpClassicWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.AuthName != "inst" || sess.Surface != SurfaceInstance {
+		t.Fatalf("platform pin should soft-switch to inst, got %s/%s", sess.AuthName, sess.Surface)
+	}
+}
+
+func TestClassicInstanceOnly_DefaultAndMarshal(t *testing.T) {
+	t.Setenv(EnvClassicInstanceOnly, "")
+	var nilCfg *Config
+	if !nilCfg.ClassicInstanceOnly() {
+		t.Fatal("nil config should default true")
+	}
+	cfg := &Config{}
+	if !cfg.ClassicInstanceOnly() {
+		t.Fatal("omitted YAML should default true")
+	}
+	data, err := marshalConfig(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "classic_instance_only") {
+		t.Fatalf("default should omit features:\n%s", data)
+	}
+	cfg.Features.ClassicInstanceOnly = boolPtr(false)
+	if cfg.ClassicInstanceOnly() {
+		t.Fatal("YAML false")
+	}
+	data, err = marshalConfig(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "classic_instance_only: false") {
+		t.Fatalf("want persisted false, got:\n%s", data)
+	}
+	t.Setenv(EnvClassicInstanceOnly, "true")
+	if !cfg.ClassicInstanceOnly() {
+		t.Fatal("env true should override YAML false")
 	}
 }

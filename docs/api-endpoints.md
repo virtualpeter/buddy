@@ -16,7 +16,7 @@ Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`)
 | `/JSSResource/…` | `/api/proclassic/tenant/{tenantId}/JSSResource/…` |
 | `/api/blueprints/vN/…` | inject `/tenant/{tenantId}` after the version |
 
-**Limitation (Classic / proclassic):** Buddy rewrites Classic paths for the gateway, but Jamf Account Platform integrations do not yet expose Classic permissions. In practice, Pro JSON and Blueprints work through the gateway when the integration is scoped correctly; Classic calls (`/JSSResource/…`, profiles, Classic policy XML, etc.) typically return `403 BAD_PERMISSIONS` until Jamf adds those privileges. Prefer an instance credential for Classic-heavy workflows for now.
+**Limitation (Classic / proclassic):** Buddy already rewrites Classic paths for the gateway. Jamf Account Platform integrations do **not** yet publish Classic privileges, so those calls typically return `401`/`403 BAD_PERMISSIONS`. Buddy therefore routes Classic to an **instance** auth by default (`features.classic_instance_only: true`). When Jamf publishes Classic on Platform, set `features.classic_instance_only: false` (or `BUDDY_CLASSIC_INSTANCE_ONLY=false`) to allow Classic via `/api/proclassic/`. Until then, prefer an instance credential for Classic-heavy workflows (policies XML, profiles).
 
 Authentication is config-driven per tenant + auth (command, basic, or OAuth). See **[Auth, secrets, and tokens](auth.md)**, `buddy auth help`, and `buddy cred help`. For **basic** (username/password), buddy obtains a Bearer token via `POST /api/v1/auth/token` with Basic auth, then uses that token for all API requests. Platform credentials use **OAuth only** (`POST {gateway}/auth/token`, fallback `/oauth2/token`); there is no keep-alive.
 
@@ -294,6 +294,8 @@ Fixes:
 
 Do not invent Classic profile PUT bodies from `jamf_schema`. Live checks: `scripts/integration_test.buddy` (phase C create/edit/clone/delete with Apply-form and literal `&`) and `scripts/integration_test_acs_profile7.buddy` (same-tenant ACS document).
 
+ACS `/api/config-profiles/…` is the Jamf Pro **instance** UI API. It is not a Platform product API and is **not** rewritten to the gateway (a gateway POST returns `404 page not found`). Buddy always routes these calls to an instance auth, independent of `features.classic_instance_only`.
+
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
 | `GET` | `/api/config-profiles/macos/profile/{classicId}` | `resolveACSPayloadUUID`, `profileACSPut` | Resolve ACS payload UUID / Forced. Often `{name, level}` only — treat as shell, not “no ACS” |
@@ -350,28 +352,28 @@ Base path: `/api/v1/api-integrations`
 
 ---
 
-## Computers (Jamf Pro API v3/v2/v1)
+## Computers (Jamf Pro API v4/v2/v1)
 
-Base paths: `/api/v3/computers-inventory`, `/api/v2/mdm/commands`, `/api/v1/jamf-management-framework/redeploy`
+Base paths: `/api/v4/computers-inventory`, `/api/v2/mdm/commands`, `/api/v1/jamf-management-framework/redeploy`
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v3/computers-inventory` | `ComputerSearch`, `ComputerSearchRaw`, `ComputerSearchPrint`, `computers` | List computers (paginated; all pages by default); optional RSQL `filter`, `sort`, repeated `section=` |
-| `GET` | `/api/v3/computers-inventory/{id}` | `ComputerGet`, `ComputerGetValue`, `computer`, `computerGetManagementID` | Fetch computer inventory (default GENERAL; optional `?section=`) |
-| `GET` | `/api/v3/computers-inventory-detail/{id}` | `ComputerDetail`, `ComputerDetailValue`, `computer_detail` | Fetch all inventory sections |
+| `GET` | `/api/v4/computers-inventory` | `ComputerSearch`, `ComputerSearchRaw`, `ComputerSearchPrint`, `computers` | List computers (paginated; all pages by default); optional RSQL `filter`, `sort`, repeated `section=` |
+| `GET` | `/api/v4/computers-inventory/{id}` | `ComputerGet`, `ComputerGetValue`, `computer`, `computerGetManagementID` | Fetch computer inventory (default GENERAL; optional `?section=`) |
+| `GET` | `/api/v4/computers-inventory-detail/{id}` | `ComputerDetail`, `ComputerDetailValue`, `computer_detail` | Fetch all inventory sections |
 | `POST` | `/api/v2/mdm/commands` | `ComputerReboot`, `ComputerShutdown`, `ComputerLock`, `ComputerLogOut`, `ComputerErase`, `ComputerDeviceInfo`, `ComputerDeviceLocation`, `ComputerSecurityInfo`, `ComputerInstalledApps`, `ComputerManagedApps`, `ComputerCertificates` | Send MDM command (requires managementId from inventory) |
 | `POST` | `/api/v1/jamf-management-framework/redeploy/{id}` | `ComputerRedeploy` | Trigger Jamf Management Framework redeploy on a computer |
 
 ### Notes
 
-- Inventory stays on **v3** even though some cloud Jamf schemas already advertise v4 (and deprecate v3). Production Jamf does not support inventory v4 yet — do not migrate until it does (then remap RSQL/sort fields such as `general.lastContactTime` → `general.lastCheckIn` / `general.lastContact`).
-- All MDM commands fetch each computer's `managementId` via `GET /api/v3/computers-inventory/{id}?section=GENERAL`, then POST to `/api/v2/mdm/commands` with `clientData: [{managementId, clientType: "COMPUTER"}]` and `commandData: {commandType: "..."}` plus optional fields.
+- Inventory uses **v4** (`/api/v4/computers-inventory`). v3 is deprecated (Jamf Pro 11.30). RSQL/sort date fields are `general.lastContact` (renamed from v3 `lastContactTime`), `general.lastCheckIn` (new), and `general.reportDate` (unchanged).
+- All MDM commands fetch each computer's `managementId` via `GET /api/v4/computers-inventory/{id}?section=GENERAL`, then POST to `/api/v2/mdm/commands` with `clientData: [{managementId, clientType: "COMPUTER"}]` and `commandData: {commandType: "..."}` plus optional fields.
 - **Device control commands** (destructive; require confirmation unless `-y`): `RESTART_DEVICE`, `SHUT_DOWN_DEVICE`, `LOG_OUT_USER`. **DEVICE_LOCK** and **ERASE_DEVICE** require extra confirmation (LOCK: "Proceed?"; ERASE: type "erase" to confirm).
 - **Information/query commands** (non-destructive; queued; results reported asynchronously by device): `DEVICE_INFORMATION`, `DEVICE_LOCATION`, `SECURITY_INFO`, `INSTALLED_APPLICATION_LIST`, `MANAGED_APPLICATION_LIST`, `CERTIFICATE_LIST`.
 - `ComputerRedeploy` is a simple POST with no body; no v3 endpoint exists, so Buddy uses v1.
-- RSQL filter examples: `general.name=="*Example*"`, `hardware.serialNumber=="C02EXAMPLE0001"`, `udid=="00000000-0000-4000-8000-000000000001"`, `general.lastContactTime=ge=2026-01-01T00:00:00Z`, `general.reportDate=ge=2026-01-01T00:00:00Z`. Sort examples: `general.lastContactTime:desc`, `general.reportDate:desc` (omit = Jamf `general.name:asc`).
+- RSQL filter examples: `general.name=="*Example*"`, `hardware.serialNumber=="C02EXAMPLE0001"`, `udid=="00000000-0000-4000-8000-000000000001"`, `general.lastContact=ge=2026-01-01T00:00:00Z`, `general.lastCheckIn=ge=2026-01-01T00:00:00Z`, `general.reportDate=ge=2026-01-01T00:00:00Z`. Sort examples: `general.lastContact:desc`, `general.lastCheckIn:desc`, `general.reportDate:desc` (omit = Jamf `general.name:asc`).
 - List `section=` is the same enum as get (`GENERAL`, `HARDWARE`, `OPERATING_SYSTEM`, …). Omit = GENERAL only. `computers(raw=True)` / `buddy computer list --json` returns Jamf `results[]` unchanged so extra sections are usable without N+1 `computer()` calls.
-- Date field names are **v3**: `general.lastContactTime` (last MDM/binary contact) and `general.reportDate` (last inventory). Do not use v4 (`lastCheckIn` / `lastContact`) or Platform (`lastCheckInTime` / `lastInventoryUpdateTime`) names on this API.
+- Date field names are **v4**: `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, and `general.reportDate` (last inventory). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime` on this API.
 
 ---
 
@@ -643,32 +645,32 @@ buddy package set <package-id> [--name=] [--notes=] [--info=] [--category=] [--p
   └─ PUT /api/v1/packages/{id}               (update set fields)
 
 buddy computer list [--filter=<term|rsql>] [--sort=<field:dir>] [--section=HARDWARE] [--json]
-  └─ GET /api/v3/computers-inventory          (bare → general.name=="*term*"; optional sort/section; page-size=200)
+  └─ GET /api/v4/computers-inventory          (bare → general.name=="*term*"; optional sort/section; page-size=200)
 
 buddy computer get <id> [--section=GENERAL,HARDWARE]
-  └─ GET /api/v3/computers-inventory/{id}[?section=…]
+  └─ GET /api/v4/computers-inventory/{id}[?section=…]
 
 buddy computer detail <id>
-  └─ GET /api/v3/computers-inventory-detail/{id}
+  └─ GET /api/v4/computers-inventory-detail/{id}
 
 buddy computer reboot <id> [id...]
-  └─ GET /api/v3/computers-inventory/{id}?section=GENERAL  (per ID, for managementId)
+  └─ GET /api/v4/computers-inventory/{id}?section=GENERAL  (per ID, for managementId)
   └─ POST /api/v2/mdm/commands                (RESTART_DEVICE payload, per ID)
 
 buddy computer shutdown <id> [id...]
-  └─ GET /api/v3/computers-inventory/{id}?section=GENERAL
+  └─ GET /api/v4/computers-inventory/{id}?section=GENERAL
   └─ POST /api/v2/mdm/commands                (SHUT_DOWN_DEVICE)
 
 buddy computer lock <id> [id...] [--message=...] [--phone=...] [--pin=...]
-  └─ GET /api/v3/computers-inventory/{id}?section=GENERAL
+  └─ GET /api/v4/computers-inventory/{id}?section=GENERAL
   └─ POST /api/v2/mdm/commands                (DEVICE_LOCK; extra confirm)
 
 buddy computer logout <id> [id...]
-  └─ GET /api/v3/computers-inventory/{id}?section=GENERAL
+  └─ GET /api/v4/computers-inventory/{id}?section=GENERAL
   └─ POST /api/v2/mdm/commands                (LOG_OUT_USER)
 
 buddy computer erase <id> [id...] [--pin=...] [--obliteration=...]
-  └─ GET /api/v3/computers-inventory/{id}?section=GENERAL
+  └─ GET /api/v4/computers-inventory/{id}?section=GENERAL
   └─ POST /api/v2/mdm/commands                (ERASE_DEVICE; type "erase" to confirm)
 
 buddy computer device-info <id> [id...] [--queries=...]
@@ -677,7 +679,7 @@ buddy computer security-info <id> [id...]
 buddy computer installed-apps <id> [id...] [--identifiers=...]
 buddy computer managed-apps <id> [id...] [--identifiers=...]
 buddy computer certificates <id> [id...]
-  └─ GET /api/v3/computers-inventory/{id}?section=GENERAL
+  └─ GET /api/v4/computers-inventory/{id}?section=GENERAL
   └─ POST /api/v2/mdm/commands                (respective commandType; queued, results async)
 
 buddy computer redeploy <id> [id...]
@@ -806,12 +808,13 @@ buddy package list --filter='cloudTransferStatus=="READY"'
 # Packages by specific IDs
 buddy package list --filter='id=in=(10,11,12)'
 
-# Computers by name, serial, UDID, last contact, or last inventory (v3 field names)
+# Computers by name, serial, UDID, last contact, last check-in, or last inventory (v4 field names)
 buddy computer list --filter=Example
 buddy computer list --filter='general.name=="*Example*"'
 buddy computer list --filter='hardware.serialNumber=="C02EXAMPLE0001"'
 buddy computer list --filter='udid=="00000000-0000-4000-8000-000000000001"'
-buddy computer list --filter='general.lastContactTime=ge=2026-01-01T00:00:00Z' --sort=general.lastContactTime:desc
+buddy computer list --filter='general.lastContact=ge=2026-01-01T00:00:00Z' --sort=general.lastContact:desc
+buddy computer list --filter='general.lastCheckIn=ge=2026-01-01T00:00:00Z' --sort=general.lastCheckIn:desc
 buddy computer list --filter='general.reportDate=ge=2026-01-01T00:00:00Z' --sort=general.reportDate:desc
 buddy computer list --json
 
@@ -839,10 +842,10 @@ computers(
     filter=rsql_ge("general.reportDate", rsql_days_ago(7)),
     sort="general.reportDate:desc",
 )
-# last MDM/binary contact
+# last MDM/binary/DDM contact
 computers(
-    filter=rsql_ge("general.lastContactTime", rsql_days_ago(1)),
-    sort="general.lastContactTime:desc",
+    filter=rsql_ge("general.lastContact", rsql_days_ago(1)),
+    sort="general.lastContact:desc",
 )
 ```
 
@@ -851,7 +854,7 @@ computers(
 | Resource | Filterable fields |
 |---|---|
 | `/v1/packages` | `id`, `fileName`, `packageName`, `categoryId`, `info`, `notes`, `manifestFileName`, `cloudTransferStatus` |
-| `/v3/computers-inventory` | `id`, `udid`, `general.name`, `general.lastContactTime`, `general.reportDate`, `general.lastEnrolledDate`, `general.lastCloudBackupDate`, `general.mdmCertificateExpiration`, `general.managementId`, `operatingSystem.version`, `hardware.model`, `hardware.serialNumber`, … (see OpenAPI). Sort: `general.lastContactTime`, `general.reportDate`, `general.name`, `udid`, `id`, … |
+| `/v4/computers-inventory` | `id`, `udid`, `general.name`, `general.lastContact`, `general.lastCheckIn`, `general.reportDate`, `general.lastEnrolledDate`, `general.lastCloudBackupDate`, `general.mdmCertificateExpiration`, `general.managementId`, `operatingSystem.version`, `hardware.model`, `hardware.serialNumber`, … (see OpenAPI). Sort: `general.lastContact`, `general.lastCheckIn`, `general.reportDate`, `general.name`, `udid`, `id`, … |
 | `/v2/mdm/commands` | `uuid`, `clientManagementId`, `command`, `status`, `clientType`, `dateSent`, `validAfter`, `dateCompleted`, `profileId`, `profileIdentifier`, `active` |
 | `/v1/scripts`, `/v1/categories`, computer-groups | `id`, `name`, … (see OpenAPI) |
 | `/v1/api-integrations` | `id`, `displayName` |
@@ -861,7 +864,7 @@ computers(
 
 - Wildcard `*` is only meaningful inside string equality (`==` / `!=`).
 - String values are case-insensitive in Jamf's RSQL implementation.
-- Computer inventory date filters (`general.lastContactTime`, `general.reportDate`, …) use **unquoted** ISO-8601 UTC (`2026-01-01T00:00:00Z`). `rsql_ge` + `rsql_days_ago` already produce that.
+- Computer inventory date filters (`general.lastContact`, `general.lastCheckIn`, `general.reportDate`, …) use **unquoted** ISO-8601 UTC (`2026-01-01T00:00:00Z`). `rsql_ge` + `rsql_days_ago` already produce that.
 - Quote RSQL values in the shell to prevent glob expansion: `--filter='packageName=="*Chrome*"'`. Bare simple terms like `--filter=Chrome` need no quotes.
 - The RSQL grammar is specified at [github.com/jirutka/rsql-parser](https://github.com/jirutka/rsql-parser).
 

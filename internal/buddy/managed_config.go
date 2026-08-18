@@ -262,6 +262,9 @@ func overlayConfig(base, overlay *Config) *Config {
 			out.Channels[name] = cloneChannelPolicy(p)
 		}
 	}
+	if overlay.Features.ClassicInstanceOnly != nil {
+		out.Features.ClassicInstanceOnly = cloneBoolPtr(overlay.Features.ClassicInstanceOnly)
+	}
 	return out
 }
 
@@ -288,6 +291,7 @@ func cloneConfig(c *Config) *Config {
 			out.Channels[k] = cloneChannelPolicy(v)
 		}
 	}
+	out.Features.ClassicInstanceOnly = cloneBoolPtr(c.Features.ClassicInstanceOnly)
 	return out
 }
 
@@ -375,6 +379,15 @@ func userOverlayForSave(cfg *Config) *Config {
 			}
 			out.Channels[name] = cloneChannelPolicy(p)
 		}
+	}
+
+	userFeat := FeatureFlags{}
+	if cfg.user != nil {
+		userFeat = cfg.user.Features
+	}
+	if !boolPtrEqual(cfg.Features.ClassicInstanceOnly, cfg.mdm.Features.ClassicInstanceOnly) ||
+		userFeat.ClassicInstanceOnly != nil {
+		out.Features.ClassicInstanceOnly = cloneBoolPtr(cfg.Features.ClassicInstanceOnly)
 	}
 	return out
 }

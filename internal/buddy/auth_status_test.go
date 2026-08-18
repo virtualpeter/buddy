@@ -169,7 +169,7 @@ func TestSurfaceForOpPrefersLastGood(t *testing.T) {
 		Region:   "us",
 		TenantID: "11111111-1111-1111-1111-111111111111",
 	}
-	got := surfaceForOp(OpRead, "dual", auth, "sandbox", tenant)
+	got := surfaceForOp(nil, OpRead, "dual", auth, "sandbox", tenant)
 	if got != SurfaceInstance {
 		t.Fatalf("default without cache=%q", got)
 	}
@@ -179,7 +179,7 @@ func TestSurfaceForOpPrefersLastGood(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	got = surfaceForOp(OpRead, "dual", auth, "sandbox", tenant)
+	got = surfaceForOp(nil, OpRead, "dual", auth, "sandbox", tenant)
 	if got != SurfacePlatform {
 		t.Fatalf("prefer platform last-good=%q", got)
 	}

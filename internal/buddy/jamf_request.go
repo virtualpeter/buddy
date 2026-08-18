@@ -50,7 +50,14 @@ func opClassForPath(method, path string) OpClass {
 		if method == http.MethodGet || method == http.MethodHead {
 			return OpClassic
 		}
-		return OpMutate
+		return OpClassicWrite
+	}
+	// Jamf Pro ACS UI API — instance host only (not on the Platform gateway).
+	if isACSConfigProfilePath(path) {
+		if method == http.MethodGet || method == http.MethodHead {
+			return OpACS
+		}
+		return OpACSWrite
 	}
 	// Vendored Platform product APIs (blueprints, devices, device-groups, …).
 	if isPlatformProductPath(path) {

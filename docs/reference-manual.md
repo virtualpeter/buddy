@@ -78,7 +78,7 @@ buddy cred set tenant gateway --region=us --tenant-id=<tenant-id>
 buddy cred set auth gateway --type=oauth --client-id=<client-id> --tenants=gateway --surface=platform
 ```
 
-Classic (`/JSSResource/…`) calls are rewritten for the gateway, but Jamf does not yet expose Classic permissions to Platform integrations — expect `403` on Classic until it does. Prefer an instance-surface auth for Classic-heavy work.
+Classic (`/JSSResource/…`) calls are rewritten for the gateway, but Jamf does not yet publish Classic privileges for Platform integrations — expect `403` on Classic until it does. Buddy forces Classic onto an instance auth for that reason (`features.classic_instance_only`, default true). Set it false (or `BUDDY_CLASSIC_INSTANCE_ONLY=false`) when those privileges exist so Classic can use a platform session.
 
 **Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate`). macOS defaults to Keychain (service `buddy` via `security(1)`, or service `virtualpete.buddy.cli` / label Buddy on `make buddy-darwin-arm64`); Linux defaults to `~/.config/buddy/secrets/`. Override with `BUDDY_SECRET_STORE=file|pass|keychain`. Never commit secrets to source control.
 
@@ -332,6 +332,7 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 | `BUDDY_DOCS_ROOT` | Optional live `docs/` override for serve/MCP (default: embedded) |
 | `BUDDY_SECRET_STORE` | Secret backend: `file`, `pass`, or `keychain` |
 | `BUDDY_MANAGED_PLIST` | Path to a managed-config plist (replaces Darwin `/Library/Managed Preferences/virtualpete.buddy.cli.plist`) |
+| `BUDDY_CLASSIC_INSTANCE_ONLY` | Override `features.classic_instance_only` (`true`/`false`). Default true: Classic uses instance until Jamf publishes Classic on Platform |
 
 ---
 

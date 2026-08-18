@@ -100,6 +100,9 @@ auths:
     access: readonly
     surface: platform
     channels: [mcp, ide]           # restrict MCP/IDE to this readonly auth
+
+features:
+  classic_instance_only: true      # default; false lets Classic use platform (/api/proclassic)
 ```
 
 **Storage:** Tenants hold host identity; auths hold type/username/clientId and link to tenants. Passwords and OAuth client secrets can stay inline for **dev/test**, or be stored outside the file (keyed by **auth name**):
@@ -281,6 +284,7 @@ MIT License — see [LICENSE](LICENSE). Copyright © 2026 Peter Viertel.
 | `DEBUG`           | Enable debug logging when set            |
 | `XDG_CONFIG_HOME` | Override config directory (default `~/.config`) |
 | `BUDDY_MANAGED_PLIST` | Path to org-managed config plist (replaces Darwin Managed Preferences) |
+| `BUDDY_CLASSIC_INSTANCE_ONLY` | `true` (default) forces Classic onto instance auth; `false` allows Classic via Platform |
 
 ## Project Structure
 

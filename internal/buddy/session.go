@@ -1,6 +1,7 @@
 package buddy
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -15,7 +16,10 @@ const (
 	OpMutate        OpClass = "mutate"         // require full
 	OpPlatform      OpClass = "platform"       // blueprints / gateway-only (read)
 	OpPlatformWrite OpClass = "platform_write" // blueprints mutate — platform + full
-	OpClassic       OpClass = "classic"        // Classic API — prefer instance
+	OpClassic       OpClass = "classic"        // Classic API GET — instance until Platform Classic is published
+	OpClassicWrite  OpClass = "classic_write"  // Classic API mutate — instance + full (same caveat)
+	OpACS           OpClass = "acs"            // Jamf Pro ACS UI API GET — always instance
+	OpACSWrite      OpClass = "acs_write"      // ACS mutate — instance + full
 	OpSchema        OpClass = "schema"         // live Pro/Classic schema — need instance URL
 	OpPro           OpClass = "pro"            // Jamf Pro JSON API — either surface
 )
@@ -79,8 +83,14 @@ func ActiveChannel() string {
 // ResolveSession picks tenant+auth for an operation.
 //
 //	tenantName: override (empty → active selection / config default)
-//	authName:   pin (empty → auto-pick among tenant's auths; non-empty pins that auth)
+//	authName:   pin (empty → auto-pick among tenant's auths; non-empty prefers that auth)
 //	op:         operation class for ranking
+//
+// A pin is honored when that auth can serve the op's required surface. If it cannot
+// (Classic needs instance while features.classic_instance_only is on; ACS/schema
+// always need instance; Platform product APIs need platform oauth), buddy
+// auto-picks another linked auth on the same tenant. Access mismatches (readonly vs
+// mutate) still fail — those are not a surface routing problem.
 func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Session, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("internal error: config is nil")
@@ -140,13 +150,13 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 		if err != nil {
 			return nil, err
 		}
-		surface := surfaceForOp(op, authName, auth, tenantName, tenant)
-		if pref := SurfacePreference(); pref == SurfacePlatform || pref == SurfaceInstance {
-			if err := checkAuthForOp(cfg, auth, tenant, op, pref, channel); err == nil {
-				surface = pref
-			}
-		}
+		surface := surfaceForOp(cfg, op, authName, auth, tenantName, tenant)
+		surface = overlaySurfacePref(cfg, op, auth, tenant, surface, channel)
 		if err := checkAuthForOp(cfg, auth, tenant, op, surface, channel); err != nil {
+			if isSurfaceIncompatible(err) {
+				// Pin cannot serve this op's surface — pick a compatible auth on the tenant.
+				return cfg.autoPickSession(tenantName, tenant, op, channel)
+			}
 			return nil, fmt.Errorf("auth %q: %w", authName, err)
 		}
 		cred := ComposeCredential(tenant, auth, surface)
@@ -171,6 +181,10 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 	if err != nil {
 		return nil, err
 	}
+	return cfg.autoPickSession(tenantName, tenant, op, channel)
+}
+
+func (cfg *Config) autoPickSession(tenantName string, tenant TenantConfig, op OpClass, channel string) (*Session, error) {
 	candidates := cfg.FilterAuths(channel, cfg.AuthsForTenant(tenantName))
 	if len(candidates) == 0 {
 		if len(cfg.AuthsForTenant(tenantName)) == 0 {
@@ -193,13 +207,66 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 	}, nil
 }
 
-func surfaceForOp(op OpClass, authName string, auth AuthEntry, tenantName string, tenant TenantConfig) string {
+// requiredSurfaceForOp returns the Jamf surface this op must use, or "" when
+// either instance or platform is valid (Pro JSON / generic read-mutate).
+// Classic is instance-only while Jamf Account Platform integrations do not
+// publish Classic privileges (features.classic_instance_only, default true).
+func requiredSurfaceForOp(cfg *Config, op OpClass) string {
 	switch op {
 	case OpPlatform, OpPlatformWrite:
 		return SurfacePlatform
-	case OpClassic, OpSchema:
+	case OpClassic, OpClassicWrite:
+		if cfg.ClassicInstanceOnly() {
+			return SurfaceInstance
+		}
+		return ""
+	case OpACS, OpACSWrite, OpSchema:
 		return SurfaceInstance
-	case OpPro, OpRead, OpMutate, OpAny:
+	default:
+		return ""
+	}
+}
+
+// overlaySurfacePref applies --surface= / session surface= when the op can use
+// either surface. A locked Classic (classic_instance_only), ACS, or Platform-product
+// surface is not overridden — otherwise a platform pin plus surface=platform
+// would send Classic through /api/proclassic/ (401/403 until Jamf publishes it)
+// or ACS to the gateway (404).
+func overlaySurfacePref(cfg *Config, op OpClass, auth AuthEntry, tenant TenantConfig, surface, channel string) string {
+	pref := SurfacePreference()
+	if pref != SurfacePlatform && pref != SurfaceInstance {
+		return surface
+	}
+	if required := requiredSurfaceForOp(cfg, op); required != "" && required != pref {
+		return surface
+	}
+	if err := checkAuthForOp(cfg, auth, tenant, op, pref, channel); err == nil {
+		return pref
+	}
+	return surface
+}
+
+type surfaceIncompatibleError struct {
+	msg string
+}
+
+func (e *surfaceIncompatibleError) Error() string { return e.msg }
+
+func surfaceIncompatible(msg string) error {
+	return &surfaceIncompatibleError{msg: msg}
+}
+
+func isSurfaceIncompatible(err error) bool {
+	var e *surfaceIncompatibleError
+	return errors.As(err, &e)
+}
+
+func surfaceForOp(cfg *Config, op OpClass, authName string, auth AuthEntry, tenantName string, tenant TenantConfig) string {
+	if s := requiredSurfaceForOp(cfg, op); s != "" {
+		return s
+	}
+	switch op {
+	case OpPro, OpRead, OpMutate, OpAny, OpClassic, OpClassicWrite:
 		switch auth.EffectiveSurface() {
 		case SurfacePlatform:
 			return SurfacePlatform
@@ -235,7 +302,7 @@ func surfaceForOp(op OpClass, authName string, auth AuthEntry, tenantName string
 }
 
 func checkAuthForOp(cfg *Config, auth AuthEntry, tenant TenantConfig, op OpClass, surface, channel string) error {
-	if (op == OpMutate || op == OpPlatformWrite) && cfg.EffectiveAccessForChannel(auth, channel) == AccessReadonly {
+	if (op == OpMutate || op == OpPlatformWrite || op == OpClassicWrite || op == OpACSWrite) && cfg.EffectiveAccessForChannel(auth, channel) == AccessReadonly {
 		if cfg.ChannelAccessFor(channel) == AccessReadonly {
 			return fmt.Errorf("channel %s is readonly; mutating operations are not allowed", channel)
 		}
@@ -247,10 +314,10 @@ func checkAuthForOp(cfg *Config, auth AuthEntry, tenant TenantConfig, op OpClass
 			return fmt.Errorf("tenant has no platform tenantId/region")
 		}
 		if auth.EffectiveSurface() == SurfaceInstance {
-			return fmt.Errorf("surface=instance cannot be used for platform operations")
+			return surfaceIncompatible("surface=instance cannot be used for platform operations")
 		}
 		if auth.Type != "oauth" {
-			return fmt.Errorf("platform operations require oauth auth")
+			return surfaceIncompatible("platform operations require oauth auth")
 		}
 	case SurfaceInstance:
 		if tenant.InstanceBaseURL() == "" && !tenant.HasInstanceURL() {
@@ -260,7 +327,7 @@ func checkAuthForOp(cfg *Config, auth AuthEntry, tenant TenantConfig, op OpClass
 			}
 		}
 		if auth.EffectiveSurface() == SurfacePlatform {
-			return fmt.Errorf("surface=platform cannot be used for instance/classic operations")
+			return surfaceIncompatible("surface=platform cannot be used for instance/classic operations")
 		}
 	}
 	return nil
@@ -281,7 +348,7 @@ func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []
 			errs = append(errs, name+": "+err.Error())
 			continue
 		}
-		surface := surfaceForOp(op, name, auth, tenantName, tenant)
+		surface := surfaceForOp(cfg, op, name, auth, tenantName, tenant)
 		if err := checkAuthForOp(cfg, auth, tenant, op, surface, channel); err != nil {
 			errs = append(errs, name+": "+err.Error())
 			continue
@@ -293,18 +360,14 @@ func pickAuth(cfg *Config, tenantName string, tenant TenantConfig, candidates []
 			continue
 		}
 		pref := SurfacePreference()
-		if pref != "" && surface != pref && auth.EffectiveSurface() != SurfaceAny && auth.EffectiveSurface() != pref {
+		// --surface= is a bias for ops that can use either surface. Do not skip
+		// auths required by Classic/schema/ACS (instance) or Platform product APIs.
+		if pref != "" && requiredSurfaceForOp(cfg, op) == "" &&
+			surface != pref && auth.EffectiveSurface() != SurfaceAny && auth.EffectiveSurface() != pref {
 			errs = append(errs, name+": surface preference "+pref+" (auth surface="+auth.EffectiveSurface()+")")
 			continue
 		}
-		if pref != "" && (surface == pref || auth.EffectiveSurface() == SurfaceAny || auth.EffectiveSurface() == pref) {
-			// Prefer composing on the requested surface when auth allows it.
-			if pref == SurfacePlatform || pref == SurfaceInstance {
-				if err := checkAuthForOp(cfg, auth, tenant, op, pref, channel); err == nil {
-					surface = pref
-				}
-			}
-		}
+		surface = overlaySurfacePref(cfg, op, auth, tenant, surface, channel)
 		s := scoreAuth(cfg, name, auth, tenantName, tenant, surface, op, channel)
 		if pref != "" && surface == pref {
 			s += 50
@@ -348,12 +411,15 @@ func scoreAuth(cfg *Config, authName string, auth AuthEntry, tenantName string, 
 		if op == OpPlatformWrite && access == AccessFull {
 			score += 30
 		}
-	case OpClassic, OpSchema:
+	case OpClassic, OpClassicWrite, OpACS, OpACSWrite, OpSchema:
 		if surf == SurfaceInstance || surf == SurfaceAny {
 			score += 100
 		}
 		if surface == SurfaceInstance {
 			score += 20
+		}
+		if (op == OpClassicWrite || op == OpACSWrite) && access == AccessFull {
+			score += 30
 		}
 	case OpPro, OpAny:
 		if access == AccessFull {

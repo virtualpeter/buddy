@@ -145,7 +145,7 @@ func PolicyCopy(src, dst SessionRef, opts Opts, spec PolicyCopySpec, logger *slo
 	if err != nil {
 		return nil, err
 	}
-	dst, err = ResolveSessionRef(dst, OpMutate)
+	dst, err = ResolveSessionRef(dst, OpClassicWrite)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +197,7 @@ func PolicyMigrate(src, dst SessionRef, opts Opts, spec PolicyMigrateSpec, logge
 	if err != nil {
 		return nil, err
 	}
-	dst, err = ResolveSessionRef(dst, OpMutate)
+	dst, err = ResolveSessionRef(dst, OpClassicWrite)
 	if err != nil {
 		return nil, err
 	}

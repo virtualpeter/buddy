@@ -35,6 +35,12 @@ func isPlatformProductPath(path string) bool {
 	return false
 }
 
+// isACSConfigProfilePath reports Jamf Pro Application & Custom Settings UI API
+// paths (/api/config-profiles/…). Those exist only on the instance host.
+func isACSConfigProfilePath(path string) bool {
+	return path == "/api/config-profiles" || strings.HasPrefix(path, "/api/config-profiles/")
+}
+
 // RewriteJamfPath maps an instance-relative Jamf path onto the Platform API Gateway
 // when tenantID is non-empty. With an empty tenantID the path is returned unchanged
 // (aside from normalization).
@@ -45,7 +51,7 @@ func isPlatformProductPath(path string) bool {
 //   - /api/{product}/vN/…     → inject /tenant/{id} after the version segment
 //     (blueprints, devices, device-groups, device-actions, compliance-benchmarks, ddm/report)
 //   - already contains /tenant/ → unchanged
-//   - /api/schema, /classicapi → error (not supported via gateway)
+//   - /api/schema, /classicapi, /api/config-profiles → error (not supported via gateway)
 func RewriteJamfPath(tenantID, path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -65,6 +71,9 @@ func RewriteJamfPath(tenantID, path string) (string, error) {
 	if path == "/api/schema" || strings.HasPrefix(path, "/api/schema/") ||
 		path == "/classicapi" || strings.HasPrefix(path, "/classicapi/") {
 		return "", fmt.Errorf("path %q is not supported via the Platform API Gateway", path)
+	}
+	if isACSConfigProfilePath(path) {
+		return "", fmt.Errorf("path %q is not supported via the Platform API Gateway (ACS is instance-only)", path)
 	}
 
 	switch {

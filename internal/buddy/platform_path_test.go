@@ -86,6 +86,30 @@ func TestOpClassForPath_PlatformProducts(t *testing.T) {
 	}
 }
 
+func TestOpClassForPath_Classic(t *testing.T) {
+	if got := opClassForPath("GET", "/JSSResource/policies"); got != OpClassic {
+		t.Fatalf("GET Classic → %q", got)
+	}
+	if got := opClassForPath("POST", "/JSSResource/policies/id/0"); got != OpClassicWrite {
+		t.Fatalf("POST Classic → %q want %q", got, OpClassicWrite)
+	}
+	if got := opClassForPath("PUT", "/api/proclassic/tenant/tid/JSSResource/policies/id/1"); got != OpClassicWrite {
+		t.Fatalf("PUT proclassic → %q", got)
+	}
+}
+
+func TestOpClassForPath_ACS(t *testing.T) {
+	if got := opClassForPath("GET", "/api/config-profiles/macos/profile/1"); got != OpACS {
+		t.Fatalf("GET ACS → %q want %q", got, OpACS)
+	}
+	if got := opClassForPath("POST", "/api/config-profiles/plist/can-convert-to-plist"); got != OpACSWrite {
+		t.Fatalf("POST ACS plist → %q want %q", got, OpACSWrite)
+	}
+	if got := opClassForPath("PUT", "/api/config-profiles/macos/abc"); got != OpACSWrite {
+		t.Fatalf("PUT ACS → %q want %q", got, OpACSWrite)
+	}
+}
+
 func TestRewriteJamfPath_AlreadyScoped(t *testing.T) {
 	path := "/api/pro/v1/tenant/tid-1/buildings"
 	got, err := RewriteJamfPath("tid-1", path)
@@ -112,6 +136,20 @@ func TestRewriteJamfPath_SchemaRejected(t *testing.T) {
 	_, err := RewriteJamfPath("tid", "/api/schema")
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("expected not supported error, got %v", err)
+	}
+}
+
+func TestRewriteJamfPath_ACSRejected(t *testing.T) {
+	_, err := RewriteJamfPath("tid", "/api/config-profiles/plist/can-convert-to-plist")
+	if err == nil || !strings.Contains(err.Error(), "ACS is instance-only") {
+		t.Fatalf("expected ACS instance-only error, got %v", err)
+	}
+	got, err := RewriteJamfPath("", "/api/config-profiles/macos/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/api/config-profiles/macos/x" {
+		t.Fatalf("instance rewrite should leave ACS path, got %q", got)
 	}
 }
 

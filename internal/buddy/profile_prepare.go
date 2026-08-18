@@ -384,7 +384,7 @@ func ProfileCopy(src, dst SessionRef, opts Opts, spec ProfileCopySpec, logger *s
 	if err != nil {
 		return nil, err
 	}
-	dst, err = ResolveSessionRef(dst, OpMutate)
+	dst, err = ResolveSessionRef(dst, OpClassicWrite)
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +475,7 @@ func ProfileMigrate(src, dst SessionRef, opts Opts, spec ProfileMigrateSpec, log
 	if err != nil {
 		return nil, err
 	}
-	dst, err = ResolveSessionRef(dst, OpMutate)
+	dst, err = ResolveSessionRef(dst, OpClassicWrite)
 	if err != nil {
 		return nil, err
 	}

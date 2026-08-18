@@ -161,7 +161,10 @@ id= / ids= on load and mutate. Related IDs stay typed (category_id, script_id
 on policy create, computer_ids on static-group membership). Pass either id=
 or a natural key (trigger=/name=/name=+version=), not both. Resource IDs first;
 payload/options next; tenant?/surface?/auth? always last (source session).
-Auth alone soft-switches tenant. Dual-session copy builtins add
+Auth alone soft-switches tenant. A pin that cannot serve the call's required
+surface (Classic -> instance while classic_instance_only is on; Platform
+product APIs -> platform) auto-picks another linked auth on the same tenant.
+Dual-session copy builtins add
 to_tenant?/to_surface?/to_auth? for destination (omit = same as source).
 *_copy is canonical; *_clone / *_migrate are aliases (migrate ⇒ upsert=True).
 Versioned release bumps use change batches (step_clone_policy), not a

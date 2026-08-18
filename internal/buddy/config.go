@@ -511,12 +511,74 @@ func (t *TenantSelection) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
+// EnvClassicInstanceOnly overrides features.classic_instance_only when set
+// (1/true/yes/on or 0/false/no/off). Omit to use YAML, then default true.
+const EnvClassicInstanceOnly = "BUDDY_CLASSIC_INSTANCE_ONLY"
+
+// FeatureFlags are optional buddy behavior toggles (omitted keys use defaults).
+type FeatureFlags struct {
+	// ClassicInstanceOnly routes Classic API calls to an instance auth.
+	// Default true: Jamf Account Platform integrations do not yet publish
+	// Classic privileges, so /api/proclassic/ typically 401/403. Set false
+	// (or BUDDY_CLASSIC_INSTANCE_ONLY=false) to let Classic use a platform
+	// session once those privileges exist.
+	ClassicInstanceOnly *bool `yaml:"classic_instance_only,omitempty"`
+}
+
+// ClassicInstanceOnly reports whether Classic API routing must use an
+// instance auth. Env wins over YAML; omitted means true.
+func (cfg *Config) ClassicInstanceOnly() bool {
+	if v, ok := parseBoolishEnv(EnvClassicInstanceOnly); ok {
+		return v
+	}
+	if cfg != nil && cfg.Features.ClassicInstanceOnly != nil {
+		return *cfg.Features.ClassicInstanceOnly
+	}
+	return true
+}
+
+func parseBoolishEnv(key string) (value, ok bool) {
+	s := strings.TrimSpace(os.Getenv(key))
+	if s == "" {
+		return false, false
+	}
+	switch strings.ToLower(s) {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func boolPtr(v bool) *bool { return &v }
+
+func cloneBoolPtr(p *bool) *bool {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+func boolPtrEqual(a, b *bool) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
 // Config holds buddy CLI configuration (tenants + auths + channel policies).
 type Config struct {
 	Tenant   TenantSelection          `yaml:"tenant"`
 	Tenants  map[string]TenantConfig  `yaml:"tenants"`
 	Auths    map[string]AuthEntry     `yaml:"auths"`
 	Channels map[string]ChannelPolicy `yaml:"channels,omitempty"`
+	Features FeatureFlags             `yaml:"features,omitempty"`
 
 	// Legacy fields — populated only while unmarshaling old configs; cleared after migrate.
 	Cred        string                      `yaml:"cred,omitempty"`
@@ -1453,6 +1515,22 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 				channelsNode,
 			)
 		}
+	}
+
+	if cfg.Features.ClassicInstanceOnly != nil {
+		val := "true"
+		if !*cfg.Features.ClassicInstanceOnly {
+			val = "false"
+		}
+		feat := &yaml.Node{Kind: yaml.MappingNode}
+		feat.Content = append(feat.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "classic_instance_only"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: val},
+		)
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "features"},
+			feat,
+		)
 	}
 
 	return yaml.Marshal(root)
