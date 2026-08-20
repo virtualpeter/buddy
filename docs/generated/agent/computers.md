@@ -40,7 +40,7 @@ Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …).
 - Load all sections: `computer_detail(id=…)` · `buddy computer detail` — `GET …/computers-inventory-detail/{id}`
 - MDM actions: `computer_reboot` / `computer_lock` / … · `buddy computer reboot|lock|…` — Named builtins and matching CLI verbs
 - MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).
-- List RSQL dates are v4 `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, and `general.reportDate` (last inventory). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime`.
+- List RSQL dates are v4 `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, and `general.reportDate` (last inventory). v3 `lastContactTime` and Platform `lastCheckInTime` / `lastInventoryUpdateTime` are not valid on this API.
 
 ## Builtins
 

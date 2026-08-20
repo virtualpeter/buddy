@@ -35,7 +35,7 @@ var ComputersTopic = docspec.Topic{
 	},
 	Notes: []string{
 		"MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).",
-		"List RSQL dates are v4 `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, and `general.reportDate` (last inventory). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime`.",
+		"List RSQL dates are v4 `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, and `general.reportDate` (last inventory). v3 `lastContactTime` and Platform `lastCheckInTime` / `lastInventoryUpdateTime` are not valid on this API.",
 	},
 	AgentNotes: []string{
 		"Do not mix Pro `computer*` with Platform `device*` — different gateways and IDs.",
@@ -118,7 +118,7 @@ var ComputersTopic = docspec.Topic{
         section?: string or list → repeated section= on the list GET (omit = GENERAL).
         page?: int (omit = all); page_size?: int (default 200).
       Notes: Summary dicts include lastContact, lastCheckIn, reportDate, lastEnrolledDate, platform from GENERAL.
-        reportDate is last inventory. Do not use v3 lastContactTime or Platform lastCheckInTime.
+        reportDate is last inventory. v3 lastContactTime and Platform lastCheckInTime are not valid on this API.
         ids and raw are mutually exclusive.
   computer(id, section?, tenant?, surface?, auth?)
       Does: Load one computer's inventory JSON (requested sections).
