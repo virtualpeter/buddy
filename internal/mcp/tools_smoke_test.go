@@ -60,6 +60,12 @@ func TestServerInstructions(t *testing.T) {
 	if !strings.Contains(ServerInstructions, "round-trips") {
 		t.Fatal("instructions should discourage micro-batching round-trips")
 	}
+	if !strings.Contains(ServerInstructions, "bare name") {
+		t.Fatal("instructions should tell agents to buddyscript a bare name for one signature")
+	}
+	if !strings.Contains(ServerInstructions, "Do not docs-get builtins") {
+		t.Fatal("instructions should warn against fetching the full builtins index")
+	}
 	if strings.Contains(ServerInstructions, "starlark_eval") {
 		t.Fatal("instructions should not mention starlark_eval")
 	}
@@ -87,6 +93,10 @@ func TestAgentPlaybook(t *testing.T) {
 		"profile_put_xml",
 		"deny_builtins",
 		"developer.jamf.com/mcp",
+		"Looking up one builtin",
+		"bare expression",
+		"no parentheses",
+		"buddy://docs/builtins",
 	} {
 		if !strings.Contains(AgentPlaybook, want) {
 			t.Errorf("AgentPlaybook missing %q", want)

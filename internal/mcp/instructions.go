@@ -11,7 +11,7 @@ Call get_instructions first (firm playbook). Then: docs → buddyscript named bu
 Prefer one buddyscript def main() over many tiny round-trips (host timeouts); do not micro-batch “just in case.”
 
 Tools: get_instructions, buddy_info, docs, jamf_schema (discovery only), buddyscript (primary).
-Before resource work: docs query the object noun (e.g. smart_groups, policies, packages, profile-payloads, blueprints) then get that page.
+Before resource work: docs query the object noun (e.g. smart_groups, policies, packages, profile-payloads, blueprints) then get that page. Do not docs-get builtins (too large); buddyscript a bare name (no parentheses) to print one signature.
 MCP defaults deny jamf_*. Respect buddy_info.deny_builtins / allow_builtins (channel layer) plus tenant_deny_builtins / auth_deny_builtins. Allow follows deny per layer; deny ["*"] is an allowlist. Blocked builtins raise — treat as a gap, do not invent schema HTTP.
 Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic PUT from schema. profile_xml is the Classic envelope; list with payloads_list_identifiers then identifier= (Identifier, unique Type, or unique UUID). MCX helpers only for ManagedClient / mcx_preference_settings.
 Packages/JCDS: package_ready / package_wait_ready / package_download.
@@ -38,7 +38,14 @@ Call **get_instructions** once at the start of a session before other buddy tool
 
 - action=list with a resource noun; query is **fuzzy** (splits on _ - / spaces). Examples: smart_groups, smart groups, policy, packages, profile-payloads, blueprints.
 - Prefer too many hits over none; then action=get the matching cookbook (e.g. docs/smart-groups).
+- Do **not** docs-get builtins / buddy://docs/builtins — the full function index is too large for hosts and the signature hint there is often unread. Use a resource cookbook, or look up **one** builtin (below).
 - Do not skip docs and guess builtin names or Classic/Pro HTTP bodies.
+
+## Looking up one builtin
+
+Do not parse buddy help builtins or the builtins docs page to learn a function. For a known name, call **buddyscript** with that name as a **bare expression** (no parentheses, no def main). Example source: computer_history
+
+value.result is catalog help: signature, Does, return, Params, Notes. Examples: policy_logs, package_wait_ready, smart_group. Unknown names raise. This is not a Jamf call.
 
 ## BuddyScript (via buddyscript tool)
 

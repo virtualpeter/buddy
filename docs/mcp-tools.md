@@ -5,7 +5,7 @@ How AI agents should use buddy MCP tools after the lean-surface cut.
 ## Tool priority (do this order)
 
 0. **`get_instructions`** — call once at session start (firm playbook: dialect, return contract, docs-first, long-work guidance).
-1. **`docs`** — object-type cookbooks before inventing. Query a **resource noun** (`policy`, `packages`, `smart_groups` / `smart groups`, `blueprints`, …) or a page id (`profile-payloads`, `mcp-tools`, `builtins`), then `get` that page.
+1. **`docs`** — object-type cookbooks before inventing. Query a **resource noun** (`policy`, `packages`, `smart_groups` / `smart groups`, `blueprints`, …) or a page id (`profile-payloads`, `mcp-tools`), then `get` that page. Do **not** get `builtins` (too large). To learn one function, `buddyscript` the **bare name** (no parentheses) — e.g. source `computer_history` prints signature / Does / params.
 2. **`buddyscript`** with **named builtins** (`smart_group_*`, `policy_migrate`, `profile_xml_*`, `package_wait_ready`, `blueprint_*`, …) for Jamf work. Prefer **one** `def main()` over many tiny round-trips (host timeouts).
 3. **`jamf_get` / `jamf_put` / …** via `buddyscript` only when no named builtin exists **and** they are not blocked (`buddy_info.deny_builtins` / `allow_builtins`, plus tenant/auth lists). MCP defaults deny `jamf_*` on the channel layer; each layer is independent (`deny_builtins: ["*"]` is an allowlist at that layer).
 
