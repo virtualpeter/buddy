@@ -379,6 +379,26 @@ Base paths: `/api/v4/computers-inventory`, `/api/v2/mdm/commands`, `/api/v1/jamf
 
 ---
 
+## Computer history (Classic API)
+
+Base path: `/JSSResource/computerhistory`
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/JSSResource/computerhistory/{key}/{value}` | `ComputerHistoryGet`, `computer_history` | Full Classic computer history (`key` = `id`, `name`, `serialnumber`, or `udid`) |
+| `GET` | `/JSSResource/computerhistory/{key}/{value}/subset/{subset}` | `ComputerHistoryGet`, `ComputerPolicyLogs`, `computer_history`, `computer_policy_logs`, `policy_logs` | Subset (e.g. `PolicyLogs`; combine with `&`) |
+
+### Notes
+
+- This is **policy/event execution history**, not MDM command history (`GET /api/v2/mdm/commands`) and not package/script audit `GET …/history`.
+- **Not** undocumented Pro `GET /api/v1/policies` — that path is a paginated **list index** only (`id`, `name`, `enabled`, …) and has no logs.
+- Lookup is per computer (id, name, serial, or udid). There is no published “all logs for policy N” collection; `policy_logs(id, computer_id)` filters one computer’s PolicyLogs. Do not fan out over the fleet.
+- Accept is `application/json`. Buddy unwraps the `computer_history` envelope and flattens `{policy_log: {…}}` wrappers (and Classic XML-style `{size, policy_log}` bags). XML is a parse fallback only.
+- Subset tokens: `General`, `PolicyLogs`, `Commands`, `Audits`, `ComputerUsageLogs`, `CasperRemoteLogs`, `ScreenSharingLogs`, `CasperImagingLogs`, `UserLocation`, `MacAppStoreApplications`.
+- CLI `buddy computer history` defaults to `--subset=PolicyLogs` (full documents can be large). Privilege: **Read Computer History**. Classic routing (`OpClassic` / proclassic), not `OpProUI`.
+
+---
+
 ## MDM Commands (Jamf Pro API v2)
 
 Base path: `/api/v2/mdm/commands`

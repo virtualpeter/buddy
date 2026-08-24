@@ -25,21 +25,26 @@ var ComputersTopic = docspec.Topic{
 		`lock`,
 		`erase`,
 		`mdm`,
+		`computer_history`,
+		`computer_policy_logs`,
+		`policy logs`,
 	},
-	Summary: `Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …). For MDM **command history** queries, see [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices) — different API surface.`,
+	Summary: `Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …). Classic **policy execution logs** are ` + "`computer_history`" + ` / ` + "`computer_policy_logs`" + `. For MDM **command history** queries, see [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices) — different API surface.`,
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / find", BuddyScript: "`computers(filter=…, sort?, section?, raw?, page?, page_size?)`", CLI: "`buddy computer list [--sort=] [--json]`", Notes: "v4 dates `lastContact` / `lastCheckIn` / `reportDate`; omit page to fetch all"},
 		{Action: "Load", BuddyScript: "`computer(id=…, section?)`", CLI: "`buddy computer get [--section=…]`", Notes: "Passthrough JSON; default GENERAL; `section` → `?section=`"},
 		{Action: "Load all sections", BuddyScript: "`computer_detail(id=…)`", CLI: "`buddy computer detail`", Notes: "`GET …/computers-inventory-detail/{id}`"},
+		{Action: "Policy logs", BuddyScript: "`computer_history` / `computer_policy_logs` / `policy_logs`", CLI: "`buddy computer history` / `logs`", Notes: "Classic computerhistory; per-computer (no fleet fan-out)"},
 		{Action: "MDM actions", BuddyScript: "`computer_reboot` / `computer_lock` / …", CLI: "`buddy computer reboot|lock|…`", Notes: "Named builtins and matching CLI verbs"},
 	},
 	Notes: []string{
-		"MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).",
+		"Classic **computer history** is policy/event execution logs (`GET /JSSResource/computerhistory`), not MDM command history and not package/script audit `history`. MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).",
 		"List RSQL dates are v4 `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, and `general.reportDate` (last inventory). v3 `lastContactTime` and Platform `lastCheckInTime` / `lastInventoryUpdateTime` are not valid on this API.",
 	},
 	AgentNotes: []string{
 		"Do not mix Pro `computer*` with Platform `device*` — different gateways and IDs.",
 		"Do not use this page for RSQL history of MDM commands — that is [mdm](/docs/docs/mdm).",
+		"Policy execution logs are Classic `computer_history` / `computer_policy_logs` (or `policy_logs(id, computer_id)`). Do not invent `jamf_get` or `GET /api/v1/policies` logs — that path is a list index only.",
 		"Computer inventory is **v4** (`/api/v4/computers-inventory`). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime` (see [api-endpoints](/docs/docs/api-endpoints)).",
 		"Date filters: `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, `general.reportDate` (last inventory). Unquoted ISO-8601 UTC.",
 		"`computers()` summary dicts include `lastContact`, `lastCheckIn`, `reportDate`, `lastEnrolledDate`, `platform` from GENERAL. `raw=True` is Jamf `results[]` passthrough (xor with `ids=True`). List `section=` adds HARDWARE/OS without N+1 gets.",
@@ -77,6 +82,22 @@ var ComputersTopic = docspec.Topic{
 			},
 		},
 		{
+			Name:    `computer_history`,
+			Summary: `Load Classic computer history`,
+			Returns: `dict (flattened history)`,
+			Params: []docspec.Param{
+				{Name: `id`, Type: `string`, Required: false, Description: `computer id (xor name/serial/udid)`},
+			},
+		},
+		{
+			Name:    `computer_policy_logs`,
+			Summary: `List flattened policy logs for one computer`,
+			Returns: `list of dict`,
+			Params: []docspec.Param{
+				{Name: `id`, Type: `string`, Required: false, Description: `computer id (xor name/serial/udid)`},
+			},
+		},
+		{
 			Name:    `computer_reboot`,
 			Summary: `Reboot computers`,
 			Returns: `None`,
@@ -101,8 +122,12 @@ var ComputersTopic = docspec.Topic{
         sort="general.lastContact:desc",
     )
     return {"inventory": len(recent), "contact": len(seen)}`,
+		`def main():
+    logs = computer_policy_logs(id="101", policy_id=42)
+    return {"count": len(logs), "last": logs[0] if logs else None}`,
 	},
 	Related: []docspec.RelatedLink{
+		{Title: `Policies`, Ref: `/docs/docs/policies`},
 		{Title: `MDM command history`, Ref: `/docs/docs/mdm`},
 		{Title: `Static computer groups`, Ref: `/docs/docs/static-groups`},
 		{Title: `Platform devices`, Ref: `/docs/docs/devices`},
@@ -128,6 +153,21 @@ var ComputersTopic = docspec.Topic{
       Does: Load one computer with all inventory sections.
       → value: dict (GET /api/v4/computers-inventory-detail/{id} JSON)
       Params: id: str.
+  computer_history(id=?, name=?, serial=?, udid=?, subset?, tenant?, surface?, auth?)
+      Does: Load Classic computer history (policy/event execution logs, not MDM or audit history).
+      → value: dict (general plus flattened policy_logs and other present subsets)
+      Params: pass exactly one of id= / name= / serial= / udid=.
+        subset?: str or list — Classic subset names (PolicyLogs, General, Commands, …);
+        omit = full document (can be large). tenant?/surface?/auth?: session overrides.
+      Notes: GET /JSSResource/computerhistory. Flattened policy_log wrappers.
+        Not GET /api/v1/policies (list index only). Privilege: Read Computer History.
+  computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, tenant?, surface?, auth?)
+      Does: Fetch Classic PolicyLogs for one computer and return flattened rows.
+      → value: list of {policy_id, policy_name, username, date_time, date_time_epoch, date_time_utc, status}
+      Params: pass exactly one of id= / name= / serial= / udid=.
+        policy_id?: int/str (client-side filter). status?: str (case-insensitive exact).
+        tenant?/surface?/auth?: session overrides.
+      Notes: Always subset/PolicyLogs. No fleet fan-out. See also policy_logs(id, computer_id).
   computer_send_mdm_command(ids, command_type, command_data?, tenant?, surface?, auth?)
       Does: Queue a named MDM command on one or more computers.
       → None
@@ -193,6 +233,8 @@ Subcommands:
   list [args...]                                              List computers
   get <computer-id> [--section=<name>[,<name>...]]            Show inventory JSON (default GENERAL)
   detail <computer-id>                                        Show all inventory sections (inventory-detail)
+  history <computer-id> [--subset=PolicyLogs] [--json]        Classic computer history (default PolicyLogs table)
+  logs <computer-id> [--policy=<policy-id>] [--status=]       Flattened policy execution logs
   reboot <computer-id> [computer-id...]                       Send RESTART_DEVICE MDM command
   redeploy <computer-id> [computer-id...]                     Trigger Jamf management framework redeploy
   shutdown <computer-id> [computer-id...]                     Send SHUT_DOWN_DEVICE MDM command
@@ -216,6 +258,14 @@ Flags for 'list':
 Flags for 'get':
   --section=<name>[,<name>...]   Inventory sections (e.g. GENERAL,HARDWARE); omit for GENERAL
 
+Flags for 'history':
+  --subset=<name>[&<name>...]    Classic subset (default PolicyLogs); empty --subset= is full document
+  --json                         Print parsed history dict as JSON
+
+Flags for 'logs':
+  --policy=<policy-id>           Client-side filter by policy id
+  --status=<status>              Client-side filter (case-insensitive exact, e.g. Completed)
+
 Examples:
   buddy computer list
   buddy computer list --filter=Example
@@ -226,6 +276,9 @@ Examples:
   buddy computer get 101
   buddy computer get 101 --section=GENERAL,HARDWARE
   buddy computer detail 101
+  buddy computer history 101
+  buddy computer history 101 --json
+  buddy computer logs 101 --policy=42
   buddy computer reboot 101 102
   buddy computer lock 101 --message="Lost device" --pin=123456
   buddy computer erase 101 --pin=123456

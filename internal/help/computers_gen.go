@@ -24,6 +24,21 @@ const ComputersBuiltinsSection = `COMPUTER
       Does: Load one computer with all inventory sections.
       → value: dict (GET /api/v4/computers-inventory-detail/{id} JSON)
       Params: id: str.
+  computer_history(id=?, name=?, serial=?, udid=?, subset?, tenant?, surface?, auth?)
+      Does: Load Classic computer history (policy/event execution logs, not MDM or audit history).
+      → value: dict (general plus flattened policy_logs and other present subsets)
+      Params: pass exactly one of id= / name= / serial= / udid=.
+        subset?: str or list — Classic subset names (PolicyLogs, General, Commands, …);
+        omit = full document (can be large). tenant?/surface?/auth?: session overrides.
+      Notes: GET /JSSResource/computerhistory. Flattened policy_log wrappers.
+        Not GET /api/v1/policies (list index only). Privilege: Read Computer History.
+  computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, tenant?, surface?, auth?)
+      Does: Fetch Classic PolicyLogs for one computer and return flattened rows.
+      → value: list of {policy_id, policy_name, username, date_time, date_time_epoch, date_time_utc, status}
+      Params: pass exactly one of id= / name= / serial= / udid=.
+        policy_id?: int/str (client-side filter). status?: str (case-insensitive exact).
+        tenant?/surface?/auth?: session overrides.
+      Notes: Always subset/PolicyLogs. No fleet fan-out. See also policy_logs(id, computer_id).
   computer_send_mdm_command(ids, command_type, command_data?, tenant?, surface?, auth?)
       Does: Queue a named MDM command on one or more computers.
       → None
@@ -91,6 +106,8 @@ Subcommands:
   list [args...]                                              List computers
   get <computer-id> [--section=<name>[,<name>...]]            Show inventory JSON (default GENERAL)
   detail <computer-id>                                        Show all inventory sections (inventory-detail)
+  history <computer-id> [--subset=PolicyLogs] [--json]        Classic computer history (default PolicyLogs table)
+  logs <computer-id> [--policy=<policy-id>] [--status=]       Flattened policy execution logs
   reboot <computer-id> [computer-id...]                       Send RESTART_DEVICE MDM command
   redeploy <computer-id> [computer-id...]                     Trigger Jamf management framework redeploy
   shutdown <computer-id> [computer-id...]                     Send SHUT_DOWN_DEVICE MDM command
@@ -114,6 +131,14 @@ Flags for 'list':
 Flags for 'get':
   --section=<name>[,<name>...]   Inventory sections (e.g. GENERAL,HARDWARE); omit for GENERAL
 
+Flags for 'history':
+  --subset=<name>[&<name>...]    Classic subset (default PolicyLogs); empty --subset= is full document
+  --json                         Print parsed history dict as JSON
+
+Flags for 'logs':
+  --policy=<policy-id>           Client-side filter by policy id
+  --status=<status>              Client-side filter (case-insensitive exact, e.g. Completed)
+
 Examples:
   buddy computer list
   buddy computer list --filter=Example
@@ -124,6 +149,9 @@ Examples:
   buddy computer get 101
   buddy computer get 101 --section=GENERAL,HARDWARE
   buddy computer detail 101
+  buddy computer history 101
+  buddy computer history 101 --json
+  buddy computer logs 101 --policy=42
   buddy computer reboot 101 102
   buddy computer lock 101 --message="Lost device" --pin=123456
   buddy computer erase 101 --pin=123456

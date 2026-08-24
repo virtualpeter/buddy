@@ -66,7 +66,7 @@ In the IDE, open **Libraries** → **Getting started** for a short list of built
 | [Categories](/docs/docs/categories) | Category copy (migrate step 1) |
 | [Mac App Store apps](/docs/docs/macapps) | Classic macapplications (list/get/create/delete) |
 | [Policy apps](/docs/docs/apps) | Self Service + packages (list/get/upgrade) |
-| [Computers](/docs/docs/computers) | Inventory + MDM actions |
+| [Computers](/docs/docs/computers) | Inventory, Classic policy logs, MDM actions |
 | [MDM command history](/docs/docs/mdm) | Query command history (RSQL) |
 | [API roles](/docs/docs/api-roles) | Pro API roles |
 | [API clients](/docs/docs/api-clients) | Pro API integrations / oauth clients |

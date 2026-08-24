@@ -86,6 +86,13 @@ const PoliciesBuiltinsSection = `POLICY
       Does: Delete one or more Classic policies.
       → None
       Params: ids: int/str or list of int/str.
+  policy_logs(id, computer_id, status?, tenant?, surface?, auth?)
+      Does: List flattened Classic policy execution logs for one policy on one computer.
+      → value: list of {policy_id, policy_name, username, date_time, date_time_epoch, date_time_utc, status}
+      Params: id: int/str (policy ID). computer_id: int/str (required; no fleet fan-out).
+        status?: str (case-insensitive exact). tenant?/surface?/auth?: session overrides.
+      Notes: Same GET as computer_policy_logs (subset/PolicyLogs), filtered by policy id.
+        Not GET /api/v1/policies. See computer_history / computer_policy_logs.
 
 `
 
@@ -98,14 +105,21 @@ Usage:
 Subcommands:
   list    List policies (optional keyword filter)
   get     Read policy (details, id by trigger, enable state, xml)
+  logs    Policy execution logs for one computer (Classic computerhistory)
   set     Modify policy properties (scope, enable/disable, trigger, name, ...)
   create  Create a new policy
   delete  Delete one or more policies
 
 Use 'buddy policy <subcommand> help' for subcommand-specific help.
 
+Flags for 'logs':
+  --computer=<computer-id>       Required computer to read Classic history from
+  --status=<status>              Client-side filter (case-insensitive exact)
+  --json                         Print flattened logs as JSON
+
 Examples:
   buddy policy list --filter=chrome
   buddy policy get id install-chrome
+  buddy policy logs 42 --computer=101
   buddy policy delete 42
 `

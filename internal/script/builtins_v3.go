@@ -550,6 +550,156 @@ func computerDetailBuiltin(credName string, logger *slog.Logger) func(*starlark.
 	}
 }
 
+// computer_history(id=?, name=?, serial=?, udid=?, subset?, tenant?, surface?, auth?) → dict
+func computerHistoryBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value = starlark.None
+		var name, serial, udid starlark.String
+		subset := starlark.Value(starlark.None)
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("computer_history", args, kwargs,
+			"id?", &idVal, "name?", &name, "serial?", &serial, "udid?", &udid, "subset?", &subset,
+			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth,
+		); err != nil {
+			return nil, err
+		}
+		ref, err := computerHistoryRefFromArgs("computer_history", idVal, name, serial, udid)
+		if err != nil {
+			return nil, err
+		}
+		subsets, err := parseHistorySubsetArg(subset)
+		if err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		h, err := buddy.ComputerHistoryGet(sessionPin, ref, subsets, logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return jsonResult(h.AsMap(), nil)
+	}
+}
+
+// computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, tenant?, surface?, auth?) → list
+func computerPolicyLogsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value = starlark.None
+		var name, serial, udid, status starlark.String
+		policyIDVal := starlark.Value(starlark.None)
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("computer_policy_logs", args, kwargs,
+			"id?", &idVal, "name?", &name, "serial?", &serial, "udid?", &udid,
+			"policy_id?", &policyIDVal, "status?", &status,
+			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth,
+		); err != nil {
+			return nil, err
+		}
+		ref, err := computerHistoryRefFromArgs("computer_policy_logs", idVal, name, serial, udid)
+		if err != nil {
+			return nil, err
+		}
+		policyID, err := optionalStarlarkIDInt(policyIDVal, "policy_id")
+		if err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		logs, err := buddy.ComputerPolicyLogs(sessionPin, ref, policyID, string(status), logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return jsonResult(logs, nil)
+	}
+}
+
+// policy_logs(id, computer_id, status?, tenant?, surface?, auth?) → list
+func policyLogsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal, computerIDVal starlark.Value
+		var status starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("policy_logs", args, kwargs,
+			"id", &idVal, "computer_id", &computerIDVal, "status?", &status,
+			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth,
+		); err != nil {
+			return nil, err
+		}
+		policyID, err := starlarkIDInt(idVal, "id")
+		if err != nil {
+			return nil, err
+		}
+		computerID, err := starlarkIDString(computerIDVal, "computer_id")
+		if err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		logs, err := buddy.ComputerPolicyLogs(sessionPin, buddy.ComputerHistoryRef{ID: computerID}, &policyID, string(status), logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return jsonResult(logs, nil)
+	}
+}
+
+func computerHistoryRefFromArgs(fn string, idVal starlark.Value, name, serial, udid starlark.String) (buddy.ComputerHistoryRef, error) {
+	idSet := idVal != nil && idVal != starlark.None
+	n := 0
+	ref := buddy.ComputerHistoryRef{}
+	if idSet {
+		n++
+		id, err := starlarkIDString(idVal, "id")
+		if err != nil {
+			return ref, err
+		}
+		ref.ID = id
+	}
+	if string(name) != "" {
+		n++
+		ref.Name = string(name)
+	}
+	if string(serial) != "" {
+		n++
+		ref.Serial = string(serial)
+	}
+	if string(udid) != "" {
+		n++
+		ref.UDID = string(udid)
+	}
+	if n != 1 {
+		return ref, fmt.Errorf("%s: pass exactly one of id=, name=, serial=, or udid=", fn)
+	}
+	return ref, nil
+}
+
+func parseHistorySubsetArg(v starlark.Value) ([]string, error) {
+	if v == nil || v == starlark.None {
+		return nil, nil
+	}
+	return stringListFromStarlark(v, "subset")
+}
+
+func optionalStarlarkIDInt(v starlark.Value, label string) (*int, error) {
+	if v == nil || v == starlark.None {
+		return nil, nil
+	}
+	n, err := starlarkIDInt(v, label)
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
 // computersIdsRawConflict reports an error when ids=True and raw=True are both set.
 func computersIdsRawConflict(ids, raw bool) error {
 	if ids && raw {

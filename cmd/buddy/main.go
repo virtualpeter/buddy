@@ -224,6 +224,13 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 	if mode == "find" {
 		return fmt.Errorf("buddy policy find was removed; use 'buddy policy list [%s] [--ids]'", clispec.FlagEq(clispec.FlagFilter, "keyword"))
 	}
+	if mode == "logs" {
+		if len(rest) > 0 && rest[0] == clispec.SubHelp {
+			fmt.Print(helpPolicy)
+			return nil
+		}
+		return runPolicyLogs(credName, rest, log)
+	}
 
 	// "buddy policy <mode> help" — print subcommand help
 	if len(rest) == 0 || rest[0] == clispec.SubHelp {
@@ -255,7 +262,7 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		}
 		return buddy.PolicyDelete(credName, opts, policyIDs, log)
 	default:
-		cands := []string{clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubCreate, clispec.SubDelete}
+		cands := []string{clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubCreate, clispec.SubDelete, "logs"}
 		msg := fmt.Sprintf("unknown policy subcommand: %q", mode)
 		msg += formatDidYouMean(suggestClosest(mode, cands))
 		msg += fmt.Sprintf(" (use: %s)", strings.Join(cands, ", "))
@@ -318,6 +325,28 @@ func runPolicyList(credName string, opts buddy.Opts, args []string, log *slog.Lo
 		fmt.Printf("%-8d  %s\n", s.ID, s.Name)
 	}
 	return nil
+}
+
+func runPolicyLogs(credName string, args []string, log *slog.Logger) error {
+	fs := flag.NewFlagSet("policy logs", flag.ContinueOnError)
+	computer := fs.String("computer", "", "computer id")
+	status := fs.String("status", "", "filter by log status (case-insensitive exact)")
+	asJSON := fs.Bool("json", false, "Print flattened logs as JSON")
+	flagArgs, positionals := staticGroupSplitFlags(args)
+	if err := fs.Parse(flagArgs); err != nil {
+		return err
+	}
+	if len(positionals) < 1 {
+		return missingArg("policy-id", clispec.UsageHelp(clispec.CmdPolicy))
+	}
+	if strings.TrimSpace(*computer) == "" {
+		return fmt.Errorf("policy logs requires --computer=<computer-id>")
+	}
+	policyID, err := parseInt(positionals[0], "policy-id")
+	if err != nil {
+		return err
+	}
+	return buddy.ComputerPolicyLogsPrint(credName, buddy.ComputerHistoryRef{ID: *computer}, &policyID, *status, *asJSON, log)
 }
 
 func runPolicyGet(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
@@ -1895,6 +1924,47 @@ func parsePackageBoolFlag(value, name string) (bool, error) {
 	}
 }
 
+func runComputerHistory(credName string, args []string, log *slog.Logger) error {
+	fs := flag.NewFlagSet("computer history", flag.ContinueOnError)
+	subset := fs.String("subset", "PolicyLogs", "Classic history subset (default PolicyLogs); omit path segment with --subset=")
+	asJSON := fs.Bool("json", false, "Print parsed history dict as JSON")
+	flagArgs, positionals := staticGroupSplitFlags(args)
+	if err := fs.Parse(flagArgs); err != nil {
+		return err
+	}
+	if len(positionals) < 1 {
+		return missingArg("computer-id", clispec.UsageHelp(clispec.CmdComputer))
+	}
+	var subsets []string
+	if *subset != "" {
+		subsets = []string{*subset}
+	}
+	return buddy.ComputerHistoryPrint(credName, buddy.ComputerHistoryRef{ID: positionals[0]}, subsets, *asJSON, log)
+}
+
+func runComputerLogs(credName string, args []string, log *slog.Logger) error {
+	fs := flag.NewFlagSet("computer logs", flag.ContinueOnError)
+	policy := fs.String("policy", "", "filter by policy id")
+	status := fs.String("status", "", "filter by log status (case-insensitive exact)")
+	asJSON := fs.Bool("json", false, "Print flattened logs as JSON")
+	flagArgs, positionals := staticGroupSplitFlags(args)
+	if err := fs.Parse(flagArgs); err != nil {
+		return err
+	}
+	if len(positionals) < 1 {
+		return missingArg("computer-id", clispec.UsageHelp(clispec.CmdComputer))
+	}
+	var policyID *int
+	if strings.TrimSpace(*policy) != "" {
+		n, err := parseInt(*policy, "policy-id")
+		if err != nil {
+			return err
+		}
+		policyID = &n
+	}
+	return buddy.ComputerPolicyLogsPrint(credName, buddy.ComputerHistoryRef{ID: positionals[0]}, policyID, *status, *asJSON, log)
+}
+
 func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpComputer)
@@ -1955,6 +2025,10 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 			return missingArg("computer-id", clispec.UsageHelp(clispec.CmdComputer))
 		}
 		return buddy.ComputerDetail(credName, args[0], log)
+	case "history":
+		return runComputerHistory(credName, args, log)
+	case "logs":
+		return runComputerLogs(credName, args, log)
 	case "reboot":
 		return runComputerIDs(args, func(ids []int) error {
 			return buddy.ComputerReboot(credName, opts, ids, log)
@@ -2066,7 +2140,7 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 		})
 	default:
 		return errUnknownSubcommand("computer", subcommand, []string{
-			clispec.SubList, clispec.SubGet, "detail", "reboot", "redeploy", "shutdown", "lock", "logout", "erase",
+			clispec.SubList, clispec.SubGet, "detail", "history", "logs", "reboot", "redeploy", "shutdown", "lock", "logout", "erase",
 			"device-info", "device-location", "security-info", "installed-apps", "managed-apps", "certificates",
 		})
 	}

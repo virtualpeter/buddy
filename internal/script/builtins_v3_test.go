@@ -28,7 +28,7 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 	for _, name := range []string{
 		"policies", "policy", "policy_xml", "policy_set",
 		"packages", "package", "packages_scan", "scripts", "script", "script_create", "script_delete",
-		"computers", "computer", "computer_detail", "mdm_commands",
+		"computers", "computer", "computer_detail", "computer_history", "computer_policy_logs", "policy_logs", "mdm_commands",
 		"profiles", "profile", "profile_xml",
 		"smart_groups", "static_groups", "smart_group", "static_group",
 		"roles", "role", "role_privileges", "clients", "client",
@@ -54,6 +54,23 @@ func TestForbiddenLegacyBuiltinNamesAbsent(t *testing.T) {
 		if _, ok := dict[name]; ok {
 			t.Errorf("legacy alias %q must not be registered", name)
 		}
+	}
+}
+
+func TestComputerHistoryRefFromArgs(t *testing.T) {
+	ref, err := computerHistoryRefFromArgs("computer_history", starlark.MakeInt(101), "", "", "")
+	if err != nil || ref.ID != "101" {
+		t.Fatalf("id: got %+v err %v", ref, err)
+	}
+	if _, err := computerHistoryRefFromArgs("computer_history", starlark.None, "", "", ""); err == nil {
+		t.Fatal("expected error for no keys")
+	}
+	if _, err := computerHistoryRefFromArgs("computer_history", starlark.MakeInt(1), "n", "", ""); err == nil {
+		t.Fatal("expected error for id and name")
+	}
+	ref, err = computerHistoryRefFromArgs("computer_policy_logs", starlark.None, "", "C02EXAMPLE", "")
+	if err != nil || ref.Serial != "C02EXAMPLE" {
+		t.Fatalf("serial: got %+v err %v", ref, err)
 	}
 }
 

@@ -18,6 +18,7 @@ var PoliciesTopic = docspec.Topic{
 		`policy_set`,
 		`policy_copy`,
 		`policy_migrate`,
+		`policy_logs`,
 		`trigger`,
 		`classic`,
 	},
@@ -25,17 +26,20 @@ var PoliciesTopic = docspec.Topic{
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / find", BuddyScript: "`policies(keywords=…)` / `policies(ids=True)`", CLI: "`buddy policy list`", Notes: "Summary dicts `{id, name, …}`"},
 		{Action: "Load", BuddyScript: "`policy(id=…)` / `policy(trigger=…)` / `policy_xml(id=…)`", CLI: "`buddy policy get`", Notes: "Full Classic XML as dict or string"},
+		{Action: "Logs", BuddyScript: "`policy_logs(id, computer_id)`", CLI: "`buddy policy logs <policy-id> --computer=<computer-id>`", Notes: "Classic computerhistory; requires a computer (no fleet fan-out)"},
 		{Action: "Mutate", BuddyScript: "`policy_set*` / `policy_put_xml`", CLI: "`buddy policy set`", Notes: "Multi-step helpers for common fields; raw XML when needed"},
 		{Action: "Copy / migrate", BuddyScript: "`policy_copy` / `policy_migrate`", Notes: "Cross-session; remap by name"},
 	},
 	Notes: []string{
 		"Versioned release bumps use [change batches](/docs/docs/change-batches) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.",
+		"Policy **execution** logs are Classic computerhistory (`policy_logs` / `computer_policy_logs`). There is no fleet-wide “logs for policy N” API and `GET /api/v1/policies` is a list index only.",
 	},
 	AgentNotes: []string{
 		"Do not invent Classic policy PUT/POST bodies from `jamf_schema` or Jamf MCP `execute-request` when a named builtin exists.",
 		"Prefer fat `policy_set*` helpers over hand-edited XML when they cover the change.",
 		"Wait until a package is JCDS **READY** before attach — see [packages](/docs/docs/packages).",
 		"Do not hand-roll versioned release clones when [change batches](/docs/docs/change-batches) already encode the workflow.",
+		"Policy execution logs require a computer: `policy_logs(id, computer_id)` or `computer_policy_logs`. Do not invent `jamf_get` or `/api/v1/policies` logs.",
 	},
 	Builtins: []docspec.Builtin{
 			{
@@ -67,12 +71,26 @@ var PoliciesTopic = docspec.Topic{
 					{Name: `id`, Type: `string`, Required: true, Description: `id`},
 				},
 			},
+			{
+				Name: `policy_logs`,
+				Summary: `List flattened policy logs for one computer`,
+				Returns: `list of dict`,
+				Params: []docspec.Param{
+					{Name: `id`, Type: `string`, Required: true, Description: `policy id`},
+					{Name: `computer_id`, Type: `string`, Required: true, Description: `computer id`},
+				},
+			},
 		},
 	ExamplesBuddy: []string{
 		`def main():
     p = policy(trigger="install-example")
     policy_set(id=p["general"]["id"], enable=True)
     return p["general"]["name"]`,
+		`def main():
+    return policy_logs(id=42, computer_id="101")`,
+	},
+	Related: []docspec.RelatedLink{
+		{Title: `Computers`, Ref: `/docs/docs/computers`},
 	},
 	HelpExport: `policies`,
 	BuiltinsHelp: `POLICY
@@ -157,6 +175,13 @@ var PoliciesTopic = docspec.Topic{
       Does: Delete one or more Classic policies.
       → None
       Params: ids: int/str or list of int/str.
+  policy_logs(id, computer_id, status?, tenant?, surface?, auth?)
+      Does: List flattened Classic policy execution logs for one policy on one computer.
+      → value: list of {policy_id, policy_name, username, date_time, date_time_epoch, date_time_utc, status}
+      Params: id: int/str (policy ID). computer_id: int/str (required; no fleet fan-out).
+        status?: str (case-insensitive exact). tenant?/surface?/auth?: session overrides.
+      Notes: Same GET as computer_policy_logs (subset/PolicyLogs), filtered by policy id.
+        Not GET /api/v1/policies. See computer_history / computer_policy_logs.
 
 `,
 	CLIHelp: `buddy policy - Manage Jamf policies
@@ -167,15 +192,22 @@ Usage:
 Subcommands:
   list    List policies (optional keyword filter)
   get     Read policy (details, id by trigger, enable state, xml)
+  logs    Policy execution logs for one computer (Classic computerhistory)
   set     Modify policy properties (scope, enable/disable, trigger, name, ...)
   create  Create a new policy
   delete  Delete one or more policies
 
 Use 'buddy policy <subcommand> help' for subcommand-specific help.
 
+Flags for 'logs':
+  --computer=<computer-id>       Required computer to read Classic history from
+  --status=<status>              Client-side filter (case-insensitive exact)
+  --json                         Print flattened logs as JSON
+
 Examples:
   buddy policy list --filter=chrome
   buddy policy get id install-chrome
+  buddy policy logs 42 --computer=101
   buddy policy delete 42
 `,
 }

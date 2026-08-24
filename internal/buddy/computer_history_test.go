@@ -1,0 +1,193 @@
+package buddy
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestComputerHistoryPath(t *testing.T) {
+	path, err := computerHistoryPath(ComputerHistoryRef{ID: "101"}, []string{"PolicyLogs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/JSSResource/computerhistory/id/101/subset/PolicyLogs" {
+		t.Fatalf("path=%s", path)
+	}
+
+	path, err = computerHistoryPath(ComputerHistoryRef{Serial: "C02Q7KHTGFWF"}, []string{"General", "PolicyLogs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/JSSResource/computerhistory/serialnumber/C02Q7KHTGFWF/subset/General&PolicyLogs" {
+		t.Fatalf("combined path=%s", path)
+	}
+
+	path, err = computerHistoryPath(ComputerHistoryRef{Name: "Admins Mac"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/JSSResource/computerhistory/name/Admins%20Mac" {
+		t.Fatalf("name path=%s", path)
+	}
+
+	if _, err := computerHistoryPath(ComputerHistoryRef{}, nil); err == nil {
+		t.Fatal("expected XOR error")
+	}
+	if _, err := computerHistoryPath(ComputerHistoryRef{ID: "1", Name: "x"}, nil); err == nil {
+		t.Fatal("expected XOR error for two keys")
+	}
+	if _, err := computerHistoryPath(ComputerHistoryRef{ID: "1"}, []string{"Nope"}); err == nil {
+		t.Fatal("expected unknown subset")
+	}
+}
+
+func TestParseComputerHistory_JSON_Wrapped(t *testing.T) {
+	body := []byte(`{
+  "computer_history": {
+    "general": {"id": 101, "name": "Admins MacBook Pro", "serial_number": "C02Q7KHTGFWF"},
+    "policy_logs": [
+      {"policy_log": {
+        "policy_id": 1,
+        "policy_name": "Update Inventory",
+        "username": "admin",
+        "date_time": "2017-07-07 18:37:04",
+        "date_time_epoch": "1499470624555",
+        "date_time_utc": "2017-07-07T18:37:04.555-0500",
+        "status": "Completed"
+      }}
+    ]
+  }
+}`)
+	h, err := parseComputerHistory(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.General["name"] != "Admins MacBook Pro" {
+		t.Fatalf("general=%v", h.General)
+	}
+	if len(h.PolicyLogs) != 1 {
+		t.Fatalf("logs=%d", len(h.PolicyLogs))
+	}
+	l := h.PolicyLogs[0]
+	if l.PolicyID != 1 || l.PolicyName != "Update Inventory" || l.Status != "Completed" {
+		t.Fatalf("log=%+v", l)
+	}
+	if l.DateTimeEpoch != 1499470624555 {
+		t.Fatalf("epoch=%d", l.DateTimeEpoch)
+	}
+	m := h.AsMap()
+	logs, ok := m["policy_logs"].([]ComputerPolicyLog)
+	if !ok || len(logs) != 1 {
+		t.Fatalf("AsMap policy_logs=%T %v", m["policy_logs"], m["policy_logs"])
+	}
+}
+
+func TestParseComputerHistory_JSON_FlatItems(t *testing.T) {
+	body := []byte(`{
+  "computer_history": {
+    "policy_logs": [
+      {"policy_id": 42, "policy_name": "Install Chrome", "status": "Failed", "username": "u"}
+    ]
+  }
+}`)
+	h, err := parseComputerHistory(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h.PolicyLogs) != 1 || h.PolicyLogs[0].PolicyID != 42 || h.PolicyLogs[0].Status != "Failed" {
+		t.Fatalf("got %+v", h.PolicyLogs)
+	}
+}
+
+func TestParseComputerHistory_JSON_UnwrappedRoot(t *testing.T) {
+	body := []byte(`{
+  "general": {"id": 7, "name": "Foo"},
+  "policy_logs": [{"policy_id": 9, "policy_name": "Bar", "status": "Completed"}]
+}`)
+	h, err := parseComputerHistory(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.General["name"] != "Foo" || len(h.PolicyLogs) != 1 || h.PolicyLogs[0].PolicyID != 9 {
+		t.Fatalf("got %+v %+v", h.General, h.PolicyLogs)
+	}
+}
+
+func TestParseComputerHistory_JSON_XMLStyleBag(t *testing.T) {
+	body := []byte(`{
+  "computer_history": {
+    "policy_logs": {
+      "size": 1,
+      "policy_log": {"policy_id": 3, "policy_name": "Once", "status": "Completed"}
+    }
+  }
+}`)
+	h, err := parseComputerHistory(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h.PolicyLogs) != 1 || h.PolicyLogs[0].PolicyID != 3 {
+		t.Fatalf("got %+v", h.PolicyLogs)
+	}
+}
+
+func TestParseComputerHistory_XML(t *testing.T) {
+	body := []byte(`<computer_history>
+  <general>
+    <id>101</id>
+    <name>Admins MacBook Pro</name>
+    <serial_number>C02Q7KHTGFWF</serial_number>
+  </general>
+  <policy_logs>
+    <policy_log>
+      <policy_id>1</policy_id>
+      <policy_name>Update Inventory</policy_name>
+      <username>admin</username>
+      <date_time>2017-07-07 18:37:04</date_time>
+      <date_time_epoch>1499470624555</date_time_epoch>
+      <status>Completed</status>
+    </policy_log>
+  </policy_logs>
+</computer_history>`)
+	h, err := parseComputerHistory(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.General["name"] != "Admins MacBook Pro" {
+		t.Fatalf("general=%v", h.General)
+	}
+	if len(h.PolicyLogs) != 1 || h.PolicyLogs[0].PolicyID != 1 || h.PolicyLogs[0].DateTimeEpoch != 1499470624555 {
+		t.Fatalf("logs=%+v", h.PolicyLogs)
+	}
+}
+
+func TestFilterPolicyLogs(t *testing.T) {
+	logs := []ComputerPolicyLog{
+		{PolicyID: 1, PolicyName: "A", Status: "Completed"},
+		{PolicyID: 2, PolicyName: "B", Status: "Failed"},
+		{PolicyID: 1, PolicyName: "A", Status: "Failed"},
+	}
+	id := 1
+	got := filterPolicyLogs(logs, &id, "")
+	if len(got) != 2 {
+		t.Fatalf("policy_id filter: %d", len(got))
+	}
+	got = filterPolicyLogs(logs, nil, "failed")
+	if len(got) != 2 {
+		t.Fatalf("status filter: %d", len(got))
+	}
+	got = filterPolicyLogs(logs, &id, "Completed")
+	if len(got) != 1 || got[0].Status != "Completed" {
+		t.Fatalf("combined: %+v", got)
+	}
+}
+
+func TestNormalizeHistorySubsets(t *testing.T) {
+	got, err := normalizeHistorySubsets([]string{"policy_logs", "General&Commands"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "PolicyLogs,General,Commands" {
+		t.Fatalf("got %v", got)
+	}
+}

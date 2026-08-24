@@ -17,16 +17,20 @@ keywords:
   - lock
   - erase
   - mdm
+  - computer_history
+  - computer_policy_logs
+  - policy logs
 ---
 
 # Computers
 
-Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …). For MDM **command history** queries, see [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices) — different API surface.
+Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …). Classic **policy execution logs** are `computer_history` / `computer_policy_logs`. For MDM **command history** queries, see [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices) — different API surface.
 
 ## Agent rules
 
 - Do not mix Pro `computer*` with Platform `device*` — different gateways and IDs.
 - Do not use this page for RSQL history of MDM commands — that is [mdm](/docs/docs/mdm).
+- Policy execution logs are Classic `computer_history` / `computer_policy_logs` (or `policy_logs(id, computer_id)`). Do not invent `jamf_get` or `GET /api/v1/policies` logs — that path is a list index only.
 - Computer inventory is **v4** (`/api/v4/computers-inventory`). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime` (see [api-endpoints](/docs/docs/api-endpoints)).
 - Date filters: `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, `general.reportDate` (last inventory). Unquoted ISO-8601 UTC.
 - `computers()` summary dicts include `lastContact`, `lastCheckIn`, `reportDate`, `lastEnrolledDate`, `platform` from GENERAL. `raw=True` is Jamf `results[]` passthrough (xor with `ids=True`). List `section=` adds HARDWARE/OS without N+1 gets.
@@ -38,8 +42,9 @@ Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …).
 - List / find: `computers(filter=…, sort?, section?, raw?, page?, page_size?)` · `buddy computer list [--sort=] [--json]` — v4 dates `lastContact` / `lastCheckIn` / `reportDate`; omit page to fetch all
 - Load: `computer(id=…, section?)` · `buddy computer get [--section=…]` — Passthrough JSON; default GENERAL; `section` → `?section=`
 - Load all sections: `computer_detail(id=…)` · `buddy computer detail` — `GET …/computers-inventory-detail/{id}`
+- Policy logs: `computer_history` / `computer_policy_logs` / `policy_logs` · `buddy computer history` / `logs` — Classic computerhistory; per-computer (no fleet fan-out)
 - MDM actions: `computer_reboot` / `computer_lock` / … · `buddy computer reboot|lock|…` — Named builtins and matching CLI verbs
-- MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).
+- Classic **computer history** is policy/event execution logs (`GET /JSSResource/computerhistory`), not MDM command history and not package/script audit `history`. MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).
 - List RSQL dates are v4 `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, and `general.reportDate` (last inventory). v3 `lastContactTime` and Platform `lastCheckInTime` / `lastInventoryUpdateTime` are not valid on this API.
 
 ## Builtins
@@ -136,6 +141,50 @@ Returns: dict (Jamf inventory document)
 }
 ```
 
+### computer_history
+
+Load Classic computer history
+
+Returns: dict (flattened history)
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "description": "computer id (xor name/serial/udid)",
+      "type": "string"
+    }
+  },
+  "title": "computer_history",
+  "type": "object"
+}
+```
+
+### computer_policy_logs
+
+List flattened policy logs for one computer
+
+Returns: list of dict
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "description": "computer id (xor name/serial/udid)",
+      "type": "string"
+    }
+  },
+  "title": "computer_policy_logs",
+  "type": "object"
+}
+```
+
 ### computer_reboot
 
 Reboot computers
@@ -182,4 +231,10 @@ def main():
         sort="general.lastContact:desc",
     )
     return {"inventory": len(recent), "contact": len(seen)}
+```
+
+```python
+def main():
+    logs = computer_policy_logs(id="101", policy_id=42)
+    return {"count": len(logs), "last": logs[0] if logs else None}
 ```
