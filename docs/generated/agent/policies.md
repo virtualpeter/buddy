@@ -25,17 +25,17 @@ List, load, mutate, copy, and migrate Jamf Classic policies with buddy.
 - Prefer fat `policy_set*` helpers over hand-edited XML when they cover the change.
 - Wait until a package is JCDS **READY** before attach — see [packages](/docs/docs/packages).
 - Do not hand-roll versioned release clones when [change batches](/docs/docs/change-batches) already encode the workflow.
-- Policy execution logs require a computer: `policy_logs(id, computer_id)` or `computer_policy_logs`. Do not invent `jamf_get` or `/api/v1/policies` logs.
+- Policy execution logs: `policy_logs(id, computer_id=…)` or `policy_logs(id, last_contact=rsql_days_ago(1))` / `filter=`. Do not invent `jamf_get` or `/api/v1/policies` logs. Do not omit both computer_id and a scan constraint.
 
 ## Facts
 
 - List / find: `policies(keywords=…)` / `policies(ids=True)` · `buddy policy list` — Summary dicts `{id, name, …}`
 - Load: `policy(id=…)` / `policy(trigger=…)` / `policy_xml(id=…)` · `buddy policy get` — Full Classic XML as dict or string
-- Logs: `policy_logs(id, computer_id)` · `buddy policy logs <policy-id> --computer=<computer-id>` — Classic computerhistory; requires a computer (no fleet fan-out)
+- Logs: `policy_logs(id, computer_id?)` / `last_contact=` / `filter=` · `buddy policy logs <policy-id> --computer= | --last-contact= | --filter=` — Classic computerhistory; require a computer or a scan constraint
 - Mutate: `policy_set*` / `policy_put_xml` · `buddy policy set` — Multi-step helpers for common fields; raw XML when needed
 - Copy / migrate: `policy_copy` / `policy_migrate` — Cross-session; remap by name
 - Versioned release bumps use [change batches](/docs/docs/change-batches) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.
-- Policy **execution** logs are Classic computerhistory (`policy_logs` / `computer_policy_logs`). There is no fleet-wide “logs for policy N” API and `GET /api/v1/policies` is a list index only.
+- Policy **execution** logs are Classic computerhistory (`policy_logs` / `computer_policy_logs`). There is no fleet-wide collection; `policy_logs` requires `computer_id` or a scan constraint (`last_contact` / `filter`). `GET /api/v1/policies` is a list index only.
 
 ## Builtins
 
@@ -170,4 +170,9 @@ def main():
 ```python
 def main():
     return policy_logs(id=42, computer_id="101")
+```
+
+```python
+def main():
+    return policy_logs(id=42, last_contact=rsql_days_ago(1))
 ```

@@ -34,11 +34,11 @@ const ComputersBuiltinsSection = `COMPUTER
         Not GET /api/v1/policies (list index only). Privilege: Read Computer History.
   computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, tenant?, surface?, auth?)
       Does: Fetch Classic PolicyLogs for one computer and return flattened rows.
-      → value: list of {policy_id, policy_name, username, date_time, date_time_epoch, date_time_utc, status}
+      → value: list of {policy_id, policy_name, username, date_time, date_completed, date_completed_epoch, date_completed_utc, status, computer_id, …}
       Params: pass exactly one of id= / name= / serial= / udid=.
         policy_id?: int/str (client-side filter). status?: str (case-insensitive exact).
         tenant?/surface?/auth?: session overrides.
-      Notes: Always subset/PolicyLogs. No fleet fan-out. See also policy_logs(id, computer_id).
+      Notes: Always subset/PolicyLogs. date_completed* aliases date_time*. See also policy_logs.
   computer_send_mdm_command(ids, command_type, command_data?, tenant?, surface?, auth?)
       Does: Queue a named MDM command on one or more computers.
       → None

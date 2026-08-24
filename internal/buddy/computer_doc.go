@@ -34,7 +34,7 @@ var ComputersTopic = docspec.Topic{
 		{Action: "List / find", BuddyScript: "`computers(filter=…, sort?, section?, raw?, page?, page_size?)`", CLI: "`buddy computer list [--sort=] [--json]`", Notes: "v4 dates `lastContact` / `lastCheckIn` / `reportDate`; omit page to fetch all"},
 		{Action: "Load", BuddyScript: "`computer(id=…, section?)`", CLI: "`buddy computer get [--section=…]`", Notes: "Passthrough JSON; default GENERAL; `section` → `?section=`"},
 		{Action: "Load all sections", BuddyScript: "`computer_detail(id=…)`", CLI: "`buddy computer detail`", Notes: "`GET …/computers-inventory-detail/{id}`"},
-		{Action: "Policy logs", BuddyScript: "`computer_history` / `computer_policy_logs` / `policy_logs`", CLI: "`buddy computer history` / `logs`", Notes: "Classic computerhistory; per-computer (no fleet fan-out)"},
+		{Action: "Policy logs", BuddyScript: "`computer_history` / `computer_policy_logs` / `policy_logs`", CLI: "`buddy computer history` / `logs`", Notes: "Classic computerhistory; policy_logs needs computer_id or last_contact/filter"},
 		{Action: "MDM actions", BuddyScript: "`computer_reboot` / `computer_lock` / …", CLI: "`buddy computer reboot|lock|…`", Notes: "Named builtins and matching CLI verbs"},
 	},
 	Notes: []string{
@@ -163,11 +163,11 @@ var ComputersTopic = docspec.Topic{
         Not GET /api/v1/policies (list index only). Privilege: Read Computer History.
   computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, tenant?, surface?, auth?)
       Does: Fetch Classic PolicyLogs for one computer and return flattened rows.
-      → value: list of {policy_id, policy_name, username, date_time, date_time_epoch, date_time_utc, status}
+      → value: list of {policy_id, policy_name, username, date_time, date_completed, date_completed_epoch, date_completed_utc, status, computer_id, …}
       Params: pass exactly one of id= / name= / serial= / udid=.
         policy_id?: int/str (client-side filter). status?: str (case-insensitive exact).
         tenant?/surface?/auth?: session overrides.
-      Notes: Always subset/PolicyLogs. No fleet fan-out. See also policy_logs(id, computer_id).
+      Notes: Always subset/PolicyLogs. date_completed* aliases date_time*. See also policy_logs.
   computer_send_mdm_command(ids, command_type, command_data?, tenant?, surface?, auth?)
       Does: Queue a named MDM command on one or more computers.
       → None

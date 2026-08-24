@@ -75,6 +75,9 @@ func TestParseComputerHistory_JSON_Wrapped(t *testing.T) {
 	if l.DateTimeEpoch != 1499470624555 {
 		t.Fatalf("epoch=%d", l.DateTimeEpoch)
 	}
+	if l.DateCompleted != l.DateTime || l.DateCompletedEpoch != l.DateTimeEpoch || l.DateCompletedUTC != l.DateTimeUTC {
+		t.Fatalf("date_completed aliases: %+v", l)
+	}
 	m := h.AsMap()
 	logs, ok := m["policy_logs"].([]ComputerPolicyLog)
 	if !ok || len(logs) != 1 {
@@ -158,6 +161,60 @@ func TestParseComputerHistory_XML(t *testing.T) {
 	}
 	if len(h.PolicyLogs) != 1 || h.PolicyLogs[0].PolicyID != 1 || h.PolicyLogs[0].DateTimeEpoch != 1499470624555 {
 		t.Fatalf("logs=%+v", h.PolicyLogs)
+	}
+	if h.PolicyLogs[0].DateCompleted != h.PolicyLogs[0].DateTime {
+		t.Fatalf("XML date_completed alias=%+v", h.PolicyLogs[0])
+	}
+}
+
+func TestParseComputerHistory_JSON_DateCompletedOnly(t *testing.T) {
+	body := []byte(`{
+  "policy_logs": [{"date_completed": "2026-08-01 10:00:00", "date_completed_epoch": 1754042400000, "date_completed_utc": "2026-08-01T00:00:00Z", "policy_id": 5, "policy_name": "X", "status": "Completed"}]
+}`)
+	h, err := parseComputerHistory(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := h.PolicyLogs[0]
+	if l.DateCompleted != "2026-08-01 10:00:00" || l.DateTime != l.DateCompleted {
+		t.Fatalf("got %+v", l)
+	}
+	if l.DateCompletedEpoch != 1754042400000 || l.DateTimeEpoch != l.DateCompletedEpoch {
+		t.Fatalf("epoch %+v", l)
+	}
+}
+
+func TestPolicyLogsScanFilter(t *testing.T) {
+	got, err := policyLogsScanFilter("", "2026-08-23T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "general.lastContact=ge=2026-08-23T00:00:00Z" {
+		t.Fatalf("last_contact: %s", got)
+	}
+	got, err = policyLogsScanFilter("lab", "2026-08-23T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != `general.name=="*lab*";general.lastContact=ge=2026-08-23T00:00:00Z` {
+		t.Fatalf("and: %s", got)
+	}
+	if _, err := lastContactGeClause(`general.lastContact=ge=2026-01-01T00:00:00Z`); err == nil {
+		t.Fatal("expected last_contact RSQL reject")
+	}
+	err = func() error {
+		_, e := PolicyLogs("", PolicyLogsQuery{PolicyID: 1}, nil)
+		return e
+	}()
+	if err == nil || !strings.Contains(err.Error(), "unconstrained") {
+		t.Fatalf("want unconstrained error, got %v", err)
+	}
+	err = func() error {
+		_, e := PolicyLogs("", PolicyLogsQuery{PolicyID: 1, ComputerID: "9", LastContact: "2026-01-01T00:00:00Z"}, nil)
+		return e
+	}()
+	if err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("want xor error, got %v", err)
 	}
 }
 

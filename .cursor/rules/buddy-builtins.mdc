@@ -230,8 +230,10 @@ Do not invent `jamf_get` Classic XML, UI scrapes, fleet fan-out, or logs on undo
   - Returns flattened `policy_logs` (no `policy_log` wrapper) plus `general` and other present subsets.
 - `computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, tenant?, surface?, auth?)` → value: list[dict]
   - Always `subset/PolicyLogs`. `policy_id?` / `status?` are client-side filters.
-- `policy_logs(id, computer_id, status?, tenant?, surface?, auth?)` → value: list[dict]
-  - Requires both IDs. Same GET, filtered by policy id. No implicit computer list or group walk.
+- `policy_logs(id, computer_id?, filter?, last_contact?, status?, tenant?, surface?, auth?)` → value: list[dict]
+  - Require `computer_id` **or** `last_contact` / `filter` (not both). No unconstrained fleet walk.
+  - `last_contact`: ISO datetime (`rsql_days_ago(1)`) → `general.lastContact=ge=…`. `filter`: same as `computers()`.
+  - Rows include `date_completed*` (aliases Classic `date_time*`) plus `computer_id` / `computer_name` / `serial`.
 
 ## Policies — copy / upsert
 

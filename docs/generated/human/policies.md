@@ -9,7 +9,7 @@ List, load, mutate, copy, and migrate Jamf Classic policies with buddy.
 |---------|-------------|-----|-------|
 | List / find | `policies(keywords=…)` / `policies(ids=True)` | `buddy policy list` | Summary dicts `{id, name, …}` |
 | Load | `policy(id=…)` / `policy(trigger=…)` / `policy_xml(id=…)` | `buddy policy get` | Full Classic XML as dict or string |
-| Logs | `policy_logs(id, computer_id)` | `buddy policy logs <policy-id> --computer=<computer-id>` | Classic computerhistory; requires a computer (no fleet fan-out) |
+| Logs | `policy_logs(id, computer_id?)` / `last_contact=` / `filter=` | `buddy policy logs <policy-id> --computer= \| --last-contact= \| --filter=` | Classic computerhistory; require a computer or a scan constraint |
 | Mutate | `policy_set*` / `policy_put_xml` | `buddy policy set` | Multi-step helpers for common fields; raw XML when needed |
 | Copy / migrate | `policy_copy` / `policy_migrate` | — | Cross-session; remap by name |
 
@@ -17,7 +17,7 @@ List, load, mutate, copy, and migrate Jamf Classic policies with buddy.
 
 Versioned release bumps use [change batches](/docs/docs/change-batches) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.
 
-Policy **execution** logs are Classic computerhistory (`policy_logs` / `computer_policy_logs`). There is no fleet-wide “logs for policy N” API and `GET /api/v1/policies` is a list index only.
+Policy **execution** logs are Classic computerhistory (`policy_logs` / `computer_policy_logs`). There is no fleet-wide collection; `policy_logs` requires `computer_id` or a scan constraint (`last_contact` / `filter`). `GET /api/v1/policies` is a list index only.
 
 ## Examples
 
@@ -31,6 +31,11 @@ def main():
 ```python
 def main():
     return policy_logs(id=42, computer_id="101")
+```
+
+```python
+def main():
+    return policy_logs(id=42, last_contact=rsql_days_ago(1))
 ```
 
 ## Related

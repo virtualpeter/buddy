@@ -42,7 +42,7 @@ Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …).
 - List / find: `computers(filter=…, sort?, section?, raw?, page?, page_size?)` · `buddy computer list [--sort=] [--json]` — v4 dates `lastContact` / `lastCheckIn` / `reportDate`; omit page to fetch all
 - Load: `computer(id=…, section?)` · `buddy computer get [--section=…]` — Passthrough JSON; default GENERAL; `section` → `?section=`
 - Load all sections: `computer_detail(id=…)` · `buddy computer detail` — `GET …/computers-inventory-detail/{id}`
-- Policy logs: `computer_history` / `computer_policy_logs` / `policy_logs` · `buddy computer history` / `logs` — Classic computerhistory; per-computer (no fleet fan-out)
+- Policy logs: `computer_history` / `computer_policy_logs` / `policy_logs` · `buddy computer history` / `logs` — Classic computerhistory; policy_logs needs computer_id or last_contact/filter
 - MDM actions: `computer_reboot` / `computer_lock` / … · `buddy computer reboot|lock|…` — Named builtins and matching CLI verbs
 - Classic **computer history** is policy/event execution logs (`GET /JSSResource/computerhistory`), not MDM command history and not package/script audit `history`. MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).
 - List RSQL dates are v4 `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, and `general.reportDate` (last inventory). v3 `lastContactTime` and Platform `lastCheckInTime` / `lastInventoryUpdateTime` are not valid on this API.

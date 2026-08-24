@@ -86,12 +86,15 @@ const PoliciesBuiltinsSection = `POLICY
       Does: Delete one or more Classic policies.
       → None
       Params: ids: int/str or list of int/str.
-  policy_logs(id, computer_id, status?, tenant?, surface?, auth?)
-      Does: List flattened Classic policy execution logs for one policy on one computer.
-      → value: list of {policy_id, policy_name, username, date_time, date_time_epoch, date_time_utc, status}
-      Params: id: int/str (policy ID). computer_id: int/str (required; no fleet fan-out).
+  policy_logs(id, computer_id?, filter?, last_contact?, status?, tenant?, surface?, auth?)
+      Does: List flattened Classic policy execution logs for one policy (one computer, or a bounded scan).
+      → value: list of {policy_id, policy_name, username, date_time, date_completed, date_completed_epoch, date_completed_utc, status, computer_id, …}
+      Params: id: int/str (policy ID). Pass computer_id= or last_contact= / filter= (not both).
+        computer_id?: int/str. filter?: computers() bare term or RSQL.
+        last_contact?: ISO datetime (rsql_days_ago / rsql_now) → general.lastContact=ge=.
         status?: str (case-insensitive exact). tenant?/surface?/auth?: session overrides.
-      Notes: Same GET as computer_policy_logs (subset/PolicyLogs), filtered by policy id.
+      Notes: date_completed* aliases Classic date_time* (Jamf UI Date Completed).
+        last_contact / filter bound the computer list; unconstrained fleet scan is rejected.
         Not GET /api/v1/policies. See computer_history / computer_policy_logs.
 
 `
@@ -113,7 +116,9 @@ Subcommands:
 Use 'buddy policy <subcommand> help' for subcommand-specific help.
 
 Flags for 'logs':
-  --computer=<computer-id>       Required computer to read Classic history from
+  --computer=<computer-id>       One computer (xor --last-contact / --filter)
+  --last-contact=<iso-datetime>  Scan computers with lastContact >= value
+  --filter=<term|rsql>           Extra computers() scan constraint (AND with last-contact)
   --status=<status>              Client-side filter (case-insensitive exact)
   --json                         Print flattened logs as JSON
 
@@ -121,5 +126,6 @@ Examples:
   buddy policy list --filter=chrome
   buddy policy get id install-chrome
   buddy policy logs 42 --computer=101
+  buddy policy logs 42 --last-contact=2026-08-23T00:00:00Z
   buddy policy delete 42
 `

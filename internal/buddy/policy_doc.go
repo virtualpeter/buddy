@@ -26,20 +26,20 @@ var PoliciesTopic = docspec.Topic{
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / find", BuddyScript: "`policies(keywords=…)` / `policies(ids=True)`", CLI: "`buddy policy list`", Notes: "Summary dicts `{id, name, …}`"},
 		{Action: "Load", BuddyScript: "`policy(id=…)` / `policy(trigger=…)` / `policy_xml(id=…)`", CLI: "`buddy policy get`", Notes: "Full Classic XML as dict or string"},
-		{Action: "Logs", BuddyScript: "`policy_logs(id, computer_id)`", CLI: "`buddy policy logs <policy-id> --computer=<computer-id>`", Notes: "Classic computerhistory; requires a computer (no fleet fan-out)"},
+		{Action: "Logs", BuddyScript: "`policy_logs(id, computer_id?)` / `last_contact=` / `filter=`", CLI: "`buddy policy logs <policy-id> --computer= | --last-contact= | --filter=`", Notes: "Classic computerhistory; require a computer or a scan constraint"},
 		{Action: "Mutate", BuddyScript: "`policy_set*` / `policy_put_xml`", CLI: "`buddy policy set`", Notes: "Multi-step helpers for common fields; raw XML when needed"},
 		{Action: "Copy / migrate", BuddyScript: "`policy_copy` / `policy_migrate`", Notes: "Cross-session; remap by name"},
 	},
 	Notes: []string{
 		"Versioned release bumps use [change batches](/docs/docs/change-batches) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.",
-		"Policy **execution** logs are Classic computerhistory (`policy_logs` / `computer_policy_logs`). There is no fleet-wide “logs for policy N” API and `GET /api/v1/policies` is a list index only.",
+		"Policy **execution** logs are Classic computerhistory (`policy_logs` / `computer_policy_logs`). There is no fleet-wide collection; `policy_logs` requires `computer_id` or a scan constraint (`last_contact` / `filter`). `GET /api/v1/policies` is a list index only.",
 	},
 	AgentNotes: []string{
 		"Do not invent Classic policy PUT/POST bodies from `jamf_schema` or Jamf MCP `execute-request` when a named builtin exists.",
 		"Prefer fat `policy_set*` helpers over hand-edited XML when they cover the change.",
 		"Wait until a package is JCDS **READY** before attach — see [packages](/docs/docs/packages).",
 		"Do not hand-roll versioned release clones when [change batches](/docs/docs/change-batches) already encode the workflow.",
-		"Policy execution logs require a computer: `policy_logs(id, computer_id)` or `computer_policy_logs`. Do not invent `jamf_get` or `/api/v1/policies` logs.",
+		"Policy execution logs: `policy_logs(id, computer_id=…)` or `policy_logs(id, last_contact=rsql_days_ago(1))` / `filter=`. Do not invent `jamf_get` or `/api/v1/policies` logs. Do not omit both computer_id and a scan constraint.",
 	},
 	Builtins: []docspec.Builtin{
 			{
@@ -88,6 +88,8 @@ var PoliciesTopic = docspec.Topic{
     return p["general"]["name"]`,
 		`def main():
     return policy_logs(id=42, computer_id="101")`,
+		`def main():
+    return policy_logs(id=42, last_contact=rsql_days_ago(1))`,
 	},
 	Related: []docspec.RelatedLink{
 		{Title: `Computers`, Ref: `/docs/docs/computers`},
@@ -175,12 +177,15 @@ var PoliciesTopic = docspec.Topic{
       Does: Delete one or more Classic policies.
       → None
       Params: ids: int/str or list of int/str.
-  policy_logs(id, computer_id, status?, tenant?, surface?, auth?)
-      Does: List flattened Classic policy execution logs for one policy on one computer.
-      → value: list of {policy_id, policy_name, username, date_time, date_time_epoch, date_time_utc, status}
-      Params: id: int/str (policy ID). computer_id: int/str (required; no fleet fan-out).
+  policy_logs(id, computer_id?, filter?, last_contact?, status?, tenant?, surface?, auth?)
+      Does: List flattened Classic policy execution logs for one policy (one computer, or a bounded scan).
+      → value: list of {policy_id, policy_name, username, date_time, date_completed, date_completed_epoch, date_completed_utc, status, computer_id, …}
+      Params: id: int/str (policy ID). Pass computer_id= or last_contact= / filter= (not both).
+        computer_id?: int/str. filter?: computers() bare term or RSQL.
+        last_contact?: ISO datetime (rsql_days_ago / rsql_now) → general.lastContact=ge=.
         status?: str (case-insensitive exact). tenant?/surface?/auth?: session overrides.
-      Notes: Same GET as computer_policy_logs (subset/PolicyLogs), filtered by policy id.
+      Notes: date_completed* aliases Classic date_time* (Jamf UI Date Completed).
+        last_contact / filter bound the computer list; unconstrained fleet scan is rejected.
         Not GET /api/v1/policies. See computer_history / computer_policy_logs.
 
 `,
@@ -200,7 +205,9 @@ Subcommands:
 Use 'buddy policy <subcommand> help' for subcommand-specific help.
 
 Flags for 'logs':
-  --computer=<computer-id>       Required computer to read Classic history from
+  --computer=<computer-id>       One computer (xor --last-contact / --filter)
+  --last-contact=<iso-datetime>  Scan computers with lastContact >= value
+  --filter=<term|rsql>           Extra computers() scan constraint (AND with last-contact)
   --status=<status>              Client-side filter (case-insensitive exact)
   --json                         Print flattened logs as JSON
 
@@ -208,6 +215,7 @@ Examples:
   buddy policy list --filter=chrome
   buddy policy get id install-chrome
   buddy policy logs 42 --computer=101
+  buddy policy logs 42 --last-contact=2026-08-23T00:00:00Z
   buddy policy delete 42
 `,
 }

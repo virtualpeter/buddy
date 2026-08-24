@@ -392,7 +392,8 @@ Base path: `/JSSResource/computerhistory`
 
 - This is **policy/event execution history**, not MDM command history (`GET /api/v2/mdm/commands`) and not package/script audit `GET …/history`.
 - **Not** undocumented Pro `GET /api/v1/policies` — that path is a paginated **list index** only (`id`, `name`, `enabled`, …) and has no logs.
-- Lookup is per computer (id, name, serial, or udid). There is no published “all logs for policy N” collection; `policy_logs(id, computer_id)` filters one computer’s PolicyLogs. Do not fan out over the fleet.
+- Lookup is per computer (id, name, serial, or udid). There is no published “all logs for policy N” collection. `policy_logs(id, computer_id)` filters one computer; `policy_logs(id, last_contact=…)` / `filter=` scans matching inventory then fetches each history. Unconstrained fleet scan is rejected.
+- Log rows expose Classic `date_time*` and `date_completed*` (same instant; UI “Date Completed”).
 - Accept is `application/json`. Buddy unwraps the `computer_history` envelope and flattens `{policy_log: {…}}` wrappers (and Classic XML-style `{size, policy_log}` bags). XML is a parse fallback only.
 - Subset tokens: `General`, `PolicyLogs`, `Commands`, `Audits`, `ComputerUsageLogs`, `CasperRemoteLogs`, `ScreenSharingLogs`, `CasperImagingLogs`, `UserLocation`, `MacAppStoreApplications`.
 - CLI `buddy computer history` defaults to `--subset=PolicyLogs` (full documents can be large). Privilege: **Read Computer History**. Classic routing (`OpClassic` / proclassic), not `OpProUI`.

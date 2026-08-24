@@ -24,14 +24,31 @@ type ComputerHistoryRef struct {
 }
 
 // ComputerPolicyLog is one flattened Classic policy_log row.
+// Classic documents the run time as date_time*; Jamf UI calls it Date Completed.
+// Both families are populated (date_completed* aliases date_time* when absent).
 type ComputerPolicyLog struct {
-	PolicyID      int    `json:"policy_id"`
-	PolicyName    string `json:"policy_name"`
-	Username      string `json:"username,omitempty"`
-	DateTime      string `json:"date_time,omitempty"`
-	DateTimeEpoch int64  `json:"date_time_epoch,omitempty"`
-	DateTimeUTC   string `json:"date_time_utc,omitempty"`
-	Status        string `json:"status,omitempty"`
+	PolicyID           int    `json:"policy_id"`
+	PolicyName         string `json:"policy_name"`
+	Username           string `json:"username,omitempty"`
+	DateTime           string `json:"date_time,omitempty"`
+	DateTimeEpoch      int64  `json:"date_time_epoch,omitempty"`
+	DateTimeUTC        string `json:"date_time_utc,omitempty"`
+	DateCompleted      string `json:"date_completed,omitempty"`
+	DateCompletedEpoch int64  `json:"date_completed_epoch,omitempty"`
+	DateCompletedUTC   string `json:"date_completed_utc,omitempty"`
+	Status             string `json:"status,omitempty"`
+	ComputerID         int    `json:"computer_id,omitempty"`
+	ComputerName       string `json:"computer_name,omitempty"`
+	Serial             string `json:"serial,omitempty"`
+}
+
+// PolicyLogsQuery selects one computer or a bounded inventory scan for policy logs.
+type PolicyLogsQuery struct {
+	PolicyID    int
+	ComputerID  string
+	Filter      string // computers() RSQL or bare term
+	LastContact string // ISO datetime → general.lastContact=ge=
+	Status      string
 }
 
 // ComputerHistory is a parsed Classic computer_history document.
@@ -183,7 +200,122 @@ func ComputerPolicyLogs(credName string, ref ComputerHistoryRef, policyID *int, 
 	if logs == nil {
 		logs = []ComputerPolicyLog{}
 	}
-	return filterPolicyLogs(logs, policyID, status), nil
+	logs = filterPolicyLogs(logs, policyID, status)
+	attachHistoryComputer(logs, h, ref.ID)
+	return logs, nil
+}
+
+// PolicyLogs returns flattened logs for one policy on one computer, or on computers
+// matching filter / last_contact. Unconstrained fleet scan is rejected.
+func PolicyLogs(credName string, q PolicyLogsQuery, logger *slog.Logger) ([]ComputerPolicyLog, error) {
+	if q.PolicyID <= 0 {
+		return nil, fmt.Errorf("policy logs: policy id is required")
+	}
+	computerID := strings.TrimSpace(q.ComputerID)
+	filter := strings.TrimSpace(q.Filter)
+	lastContact := strings.TrimSpace(q.LastContact)
+	if computerID != "" && (filter != "" || lastContact != "") {
+		return nil, fmt.Errorf("policy logs: pass computer_id or last_contact=/filter=, not both")
+	}
+	if computerID == "" && filter == "" && lastContact == "" {
+		return nil, fmt.Errorf("policy logs: require computer_id= or last_contact= / filter= (no unconstrained fleet scan)")
+	}
+	pid := q.PolicyID
+	if computerID != "" {
+		return ComputerPolicyLogs(credName, ComputerHistoryRef{ID: computerID}, &pid, q.Status, logger)
+	}
+	scanFilter, err := policyLogsScanFilter(filter, lastContact)
+	if err != nil {
+		return nil, err
+	}
+	recs, err := ComputerSearch(credName, ComputerListQuery{Filter: scanFilter}, PageOpts{Page: PageAll}, logger)
+	if err != nil {
+		return nil, err
+	}
+	var all []ComputerPolicyLog
+	for _, rec := range recs {
+		logs, err := ComputerPolicyLogs(credName, ComputerHistoryRef{ID: strconv.Itoa(rec.ID)}, &pid, q.Status, logger)
+		if err != nil {
+			return nil, fmt.Errorf("policy logs computer %d: %w", rec.ID, err)
+		}
+		attachComputer(logs, rec)
+		all = append(all, logs...)
+	}
+	if all == nil {
+		all = []ComputerPolicyLog{}
+	}
+	return all, nil
+}
+
+func policyLogsScanFilter(filter, lastContact string) (string, error) {
+	normalized, err := NormalizeListFilter(filter, FilterSpecComputers)
+	if err != nil {
+		return "", err
+	}
+	ge, err := lastContactGeClause(lastContact)
+	if err != nil {
+		return "", err
+	}
+	joined := joinRSQL(normalized, ge)
+	if joined == "" {
+		return "", fmt.Errorf("policy logs: empty scan filter")
+	}
+	return joined, nil
+}
+
+func lastContactGeClause(iso string) (string, error) {
+	iso = strings.TrimSpace(iso)
+	if iso == "" {
+		return "", nil
+	}
+	if isRSQLFilter(iso) || strings.Contains(iso, ";") {
+		return "", fmt.Errorf("last_contact must be an ISO datetime (use filter= for RSQL)")
+	}
+	return "general.lastContact=ge=" + iso, nil
+}
+
+func joinRSQL(clauses ...string) string {
+	var parts []string
+	for _, c := range clauses {
+		c = strings.TrimSpace(c)
+		if c != "" {
+			parts = append(parts, c)
+		}
+	}
+	return strings.Join(parts, ";")
+}
+
+func attachHistoryComputer(logs []ComputerPolicyLog, h *ComputerHistory, fallbackID string) {
+	rec := ComputerRecord{}
+	if n, err := strconv.Atoi(strings.TrimSpace(fallbackID)); err == nil {
+		rec.ID = n
+	}
+	if h != nil && h.General != nil {
+		if id, ok := anyToInt(h.General["id"]); ok && id > 0 {
+			rec.ID = id
+		}
+		if name := anyToString(h.General["name"]); name != "" {
+			rec.Name = name
+		}
+		if serial := anyToString(h.General["serial_number"]); serial != "" {
+			rec.SerialNumber = serial
+		}
+	}
+	attachComputer(logs, rec)
+}
+
+func attachComputer(logs []ComputerPolicyLog, rec ComputerRecord) {
+	for i := range logs {
+		if rec.ID > 0 {
+			logs[i].ComputerID = rec.ID
+		}
+		if rec.Name != "" {
+			logs[i].ComputerName = rec.Name
+		}
+		if rec.SerialNumber != "" {
+			logs[i].Serial = rec.SerialNumber
+		}
+	}
 }
 
 func filterPolicyLogs(logs []ComputerPolicyLog, policyID *int, status string) []ComputerPolicyLog {
@@ -228,6 +360,18 @@ func ComputerPolicyLogsPrint(credName string, ref ComputerHistoryRef, policyID *
 	return printPolicyLogsTable(logs)
 }
 
+// PolicyLogsPrint prints PolicyLogs as a table, or --json list.
+func PolicyLogsPrint(credName string, q PolicyLogsQuery, asJSON bool, logger *slog.Logger) error {
+	logs, err := PolicyLogs(credName, q, logger)
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return printComputerHistoryJSON(logs)
+	}
+	return printPolicyLogsTable(logs)
+}
+
 func printComputerHistoryJSON(v interface{}) error {
 	body, err := json.Marshal(v)
 	if err != nil {
@@ -246,14 +390,46 @@ func printPolicyLogsTable(logs []ComputerPolicyLog) error {
 	if logs == nil {
 		logs = []ComputerPolicyLog{}
 	}
-	fmt.Printf("%-8s  %-32s  %-12s  %-20s  %s\n", "POLICY", "NAME", "STATUS", "DATE", "USER")
-	fmt.Printf("%-8s  %-32s  %-12s  %-20s  %s\n", "--------", "--------------------------------", "------------", "--------------------", "--------------------")
+	showComputer := false
 	for _, l := range logs {
+		if l.ComputerID != 0 || l.ComputerName != "" {
+			showComputer = true
+			break
+		}
+	}
+	if showComputer {
+		fmt.Printf("%-8s  %-24s  %-8s  %-28s  %-12s  %-20s  %s\n", "COMPUTER", "HOST", "POLICY", "NAME", "STATUS", "COMPLETED", "USER")
+		fmt.Printf("%-8s  %-24s  %-8s  %-28s  %-12s  %-20s  %s\n", "--------", "------------------------", "--------", "----------------------------", "------------", "--------------------", "--------------------")
+	} else {
+		fmt.Printf("%-8s  %-32s  %-12s  %-20s  %s\n", "POLICY", "NAME", "STATUS", "COMPLETED", "USER")
+		fmt.Printf("%-8s  %-32s  %-12s  %-20s  %s\n", "--------", "--------------------------------", "------------", "--------------------", "--------------------")
+	}
+	for _, l := range logs {
+		completed := l.DateCompleted
+		if completed == "" {
+			completed = l.DateTime
+		}
+		if showComputer {
+			host := l.ComputerName
+			if host == "" {
+				host = strconv.Itoa(l.ComputerID)
+			}
+			fmt.Printf("%-8d  %-24s  %-8d  %-28s  %-12s  %-20s  %s\n",
+				l.ComputerID,
+				truncateComputer(host, 24),
+				l.PolicyID,
+				truncateComputer(l.PolicyName, 28),
+				truncateComputer(l.Status, 12),
+				truncateComputer(completed, 20),
+				truncateComputer(l.Username, 20),
+			)
+			continue
+		}
 		fmt.Printf("%-8d  %-32s  %-12s  %-20s  %s\n",
 			l.PolicyID,
 			truncateComputer(l.PolicyName, 32),
 			truncateComputer(l.Status, 12),
-			truncateComputer(l.DateTime, 20),
+			truncateComputer(completed, 20),
 			truncateComputer(l.Username, 20),
 		)
 	}
@@ -471,15 +647,44 @@ func policyLogsFromValue(v interface{}) []ComputerPolicyLog {
 
 func policyLogFromMap(m map[string]interface{}) ComputerPolicyLog {
 	id, _ := anyToInt(m["policy_id"])
-	epoch, _ := anyToInt64(m["date_time_epoch"])
-	return ComputerPolicyLog{
-		PolicyID:      id,
-		PolicyName:    anyToString(m["policy_name"]),
-		Username:      anyToString(m["username"]),
-		DateTime:      anyToString(m["date_time"]),
-		DateTimeEpoch: epoch,
-		DateTimeUTC:   anyToString(m["date_time_utc"]),
-		Status:        anyToString(m["status"]),
+	l := ComputerPolicyLog{
+		PolicyID:         id,
+		PolicyName:       anyToString(m["policy_name"]),
+		Username:         anyToString(m["username"]),
+		DateTime:         anyToString(m["date_time"]),
+		DateTimeUTC:      anyToString(m["date_time_utc"]),
+		DateCompleted:    anyToString(m["date_completed"]),
+		DateCompletedUTC: anyToString(m["date_completed_utc"]),
+		Status:           anyToString(m["status"]),
+	}
+	if n, ok := anyToInt64(m["date_time_epoch"]); ok {
+		l.DateTimeEpoch = n
+	}
+	if n, ok := anyToInt64(m["date_completed_epoch"]); ok {
+		l.DateCompletedEpoch = n
+	}
+	normalizePolicyLogDates(&l)
+	return l
+}
+
+func normalizePolicyLogDates(l *ComputerPolicyLog) {
+	if l.DateTime == "" {
+		l.DateTime = l.DateCompleted
+	}
+	if l.DateCompleted == "" {
+		l.DateCompleted = l.DateTime
+	}
+	if l.DateTimeUTC == "" {
+		l.DateTimeUTC = l.DateCompletedUTC
+	}
+	if l.DateCompletedUTC == "" {
+		l.DateCompletedUTC = l.DateTimeUTC
+	}
+	if l.DateTimeEpoch == 0 {
+		l.DateTimeEpoch = l.DateCompletedEpoch
+	}
+	if l.DateCompletedEpoch == 0 {
+		l.DateCompletedEpoch = l.DateTimeEpoch
 	}
 }
 
@@ -546,13 +751,16 @@ type computerHistoryGeneralXML struct {
 }
 
 type computerPolicyLogXML struct {
-	PolicyID      int    `xml:"policy_id"`
-	PolicyName    string `xml:"policy_name"`
-	Username      string `xml:"username"`
-	DateTime      string `xml:"date_time"`
-	DateTimeEpoch string `xml:"date_time_epoch"`
-	DateTimeUTC   string `xml:"date_time_utc"`
-	Status        string `xml:"status"`
+	PolicyID           int    `xml:"policy_id"`
+	PolicyName         string `xml:"policy_name"`
+	Username           string `xml:"username"`
+	DateTime           string `xml:"date_time"`
+	DateTimeEpoch      string `xml:"date_time_epoch"`
+	DateTimeUTC        string `xml:"date_time_utc"`
+	DateCompleted      string `xml:"date_completed"`
+	DateCompletedEpoch string `xml:"date_completed_epoch"`
+	DateCompletedUTC   string `xml:"date_completed_utc"`
+	Status             string `xml:"status"`
 }
 
 func parseComputerHistoryXML(body []byte) (*ComputerHistory, error) {
@@ -583,16 +791,24 @@ func parseComputerHistoryXML(body []byte) (*ComputerHistory, error) {
 	if doc.PolicyLogs != nil {
 		h.PolicyLogs = make([]ComputerPolicyLog, 0, len(doc.PolicyLogs))
 		for _, l := range doc.PolicyLogs {
-			epoch, _ := anyToInt64(l.DateTimeEpoch)
-			h.PolicyLogs = append(h.PolicyLogs, ComputerPolicyLog{
-				PolicyID:      l.PolicyID,
-				PolicyName:    l.PolicyName,
-				Username:      l.Username,
-				DateTime:      l.DateTime,
-				DateTimeEpoch: epoch,
-				DateTimeUTC:   l.DateTimeUTC,
-				Status:        l.Status,
-			})
+			row := ComputerPolicyLog{
+				PolicyID:         l.PolicyID,
+				PolicyName:       l.PolicyName,
+				Username:         l.Username,
+				DateTime:         l.DateTime,
+				DateTimeUTC:      l.DateTimeUTC,
+				DateCompleted:    l.DateCompleted,
+				DateCompletedUTC: l.DateCompletedUTC,
+				Status:           l.Status,
+			}
+			if n, ok := anyToInt64(l.DateTimeEpoch); ok {
+				row.DateTimeEpoch = n
+			}
+			if n, ok := anyToInt64(l.DateCompletedEpoch); ok {
+				row.DateCompletedEpoch = n
+			}
+			normalizePolicyLogDates(&row)
+			h.PolicyLogs = append(h.PolicyLogs, row)
 		}
 	}
 	return h, nil

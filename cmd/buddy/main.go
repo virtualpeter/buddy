@@ -330,6 +330,8 @@ func runPolicyList(credName string, opts buddy.Opts, args []string, log *slog.Lo
 func runPolicyLogs(credName string, args []string, log *slog.Logger) error {
 	fs := flag.NewFlagSet("policy logs", flag.ContinueOnError)
 	computer := fs.String("computer", "", "computer id")
+	filter := fs.String("filter", "", "computers() filter (bare term or RSQL); scan constraint")
+	lastContact := fs.String("last-contact", "", "ISO datetime; computers with general.lastContact>=value")
 	status := fs.String("status", "", "filter by log status (case-insensitive exact)")
 	asJSON := fs.Bool("json", false, "Print flattened logs as JSON")
 	flagArgs, positionals := staticGroupSplitFlags(args)
@@ -339,14 +341,17 @@ func runPolicyLogs(credName string, args []string, log *slog.Logger) error {
 	if len(positionals) < 1 {
 		return missingArg("policy-id", clispec.UsageHelp(clispec.CmdPolicy))
 	}
-	if strings.TrimSpace(*computer) == "" {
-		return fmt.Errorf("policy logs requires --computer=<computer-id>")
-	}
 	policyID, err := parseInt(positionals[0], "policy-id")
 	if err != nil {
 		return err
 	}
-	return buddy.ComputerPolicyLogsPrint(credName, buddy.ComputerHistoryRef{ID: *computer}, &policyID, *status, *asJSON, log)
+	return buddy.PolicyLogsPrint(credName, buddy.PolicyLogsQuery{
+		PolicyID:    policyID,
+		ComputerID:  *computer,
+		Filter:      *filter,
+		LastContact: *lastContact,
+		Status:      *status,
+	}, *asJSON, log)
 }
 
 func runPolicyGet(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {

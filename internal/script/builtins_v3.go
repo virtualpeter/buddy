@@ -619,14 +619,15 @@ func computerPolicyLogsBuiltin(credName string, logger *slog.Logger) func(*starl
 	}
 }
 
-// policy_logs(id, computer_id, status?, tenant?, surface?, auth?) → list
+// policy_logs(id, computer_id?, filter?, last_contact?, status?, tenant?, surface?, auth?) → list
 func policyLogsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var idVal, computerIDVal starlark.Value
-		var status starlark.String
+		var idVal starlark.Value
+		computerIDVal := starlark.Value(starlark.None)
+		var filter, lastContact, status starlark.String
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("policy_logs", args, kwargs,
-			"id", &idVal, "computer_id", &computerIDVal, "status?", &status,
+			"id", &idVal, "computer_id?", &computerIDVal, "filter?", &filter, "last_contact?", &lastContact, "status?", &status,
 			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
@@ -635,16 +636,25 @@ func policyLogsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		if err != nil {
 			return nil, err
 		}
-		computerID, err := starlarkIDString(computerIDVal, "computer_id")
-		if err != nil {
-			return nil, err
+		var computerID string
+		if computerIDVal != nil && computerIDVal != starlark.None {
+			computerID, err = starlarkIDString(computerIDVal, "computer_id")
+			if err != nil {
+				return nil, err
+			}
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
 			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
-		logs, err := buddy.ComputerPolicyLogs(sessionPin, buddy.ComputerHistoryRef{ID: computerID}, &policyID, string(status), logger)
+		logs, err := buddy.PolicyLogs(sessionPin, buddy.PolicyLogsQuery{
+			PolicyID:    policyID,
+			ComputerID:  computerID,
+			Filter:      string(filter),
+			LastContact: string(lastContact),
+			Status:      string(status),
+		}, logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
