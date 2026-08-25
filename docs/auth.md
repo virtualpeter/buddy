@@ -42,9 +42,9 @@ Legacy config shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auth
 | `--user` / `--auth` | Pin a specific auth |
 | buddyscript / MCP `tenant=` / `surface=` / `auth=` | Per-call override (`cred=` was removed) |
 
-When auto-picking, buddy prefers a **readonly** auth for reads, requires **full** for mutates, **platform** for blueprints and other Platform product APIs, and **instance** for Classic / schema work.
+When auto-picking, buddy prefers a **readonly** auth for reads, requires **full** for mutates, **platform** for blueprints and other Platform product APIs, and **instance** for Classic / schema work. You can keep a platform-readonly auth and an instance-full auth on the **same tenant** — reads use the pin; mutates fall over to the full auth.
 
-`--user` / `--auth` (and buddyscript `auth=`) is a **preference**, not a lock across surfaces. Classic (while `classic_instance_only` is on), ACS, schema, and undocumented Pro `GET /api/v1/policies` need an instance auth; Platform product APIs need platform oauth. If the pin cannot serve that surface, buddy auto-picks another linked auth on the **same tenant**. Pinning a readonly auth still fails on mutates (that is access, not routing). `surface=` biases published Pro/JSON calls that can use either surface, and Classic when `classic_instance_only` is off; it never sends ACS or `GET /api/v1/policies` through the gateway (clone/copy destination sessions included).
+`--user` / `--auth` (and buddyscript `auth=`) is a **preference**, not a lock. Classic (while `classic_instance_only` is on), ACS, schema, and undocumented Pro `GET /api/v1/policies` need an instance auth; Platform product APIs need platform oauth. If the pin cannot serve that surface, or the pin is **readonly** and the op mutates, buddy auto-picks another linked auth on the **same tenant**. Channel `access: readonly` is the hard clamp (MCP/IDE will not mutate). `surface=` biases published Pro/JSON calls that can use either surface, and Classic when `classic_instance_only` is off; it never sends ACS or `GET /api/v1/policies` through the gateway (clone/copy destination sessions included).
 
 Direct one-off flags (`--url`, `--tenant-id`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for a single command.
 

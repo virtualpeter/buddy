@@ -393,3 +393,99 @@ func TestPickAuthHybridReadResourceClassFlip(t *testing.T) {
 		t.Fatalf("scripts class: got %s/%s want zzz-inst/instance", name, surface)
 	}
 }
+
+func platformRoInstanceFullConfig() *Config {
+	return &Config{
+		Tenant: TenantSelection{Default: "sandbox"},
+		Tenants: map[string]TenantConfig{
+			"sandbox": {
+				URL:      "https://sandbox.example.jamfcloud.com",
+				Region:   "us",
+				TenantID: "00000000-0000-4000-8000-000000000001",
+			},
+		},
+		Auths: map[string]AuthEntry{
+			"plat-ro": {
+				Type: AuthTypePlatform, ClientID: "c", ClientSecret: "s",
+				Tenants: []string{"sandbox"}, Access: AccessReadonly,
+			},
+			"inst": {
+				Type: "oauth", ClientID: "i", ClientSecret: "s",
+				Tenants: []string{"sandbox"}, Access: AccessFull, Surface: SurfaceInstance,
+			},
+		},
+	}
+}
+
+func TestResolveSession_ReadonlyPinFallsBackToInstance(t *testing.T) {
+	t.Setenv(EnvClassicInstanceOnly, "")
+	cfg := platformRoInstanceFullConfig()
+	SetActiveConfig(cfg)
+	SetActiveSelection("sandbox", "plat-ro")
+	t.Cleanup(func() {
+		SetActiveConfig(nil)
+		SetActiveSelection("", "")
+		SetActiveChannel("")
+	})
+
+	sess, err := cfg.ResolveSession("sandbox", "plat-ro", OpRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.AuthName != "plat-ro" || sess.Surface != SurfacePlatform {
+		t.Fatalf("read should keep platform-ro pin: got %s/%s", sess.AuthName, sess.Surface)
+	}
+
+	sess, err = cfg.ResolveSession("sandbox", "plat-ro", OpMutate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.AuthName != "inst" || sess.Surface != SurfaceInstance {
+		t.Fatalf("mutate should fall back to instance full: got %s/%s", sess.AuthName, sess.Surface)
+	}
+
+	sess, err = cfg.ResolveSession("sandbox", "plat-ro", OpClassicWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.AuthName != "inst" || sess.Surface != SurfaceInstance {
+		t.Fatalf("Classic write should fall back to instance full: got %s/%s", sess.AuthName, sess.Surface)
+	}
+
+	_, err = cfg.ResolveSession("sandbox", "plat-ro", OpPlatformWrite)
+	if err == nil {
+		t.Fatal("platform write should not fall back to instance")
+	}
+	if !strings.Contains(err.Error(), "no suitable auth") && !strings.Contains(err.Error(), "readonly") {
+		t.Fatalf("want no platform-full error, got %v", err)
+	}
+}
+
+func TestResolveSession_ReadonlyPinChannelStillClamps(t *testing.T) {
+	cfg := platformRoInstanceFullConfig()
+	cfg.Channels = map[string]ChannelPolicy{
+		ChannelMCP: {Access: AccessReadonly},
+	}
+	cfg.Auths["inst"] = AuthEntry{
+		Type: "oauth", ClientID: "i", ClientSecret: "s",
+		Tenants: []string{"sandbox"}, Access: AccessFull, Surface: SurfaceInstance,
+		Channels: []string{ChannelMCP, ChannelCLI},
+	}
+	cfg.Auths["plat-ro"] = AuthEntry{
+		Type: AuthTypePlatform, ClientID: "c", ClientSecret: "s",
+		Tenants: []string{"sandbox"}, Access: AccessReadonly,
+		Channels: []string{ChannelMCP, ChannelCLI},
+	}
+	SetActiveConfig(cfg)
+	SetActiveChannel(ChannelMCP)
+	SetActiveSelection("sandbox", "plat-ro")
+	t.Cleanup(func() {
+		SetActiveConfig(nil)
+		SetActiveSelection("", "")
+		SetActiveChannel("")
+	})
+	_, err := cfg.ResolveSession("sandbox", "plat-ro", OpMutate)
+	if err == nil || !strings.Contains(err.Error(), "channel mcp is readonly") {
+		t.Fatalf("channel readonly must not fall back, got %v", err)
+	}
+}

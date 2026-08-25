@@ -238,9 +238,12 @@ func TestPickAuthReadonlyPrefer(t *testing.T) {
 	if sess.AuthName != "ro" {
 		t.Fatalf("want ro, got %s", sess.AuthName)
 	}
-	_, err = cfg.ResolveSession("t", "ro", OpMutate)
-	if err == nil {
-		t.Fatal("expected mutate to reject readonly pin")
+	sess, err = cfg.ResolveSession("t", "ro", OpMutate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.AuthName != "rw" {
+		t.Fatalf("readonly pin should fall back to full auth, got %s", sess.AuthName)
 	}
 	sess, err = cfg.ResolveSession("t", "", OpMutate)
 	if err != nil {

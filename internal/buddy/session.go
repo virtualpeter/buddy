@@ -88,12 +88,10 @@ func ActiveChannel() string {
 //	authName:   pin (empty → auto-pick among tenant's auths; non-empty prefers that auth)
 //	op:         operation class for ranking
 //
-// A pin is honored when that auth can serve the op's required surface. If it cannot
-// (Classic needs instance only while features.classic_instance_only is on; ACS, schema, and
-// undocumented Pro GET /api/v1/policies always need instance — those are not the
-// Classic toggle; Platform product APIs need platform oauth), buddy
-// auto-picks another linked auth on the same tenant. Access mismatches (readonly vs
-// mutate) still fail — those are not a surface routing problem.
+// A pin is honored when that auth can serve the op. If it cannot — wrong Jamf
+// surface, or the auth is readonly and the op mutates — buddy auto-picks another
+// linked auth on the same tenant. Channel access=readonly is a hard clamp (no
+// fallback). Platform product writes still need a platform + full auth.
 func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Session, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("internal error: config is nil")
@@ -156,8 +154,8 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 		surface := surfaceForOp(cfg, op, auth)
 		surface = overlaySurfacePref(cfg, op, auth, tenant, surface, channel)
 		if err := checkAuthForOp(cfg, auth, tenant, op, surface, channel); err != nil {
-			if isSurfaceIncompatible(err) {
-				// Pin cannot serve this op's surface — pick a compatible auth on the tenant.
+			if isPinFallback(err) {
+				// Pin cannot serve this op — pick a compatible auth on the tenant.
 				return cfg.autoPickSession(tenantName, tenant, op, channel)
 			}
 			return nil, fmt.Errorf("auth %q: %w", authName, err)
@@ -268,6 +266,27 @@ func isSurfaceIncompatible(err error) bool {
 	return errors.As(err, &e)
 }
 
+type authAccessIncompatibleError struct {
+	msg string
+}
+
+func (e *authAccessIncompatibleError) Error() string { return e.msg }
+
+func authAccessIncompatible(msg string) error {
+	return &authAccessIncompatibleError{msg: msg}
+}
+
+func isAuthAccessIncompatible(err error) bool {
+	var e *authAccessIncompatibleError
+	return errors.As(err, &e)
+}
+
+// isPinFallback is true when a pinned auth cannot serve the op but another
+// linked auth on the same tenant might (surface mismatch, or auth-level readonly).
+func isPinFallback(err error) bool {
+	return isSurfaceIncompatible(err) || isAuthAccessIncompatible(err)
+}
+
 func surfaceForOp(cfg *Config, op OpClass, auth AuthEntry) string {
 	if s := requiredSurfaceForOp(cfg, op); s != "" {
 		return s
@@ -283,7 +302,7 @@ func checkAuthForOp(cfg *Config, auth AuthEntry, tenant TenantConfig, op OpClass
 		if cfg.ChannelAccessFor(channel) == AccessReadonly {
 			return fmt.Errorf("channel %s is readonly; mutating operations are not allowed", channel)
 		}
-		return fmt.Errorf("access is readonly; mutating operations require a full-access auth")
+		return authAccessIncompatible("access is readonly; mutating operations require a full-access auth")
 	}
 	switch surface {
 	case SurfacePlatform:
