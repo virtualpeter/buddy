@@ -26,20 +26,20 @@ var PoliciesTopic = docspec.Topic{
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / find", BuddyScript: "`policies(keywords=…)` / `policies(ids=True)`", CLI: "`buddy policy list`", Notes: "Summary dicts `{id, name, …}`"},
 		{Action: "Load", BuddyScript: "`policy(id=…)` / `policy(trigger=…)` / `policy_xml(id=…)`", CLI: "`buddy policy get`", Notes: "Full Classic XML as dict or string"},
-		{Action: "Logs", BuddyScript: "`policy_logs(id, computer_id?)` / `last_contact=` / `filter=`", CLI: "`buddy policy logs <policy-id> --computer= | --last-contact= | --filter=`", Notes: "Classic computerhistory; require a computer or a scan constraint"},
+		{Action: "Logs", BuddyScript: "`policy_logs(id, computer_id=… | computer_ids=… | limit=…)`", CLI: "`buddy policy logs <policy-id> --computer= | --computer-ids= | --limit=`", Notes: "Classic computerhistory per Mac; client-side policy_id filter. Not GET /policies/{id}/logs"},
 		{Action: "Mutate", BuddyScript: "`policy_set*` / `policy_put_xml`", CLI: "`buddy policy set`", Notes: "Multi-step helpers for common fields; raw XML when needed"},
 		{Action: "Copy / migrate", BuddyScript: "`policy_copy` / `policy_migrate`", Notes: "Cross-session; remap by name"},
 	},
 	Notes: []string{
 		"Versioned release bumps use [change batches](/docs/docs/change-batches) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.",
-		"Policy **execution** logs are Classic computerhistory (`policy_logs` / `computer_policy_logs`). There is no fleet-wide collection; `policy_logs` requires `computer_id` or a scan constraint (`last_contact` / `filter`). `GET /api/v1/policies` is a list index only.",
+		"Policy **execution** logs are Classic computerhistory per computer (`policy_logs` / `computer_policy_logs`). There is no `GET /policies/{id}/logs`; Jamf still sends every policy that Mac ran. Bound the computer list with `computer_id`, `computer_ids`, `limit=` (Classic `/computers/subset/basic`), or v4 `last_contact`/`filter` (inventory lastContact, not log date). Use `since=`/`until=` on `date_completed_epoch`. Unconstrained fleet scan is rejected. `GET /api/v1/policies` is a list index only.",
 	},
 	AgentNotes: []string{
 		"Do not invent Classic policy PUT/POST bodies from `jamf_schema` or Jamf MCP `execute-request` when a named builtin exists.",
 		"Prefer fat `policy_set*` helpers over hand-edited XML when they cover the change.",
 		"Wait until a package is JCDS **READY** before attach — see [packages](/docs/docs/packages).",
 		"Do not hand-roll versioned release clones when [change batches](/docs/docs/change-batches) already encode the workflow.",
-		"Policy execution logs: `policy_logs(id, computer_id=…)` or `policy_logs(id, last_contact=rsql_days_ago(1))` / `filter=`. Do not invent `jamf_get` or `/api/v1/policies` logs. Do not omit both computer_id and a scan constraint.",
+		"Policy execution logs: `policy_logs(id, computer_id=…)` for one Mac, or `computer_ids=` / `limit=` for a bounded scan. Do not treat `last_contact=` as logs-since (that is v4 `general.lastContact`). Do not invent `jamf_get` or `/api/v1/policies` logs. Does not walk policy scope.",
 	},
 	Builtins: []docspec.Builtin{
 			{
@@ -73,11 +73,11 @@ var PoliciesTopic = docspec.Topic{
 			},
 			{
 				Name: `policy_logs`,
-				Summary: `List flattened policy logs for one computer`,
+				Summary: `List flattened policy logs (per-computer Classic history)`,
 				Returns: `list of dict`,
 				Params: []docspec.Param{
 					{Name: `id`, Type: `string`, Required: true, Description: `policy id`},
-					{Name: `computer_id`, Type: `string`, Required: true, Description: `computer id`},
+					{Name: `computer_id`, Type: `string`, Required: false, Description: `one computer (xor computer_ids / inventory / limit)`},
 				},
 			},
 		},
@@ -89,7 +89,9 @@ var PoliciesTopic = docspec.Topic{
 		`def main():
     return policy_logs(id=42, computer_id="101")`,
 		`def main():
-    return policy_logs(id=42, last_contact=rsql_days_ago(1))`,
+    return policy_logs(id=42, computer_ids=["101", "102"], since=rsql_days_ago(1))`,
+		`def main():
+    return policy_logs(id=42, limit=20, skip=0, since=rsql_days_ago(1))`,
 	},
 	Related: []docspec.RelatedLink{
 		{Title: `Computers`, Ref: `/docs/docs/computers`},
@@ -177,15 +179,25 @@ var PoliciesTopic = docspec.Topic{
       Does: Delete one or more Classic policies.
       → None
       Params: ids: int/str or list of int/str.
-  policy_logs(id, computer_id?, filter?, last_contact?, status?, tenant?, surface?, auth?)
-      Does: List flattened Classic policy execution logs for one policy (one computer, or a bounded scan).
+  policy_logs(id, computer_id?, computer_ids?, filter?, last_contact?, since?, until?,
+              status?, skip?, limit?, tenant?, surface?, auth?)
+      Does: List flattened Classic policy execution logs for one policy (one computer or a bounded scan).
       → value: list of {policy_id, policy_name, username, date_time, date_completed, date_completed_epoch, date_completed_utc, status, computer_id, …}
-      Params: id: int/str (policy ID). Pass computer_id= or last_contact= / filter= (not both).
-        computer_id?: int/str. filter?: computers() bare term or RSQL.
-        last_contact?: ISO datetime (rsql_days_ago / rsql_now) → general.lastContact=ge=.
-        status?: str (case-insensitive exact). tenant?/surface?/auth?: session overrides.
-      Notes: date_completed* aliases Classic date_time* (Jamf UI Date Completed).
-        last_contact / filter bound the computer list; unconstrained fleet scan is rejected.
+      Params: id: int/str (policy ID). Pass one computer source: computer_id=, computer_ids=,
+        last_contact=/filter= (v4 inventory), or limit= (Classic /computers/subset/basic).
+        computer_id?: int/str. computer_ids?: list of int/str (caller-built candidate set).
+        filter?: computers() bare term or RSQL (inventory). last_contact?: ISO datetime
+        (rsql_days_ago / rsql_now) → general.lastContact=ge= (inventory last MDM/binary
+        contact, not log date). since?/until?: ISO or epoch on date_completed_epoch after flatten.
+        status?: str (case-insensitive exact; omit, None, or empty). skip?/limit?:
+        int (computers after the candidate list is built; limit required for Classic-basic).
+        tenant?/surface?/auth?: session overrides.
+      Notes: Still GET /JSSResource/computerhistory/id/{id}/subset/PolicyLogs per Mac; Jamf
+        sends every policy that computer ran, then Buddy filters policy_id. No GET
+        /policies/{id}/logs. last_contact is not "logs since" — use since=/until=. Relative
+        date_completed strings are UI text; sort/CSV with _utc/_epoch. Does not walk policy
+        scope, skip unmanaged, or resume/flush; use computer_ids + skip/limit for that.
+        Multi-computer scans print progress on stderr. Unconstrained fleet scan is rejected.
         Not GET /api/v1/policies. See computer_history / computer_policy_logs.
 
 `,
@@ -197,7 +209,7 @@ Usage:
 Subcommands:
   list    List policies (optional keyword filter)
   get     Read policy (details, id by trigger, enable state, xml)
-  logs    Policy execution logs for one computer (Classic computerhistory)
+  logs    Policy execution logs (Classic computerhistory per Mac; bounded computer list)
   set     Modify policy properties (scope, enable/disable, trigger, name, ...)
   create  Create a new policy
   delete  Delete one or more policies
@@ -205,17 +217,23 @@ Subcommands:
 Use 'buddy policy <subcommand> help' for subcommand-specific help.
 
 Flags for 'logs':
-  --computer=<computer-id>       One computer (xor --last-contact / --filter)
-  --last-contact=<iso-datetime>  Scan computers with lastContact >= value
-  --filter=<term|rsql>           Extra computers() scan constraint (AND with last-contact)
-  --status=<status>              Client-side filter (case-insensitive exact)
-  --json                         Print flattened logs as JSON
+  --computer=<computer-id>         One computer (xor --computer-ids / inventory / --limit)
+  --computer-ids=<id,id,...>       Caller-built candidate set
+  --last-contact=<iso-datetime>    v4 inventory: general.lastContact >= value (not log date)
+  --filter=<term|rsql>             Extra computers() inventory constraint (AND with last-contact)
+  --since=<iso-or-epoch>           Keep rows with date_completed_epoch >= value
+  --until=<iso-or-epoch>           Keep rows with date_completed_epoch <= value
+  --status=<status>                Client-side filter (case-insensitive exact)
+  --skip=<n>                       Skip n computers after the candidate list is built
+  --limit=<n>                      Max computers to scan; alone uses Classic computers/subset/basic
+  --json                           Print flattened logs as JSON
 
 Examples:
   buddy policy list --filter=chrome
   buddy policy get id install-chrome
   buddy policy logs 42 --computer=101
-  buddy policy logs 42 --last-contact=2026-08-23T00:00:00Z
+  buddy policy logs 42 --computer-ids=101,102 --since=2026-08-01T00:00:00Z
+  buddy policy logs 42 --limit=20 --skip=0 --since=2026-08-23T00:00:00Z
   buddy policy delete 42
 `,
 }

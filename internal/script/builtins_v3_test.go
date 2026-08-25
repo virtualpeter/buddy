@@ -74,6 +74,20 @@ func TestComputerHistoryRefFromArgs(t *testing.T) {
 	}
 }
 
+func TestOptionalStarlarkString(t *testing.T) {
+	got, err := optionalStarlarkString(starlark.None, "status")
+	if err != nil || got != "" {
+		t.Fatalf("None: %q %v", got, err)
+	}
+	got, err = optionalStarlarkString(starlark.String("Completed"), "status")
+	if err != nil || got != "Completed" {
+		t.Fatalf("str: %q %v", got, err)
+	}
+	if _, err := optionalStarlarkString(starlark.MakeInt(1), "status"); err == nil {
+		t.Fatal("expected error for int")
+	}
+}
+
 func TestXorIDOrKey(t *testing.T) {
 	if err := xorIDOrKey("policy", true, true, "trigger"); err == nil {
 		t.Fatal("expected error for both")

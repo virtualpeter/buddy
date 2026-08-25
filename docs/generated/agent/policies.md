@@ -25,17 +25,17 @@ List, load, mutate, copy, and migrate Jamf Classic policies with buddy.
 - Prefer fat `policy_set*` helpers over hand-edited XML when they cover the change.
 - Wait until a package is JCDS **READY** before attach — see [packages](/docs/docs/packages).
 - Do not hand-roll versioned release clones when [change batches](/docs/docs/change-batches) already encode the workflow.
-- Policy execution logs: `policy_logs(id, computer_id=…)` or `policy_logs(id, last_contact=rsql_days_ago(1))` / `filter=`. Do not invent `jamf_get` or `/api/v1/policies` logs. Do not omit both computer_id and a scan constraint.
+- Policy execution logs: `policy_logs(id, computer_id=…)` for one Mac, or `computer_ids=` / `limit=` for a bounded scan. Do not treat `last_contact=` as logs-since (that is v4 `general.lastContact`). Do not invent `jamf_get` or `/api/v1/policies` logs. Does not walk policy scope.
 
 ## Facts
 
 - List / find: `policies(keywords=…)` / `policies(ids=True)` · `buddy policy list` — Summary dicts `{id, name, …}`
 - Load: `policy(id=…)` / `policy(trigger=…)` / `policy_xml(id=…)` · `buddy policy get` — Full Classic XML as dict or string
-- Logs: `policy_logs(id, computer_id?)` / `last_contact=` / `filter=` · `buddy policy logs <policy-id> --computer= | --last-contact= | --filter=` — Classic computerhistory; require a computer or a scan constraint
+- Logs: `policy_logs(id, computer_id=… | computer_ids=… | limit=…)` · `buddy policy logs <policy-id> --computer= | --computer-ids= | --limit=` — Classic computerhistory per Mac; client-side policy_id filter. Not GET /policies/{id}/logs
 - Mutate: `policy_set*` / `policy_put_xml` · `buddy policy set` — Multi-step helpers for common fields; raw XML when needed
 - Copy / migrate: `policy_copy` / `policy_migrate` — Cross-session; remap by name
 - Versioned release bumps use [change batches](/docs/docs/change-batches) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.
-- Policy **execution** logs are Classic computerhistory (`policy_logs` / `computer_policy_logs`). There is no fleet-wide collection; `policy_logs` requires `computer_id` or a scan constraint (`last_contact` / `filter`). `GET /api/v1/policies` is a list index only.
+- Policy **execution** logs are Classic computerhistory per computer (`policy_logs` / `computer_policy_logs`). There is no `GET /policies/{id}/logs`; Jamf still sends every policy that Mac ran. Bound the computer list with `computer_id`, `computer_ids`, `limit=` (Classic `/computers/subset/basic`), or v4 `last_contact`/`filter` (inventory lastContact, not log date). Use `since=`/`until=` on `date_completed_epoch`. Unconstrained fleet scan is rejected. `GET /api/v1/policies` is a list index only.
 
 ## Builtins
 
@@ -130,7 +130,7 @@ Returns: None
 
 ### policy_logs
 
-List flattened policy logs for one computer
+List flattened policy logs (per-computer Classic history)
 
 Returns: list of dict
 
@@ -141,7 +141,7 @@ Returns: list of dict
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "computer_id": {
-      "description": "computer id",
+      "description": "one computer (xor computer_ids / inventory / limit)",
       "type": "string"
     },
     "id": {
@@ -150,8 +150,7 @@ Returns: list of dict
     }
   },
   "required": [
-    "id",
-    "computer_id"
+    "id"
   ],
   "title": "policy_logs",
   "type": "object"
@@ -174,5 +173,10 @@ def main():
 
 ```python
 def main():
-    return policy_logs(id=42, last_contact=rsql_days_ago(1))
+    return policy_logs(id=42, computer_ids=["101", "102"], since=rsql_days_ago(1))
+```
+
+```python
+def main():
+    return policy_logs(id=42, limit=20, skip=0, since=rsql_days_ago(1))
 ```

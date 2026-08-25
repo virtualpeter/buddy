@@ -32,13 +32,13 @@ const ComputersBuiltinsSection = `COMPUTER
         omit = full document (can be large). tenant?/surface?/auth?: session overrides.
       Notes: GET /JSSResource/computerhistory. Flattened policy_log wrappers.
         Not GET /api/v1/policies (list index only). Privilege: Read Computer History.
-  computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, tenant?, surface?, auth?)
+  computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, since?, until?, tenant?, surface?, auth?)
       Does: Fetch Classic PolicyLogs for one computer and return flattened rows.
       → value: list of {policy_id, policy_name, username, date_time, date_completed, date_completed_epoch, date_completed_utc, status, computer_id, …}
       Params: pass exactly one of id= / name= / serial= / udid=.
-        policy_id?: int/str (client-side filter). status?: str (case-insensitive exact).
-        tenant?/surface?/auth?: session overrides.
-      Notes: Always subset/PolicyLogs. date_completed* aliases date_time*. See also policy_logs.
+        policy_id?: int/str (client-side filter). status?: str (case-insensitive exact; omit or None).
+        since?/until?: ISO or epoch on date_completed_epoch. tenant?/surface?/auth?: session overrides.
+      Notes: Always subset/PolicyLogs. date_completed* aliases date_time*. No fleet fan-out (see policy_logs).
   computer_send_mdm_command(ids, command_type, command_data?, tenant?, surface?, auth?)
       Does: Queue a named MDM command on one or more computers.
       → None
@@ -107,7 +107,7 @@ Subcommands:
   get <computer-id> [--section=<name>[,<name>...]]            Show inventory JSON (default GENERAL)
   detail <computer-id>                                        Show all inventory sections (inventory-detail)
   history <computer-id> [--subset=PolicyLogs] [--json]        Classic computer history (default PolicyLogs table)
-  logs <computer-id> [--policy=<policy-id>] [--status=]       Flattened policy execution logs
+  logs <computer-id> [--policy=<policy-id>] [--status=] [--since=] [--until=]  Flattened policy execution logs
   reboot <computer-id> [computer-id...]                       Send RESTART_DEVICE MDM command
   redeploy <computer-id> [computer-id...]                     Trigger Jamf management framework redeploy
   shutdown <computer-id> [computer-id...]                     Send SHUT_DOWN_DEVICE MDM command
@@ -138,6 +138,8 @@ Flags for 'history':
 Flags for 'logs':
   --policy=<policy-id>           Client-side filter by policy id
   --status=<status>              Client-side filter (case-insensitive exact, e.g. Completed)
+  --since=<iso-or-epoch>         Keep rows with date_completed_epoch >= value
+  --until=<iso-or-epoch>         Keep rows with date_completed_epoch <= value
 
 Examples:
   buddy computer list

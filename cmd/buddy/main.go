@@ -330,9 +330,14 @@ func runPolicyList(credName string, opts buddy.Opts, args []string, log *slog.Lo
 func runPolicyLogs(credName string, args []string, log *slog.Logger) error {
 	fs := flag.NewFlagSet("policy logs", flag.ContinueOnError)
 	computer := fs.String("computer", "", "computer id")
-	filter := fs.String("filter", "", "computers() filter (bare term or RSQL); scan constraint")
-	lastContact := fs.String("last-contact", "", "ISO datetime; computers with general.lastContact>=value")
+	computerIDs := fs.String("computer-ids", "", "comma-separated computer ids (caller-built candidate set)")
+	filter := fs.String("filter", "", "computers() filter (bare term or RSQL); v4 inventory bound, not log date")
+	lastContact := fs.String("last-contact", "", "ISO datetime; computers with general.lastContact>=value (inventory, not logs since)")
+	since := fs.String("since", "", "keep log rows with date_completed_epoch >= value (ISO or epoch)")
+	until := fs.String("until", "", "keep log rows with date_completed_epoch <= value (ISO or epoch)")
 	status := fs.String("status", "", "filter by log status (case-insensitive exact)")
+	skip := fs.Int("skip", 0, "computers to skip after the candidate list is built")
+	limit := fs.Int("limit", 0, "max computers to scan; with no other source uses Classic computers/subset/basic")
 	asJSON := fs.Bool("json", false, "Print flattened logs as JSON")
 	flagArgs, positionals := staticGroupSplitFlags(args)
 	if err := fs.Parse(flagArgs); err != nil {
@@ -345,12 +350,18 @@ func runPolicyLogs(credName string, args []string, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	ids := parseCommaSeparatedIDs(*computerIDs)
 	return buddy.PolicyLogsPrint(credName, buddy.PolicyLogsQuery{
 		PolicyID:    policyID,
 		ComputerID:  *computer,
+		ComputerIDs: ids,
 		Filter:      *filter,
 		LastContact: *lastContact,
 		Status:      *status,
+		Since:       *since,
+		Until:       *until,
+		Skip:        *skip,
+		Limit:       *limit,
 	}, *asJSON, log)
 }
 
@@ -1951,6 +1962,8 @@ func runComputerLogs(credName string, args []string, log *slog.Logger) error {
 	fs := flag.NewFlagSet("computer logs", flag.ContinueOnError)
 	policy := fs.String("policy", "", "filter by policy id")
 	status := fs.String("status", "", "filter by log status (case-insensitive exact)")
+	since := fs.String("since", "", "keep log rows with date_completed_epoch >= value (ISO or epoch)")
+	until := fs.String("until", "", "keep log rows with date_completed_epoch <= value (ISO or epoch)")
 	asJSON := fs.Bool("json", false, "Print flattened logs as JSON")
 	flagArgs, positionals := staticGroupSplitFlags(args)
 	if err := fs.Parse(flagArgs); err != nil {
@@ -1967,7 +1980,12 @@ func runComputerLogs(credName string, args []string, log *slog.Logger) error {
 		}
 		policyID = &n
 	}
-	return buddy.ComputerPolicyLogsPrint(credName, buddy.ComputerHistoryRef{ID: positionals[0]}, policyID, *status, *asJSON, log)
+	return buddy.ComputerPolicyLogsPrint(credName, buddy.ComputerHistoryRef{ID: positionals[0]}, buddy.PolicyLogFilter{
+		PolicyID: policyID,
+		Status:   *status,
+		Since:    *since,
+		Until:    *until,
+	}, *asJSON, log)
 }
 
 func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {

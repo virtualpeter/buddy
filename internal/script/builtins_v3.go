@@ -584,16 +584,19 @@ func computerHistoryBuiltin(credName string, logger *slog.Logger) func(*starlark
 	}
 }
 
-// computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, tenant?, surface?, auth?) → list
+// computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, since?, until?, tenant?, surface?, auth?) → list
 func computerPolicyLogsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value = starlark.None
-		var name, serial, udid, status starlark.String
+		var name, serial, udid starlark.String
 		policyIDVal := starlark.Value(starlark.None)
+		statusVal := starlark.Value(starlark.None)
+		sinceVal := starlark.Value(starlark.None)
+		untilVal := starlark.Value(starlark.None)
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("computer_policy_logs", args, kwargs,
 			"id?", &idVal, "name?", &name, "serial?", &serial, "udid?", &udid,
-			"policy_id?", &policyIDVal, "status?", &status,
+			"policy_id?", &policyIDVal, "status?", &statusVal, "since?", &sinceVal, "until?", &untilVal,
 			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
@@ -606,12 +609,29 @@ func computerPolicyLogsBuiltin(credName string, logger *slog.Logger) func(*starl
 		if err != nil {
 			return nil, err
 		}
+		status, err := optionalStarlarkString(statusVal, "status")
+		if err != nil {
+			return nil, err
+		}
+		since, err := optionalStarlarkString(sinceVal, "since")
+		if err != nil {
+			return nil, err
+		}
+		until, err := optionalStarlarkString(untilVal, "until")
+		if err != nil {
+			return nil, err
+		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
 			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
-		logs, err := buddy.ComputerPolicyLogs(sessionPin, ref, policyID, string(status), logger)
+		logs, err := buddy.ComputerPolicyLogs(sessionPin, ref, buddy.PolicyLogFilter{
+			PolicyID: policyID,
+			Status:   status,
+			Since:    since,
+			Until:    until,
+		}, logger)
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -619,15 +639,24 @@ func computerPolicyLogsBuiltin(credName string, logger *slog.Logger) func(*starl
 	}
 }
 
-// policy_logs(id, computer_id?, filter?, last_contact?, status?, tenant?, surface?, auth?) → list
+// policy_logs(id, computer_id?, computer_ids?, filter?, last_contact?, since?, until?, status?, skip?, limit?, tenant?, surface?, auth?) → list
 func policyLogsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value
 		computerIDVal := starlark.Value(starlark.None)
-		var filter, lastContact, status starlark.String
+		computerIDsVal := starlark.Value(starlark.None)
+		var filter, lastContact starlark.String
+		statusVal := starlark.Value(starlark.None)
+		sinceVal := starlark.Value(starlark.None)
+		untilVal := starlark.Value(starlark.None)
+		skipVal := starlark.Value(starlark.None)
+		limitVal := starlark.Value(starlark.None)
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("policy_logs", args, kwargs,
-			"id", &idVal, "computer_id?", &computerIDVal, "filter?", &filter, "last_contact?", &lastContact, "status?", &status,
+			"id", &idVal, "computer_id?", &computerIDVal, "computer_ids?", &computerIDsVal,
+			"filter?", &filter, "last_contact?", &lastContact,
+			"since?", &sinceVal, "until?", &untilVal, "status?", &statusVal,
+			"skip?", &skipVal, "limit?", &limitVal,
 			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
@@ -643,6 +672,33 @@ func policyLogsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 				return nil, err
 			}
 		}
+		var computerIDs []string
+		if computerIDsVal != nil && computerIDsVal != starlark.None {
+			computerIDs, err = idListFromStarlark(computerIDsVal, "computer_ids")
+			if err != nil {
+				return nil, err
+			}
+		}
+		status, err := optionalStarlarkString(statusVal, "status")
+		if err != nil {
+			return nil, err
+		}
+		since, err := optionalStarlarkString(sinceVal, "since")
+		if err != nil {
+			return nil, err
+		}
+		until, err := optionalStarlarkString(untilVal, "until")
+		if err != nil {
+			return nil, err
+		}
+		skip, err := optionalStarlarkInt(skipVal, "skip")
+		if err != nil {
+			return nil, err
+		}
+		limit, err := optionalStarlarkInt(limitVal, "limit")
+		if err != nil {
+			return nil, err
+		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
 			return resultErr(sessErr.Error())
@@ -651,9 +707,14 @@ func policyLogsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		logs, err := buddy.PolicyLogs(sessionPin, buddy.PolicyLogsQuery{
 			PolicyID:    policyID,
 			ComputerID:  computerID,
+			ComputerIDs: computerIDs,
 			Filter:      string(filter),
 			LastContact: string(lastContact),
-			Status:      string(status),
+			Status:      status,
+			Since:       since,
+			Until:       until,
+			Skip:        skip,
+			Limit:       limit,
 		}, logger)
 		if err != nil {
 			return resultErr(err.Error())
@@ -708,6 +769,24 @@ func optionalStarlarkIDInt(v starlark.Value, label string) (*int, error) {
 		return nil, err
 	}
 	return &n, nil
+}
+
+func optionalStarlarkString(v starlark.Value, label string) (string, error) {
+	if v == nil || v == starlark.None {
+		return "", nil
+	}
+	s, ok := v.(starlark.String)
+	if !ok {
+		return "", fmt.Errorf("%s must be str or None, got %s", label, v.Type())
+	}
+	return string(s), nil
+}
+
+func optionalStarlarkInt(v starlark.Value, label string) (int, error) {
+	if v == nil || v == starlark.None {
+		return 0, nil
+	}
+	return starlarkIDInt(v, label)
 }
 
 // computersIdsRawConflict reports an error when ids=True and raw=True are both set.

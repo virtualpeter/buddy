@@ -29,7 +29,7 @@ Typed per-resource MCP tools (smart/static groups, profiles, policies, packages 
 | Scripts | `scripts` | `scripts` (summaries) / `script(id=…)` for body / `script_copy` | Expect bodies from list |
 | Categories | `categories` | `category_copy(..., upsert=True)` first in migrate order | Skip before policy migrate |
 | Computers / MDM actions | `computers` | `computers` / `computer_*` actions | Mix with Platform `device*` |
-| Policy execution logs | `computers` / `policies` | `computer_history` / `computer_policy_logs` / `policy_logs(id, computer_id=… or last_contact=…)` | `jamf_get` computerhistory; `/api/v1/policies` logs; unconstrained fleet scan |
+| Policy execution logs | `computers` / `policies` | `computer_history` / `computer_policy_logs` / `policy_logs(id, computer_id=… or computer_ids=… or limit=…)` | `jamf_get` computerhistory; `/api/v1/policies` logs; unconstrained fleet scan; treating `last_contact` as logs-since |
 | MDM history | `mdm` | `mdm_commands` | Use history APIs to *issue* actions |
 | API roles / clients | `api-roles` / `api-clients` | `role*` / `client*` | Store secrets only in config.yaml |
 | Blueprints | `blueprints` | `blueprint*` | Instance-only session |

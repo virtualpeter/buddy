@@ -30,7 +30,7 @@ Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …).
 
 - Do not mix Pro `computer*` with Platform `device*` — different gateways and IDs.
 - Do not use this page for RSQL history of MDM commands — that is [mdm](/docs/docs/mdm).
-- Policy execution logs are Classic `computer_history` / `computer_policy_logs` (or `policy_logs(id, computer_id)`). Do not invent `jamf_get` or `GET /api/v1/policies` logs — that path is a list index only.
+- Policy execution logs are Classic `computer_history` / `computer_policy_logs` (or `policy_logs(id, computer_id=… | computer_ids=… | limit=…)`). Jamf has no policy-centric logs collection. Do not invent `jamf_get` or `GET /api/v1/policies` logs — that path is a list index only.
 - Computer inventory is **v4** (`/api/v4/computers-inventory`). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime` (see [api-endpoints](/docs/docs/api-endpoints)).
 - Date filters: `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, `general.reportDate` (last inventory). Unquoted ISO-8601 UTC.
 - `computers()` summary dicts include `lastContact`, `lastCheckIn`, `reportDate`, `lastEnrolledDate`, `platform` from GENERAL. `raw=True` is Jamf `results[]` passthrough (xor with `ids=True`). List `section=` adds HARDWARE/OS without N+1 gets.
@@ -42,7 +42,7 @@ Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …).
 - List / find: `computers(filter=…, sort?, section?, raw?, page?, page_size?)` · `buddy computer list [--sort=] [--json]` — v4 dates `lastContact` / `lastCheckIn` / `reportDate`; omit page to fetch all
 - Load: `computer(id=…, section?)` · `buddy computer get [--section=…]` — Passthrough JSON; default GENERAL; `section` → `?section=`
 - Load all sections: `computer_detail(id=…)` · `buddy computer detail` — `GET …/computers-inventory-detail/{id}`
-- Policy logs: `computer_history` / `computer_policy_logs` / `policy_logs` · `buddy computer history` / `logs` — Classic computerhistory; policy_logs needs computer_id or last_contact/filter
+- Policy logs: `computer_history` / `computer_policy_logs` / `policy_logs` · `buddy computer history` / `logs` — Classic computerhistory per Mac; policy_logs needs a bounded computer list
 - MDM actions: `computer_reboot` / `computer_lock` / … · `buddy computer reboot|lock|…` — Named builtins and matching CLI verbs
 - Classic **computer history** is policy/event execution logs (`GET /JSSResource/computerhistory`), not MDM command history and not package/script audit `history`. MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).
 - List RSQL dates are v4 `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, and `general.reportDate` (last inventory). v3 `lastContactTime` and Platform `lastCheckInTime` / `lastInventoryUpdateTime` are not valid on this API.

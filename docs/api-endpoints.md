@@ -387,12 +387,13 @@ Base path: `/JSSResource/computerhistory`
 |--------|----------|---------|---------|
 | `GET` | `/JSSResource/computerhistory/{key}/{value}` | `ComputerHistoryGet`, `computer_history` | Full Classic computer history (`key` = `id`, `name`, `serialnumber`, or `udid`) |
 | `GET` | `/JSSResource/computerhistory/{key}/{value}/subset/{subset}` | `ComputerHistoryGet`, `ComputerPolicyLogs`, `computer_history`, `computer_policy_logs`, `policy_logs` | Subset (e.g. `PolicyLogs`; combine with `&`) |
+| `GET` | `/JSSResource/computers/subset/basic` | `policy_logs` (`limit=` scan) | Classic ID+name list (faster than Pro v4 inventory for candidate sets) |
 
 ### Notes
 
 - This is **policy/event execution history**, not MDM command history (`GET /api/v2/mdm/commands`) and not package/script audit `GET …/history`.
 - **Not** undocumented Pro `GET /api/v1/policies` — that path is a paginated **list index** only (`id`, `name`, `enabled`, …) and has no logs.
-- Lookup is per computer (id, name, serial, or udid). There is no published “all logs for policy N” collection. `policy_logs(id, computer_id)` filters one computer; `policy_logs(id, last_contact=…)` / `filter=` scans matching inventory then fetches each history. Unconstrained fleet scan is rejected.
+- Lookup is per computer (id, name, serial, or udid). There is no published “all logs for policy N” collection. `policy_logs(id, computer_id)` still `GET`s that Mac’s full PolicyLogs subset and filters `policy_id` client-side. Bounded scans: `computer_ids=`, `limit=` (Classic `GET /JSSResource/computers/subset/basic`), or v4 `last_contact`/`filter` (`computers()` inventory — lastContact is not log date). Use `since=`/`until=` on `date_completed_epoch`. Unconstrained fleet scan is rejected. Does not expand policy scope.
 - Log rows expose Classic `date_time*` and `date_completed*` (same instant; UI “Date Completed”).
 - Accept is `application/json`. Buddy unwraps the `computer_history` envelope and flattens `{policy_log: {…}}` wrappers (and Classic XML-style `{size, policy_log}` bags). XML is a parse fallback only.
 - Subset tokens: `General`, `PolicyLogs`, `Commands`, `Audits`, `ComputerUsageLogs`, `CasperRemoteLogs`, `ScreenSharingLogs`, `CasperImagingLogs`, `UserLocation`, `MacAppStoreApplications`.
@@ -669,6 +670,17 @@ buddy package set <package-id> [--name=] [--notes=] [--info=] [--category=] [--p
 
 buddy computer list [--filter=<term|rsql>] [--sort=<field:dir>] [--section=HARDWARE] [--json]
   └─ GET /api/v4/computers-inventory          (bare → general.name=="*term*"; optional sort/section; page-size=200)
+
+buddy computer history <id> [--subset=PolicyLogs]
+buddy computer logs <id> [--policy=] [--status=] [--since=] [--until=]
+  └─ GET /JSSResource/computerhistory/id/{id}[/subset/PolicyLogs]  (per computer; logs flatten PolicyLogs)
+
+buddy policy logs <policy-id> --computer=<id>
+buddy policy logs <policy-id> --computer-ids=<id,id,...>
+buddy policy logs <policy-id> --limit=<n> [--skip=] [--since=]
+  ├─ GET /JSSResource/computers/subset/basic     (when --limit= with no other computer source)
+  ├─ GET /api/v4/computers-inventory             (only when --last-contact= / --filter=)
+  └─ GET /JSSResource/computerhistory/id/{id}/subset/PolicyLogs  (per candidate; client-side policy_id)
 
 buddy computer get <id> [--section=GENERAL,HARDWARE]
   └─ GET /api/v4/computers-inventory/{id}[?section=…]

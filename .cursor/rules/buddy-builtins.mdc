@@ -228,12 +228,14 @@ Do not invent `jamf_get` Classic XML, UI scrapes, fleet fan-out, or logs on undo
   - Pass exactly one of `id` / `name` / `serial` / `udid`.
   - `subset?`: Classic subset name(s) (`PolicyLogs`, `General`, `Commands`, …). Omit = full document.
   - Returns flattened `policy_logs` (no `policy_log` wrapper) plus `general` and other present subsets.
-- `computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, tenant?, surface?, auth?)` → value: list[dict]
-  - Always `subset/PolicyLogs`. `policy_id?` / `status?` are client-side filters.
-- `policy_logs(id, computer_id?, filter?, last_contact?, status?, tenant?, surface?, auth?)` → value: list[dict]
-  - Require `computer_id` **or** `last_contact` / `filter` (not both). No unconstrained fleet walk.
-  - `last_contact`: ISO datetime (`rsql_days_ago(1)`) → `general.lastContact=ge=…`. `filter`: same as `computers()`.
-  - Rows include `date_completed*` (aliases Classic `date_time*`) plus `computer_id` / `computer_name` / `serial`.
+- `computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, since?, until?, tenant?, surface?, auth?)` → value: list[dict]
+  - Always `subset/PolicyLogs`. `policy_id?` / `status?` / `since?` / `until?` are client-side filters. `status=None` is omit.
+- `policy_logs(id, computer_id?, computer_ids?, filter?, last_contact?, since?, until?, status?, skip?, limit?, tenant?, surface?, auth?)` → value: list[dict]
+  - Still Classic `GET /computerhistory/id/{id}/subset/PolicyLogs` per Mac; Jamf sends every policy that computer ran, then Buddy filters `policy_id`. No `GET /policies/{id}/logs`.
+  - Pass **one** computer source: `computer_id`, `computer_ids` (caller-built set), `last_contact`/`filter` (Pro v4 inventory), or `limit=` (Classic `GET /computers/subset/basic`). Unconstrained fleet walk is rejected.
+  - `last_contact` is `general.lastContact >= ISO` (inventory), **not** “logs since”. Use `since=`/`until=` on `date_completed_epoch` after flatten.
+  - `skip`/`limit` slice the computer list. Multi-computer scans print progress on stderr. Does not walk policy scope or resume/flush.
+  - Rows include `date_completed*` (aliases Classic `date_time*`; UI strings are not sortable) plus `computer_id` / `computer_name` / `serial`.
 
 ## Policies — copy / upsert
 
