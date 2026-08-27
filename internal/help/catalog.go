@@ -164,6 +164,7 @@ func isAdvancedBuiltin(name, section string) bool {
 	switch name {
 	case "policy_set_ss", "policy_set_install", "policy_set_package", "policy_set_scope_all",
 		"policy_create_ss", "policy_create_package", "policy_delete", "policy_put_xml",
+		"policy_set_icon",
 		"run_workflow":
 		return true
 	}

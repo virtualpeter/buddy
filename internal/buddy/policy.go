@@ -466,12 +466,32 @@ func PolicySetIcon(credName string, opts Opts, policyID int, filePath string, lo
 		}
 	}
 
-	iconID, err := iconUpload(credName, filePath)
+	icon, err := IconUpload(credName, filePath)
 	if err != nil {
 		return fmt.Errorf("upload icon: %w", err)
 	}
-	logger.Debug("Uploaded icon", "id", iconID)
+	logger.Debug("Uploaded icon", "id", icon.ID)
+	return policyApplySelfServiceIcon(credName, opts, policy, policyID, icon.ID, logger)
+}
 
+// PolicySetIconID assigns an existing tenant icon id on a policy's Self Service config.
+func PolicySetIconID(credName string, opts Opts, policyID, iconID int, logger *slog.Logger) error {
+	if iconID <= 0 {
+		return fmt.Errorf("icon id must be positive")
+	}
+	policy, err := policyGetByID(credName, policyID)
+	if err != nil {
+		return fmt.Errorf(errFetchPolicyFmt, policyID, err)
+	}
+	if !opts.SkipConfirm {
+		if !ConfirmPrompt(fmt.Sprintf("\nSet icon ID %d on policy %q (ID %d)", iconID, policy.General.Name, policyID), logger) {
+			return nil
+		}
+	}
+	return policyApplySelfServiceIcon(credName, opts, policy, policyID, iconID, logger)
+}
+
+func policyApplySelfServiceIcon(credName string, opts Opts, policy *resourcePolicy, policyID, iconID int, logger *slog.Logger) error {
 	payload := &policyIconPayload{}
 	payload.SelfService.UseForSelfService = policy.SelfService.UseForSelfService
 	payload.SelfService.SelfServiceDisplayName = policy.SelfService.SelfServiceDisplayName

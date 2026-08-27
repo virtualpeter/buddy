@@ -11,16 +11,19 @@ import (
 var (
 	// Self-closing must require the slash. `<category\s*/?>` also matches the opening
 	// `<category>` tag, which duplicated the block and left a stray `<id>` (Classic POST 400).
-	policyCategoryBlockRe = regexp.MustCompile(`(?is)<category\s*/>|<category>.*?</category>`)
-	policyScriptBlockRe   = regexp.MustCompile(`(?is)<script>(.*?)</script>`)
-	policyPackageBlockRe  = regexp.MustCompile(`(?is)<package>(.*?)</package>`)
-	policyChildIDRe       = regexp.MustCompile(`(?i)<id>\s*([^<]*?)\s*</id>`)
-	policyChildNameRe     = regexp.MustCompile(`(?i)<name>\s*([^<]*?)\s*</name>`)
+	policyCategoryBlockRe        = regexp.MustCompile(`(?is)<category\s*/>|<category>.*?</category>`)
+	policyScriptBlockRe          = regexp.MustCompile(`(?is)<script>(.*?)</script>`)
+	policyPackageBlockRe         = regexp.MustCompile(`(?is)<package>(.*?)</package>`)
+	policyChildIDRe              = regexp.MustCompile(`(?i)<id>\s*([^<]*?)\s*</id>`)
+	policyChildNameRe            = regexp.MustCompile(`(?i)<name>\s*([^<]*?)\s*</name>`)
+	policySelfServiceIconBlockRe = regexp.MustCompile(`(?is)<self_service_icon\s*/>|<self_service_icon>.*?</self_service_icon>`)
 )
 
-// RemapPolicyDepsOnDest rewrites category, script, and package ids in prepared policy XML
-// for the destination tenant. Same-session (src.Equal(dst)) keeps embedded ids.
-// Missing script/package names fail hard; missing category becomes uncategorized.
+// RemapPolicyDepsOnDest rewrites category, script, package, and Self Service icon
+// ids in prepared policy XML for the destination tenant. Same-session
+// (src.Equal(dst)) keeps embedded ids. Missing script/package names fail hard;
+// missing category becomes uncategorized. Cross-session icons are re-uploaded
+// (Jamf has no hash-register API); empty/missing icon is left unset.
 func RemapPolicyDepsOnDest(src, dst SessionRef, policyXML []byte, categoryOverride string, logger *slog.Logger) ([]byte, error) {
 	same := src.Equal(dst)
 	var out []byte
@@ -40,7 +43,83 @@ func RemapPolicyDepsOnDest(src, dst SessionRef, policyXML []byte, categoryOverri
 		out, err = RemapPolicyPackagesByName(pin, out, logger)
 		return err
 	})
-	return out, err
+	if err != nil {
+		return nil, err
+	}
+	if same {
+		return out, nil
+	}
+	return RemapPolicyIconOnDest(src, dst, out, logger)
+}
+
+// RemapPolicyIconOnDest downloads the source Self Service icon and POSTs it on dest.
+func RemapPolicyIconOnDest(src, dst SessionRef, policyXML []byte, logger *slog.Logger) ([]byte, error) {
+	srcID := extractPolicySelfServiceIconID(policyXML)
+	if srcID <= 0 {
+		return policyXML, nil
+	}
+	var rec Icon
+	var data []byte
+	err := WithSessionRef(src, func(pin string) error {
+		var err error
+		rec, err = IconGet(pin, srcID)
+		if err != nil {
+			return fmt.Errorf("source icon %d: %w", srcID, err)
+		}
+		data, err = IconFetch(pin, rec)
+		if err != nil {
+			return fmt.Errorf("download source icon %d: %w", srcID, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	filename := strings.TrimSpace(rec.Name)
+	if filename == "" {
+		filename = "icon.png"
+	}
+	var dest Icon
+	err = WithSessionRef(dst, func(pin string) error {
+		var upErr error
+		dest, upErr = IconUploadBytes(pin, filename, data)
+		if upErr != nil {
+			return fmt.Errorf("upload icon %q to destination: %w", filename, upErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if logger != nil {
+		logger.Debug("Remapped policy icon", "src_id", srcID, "dest_id", dest.ID, "name", filename)
+	}
+	return replacePolicySelfServiceIconID(policyXML, dest.ID), nil
+}
+
+func extractPolicySelfServiceIconID(policyXML []byte) int {
+	m := policySelfServiceIconBlockRe.FindSubmatch(policyXML)
+	if m == nil {
+		return 0
+	}
+	block := m[0]
+	im := policyChildIDRe.FindSubmatch(block)
+	if len(im) < 2 {
+		return 0
+	}
+	id, err := strconv.Atoi(strings.TrimSpace(string(im[1])))
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
+}
+
+func replacePolicySelfServiceIconID(policyXML []byte, destID int) []byte {
+	replacement := []byte(fmt.Sprintf("<self_service_icon><id>%d</id></self_service_icon>", destID))
+	if policySelfServiceIconBlockRe.Match(policyXML) {
+		return policySelfServiceIconBlockRe.ReplaceAll(policyXML, replacement)
+	}
+	return policyXML
 }
 
 // RemapPolicyCategoryOnDest replaces the general <category> block using ResolveCategoryOnDest.

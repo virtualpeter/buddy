@@ -70,6 +70,9 @@ var helpBenchmark = help.BenchmarksCLIHelp
 // helpPackage is generated (make gendocs).
 var helpPackage = help.PackagesCLIHelp
 
+// helpIcon is generated (make gendocs).
+var helpIcon = help.IconsCLIHelp
+
 // helpComputer is generated (make gendocs).
 var helpComputer = help.ComputersCLIHelp
 
@@ -110,6 +113,7 @@ func printCommandHelp(path []string) {
 		clispec.CmdGroup:       helpGroup,
 		clispec.CmdProfile:     helpProfile,
 		clispec.CmdPackage:     helpPackage,
+		clispec.CmdIcon:        helpIcon,
 		clispec.CmdComputer:    helpComputer,
 		clispec.CmdMdm:         helpMdm,
 		clispec.CmdBlueprint:   helpBlueprint,

@@ -11,7 +11,8 @@ List, load, mutate, copy, and migrate Jamf Classic policies with buddy.
 | Load | `policy(id=…)` / `policy(trigger=…)` / `policy_xml(id=…)` | `buddy policy get` | Full Classic XML as dict or string |
 | Logs | `policy_logs(id, computer_id=… \| computer_ids=… \| limit=…)` | `buddy policy logs <policy-id> --computer= \| --computer-ids= \| --limit=` | Classic computerhistory per Mac; client-side policy_id filter. Not GET /policies/{id}/logs |
 | Mutate | `policy_set*` / `policy_put_xml` | `buddy policy set` | Multi-step helpers for common fields; raw XML when needed |
-| Copy / migrate | `policy_copy` / `policy_migrate` | — | Cross-session; remap by name |
+| Set SS icon | `policy_set_icon(id, file=… \| icon_id=…)` | `buddy policy set icon` | Upload or attach existing icon id; see [icons](/docs/docs/icons) |
+| Copy / migrate | `policy_copy` / `policy_migrate` | — | Cross-session; remap category/scripts/packages by name; icons by re-upload |
 
 ## Notes
 
@@ -46,3 +47,4 @@ def main():
 ## Related
 
 - [Computers](/docs/docs/computers)
+- [Icons](/docs/docs/icons)

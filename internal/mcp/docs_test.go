@@ -79,6 +79,7 @@ func TestDocsListKeywordNouns(t *testing.T) {
 	}{
 		{"policy", "docs/policies"},
 		{"jcds", "docs/packages"},
+		{"icon", "docs/icons"},
 		{"blueprint", "docs/blueprints"},
 		{"static", "docs/static-groups"},
 		{"smart", "docs/smart-groups"},

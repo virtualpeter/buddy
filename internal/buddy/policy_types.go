@@ -1,17 +1,11 @@
 package buddy
 
 import (
-	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
-	"io"
 	"log/slog"
-	"mime/multipart"
-	"net/http"
 	"net/url"
-	"os"
-	"path"
 	"strconv"
 	"strings"
 )
@@ -32,14 +26,14 @@ type responsePoliciesList struct {
 
 // resourcePolicy is the full policy XML from GET /JSSResource/policies/id/{id}.
 type resourcePolicy struct {
-	XMLName xml.Name `xml:"policy"`
+	XMLName              xml.Name                         `xml:"policy"`
 	General              policySubsetGeneral              `xml:"general"`
 	Scope                policySubsetScope                `xml:"scope,omitempty"`
 	SelfService          policySubsetSelfService          `xml:"self_service,omitempty"`
 	PackageConfiguration policySubsetPackageConfiguration `xml:"package_configuration"`
-	Scripts              []policySubsetScript `xml:"scripts>script"`
-	Maintenance    policySubsetMaintenance    `xml:"maintenance"`
-	FilesProcesses policySubsetFilesProcesses `xml:"files_processes,omitempty"`
+	Scripts              []policySubsetScript             `xml:"scripts>script"`
+	Maintenance          policySubsetMaintenance          `xml:"maintenance"`
+	FilesProcesses       policySubsetFilesProcesses       `xml:"files_processes,omitempty"`
 }
 
 type policySubsetGeneral struct {
@@ -66,14 +60,14 @@ type policySubsetGeneral struct {
 }
 
 type policySubsetScope struct {
-	AllComputers   bool                      `xml:"all_computers"`
-	AllJSSUsers    bool                      `xml:"all_jss_users"`
-	Computers      *[]policySubsetComputer  `xml:"computers>computer"`
-	ComputerGroups *[]policySubsetComputerGroup `xml:"computer_groups>computer_group"`
-	JSSUsers       *[]policySubsetJSSUser   `xml:"jss_users>user"`
-	JSSUserGroups  *[]policySubsetJSSUserGroup `xml:"jss_user_groups>user_group"`
-	Buildings      *[]policySubsetBuilding  `xml:"buildings>building"`
-	Departments    *[]policySubsetDepartment `xml:"departments>department"`
+	AllComputers   bool                          `xml:"all_computers"`
+	AllJSSUsers    bool                          `xml:"all_jss_users"`
+	Computers      *[]policySubsetComputer       `xml:"computers>computer"`
+	ComputerGroups *[]policySubsetComputerGroup  `xml:"computer_groups>computer_group"`
+	JSSUsers       *[]policySubsetJSSUser        `xml:"jss_users>user"`
+	JSSUserGroups  *[]policySubsetJSSUserGroup   `xml:"jss_user_groups>user_group"`
+	Buildings      *[]policySubsetBuilding       `xml:"buildings>building"`
+	Departments    *[]policySubsetDepartment     `xml:"departments>department"`
 	Limitations    *policySubsetScopeLimitations `xml:"limitations"`
 	Exclusions     *policySubsetScopeExclusions  `xml:"exclusions"`
 }
@@ -117,16 +111,16 @@ type policySubsetScopeLimitations struct {
 }
 
 type policySubsetScopeExclusions struct {
-	Computers      *[]policySubsetComputer      `xml:"computers>computer"`
-	ComputerGroups *[]policySubsetComputerGroup `xml:"computer_groups>computer_group"`
-	Users          *[]policySubsetUser          `xml:"users>user"`
-	UserGroups     *[]policySubsetUserGroup     `xml:"user_groups>user_group"`
-	Buildings      *[]policySubsetBuilding      `xml:"buildings>building"`
-	Departments    *[]policySubsetDepartment    `xml:"departments>department"`
+	Computers       *[]policySubsetComputer       `xml:"computers>computer"`
+	ComputerGroups  *[]policySubsetComputerGroup  `xml:"computer_groups>computer_group"`
+	Users           *[]policySubsetUser           `xml:"users>user"`
+	UserGroups      *[]policySubsetUserGroup      `xml:"user_groups>user_group"`
+	Buildings       *[]policySubsetBuilding       `xml:"buildings>building"`
+	Departments     *[]policySubsetDepartment     `xml:"departments>department"`
 	NetworkSegments *[]policySubsetNetworkSegment `xml:"network_segments>network_segment"`
-	JSSUsers       *[]policySubsetJSSUser       `xml:"jss_users>user"`
-	JSSUserGroups  *[]policySubsetJSSUserGroup  `xml:"jss_user_groups>user_group"`
-	IBeacons       *[]policySubsetIBeacon       `xml:"ibeacons>ibeacon"`
+	JSSUsers        *[]policySubsetJSSUser        `xml:"jss_users>user"`
+	JSSUserGroups   *[]policySubsetJSSUserGroup   `xml:"jss_user_groups>user_group"`
+	IBeacons        *[]policySubsetIBeacon        `xml:"ibeacons>ibeacon"`
 }
 
 type policySubsetUser struct {
@@ -343,52 +337,4 @@ func policyListIDFromAny(v interface{}) (int, bool) {
 // categoryGetByName fetches categories and returns the ID for the given name.
 func categoryGetByName(credName, name string) (string, error) {
 	return CategoryFindIDByExactName(credName, name)
-}
-
-// iconUpload uploads an icon file and returns the new icon ID.
-func iconUpload(credName, filePath string) (int, error) {
-	f, err := os.Open(filePath)
-	if err != nil {
-		return 0, fmt.Errorf("open icon file: %w", err)
-	}
-	defer f.Close()
-
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
-	part, err := w.CreateFormFile("file", path.Base(filePath))
-	if err != nil {
-		return 0, fmt.Errorf("create form file: %w", err)
-	}
-	if _, err := io.Copy(part, f); err != nil {
-		return 0, fmt.Errorf("write file to form: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return 0, fmt.Errorf("close multipart: %w", err)
-	}
-
-	url, err := ResolveEndpoint(credName, "/api/v1/icon")
-	if err != nil {
-		return 0, err
-	}
-	req, err := http.NewRequest(http.MethodPost, url, &buf)
-	if err != nil {
-		return 0, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return 0, fmt.Errorf("icon upload status %d: %s", resp.StatusCode, string(body))
-	}
-	var result struct {
-		ID int `json:"id"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return 0, fmt.Errorf("parse icon response: %w", err)
-	}
-	return result.ID, nil
 }

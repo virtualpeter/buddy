@@ -597,6 +597,7 @@ var Builtins = builtinsHead +
 	DdmBuiltinsSection +
 	BenchmarksBuiltinsSection +
 	PackagesBuiltinsSection +
+	IconsBuiltinsSection +
 	ProfilesBuiltinsSection +
 	ProfilePayloadsBuiltinsSection +
 	ScriptsBuiltinsSection +

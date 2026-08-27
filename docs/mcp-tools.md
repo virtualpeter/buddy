@@ -26,6 +26,7 @@ Typed per-resource MCP tools (smart/static groups, profiles, policies, packages 
 | Edit profile / ACS prefs | `profile-payloads` | `profile_xml` → `payloads_list_identifiers` → `profile_xml_patch_payload(identifier=)` → `profile_put_xml` | Classic PUT from schema; `payloads_get_mcx_dict` on `com.apple.MCX` PayloadContent |
 | Create/clone profile | `profiles` / `profile-payloads` | `profile_create` / `profile_clone` / `profile_copy` | Hand-edit UUIDs |
 | Package after upload | `packages` / `jcds` | `package_wait_ready` / `package_ready` / `package_download` | Attach/download before READY |
+| Self Service icons | `icons` / `icon` | `icon` / `icon_upload` / `icon_check` / `icon_download` / `policy_set_icon` | `icons()` list; skip dest POST because ICS HEAD was 200 |
 | Scripts | `scripts` | `scripts` (summaries) / `script(id=…)` for body / `script_copy` | Expect bodies from list |
 | Categories | `categories` | `category_copy(..., upsert=True)` first in migrate order | Skip before policy migrate |
 | Computers / MDM actions | `computers` | `computers` / `computer_*` actions | Mix with Platform `device*` |

@@ -124,6 +124,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 
 	// Multi-step helpers / specialized actions.
 	putBuiltin(dict, "policy_set_ss", policySetSS(credName, logger))
+	putBuiltin(dict, "policy_set_icon", policySetIconBuiltin(credName, logger))
 	putBuiltin(dict, "policy_set_install", policySetInstall(credName, logger))
 	putBuiltin(dict, "policy_create_ss", policyCreateSS(credName, logger))
 	putBuiltin(dict, "policy_create_package", policyCreatePackage(credName, logger))
@@ -228,6 +229,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "package_download", packageDownload(credName, logger))
 	putBuiltin(dict, "package_delete", packageDelete(credName, logger))
 	putBuiltin(dict, "package_put", packagePut(credName, logger))
+	registerIconBuiltins(dict, credName, logger)
 
 	putBuiltin(dict, "uuid_new", uuidNewBuiltin)
 	putBuiltin(dict, "uuid_is", uuidIsBuiltin)

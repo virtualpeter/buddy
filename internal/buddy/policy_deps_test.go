@@ -107,3 +107,35 @@ func TestRemapPolicyCategoryOnDest_overrideUncategorized(t *testing.T) {
 		t.Fatalf("expected uncategorized: %s", out)
 	}
 }
+
+func TestExtractPolicySelfServiceIconID(t *testing.T) {
+	if got := extractPolicySelfServiceIconID([]byte(`<policy><self_service><self_service_icon><id>5</id></self_service_icon></self_service></policy>`)); got != 5 {
+		t.Fatalf("got %d", got)
+	}
+	if got := extractPolicySelfServiceIconID([]byte(`<policy><self_service><self_service_icon/></self_service></policy>`)); got != 0 {
+		t.Fatalf("empty self-closing got %d", got)
+	}
+	if got := extractPolicySelfServiceIconID([]byte(`<policy><self_service></self_service></policy>`)); got != 0 {
+		t.Fatalf("missing got %d", got)
+	}
+	if got := extractPolicySelfServiceIconID([]byte(`<policy><self_service><self_service_icon><id>0</id></self_service_icon></self_service></policy>`)); got != 0 {
+		t.Fatalf("zero id got %d", got)
+	}
+}
+
+func TestReplacePolicySelfServiceIconID(t *testing.T) {
+	xml := []byte(`<policy><self_service><self_service_icon><id>5</id></self_service_icon></self_service></policy>`)
+	out := replacePolicySelfServiceIconID(xml, 99)
+	s := string(out)
+	if !strings.Contains(s, "<id>99</id>") {
+		t.Fatalf("dest id missing: %s", s)
+	}
+	if strings.Contains(s, "<id>5</id>") {
+		t.Fatalf("source id remains: %s", s)
+	}
+	empty := []byte(`<policy><self_service><self_service_icon/></self_service></policy>`)
+	out2 := replacePolicySelfServiceIconID(empty, 3)
+	if !strings.Contains(string(out2), "<self_service_icon><id>3</id></self_service_icon>") {
+		t.Fatalf("self-closing not replaced: %s", out2)
+	}
+}

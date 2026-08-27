@@ -31,6 +31,7 @@ func catalogBodies() map[string]string {
 		clispec.CmdGroup:       GroupsCLIHelp,
 		clispec.CmdProfile:     ProfilesCLIHelp,
 		clispec.CmdPackage:     PackagesCLIHelp,
+		clispec.CmdIcon:        IconsCLIHelp,
 		clispec.CmdComputer:    ComputersCLIHelp,
 		clispec.CmdMdm:         MdmCLIHelp,
 		clispec.CmdBlueprint:   BlueprintsCLIHelp,

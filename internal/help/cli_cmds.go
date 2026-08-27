@@ -310,6 +310,7 @@ Examples:
   buddy policy set name 42 "Install Chrome 121"
   buddy policy set trigger 42 install-chrome
   buddy policy set frequency 42 "Once per computer"
+  buddy policy set icon 42 ./app.png
   buddy policy set install 42 121.0 --param=4,5
   buddy policy set package 42 121.0 --keep-source
   buddy policy set package 121.0 --trigger=install-chrome

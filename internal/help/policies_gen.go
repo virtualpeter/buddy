@@ -31,7 +31,7 @@ const PoliciesBuiltinsSection = `POLICY
   policy_copy(id, name?, trigger?, category_id?, match_trigger?, upsert?=False,
               scope_all?, scope_group_ids?,
               tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
-      Does: Copy a policy to another (or the same) session, remapping category/scripts/packages by name.
+      Does: Copy a policy to another (or the same) session, remapping category/scripts/packages by name and Self Service icons by re-upload.
       → value: dict {id, name, trigger} or {id, name, trigger, created} when upsert
       Params: id: source policy. name?/trigger?: dest identity. category_id?: dest category.
         match_trigger?: bool (upsert match on trigger_other). upsert?: bool.
@@ -39,11 +39,19 @@ const PoliciesBuiltinsSection = `POLICY
         Source session = tenant?/auth?/surface? (or process default).
         Destination = to_tenant?/to_auth?/to_surface? (omit = same as source).
       Notes: Missing scripts/packages on dest fail; missing category → uncategorized.
+        Cross-session icons: download source bytes, POST on dest, rewrite self_service_icon.id
+        (same-session keeps the source icon id; empty icon is left unset).
         upsert=True: upsert by exact name (or trigger_other when match_trigger=True);
         name optional (defaults to source name). Alias: policy_migrate(...).
   policy_migrate(...)
       Does: Alias of policy_copy with upsert=True.
       → value: dict {id, name, trigger, created}
+  policy_set_icon(id, file?, icon_id?, tenant?, surface?, auth?)
+      Does: Set a policy's Self Service icon (upload a file or attach an existing icon id).
+      → None
+      Params: id: int/str (policy ID). Pass either file= (local image path) or icon_id=
+        (already-uploaded tenant icon), not both. tenant?/surface?/auth?: omit for process defaults.
+      Notes: See icon / icon_upload. Upload is POST /api/v1/icon; attach is Classic PUT.
   policy_set_ss(id, version?, group_ids?, display_name?,
                 description?, install_text?, reinstall_text?,
                 force_view?, feature?, self_service?, tenant?, surface?, auth?)

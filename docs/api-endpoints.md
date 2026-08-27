@@ -216,6 +216,24 @@ Base path: `/api/v1/packages`
 
 ---
 
+## Icons (Jamf Pro API v1)
+
+Base path: `/api/v1/icon`
+
+There is **no list** endpoint (`GET /api/v1/icon` is 405). Icon ids are per-tenant. ICS stores image bytes by SHA-256 (`/icon/hash_<hex>`); a successful ICS HEAD does not mint a tenant id.
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/api/v1/icon/{id}` | `IconGet`, `icon(id=)` | Metadata `{id, name, url}` (`name` is live even when OpenAPI omits it). `url` is ICS (`…/icon/hash_<sha256>`) or the instance download path (Jamf may emit a double slash after the host). |
+| `POST` | `/api/v1/icon` | `IconUpload`, `icon_upload`, `policy_copy` (cross-tenant remap) | Multipart field `file`; returns `{id, name, url}` |
+| `GET` | `/api/v1/icon/download/{id}` | `IconDownload` fallback only | Image bytes when metadata `url` is missing. **500s for ICS-backed icons** — fetch `url` unauthenticated instead (no bearer; a token on the instance url can 401). |
+
+`icon_download` / `buddy icon download` follows metadata `url` first (ICS or instance path, no Jamf token), then the Pro download path.
+
+`icon_check` / `buddy icon check <file>` is **not** a Jamf API: local SHA-256 plus unauthenticated HEAD of `https://ics.services.jamfcloud.com/icon/hash_{sha256}` (then `use2.ics` if 404). ICS 403 AccessDenied is treated as not present. Instance-only icons (metadata `url` is `/api/v1/icon/download/{id}`) are not on ICS — `buddy icon check <file> <icon-id>` compares SHA-256 to that icon’s bytes. Attach to a policy with Classic `PUT` `self_service_icon.id` (`PolicySetIcon` / `policy_set_icon`).
+
+---
+
 ## Mac App Store apps (Classic API)
 
 Base path: `/JSSResource/macapplications`

@@ -166,6 +166,8 @@ func main() {
 		exitOnErr(logger, "Profile command failed", runProfile(credName, opts, args[1:], logger))
 	case clispec.CmdPackage:
 		exitOnErr(logger, "Package command failed", runPackage(credName, opts, args[1:], logger))
+	case clispec.CmdIcon:
+		exitOnErr(logger, "Icon command failed", runIcon(credName, opts, args[1:], logger))
 	case clispec.CmdComputer:
 		exitOnErr(logger, "Computer command failed", runComputer(credName, opts, args[1:], logger))
 	case clispec.CmdRole:
@@ -712,6 +714,115 @@ func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args [
 	default:
 		return errUnknownSubcommand("policy create", subcommand, []string{"package", "ss"})
 	}
+}
+
+func runIcon(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
+		fmt.Print(helpIcon)
+		return nil
+	}
+	subcommand := args[0]
+	args = args[1:]
+
+	switch subcommand {
+	case clispec.SubGet:
+		if len(args) < 1 {
+			return missingArg("icon-id", clispec.UsageHelp(clispec.CmdIcon))
+		}
+		id, err := strconv.Atoi(args[0])
+		if err != nil || id <= 0 {
+			return fmt.Errorf("icon-id must be a positive integer")
+		}
+		icon, err := buddy.IconGet(credName, id)
+		if err != nil {
+			return err
+		}
+		return printJSON(icon)
+	case clispec.SubUpload:
+		if len(args) < 1 {
+			return missingArg("file", clispec.UsageHelp(clispec.CmdIcon))
+		}
+		filePath := args[0]
+		if !opts.SkipConfirm {
+			if !buddy.ConfirmPrompt(fmt.Sprintf("\nUpload icon %q?", filePath), log) {
+				return nil
+			}
+		}
+		icon, err := buddy.IconUpload(credName, filePath)
+		if err != nil {
+			return err
+		}
+		return printJSON(icon)
+	case clispec.SubCheck:
+		if len(args) < 1 {
+			return missingArg("file", clispec.UsageHelp(clispec.CmdIcon))
+		}
+		iconID := 0
+		if len(args) >= 2 {
+			var err error
+			iconID, err = strconv.Atoi(args[1])
+			if err != nil || iconID <= 0 {
+				return fmt.Errorf("icon-id must be a positive integer")
+			}
+		}
+		res, err := buddy.IconCheckFile(credName, args[0], iconID)
+		if err != nil {
+			return err
+		}
+		return printJSON(res)
+	case clispec.SubDownload:
+		if len(args) < 1 {
+			return missingArg("icon-id", clispec.UsageHelp(clispec.CmdIcon))
+		}
+		id, err := strconv.Atoi(args[0])
+		if err != nil || id <= 0 {
+			return fmt.Errorf("icon-id must be a positive integer")
+		}
+		rec, err := buddy.IconGet(credName, id)
+		if err != nil {
+			return err
+		}
+		data, err := buddy.IconFetch(credName, rec)
+		if err != nil {
+			return err
+		}
+		outPath := ""
+		if len(args) >= 2 {
+			outPath = args[1]
+		} else {
+			outPath = iconDownloadFileName(rec, id)
+		}
+		if err := os.WriteFile(outPath, data, 0o644); err != nil {
+			return fmt.Errorf("write icon file: %w", err)
+		}
+		fmt.Printf("Wrote icon ID %d to %s (%d bytes)\n", id, outPath, len(data))
+		return nil
+	default:
+		return errUnknownSubcommand("icon", subcommand, []string{
+			clispec.SubGet, clispec.SubUpload, clispec.SubCheck, clispec.SubDownload,
+		})
+	}
+}
+
+func printJSON(v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(b))
+	return nil
+}
+
+func iconDownloadFileName(rec buddy.Icon, id int) string {
+	name := strings.TrimSpace(rec.Name)
+	name = strings.ReplaceAll(name, "\\", "/")
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	if name == "" || name == "." || name == ".." {
+		return fmt.Sprintf("icon-%d.png", id)
+	}
+	return name
 }
 
 func runCategory(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {

@@ -27,6 +27,7 @@ const (
 	MsgCmdGroup       = "cli.cmd.group"
 	MsgCmdProfile     = "cli.cmd.profile"
 	MsgCmdPackage     = "cli.cmd.package"
+	MsgCmdIcon        = "cli.cmd.icon"
 	MsgCmdComputer    = "cli.cmd.computer"
 	MsgCmdMdm         = "cli.cmd.mdm"
 	MsgCmdBlueprint   = "cli.cmd.blueprint"
@@ -78,6 +79,7 @@ var en = map[string]string{
 	MsgCmdGroup:       "Manage computer groups (list/get/create/delete; smart/static membership)",
 	MsgCmdProfile:     "Manage configuration profiles (list/get/set/clone/redeploy)",
 	MsgCmdPackage:     "Manage package records (list/get/download/upload/delete/set/history)",
+	MsgCmdIcon:        "Manage Self Service icons (get/upload/check/download)",
 	MsgCmdComputer:    "Manage computers and MDM commands (list/get/reboot/lock/erase/...)",
 	MsgCmdMdm:         "Query MDM commands from Jamf Pro (list with RSQL filter)",
 	MsgCmdBlueprint:   "Manage Platform API blueprints (list/get/create/set/delete/deploy/…)",
