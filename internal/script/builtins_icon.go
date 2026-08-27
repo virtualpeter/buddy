@@ -12,6 +12,7 @@ import (
 )
 
 func registerIconBuiltins(dict starlark.StringDict, credName string, logger *slog.Logger) {
+	putBuiltin(dict, "icons", iconsBuiltin(credName, logger))
 	putBuiltin(dict, "icon", iconBuiltin(credName, logger))
 	putBuiltin(dict, "icon_upload", iconUploadBuiltin(credName, logger))
 	putBuiltin(dict, "icon_check", iconCheckBuiltin(credName, logger))
@@ -23,14 +24,19 @@ func iconStarlarkDict(icon buddy.Icon) *starlark.Dict {
 	_ = d.SetKey(starlark.String("id"), starlark.MakeInt(icon.ID))
 	_ = d.SetKey(starlark.String("name"), starlark.String(icon.Name))
 	_ = d.SetKey(starlark.String("url"), starlark.String(icon.URL))
+	if icon.SHA256 != "" {
+		_ = d.SetKey(starlark.String("sha256"), starlark.String(icon.SHA256))
+	}
 	return d
 }
 
-func iconBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+func iconsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var idVal starlark.Value = starlark.None
+		var filter starlark.String
+		var refresh, dropCache, progress bool
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("icon", args, kwargs, "id", &idVal,
+		if err := starlark.UnpackArgs("icons", args, kwargs,
+			"filter?", &filter, "refresh?", &refresh, "dropcache?", &dropCache, "progress?", &progress,
 			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
@@ -39,6 +45,50 @@ func iconBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 			return resultErr(sessErr.Error())
 		}
 		defer restore()
+		res, err := buddy.IconList(pin, buddy.IconListOpts{
+			Filter:    string(filter),
+			Refresh:   refresh,
+			DropCache: dropCache,
+			Progress:  progress || scriptOpts.Verbose || scriptOpts.Progress,
+		}, logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		list := make([]starlark.Value, 0, len(res.Icons))
+		for _, icon := range res.Icons {
+			list = append(list, iconStarlarkDict(icon))
+		}
+		return resultOK(starlark.NewList(list)), nil
+	}
+}
+
+func iconBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value = starlark.None
+		var name starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("icon", args, kwargs,
+			"id?", &idVal, "name?", &name,
+			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		hasID := idVal != nil && idVal != starlark.None
+		nameStr := strings.TrimSpace(string(name))
+		if hasID == (nameStr != "") {
+			return resultErr("pass either id= or name=, not both")
+		}
+		pin, restore, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restore()
+		if nameStr != "" {
+			icon, err := buddy.IconGetByName(pin, nameStr)
+			if err != nil {
+				return resultErr(err.Error())
+			}
+			return resultOK(iconStarlarkDict(icon)), nil
+		}
 		id, err := starlarkIDInt(idVal, "id")
 		if err != nil {
 			return resultErr(err.Error())
@@ -81,31 +131,20 @@ func iconCheckBuiltin(credName string, _ *slog.Logger) func(*starlark.Thread, *s
 			"icon_id?", &iconIDVal, "tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
-		hasIconID := iconIDVal != nil && iconIDVal != starlark.None
-		hasSess := strings.TrimSpace(string(sess.Tenant)) != "" || strings.TrimSpace(string(sess.Surface)) != "" || strings.TrimSpace(string(sess.Auth)) != ""
-		if hasSess && !hasIconID {
-			return resultErr("icon_id= is required when tenant=/surface=/auth= are set")
-		}
 		iconID := 0
-		if hasIconID {
+		if iconIDVal != nil && iconIDVal != starlark.None {
 			id, err := starlarkIDInt(iconIDVal, "icon_id")
 			if err != nil {
 				return resultErr(err.Error())
 			}
 			iconID = id
 		}
-		var res buddy.IconCheckResult
-		var err error
-		if iconID <= 0 {
-			res, err = buddy.IconCheck(string(file))
-		} else {
-			pin, restore, sessErr := beginSession(thread, credName, sess)
-			if sessErr != nil {
-				return resultErr(sessErr.Error())
-			}
-			defer restore()
-			res, err = buddy.IconCheckFile(pin, string(file), iconID)
+		pin, restore, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
 		}
+		defer restore()
+		res, err := buddy.IconCheckFile(pin, string(file), iconID)
 		if err != nil {
 			return resultErr(err.Error())
 		}

@@ -36,7 +36,7 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 		"blueprint_delete", "blueprint_deploy", "blueprint_undeploy",
 		"blueprint_status", "blueprint_components", "blueprint_component",
 		"auth", "confirm", "error", "exit",
-		"icon", "icon_upload", "icon_check", "icon_download", "policy_set_icon",
+		"icon", "icons", "icon_upload", "icon_check", "icon_download", "policy_set_icon",
 		"version_extract", "version_compare", "version_sort",
 		"change_batch", "plan_change", "run_change",
 	} {
@@ -221,16 +221,51 @@ func TestIconAcceptsSessionKwargs(t *testing.T) {
 	}
 }
 
-func TestIconCheckRejectsSessionKwargsWithoutIconID(t *testing.T) {
+func TestIconAcceptsNameKwarg(t *testing.T) {
+	fn := iconBuiltin("default", slog.Default())
+	thread := &starlark.Thread{Name: "t"}
+	kwargs := []starlark.Tuple{
+		{starlark.String("name"), starlark.String("santa.png")},
+		{starlark.String("tenant"), starlark.String("sandbox")},
+		{starlark.String("surface"), starlark.String("instance")},
+		{starlark.String("auth"), starlark.String("sandbox-instance")},
+	}
+	_, err := fn(thread, nil, nil, kwargs)
+	if err != nil && strings.Contains(err.Error(), "unexpected keyword argument") {
+		t.Fatalf("icon() should accept name=/tenant/surface/auth, got %v", err)
+	}
+}
+
+func TestIconsAcceptsSessionKwargs(t *testing.T) {
+	fn := iconsBuiltin("default", slog.Default())
+	thread := &starlark.Thread{Name: "t"}
+	kwargs := []starlark.Tuple{
+		{starlark.String("filter"), starlark.String("santa")},
+		{starlark.String("refresh"), starlark.True},
+		{starlark.String("dropcache"), starlark.False},
+		{starlark.String("progress"), starlark.True},
+		{starlark.String("tenant"), starlark.String("sandbox")},
+		{starlark.String("surface"), starlark.String("instance")},
+		{starlark.String("auth"), starlark.String("sandbox-instance")},
+	}
+	_, err := fn(thread, nil, nil, kwargs)
+	if err != nil && strings.Contains(err.Error(), "unexpected keyword argument") {
+		t.Fatalf("icons() should accept filter/refresh/dropcache/progress/tenant/surface/auth, got %v", err)
+	}
+}
+
+func TestIconCheckAcceptsSessionKwargsWithoutIconID(t *testing.T) {
 	fn := iconCheckBuiltin("default", slog.Default())
 	thread := &starlark.Thread{Name: "t"}
 	kwargs := []starlark.Tuple{
 		{starlark.String("file"), starlark.String("x.png")},
 		{starlark.String("tenant"), starlark.String("sandbox")},
+		{starlark.String("surface"), starlark.String("instance")},
+		{starlark.String("auth"), starlark.String("sandbox-instance")},
 	}
 	_, err := fn(thread, nil, nil, kwargs)
-	if err == nil || !strings.Contains(err.Error(), "icon_id=") {
-		t.Fatalf("icon_check tenant= without icon_id= should error, got %v", err)
+	if err != nil && strings.Contains(err.Error(), "unexpected keyword argument") {
+		t.Fatalf("icon_check should accept tenant/surface/auth without icon_id=, got %v", err)
 	}
 }
 

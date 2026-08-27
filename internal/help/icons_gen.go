@@ -5,28 +5,43 @@ package help
 
 // IconsBuiltinsSection is spliced into Builtins.
 const IconsBuiltinsSection = `ICON (Jamf Pro Self Service icons)
-  icon(id=, tenant?, surface?, auth?)
-      Does: Load one icon by tenant-local id.
-      → value: dict {id, name, url}
-      Params: id=: int/str. tenant?/surface?/auth?: session overrides.
-      Notes: No icons() list — GET /api/v1/icon is 405. OpenAPI often omits name;
-        live GET includes the filename the UI shows.
+  icons(filter?, refresh?=False, dropcache?=False, progress?=False, tenant?, surface?, auth?)
+      Does: List tenant icons from the weekly catalog cache (id-walk when stale, refresh=True, or dropcache=True).
+      → value: list of {id, name, url, sha256?}
+      Params: filter?: substring on name or id. refresh?: bool (default False). dropcache?: bool
+        (default False; walk from 1). progress?: bool (default False; also on with process -v).
+        tenant?/surface?/auth?: session overrides; omit for process defaults.
+      Notes: Jamf has no GET /api/v1/icon collection (405) and no published delete. Cache lives
+        under ~/.config/buddy/catalog-cache/<tenant>/icons.json (TTL 7 days; shared by auths on
+        that tenant). No page/page_size. Missing cache walks from id 1. Stale/refresh keeps
+        cached rows and probes 20 ids past max. dropcache=True ignores the catalog and walks
+        from 1. icon_upload upserts the new id. First walk can take minutes. CLI always prints
+        cache age, max id, and live scan progress on stderr; icons() only with progress=True or -v.
+  icon(id=?) | icon(name=?, tenant?, surface?, auth?)
+      Does: Load one icon by tenant-local id (cache-first) or exact name (cache only).
+      → value: dict {id, name, url, sha256?}
+      Params: pass either id= or name=, not both. tenant?/surface?/auth?: session overrides.
+      Notes: id= miss does a live GET and upserts that row (does not reset fetched_at).
+        name= raises if the cache is missing, the name is unknown, or several icons share it.
   icon_upload(file, tenant?, surface?, auth?)
-      Does: Multipart-upload a local image; Jamf assigns a tenant icon id (ICS hash is opaque).
-      → value: dict {id, name, url}
+      Does: Multipart-upload a local image, or return the lowest live catalog-cache id
+        whose sha256 matches the file (no POST).
+      → value: dict {id, name, url, sha256?}
       Params: file: str (filesystem path). tenant?/surface?/auth?: omit for process defaults.
+      Notes: Cache miss (or stale cache without this hash) POSTs; Jamf assigns a new tenant
+        id. Upserts that row (max_id bumped; fetched_at unchanged). Jamf may re-encode
+        PNGs so a local hash can miss the stored sha256 and still POST.
   icon_check(file, icon_id=?, tenant?, surface?, auth?)
-      Does: SHA-256 the local file and HEAD ICS (unauthenticated) to see if that hash URL exists.
-        Optional icon_id= also compares bytes to that tenant icon.
-      → value: dict {url, present, sha256, ics} (+ icon_id when compared)
+      Does: SHA-256 the local file, find the lowest catalog-cache id with that
+        hash, and HEAD that row's url. Optional icon_id= byte-compares that tenant icon.
+      → value: dict {url, present, sha256, ics} (+ icon_id when known)
       Params: file: str (filesystem path). icon_id?: int (tenant icon to byte-compare).
-        tenant?/surface?/auth?: only with icon_id=; omit for process defaults.
-      Notes: ICS-only when icon_id omitted. Probes ics.services then use2.ics. First 200/206
-        wins. ICS 403 AccessDenied is not present (same as missing). If none, present=false,
-        ics=false, url is the canonical ics.services hash URL. Instance-only icons (download
-        path, no hash_) are never on ICS — pass icon_id= after download to verify bytes.
-        Jamf may re-encode PNGs (ICS false negative). present/ics do not mint a tenant id —
-        still POST to attach.
+        tenant?/surface?/auth?: session overrides.
+      Notes: Missing cache raises — run icons() / buddy icon list first. Duplicate
+        sha256 uses the lowest id. present is the url probe (200/206). ICS 403 is
+        not present. ics is true only for a live hash_ URL. Unknown hash returns
+        present=false (no icon_id). icon_id= does not require a cache. Jamf may
+        re-encode PNGs (local hash miss). present/ics do not mint a tenant id.
   icon_download(id, path, tenant?, surface?, auth?)
       Does: Download icon image bytes to a local path (follows metadata url; Pro download API is fallback).
       → None
@@ -44,20 +59,37 @@ Usage:
   buddy [global-flags] icon <subcommand> [args...]
 
 Subcommands:
+  list                          List icons from the weekly catalog cache
   get <icon-id>                 Show icon metadata (id, name, url) as JSON
-  upload <file>                 Upload a local image; print {id, name, url} JSON
-  check <file> [<icon-id>]      SHA-256 + ICS HEAD; optional icon-id compares tenant bytes
+  upload <file>                 Upload or reuse by catalog sha256; print {id, name, url} JSON
+  check <file> [<icon-id>]      SHA-256 vs catalog cache; HEAD that url (or byte-compare icon-id)
+  download <icon-id> [path]     Write image bytes (metadata url; Pro download is fallback)
+
+Flags for 'list':
+  --filter=<keyword>            Substring match on name or id
+  --refresh                     Probe 20 ids past max (skips cached ids)
+  --dropcache                   Ignore the catalog cache and walk from id 1
 
 Notes:
-  There is no list subcommand (Jamf has no icon catalog API).
-  check without <icon-id> only probes ICS (not a tenant id; does not skip upload).
-  Instance-only icons (url is /api/v1/icon/download/{id}, no hash_) are not on ICS —
-  check <file> is present=false; pass the icon-id to verify downloaded bytes.
+  Jamf has no icon list API (GET /api/v1/icon is 405) and no published delete. A
+  missing cache walks GET /api/v1/icon/{id} from 1. Stale cache or --refresh keeps
+  cached rows and probes 20 ids past max. --dropcache ignores the catalog and
+  walks from 1 (first walk can take minutes). Stderr shows a warning, cache age +
+  icon count + max id, and live scan progress. Cache:
+  ~/.config/buddy/catalog-cache/<tenant>/icons.json (shared by auths on that tenant)
+  upload hashes the file and returns the lowest live cache id with that sha256
+  (no POST) when icon list has already seen it; otherwise POSTs and upserts the cache.
+  check without <icon-id> needs the catalog cache (run list first). Lowest id with
+  that file sha256; HEAD that url. Missing hash is present=false. Optional
+  <icon-id> byte-compares downloaded bytes (cache optional).
   get's url is the fetchable image (ICS or instance). Do not GET /api/v1/icon/download/{id}
   for ICS-backed icons — that endpoint 500s; use download (or GET the url with no token).
   Attach an icon to a policy with: buddy policy set icon <policy-id> <image-file>
 
 Examples:
+  buddy icon list
+  buddy icon list --filter=santa --refresh
+  buddy icon list --dropcache
   buddy icon get 2
   buddy icon upload ./santa.png
   buddy icon check ./santa.png

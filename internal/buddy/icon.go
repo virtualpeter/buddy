@@ -21,24 +21,25 @@ const (
 	uriIconDownload = "/api/v1/icon/download"
 
 	iconICSCanonicalHost = "https://ics.services.jamfcloud.com"
-	iconICSUse2Host      = "https://use2.ics.services.jamfcloud.com"
+
+	errIconCatalogCacheMissing = "icon catalog cache missing; run buddy icon list or icons() first"
 )
 
-// iconICSHosts is the ICS bases probed by IconCheck (canonical first, then use2).
-// Tests may replace this slice.
-var iconICSHosts = []string{iconICSCanonicalHost, iconICSUse2Host}
-
 // Icon is a Jamf Pro icon record (GET/POST /api/v1/icon). Live responses include
-// name even when OpenAPI only documents id+url.
+// name even when OpenAPI only documents id+url. SHA256 is filled from an ICS
+// hash_ URL, or (on catalog refresh) by hashing instance download bytes.
 type Icon struct {
-	ID   int    `json:"id"`
-	Name string `json:"name,omitempty"`
-	URL  string `json:"url,omitempty"`
+	ID     int    `json:"id"`
+	Name   string `json:"name,omitempty"`
+	URL    string `json:"url,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
 }
 
-// IconCheckResult is a local SHA-256 plus unauthenticated ICS HEAD/GET probe.
-// Present is true when ICS has the hash, or (when IconID is set) when the
-// tenant icon's bytes match. ICS does not imply a tenant icon id.
+// IconCheckResult is a local SHA-256 plus a probe of one catalog-cache URL.
+// Without icon_id=, check looks up the lowest catalog id whose sha256 matches
+// the file, then HEADs that row's url. Missing cache is an error (run list
+// first). Present is true when that URL returns 200/206. ICS is true when
+// the URL is a hash_ ICS URL and that probe succeeded.
 type IconCheckResult struct {
 	URL     string `json:"url"`
 	Present bool   `json:"present"`
@@ -47,8 +48,25 @@ type IconCheckResult struct {
 	IconID  int    `json:"icon_id,omitempty"`
 }
 
-// IconGet loads one icon by tenant-local id.
+// IconGet loads one icon by tenant-local id. A catalog-cache hit returns the
+// cached row; a miss does a live GET and upserts that row (fetched_at unchanged).
 func IconGet(credName string, id int) (Icon, error) {
+	if id <= 0 {
+		return Icon{}, fmt.Errorf("icon id must be positive")
+	}
+	if rec, ok := iconCatalogGetByID(credName, id); ok {
+		return rec, nil
+	}
+	icon, err := iconGetLive(credName, id)
+	if err != nil {
+		return Icon{}, err
+	}
+	iconFillSHAFromURL(&icon)
+	_ = iconCatalogUpsert(credName, icon)
+	return icon, nil
+}
+
+func iconGetLive(credName string, id int) (Icon, error) {
 	if id <= 0 {
 		return Icon{}, fmt.Errorf("icon id must be positive")
 	}
@@ -64,7 +82,8 @@ func IconGet(credName string, id int) (Icon, error) {
 	return icon, nil
 }
 
-// IconUpload POSTs a local image file and returns the tenant icon record.
+// IconUpload uploads a local image file, or reuses a catalog-cache id when
+// the file sha256 already exists on the tenant.
 func IconUpload(credName, filePath string) (Icon, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -73,11 +92,18 @@ func IconUpload(credName, filePath string) (Icon, error) {
 	return IconUploadBytes(credName, path.Base(filePath), data)
 }
 
-// IconUploadBytes POSTs image bytes as multipart field "file".
+// IconUploadBytes POSTs image bytes as multipart field "file", unless the
+// catalog cache already has this SHA-256 (lowest live id is returned; no POST).
 func IconUploadBytes(credName, filename string, data []byte) (Icon, error) {
 	filename = strings.TrimSpace(filename)
 	if filename == "" {
 		filename = "icon.png"
+	}
+	sum := IconSHA256Hex(data)
+	if rec, ok, err := iconReuseFromCache(credName, sum); err != nil {
+		return Icon{}, err
+	} else if ok {
+		return rec, nil
 	}
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
@@ -103,6 +129,10 @@ func IconUploadBytes(credName, filename string, data []byte) (Icon, error) {
 	if icon.ID <= 0 {
 		return Icon{}, fmt.Errorf("icon upload: missing id in response")
 	}
+	iconFillSHAFromURL(&icon)
+	// Upsert keeps max_id current; fetched_at is unchanged so list refresh
+	// only probes the tail past max.
+	_ = iconCatalogUpsert(credName, icon)
 	return icon, nil
 }
 
@@ -142,68 +172,60 @@ func IconFetch(credName string, rec Icon) ([]byte, error) {
 	return nil, err
 }
 
-// IconCheck SHA-256s a local file and HEADs ICS (no Jamf auth). First 200/206
-// wins. If no host has the object, Present is false and URL is the canonical
-// ics.services URL. Instance-only icons (url is /api/v1/icon/download/{id}, no
-// hash_) are not on ICS — use IconCheckFile with an icon id to compare bytes.
-// Jamf may re-encode PNGs, so ICS can false-negative after upload.
+// IconCheck SHA-256s a local file and looks it up in the catalog cache (same
+// as IconCheckFile with the process session).
 func IconCheck(filePath string) (IconCheckResult, error) {
 	return IconCheckFile("", filePath, 0)
 }
 
-// IconCheckFile is IconCheck plus an optional tenant icon id. When iconID > 0,
-// the local SHA-256 is also compared to that icon's downloaded bytes. Matching
-// instance-only icons set Present (ICS stays false; URL becomes the metadata url).
+// IconCheckFile SHA-256s a local file. When iconID is 0 it requires a catalog
+// cache: the lowest id with that sha256 is returned and that row's url is
+// HEADed (no token). A missing cache is an error. When iconID > 0 the local
+// hash is compared to that icon's downloaded bytes (cache optional).
 func IconCheckFile(credName, filePath string, iconID int) (IconCheckResult, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return IconCheckResult{}, fmt.Errorf("read icon file: %w", err)
 	}
-	out, err := iconCheckBytes(data)
-	if err != nil {
-		return IconCheckResult{}, err
-	}
-	if iconID <= 0 {
-		return out, nil
-	}
-	rec, err := IconGet(credName, iconID)
-	if err != nil {
-		return IconCheckResult{}, err
-	}
-	got, err := IconFetch(credName, rec)
-	if err != nil {
-		return IconCheckResult{}, fmt.Errorf("download icon %d: %w", iconID, err)
-	}
-	out.IconID = iconID
-	if IconSHA256Hex(got) == out.SHA256 {
-		out.Present = true
-		if !out.ICS && strings.TrimSpace(rec.URL) != "" {
-			out.URL = rec.URL
-		}
-	}
-	return out, nil
-}
-
-func iconCheckBytes(data []byte) (IconCheckResult, error) {
 	sum := IconSHA256Hex(data)
-	canonical := IconHashURL(iconICSCanonicalHost, sum)
-	out := IconCheckResult{URL: canonical, SHA256: sum}
-	hosts := iconICSHosts
-	if len(hosts) == 0 {
-		hosts = []string{iconICSCanonicalHost}
-	}
-	for _, host := range hosts {
-		u := IconHashURL(host, sum)
-		present, err := iconICSPresent(u)
+	out := IconCheckResult{SHA256: sum}
+	if iconID > 0 {
+		rec, err := IconGet(credName, iconID)
 		if err != nil {
 			return IconCheckResult{}, err
 		}
-		if present {
-			out.URL = u
-			out.Present = true
-			out.ICS = true
-			return out, nil
+		got, err := IconFetch(credName, rec)
+		if err != nil {
+			return IconCheckResult{}, fmt.Errorf("download icon %d: %w", iconID, err)
 		}
+		out.IconID = iconID
+		out.URL = rec.URL
+		if IconSHA256Hex(got) == sum {
+			out.Present = true
+			out.ICS = iconURLHasICSHash(rec.URL)
+		}
+		return out, nil
+	}
+	cat, err := loadIconCatalog(credName)
+	if err != nil {
+		return IconCheckResult{}, err
+	}
+	if cat == nil {
+		return IconCheckResult{}, fmt.Errorf("%s", errIconCatalogCacheMissing)
+	}
+	rec, ok := iconCatalogFindBySHA(credName, sum)
+	if !ok {
+		return out, nil
+	}
+	out.IconID = rec.ID
+	out.URL = rec.URL
+	if u := strings.TrimSpace(rec.URL); u != "" {
+		present, perr := iconICSPresent(u)
+		if perr != nil {
+			return IconCheckResult{}, perr
+		}
+		out.Present = present
+		out.ICS = present && iconURLHasICSHash(u)
 	}
 	return out, nil
 }

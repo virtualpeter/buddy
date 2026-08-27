@@ -77,6 +77,16 @@ func PolicyCacheDir() (string, error) {
 	return filepath.Join(dir, "policy-cache"), nil
 }
 
+// CatalogCacheDir returns the root directory for small JSON resource catalogs
+// (icons now; categories/buildings/networks later).
+func CatalogCacheDir() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "catalog-cache"), nil
+}
+
 func secretFilePath(credName string) (string, error) {
 	dir, err := SecretsDir()
 	if err != nil {

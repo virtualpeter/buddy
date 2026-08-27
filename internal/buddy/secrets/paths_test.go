@@ -96,4 +96,11 @@ func TestTokensAndSecretsDir(t *testing.T) {
 	if caps != filepath.Join(cfg, "caps") {
 		t.Fatalf("caps=%q", caps)
 	}
+	cat, err := CatalogCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cat != filepath.Join(cfg, "catalog-cache") {
+		t.Fatalf("catalog-cache=%q", cat)
+	}
 }

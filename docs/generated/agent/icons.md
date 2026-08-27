@@ -10,40 +10,77 @@ keywords:
   - self service
   - self_service_icon
   - ics
+  - "catalog-cache"
 ---
 
 # Icons
 
-Jamf Pro Self Service icons. Tenant-local ids; ICS stores bytes by SHA-256. No list API.
+Jamf Pro Self Service icons. Tenant-local ids; ICS stores bytes by SHA-256. List is a weekly catalog cache (id-walk); Jamf has no collection GET.
 
 ## Agent rules
 
-- Do not invent `icons()` or Classic icon CRUD from schema. Use `icon` / `icon_upload` / `icon_download` / `policy_set_icon`.
-- Do not skip dest POST on policy copy because ICS already has the hash.
+- Use `icons()` (weekly catalog cache; not a Jamf list API) / `icon` / `icon_upload` / `icon_download` / `policy_set_icon`. Do not invent Classic icon CRUD from schema. Do not scrape `policies.html`.
+- Do not skip dest POST on policy copy because ICS already has the hash. `icon_upload` may reuse a dest catalog-cache id when the local sha256 matches.
 - Pass either `file` or `icon_id` to `policy_set_icon`, not both.
-- icon_check without icon_id= is ICS-only. Instance download URLs are not on ICS; pass icon_id= to compare bytes.
+- `icon(name=)` is cache-only (missing cache, unknown name, or duplicate names raise). `icon(id=)` is cache-first then live GET.
+- icon_check without icon_id= needs the catalog cache (run icons() / icon list first). Lowest matching sha256 id; HEAD that url. icon_id= byte-compares and does not require a cache.
 
 ## Facts
 
-- Load: `icon(id=…)` · `buddy icon get <icon-id>` — `{id, name, url}` from `GET /api/v1/icon/{id}`
-- Upload: `icon_upload(file)` · `buddy icon upload <file>` — POST multipart; Jamf returns `{id, name, url}`
-- Check ICS: `icon_check(file, icon_id=?)` · `buddy icon check <file> [<icon-id>]` — Local SHA-256 + ICS HEAD; optional icon-id compares tenant bytes (instance-only icons are not on ICS)
+- List: `icons(filter?, refresh?=False, dropcache?=False, progress?=False)` · `buddy icon list` — Weekly JSON cache keyed by tenant; `--refresh` probes 20 past max; `--dropcache` rescans from 1. CLI (and `progress=True` / `-v`) prints cache age, max id, and live scan progress.
+- Load: `icon(id=…)` / `icon(name=…)` · `buddy icon get <icon-id>` — `id=` is cache-first then live GET; `name=` is cache only
+- Upload: `icon_upload(file)` · `buddy icon upload <file>` — POST multipart unless catalog cache already has this sha256 (returns lowest live id)
+- Check: `icon_check(file, icon_id=?)` · `buddy icon check <file> [<icon-id>]` — SHA-256 → lowest catalog id; HEAD that url. Missing cache: run list first. Optional icon-id byte-compares.
 - Download: `icon_download(id, path)` · `buddy icon download <icon-id> [path]` — Follows metadata `url` (ICS, no token). Pro `download/{id}` 500s for ICS-backed icons.
 - Attach to policy: `policy_set_icon(id, file=… | icon_id=…)` · `buddy policy set icon <policy-id> <image-file>` — Classic PUT `self_service_icon.id`
-- There is **no list API** (`GET /api/v1/icon` is 405). Do not probe sequential ids.
-- ICS URLs look like `https://ics.services.jamfcloud.com/icon/hash_<sha256>`. Hosts vary (`ics`, `use1.ics`, `use2.ics`). Some records use the instance download path (`https://<tenant>.jamfcloud.com/api/v1/icon/download/{id}`) instead of a hash URL — Jamf often emits a double slash after the host; buddy normalizes it.
-- `icon_check` SHA-256s the **local** file and HEADs ICS (no Jamf token). ICS 403 (S3 AccessDenied) is treated as not present — the same response as a missing hash. Jamf may re-encode PNGs, so check can miss even after a successful upload of that file. After upload, Jamf’s returned `url` is the source of truth.
-- Some tenant icons are **instance-only**: metadata `url` is `/api/v1/icon/download/{id}` with no `hash_`. Those bytes are not on ICS, so `icon_check(file)` is `present=false` / `ics=false` even right after `icon_download`. Pass `icon_id=` / `buddy icon check <file> <icon-id>` to compare SHA-256 to that icon’s downloaded bytes (`present=true`, `ics` still false, `url` is the instance path).
+- Jamf has **no list API** (`GET /api/v1/icon` is 405) and no published delete. `icons()` / `buddy icon list` keep a weekly JSON catalog under `~/.config/buddy/catalog-cache/<tenant>/icons.json` (TTL 7 days; two auths on the same tenant share it). A missing cache walks `GET /api/v1/icon/{id}` from 1; a stale cache or `--refresh` keeps cached rows and only probes 20 ids past `max_id` (grow-on-hit). `--dropcache` / `dropcache=True` ignores the on-disk catalog and walks from 1 again. Cached ids are not re-GETed. `icon_upload` upserts the new id (and bumps `max_id`) so the next refresh does not have to rediscover it. First walk is one request per probed id (can take minutes). `buddy icon list` prints a warning, cache age + max id, and live scan progress on stderr; `icons()` does the same only with `progress=True` or `-v`. Do not scrape Classic `policies.html`.
+- ICS URLs look like `https://ics.services.jamfcloud.com/icon/hash_<sha256>`. Hosts vary by region (`ics`, `use1.ics`, `use2.ics`, `usw2.ics`, `apse2.ics`, `apne1.ics`, `euw2.ics`, `euc1.ics`). Some records use the instance download path (`https://<tenant>.jamfcloud.com/api/v1/icon/download/{id}`) instead of a hash URL — Jamf often emits a double slash after the host; buddy normalizes it. Catalog rows store sha256 from a `hash_` URL, or (on refresh only) by hashing an unauthenticated GET of an instance `url`.
+- `icon_check` SHA-256s the **local** file and looks up the catalog cache. Missing cache is an error — run `buddy icon list` / `icons()` first. The lowest id with that sha256 is returned; buddy HEADs that row’s `url` (no token). `present` is that probe 200/206; `ics` is true only for a live `hash_` URL. Duplicate catalog hashes use the lowest id. Unknown hash → `present=false` (no icon_id). Optional `icon_id=` / `buddy icon check <file> <icon-id>` byte-compares that tenant icon (cache optional). Jamf may re-encode PNGs, so a local hash can miss the stored sha256.
+- Some tenant icons are **instance-only**: metadata `url` is `/api/v1/icon/download/{id}` with no `hash_`. After `icon list`, `icon_check(file)` HEADs that instance url. Or pass `icon_id=` / `buddy icon check <file> <icon-id>` to compare SHA-256 to that icon’s downloaded bytes.
 - `icon_download` / `IconDownload` GETs that `url` **without** a Jamf token (ICS and the instance download path are public). `GET /api/v1/icon/download/{id}` through the Pro API **500s** for ICS-backed icons; sending a bearer token to the instance `url` can 401. The Pro download path is only a fallback.
 - A 200 on ICS does **not** mint a tenant icon id. Attach still needs `icon_upload` / `POST /api/v1/icon` on that tenant. Cross-tenant `policy_copy` re-uploads bytes; it does not skip POST because ICS HEAD was 200.
 
 ## Builtins
 
+### icons
+
+List icons from the weekly catalog cache
+
+Returns: list of {id, name, url, sha256?}
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "dropcache": {
+      "description": "ignore the on-disk catalog and walk from id 1",
+      "type": "boolean"
+    },
+    "filter": {
+      "description": "substring match on name or id",
+      "type": "string"
+    },
+    "progress": {
+      "description": "print cache status and live scan progress on stderr (CLI list always does this)",
+      "type": "boolean"
+    },
+    "refresh": {
+      "description": "probe 20 ids past max even if the cache is fresh",
+      "type": "boolean"
+    }
+  },
+  "title": "icons",
+  "type": "object"
+}
+```
+
 ### icon
 
 Load one icon
 
-Returns: dict {id, name, url}
+Returns: dict {id, name, url, sha256?}
 
 #### Parameters (JSON Schema)
 
@@ -52,13 +89,14 @@ Returns: dict {id, name, url}
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "id": {
-      "description": "icon id",
+      "description": "icon id (cache-first, then live GET)",
       "type": "integer"
+    },
+    "name": {
+      "description": "exact filename from the catalog cache",
+      "type": "string"
     }
   },
-  "required": [
-    "id"
-  ],
   "title": "icon",
   "type": "object"
 }
@@ -66,9 +104,9 @@ Returns: dict {id, name, url}
 
 ### icon_upload
 
-Upload an icon file
+Upload an icon file, or reuse a catalog-cache id
 
-Returns: dict {id, name, url}
+Returns: dict {id, name, url, sha256?}
 
 #### Parameters (JSON Schema)
 
@@ -83,7 +121,7 @@ Returns: dict {id, name, url}
 
 ### icon_check
 
-SHA-256 + ICS HEAD
+SHA-256 against catalog cache; HEAD that url
 
 Returns: dict {url, present, sha256, ics, icon_id?}
 
@@ -122,4 +160,10 @@ def main():
     rec = icon_upload(file="santa.png")
     policy_set_icon(id=21, icon_id=rec["id"])
     return rec
+```
+
+```python
+def main():
+    rows = icons(filter="santa")
+    return icon(name="santa.png") if rows else None
 ```

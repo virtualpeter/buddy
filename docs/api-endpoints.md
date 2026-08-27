@@ -220,17 +220,17 @@ Base path: `/api/v1/packages`
 
 Base path: `/api/v1/icon`
 
-There is **no list** endpoint (`GET /api/v1/icon` is 405). Icon ids are per-tenant. ICS stores image bytes by SHA-256 (`/icon/hash_<hex>`); a successful ICS HEAD does not mint a tenant id.
+There is **no list** endpoint (`GET /api/v1/icon` is 405) and no published delete. Icon ids are per-tenant. Buddy lists icons by walking `GET /api/v1/icon/{id}` (404s are holes) and storing a weekly JSON catalog at `~/.config/buddy/catalog-cache/<tenant>/icons.json` (`fetched_at` TTL 7 days; two auths on the same tenant share the file). A missing cache walks from id 1 until 20 consecutive 404s past the last hit. A stale cache or `--refresh` / `refresh=True` keeps cached rows and only walks 20 ids past the previous high-water mark (grow-on-hit). `--dropcache` / `dropcache=True` ignores the catalog and walks from 1 again. `POST /api/v1/icon` upserts that row and bumps `max_id` without resetting `fetched_at`. This is not a Jamf collection API — do not invent pagination, and do not scrape Classic `policies.html`. ICS stores image bytes by SHA-256 (`/icon/hash_<hex>`); a successful ICS HEAD does not mint a tenant id.
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v1/icon/{id}` | `IconGet`, `icon(id=)` | Metadata `{id, name, url}` (`name` is live even when OpenAPI omits it). `url` is ICS (`…/icon/hash_<sha256>`) or the instance download path (Jamf may emit a double slash after the host). |
-| `POST` | `/api/v1/icon` | `IconUpload`, `icon_upload`, `policy_copy` (cross-tenant remap) | Multipart field `file`; returns `{id, name, url}` |
+| `GET` | `/api/v1/icon/{id}` | `IconGet`, `icon(id=)`, `IconList` / `icons()` (id-walk) | Metadata `{id, name, url}` (`name` is live even when OpenAPI omits it). `url` is ICS (`…/icon/hash_<sha256>`) or the instance download path (Jamf may emit a double slash after the host). |
+| `POST` | `/api/v1/icon` | `IconUpload`, `icon_upload`, `policy_copy` (cross-tenant remap) | Multipart field `file`; returns `{id, name, url}`. Buddy skips POST when the catalog cache already has this file’s sha256 and that id still GETs (lowest live id). |
 | `GET` | `/api/v1/icon/download/{id}` | `IconDownload` fallback only | Image bytes when metadata `url` is missing. **500s for ICS-backed icons** — fetch `url` unauthenticated instead (no bearer; a token on the instance url can 401). |
 
 `icon_download` / `buddy icon download` follows metadata `url` first (ICS or instance path, no Jamf token), then the Pro download path.
 
-`icon_check` / `buddy icon check <file>` is **not** a Jamf API: local SHA-256 plus unauthenticated HEAD of `https://ics.services.jamfcloud.com/icon/hash_{sha256}` (then `use2.ics` if 404). ICS 403 AccessDenied is treated as not present. Instance-only icons (metadata `url` is `/api/v1/icon/download/{id}`) are not on ICS — `buddy icon check <file> <icon-id>` compares SHA-256 to that icon’s bytes. Attach to a policy with Classic `PUT` `self_service_icon.id` (`PolicySetIcon` / `policy_set_icon`).
+`icon_check` / `buddy icon check <file>` is **not** a Jamf list API: SHA-256 the local file, find the lowest catalog-cache id with that hash, and HEAD that row’s `url` (unauthenticated). Missing cache is an error — run `buddy icon list` / `icons()` first. ICS 403 AccessDenied is not present. `buddy icon check <file> <icon-id>` compares SHA-256 to that icon’s downloaded bytes (cache optional). Attach to a policy with Classic `PUT` `self_service_icon.id` (`PolicySetIcon` / `policy_set_icon`).
 
 ---
 

@@ -62,7 +62,7 @@ In the IDE, open **Libraries** → **Getting started** for a short list of built
 | [Configuration profiles](/docs/docs/profiles) | Profile lifecycle (clone/copy/redeploy) |
 | [Profile payloads](/docs/docs/profile-payloads) | Dissect/assemble PayloadContent vs MCX |
 | [Packages / JCDS](/docs/docs/packages) | READY gate, wait, download |
-| [Icons](/docs/docs/icons) | Self Service icons (get/upload/check/download; no list) |
+| [Icons](/docs/docs/icons) | Self Service icons (list via weekly catalog cache; get/upload/check/download) |
 | [Scripts](/docs/docs/scripts) | List vs body; copy/migrate |
 | [Categories](/docs/docs/categories) | Category copy (migrate step 1) |
 | [Mac App Store apps](/docs/docs/macapps) | Classic macapplications (list/get/create/delete) |

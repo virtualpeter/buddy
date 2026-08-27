@@ -9,7 +9,29 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func useTempCatalogCache(t *testing.T) {
+	t.Helper()
+	t.Cleanup(SetCatalogCacheDirForTest(t.TempDir()))
+}
+
+func setupIconCheckCred(t *testing.T, cred string) {
+	t.Helper()
+	useTempCatalogCache(t)
+	SetActiveConfig(ConfigFromCredentialMap(cred, map[string]CredentialConfig{
+		cred: {
+			URL:  "https://example.invalid",
+			Auth: AuthConfig{Type: "basic", Username: "u", Password: "p"},
+		},
+	}))
+	clearCredAuthCache()
+	t.Cleanup(func() {
+		clearCredAuthCache()
+		SetActiveConfig(nil)
+	})
+}
 
 func TestIconSHA256HexAndHashURL(t *testing.T) {
 	t.Parallel()
@@ -67,6 +89,7 @@ func TestIconGetUploadDownload(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
+	useTempCatalogCache(t)
 	SetActiveConfig(ConfigFromCredentialMap("icon-test", map[string]CredentialConfig{
 		"icon-test": {
 			URL: srv.URL,
@@ -184,6 +207,7 @@ func TestIconDownloadPrefersMetadataURLWhenDownloadAPI500(t *testing.T) {
 	defer srv.Close()
 	metaURL = srv.URL + "/cdn/santa.png"
 
+	useTempCatalogCache(t)
 	SetActiveConfig(ConfigFromCredentialMap("icon-ics", map[string]CredentialConfig{
 		"icon-ics": {
 			URL: srv.URL,
@@ -228,6 +252,7 @@ func TestIconDownloadFallsBackWhenURLMissing(t *testing.T) {
 	defer srv.Close()
 	missingURL = srv.URL + "/missing"
 
+	useTempCatalogCache(t)
 	SetActiveConfig(ConfigFromCredentialMap("icon-fb", map[string]CredentialConfig{
 		"icon-fb": {
 			URL: srv.URL,
@@ -254,7 +279,8 @@ func TestIconDownloadFallsBackWhenURLMissing(t *testing.T) {
 }
 
 func TestIconCheckHEADPresent(t *testing.T) {
-	sum := IconSHA256Hex([]byte("hello"))
+	payload := []byte("hello")
+	sum := IconSHA256Hex(payload)
 	var methods []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		methods = append(methods, r.Method)
@@ -266,23 +292,29 @@ func TestIconCheckHEADPresent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prev := iconICSHosts
-	iconICSHosts = []string{srv.URL}
-	t.Cleanup(func() { iconICSHosts = prev })
+	setupIconCheckCred(t, "icon-head")
+	u := srv.URL + "/icon/hash_" + sum
+	if err := saveIconCatalog("icon-head", IconCatalogCache{
+		FetchedAt: time.Now().UTC(),
+		MaxID:     2,
+		Items:     []Icon{{ID: 2, Name: "a.png", URL: u, SHA256: sum}},
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a.png")
-	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := IconCheck(path)
+	res, err := IconCheckFile("icon-head", path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Present || !res.ICS || res.SHA256 != sum {
+	if !res.Present || !res.ICS || res.SHA256 != sum || res.IconID != 2 {
 		t.Fatalf("%+v", res)
 	}
-	if res.URL != srv.URL+"/icon/hash_"+sum {
+	if res.URL != u {
 		t.Fatalf("url %s", res.URL)
 	}
 	if len(methods) != 1 || methods[0] != http.MethodHead {
@@ -291,6 +323,8 @@ func TestIconCheckHEADPresent(t *testing.T) {
 }
 
 func TestIconCheckHEAD405FallsBackToGET(t *testing.T) {
+	payload := []byte("hello")
+	sum := IconSHA256Hex(payload)
 	var methods []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		methods = append(methods, r.Method+" "+r.Header.Get("Range"))
@@ -307,73 +341,75 @@ func TestIconCheckHEAD405FallsBackToGET(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prev := iconICSHosts
-	iconICSHosts = []string{srv.URL}
-	t.Cleanup(func() { iconICSHosts = prev })
+	setupIconCheckCred(t, "icon-405")
+	u := srv.URL + "/icon/hash_" + sum
+	if err := saveIconCatalog("icon-405", IconCatalogCache{
+		FetchedAt: time.Now().UTC(),
+		MaxID:     1,
+		Items:     []Icon{{ID: 1, URL: u, SHA256: sum}},
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	res, err := iconCheckBytes([]byte("hello"))
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.png")
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := IconCheckFile("icon-405", path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Present {
+	if !res.Present || !res.ICS || res.IconID != 1 {
 		t.Fatalf("want present: %+v methods %v", res, methods)
-	}
-	if !res.ICS {
-		t.Fatalf("want ics: %+v", res)
 	}
 	if len(methods) < 2 || methods[0] != "HEAD " {
 		t.Fatalf("methods %v", methods)
 	}
 }
 
-func TestIconCheckMissingUsesCanonicalURL(t *testing.T) {
-	sum := IconSHA256Hex([]byte("hello"))
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
-	defer srv.Close()
-
-	prev := iconICSHosts
-	iconICSHosts = []string{srv.URL, srv.URL}
-	t.Cleanup(func() { iconICSHosts = prev })
-
-	res, err := iconCheckBytes([]byte("hello"))
-	if err != nil {
+func TestIconCheckMissingCacheErrors(t *testing.T) {
+	setupIconCheckCred(t, "icon-nocache")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.png")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if res.Present || res.ICS {
-		t.Fatalf("want absent: %+v", res)
-	}
-	if res.URL != IconHashURL(iconICSCanonicalHost, sum) {
-		t.Fatalf("canonical url %s", res.URL)
+	_, err := IconCheckFile("icon-nocache", path, 0)
+	if err == nil || !strings.Contains(err.Error(), "icon catalog cache missing") {
+		t.Fatalf("want cache missing: %v", err)
 	}
 }
 
-func TestIconCheckSecondHostWins(t *testing.T) {
-	sum := IconSHA256Hex([]byte("hello"))
-	miss := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
-	defer miss.Close()
-	hit := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer hit.Close()
-
-	prev := iconICSHosts
-	iconICSHosts = []string{miss.URL, hit.URL}
-	t.Cleanup(func() { iconICSHosts = prev })
-
-	res, err := iconCheckBytes([]byte("hello"))
+func TestIconCheckHashNotInCache(t *testing.T) {
+	setupIconCheckCred(t, "icon-nomatch")
+	if err := saveIconCatalog("icon-nomatch", IconCatalogCache{
+		FetchedAt: time.Now().UTC(),
+		MaxID:     1,
+		Items:     []Icon{{ID: 1, Name: "other.png", SHA256: strings.Repeat("ab", 32)}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.png")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := IconCheckFile("icon-nomatch", path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Present || !res.ICS || res.URL != hit.URL+"/icon/hash_"+sum {
-		t.Fatalf("%+v", res)
+	if res.Present || res.ICS || res.IconID != 0 || res.URL != "" {
+		t.Fatalf("want absent: %+v", res)
+	}
+	if res.SHA256 != IconSHA256Hex([]byte("hello")) {
+		t.Fatalf("sha %+v", res)
 	}
 }
 
 func TestIconCheckICS403IsAbsent(t *testing.T) {
+	payload := []byte("systemsetting")
+	sum := IconSHA256Hex(payload)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusForbidden)
@@ -381,16 +417,27 @@ func TestIconCheckICS403IsAbsent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prev := iconICSHosts
-	iconICSHosts = []string{srv.URL}
-	t.Cleanup(func() { iconICSHosts = prev })
+	setupIconCheckCred(t, "icon-403")
+	u := srv.URL + "/icon/hash_" + sum
+	if err := saveIconCatalog("icon-403", IconCatalogCache{
+		FetchedAt: time.Now().UTC(),
+		MaxID:     4,
+		Items:     []Icon{{ID: 4, URL: u, SHA256: sum}},
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	res, err := iconCheckBytes([]byte("systemsetting"))
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.png")
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := IconCheckFile("icon-403", path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Present || res.ICS {
-		t.Fatalf("403 must be absent: %+v", res)
+	if res.Present || res.ICS || res.IconID != 4 || res.URL != u {
+		t.Fatalf("403 must be absent but keep cache id: %+v", res)
 	}
 }
 
@@ -418,14 +465,7 @@ func TestIconCheckFileMatchesInstanceIcon(t *testing.T) {
 	defer srv.Close()
 	metaURL = srv.URL + "/dl/1"
 
-	ics := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-	}))
-	defer ics.Close()
-	prev := iconICSHosts
-	iconICSHosts = []string{ics.URL}
-	t.Cleanup(func() { iconICSHosts = prev })
-
+	useTempCatalogCache(t)
 	SetActiveConfig(ConfigFromCredentialMap("icon-chk", map[string]CredentialConfig{
 		"icon-chk": {
 			URL:  srv.URL,
@@ -444,12 +484,9 @@ func TestIconCheckFileMatchesInstanceIcon(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	icsOnly, err := IconCheck(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if icsOnly.Present || icsOnly.ICS {
-		t.Fatalf("instance-only bytes must miss ICS: %+v", icsOnly)
+	_, err := IconCheckFile("icon-chk", path, 0)
+	if err == nil || !strings.Contains(err.Error(), "icon catalog cache missing") {
+		t.Fatalf("no cache should error: %v", err)
 	}
 
 	res, err := IconCheckFile("icon-chk", path, 1)

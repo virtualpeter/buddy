@@ -725,6 +725,26 @@ func runIcon(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 	args = args[1:]
 
 	switch subcommand {
+	case clispec.SubList:
+		var filter string
+		var refresh, dropCache bool
+		fs := flag.NewFlagSet("icon list", flag.ContinueOnError)
+		fs.StringVar(&filter, clispec.FlagFilter, "", "substring match on name or id")
+		fs.BoolVar(&refresh, clispec.FlagRefresh, false, "probe 20 ids past max (skips cached ids)")
+		fs.BoolVar(&dropCache, clispec.FlagDropCache, false, "delete the catalog cache and walk from id 1")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		res, err := buddy.IconList(credName, buddy.IconListOpts{Filter: filter, Refresh: refresh, DropCache: dropCache, Progress: true}, log)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%-8s  %-40s  %s\n", "ID", "Name", "URL")
+		fmt.Printf("%-8s  %-40s  %s\n", "--------", "----------------------------------------", "----------------------------------------")
+		for _, icon := range res.Icons {
+			fmt.Printf("%-8d  %-40s  %s\n", icon.ID, icon.Name, icon.URL)
+		}
+		return nil
 	case clispec.SubGet:
 		if len(args) < 1 {
 			return missingArg("icon-id", clispec.UsageHelp(clispec.CmdIcon))
@@ -799,7 +819,7 @@ func runIcon(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 		return nil
 	default:
 		return errUnknownSubcommand("icon", subcommand, []string{
-			clispec.SubGet, clispec.SubUpload, clispec.SubCheck, clispec.SubDownload,
+			clispec.SubList, clispec.SubGet, clispec.SubUpload, clispec.SubCheck, clispec.SubDownload,
 		})
 	}
 }

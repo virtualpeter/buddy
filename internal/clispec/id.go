@@ -75,6 +75,8 @@ const (
 	FlagTrace       = "trace"
 	FlagScriptTrace = "script-trace"
 	FlagVersion     = "version"
+	FlagRefresh     = "refresh"
+	FlagDropCache   = "dropcache"
 )
 
 // Short flags (never translated).
