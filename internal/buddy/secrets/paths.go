@@ -94,3 +94,30 @@ func secretFilePath(credName string) (string, error) {
 	}
 	return filepath.Join(dir, credName+".json"), nil
 }
+
+// VaultPath is the encrypted secrets sidecar next to config.yaml.
+func VaultPath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "secrets.enc"), nil
+}
+
+// MasterFilePath is the recovery-passphrase file (Linux/Windows, or BUDDY_SECRET_STORE=file).
+func MasterFilePath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "master"), nil
+}
+
+// DekFilePath is the vault data-key file (Linux/Windows, or BUDDY_SECRET_STORE=file).
+func DekFilePath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "dek"), nil
+}

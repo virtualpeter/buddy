@@ -19,7 +19,7 @@ Jamf Pro API integrations (OAuth clients) — list, get, create, put. Pair with 
 
 ## Agent rules
 
-- Do not put production client secrets only in `config.yaml` when the platform secret store exists.
+- Do not put production client secrets only in `config.yaml` when the vault exists (`secrets.enc`).
 - Do not use Platform gateway oauth expecting Classic/Pro role management — use an instance-surface auth for that.
 
 ## Facts

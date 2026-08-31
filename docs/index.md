@@ -18,7 +18,7 @@ buddy setup basic-setup               # prompts: tenant name, Jamf URL, username
 buddy auth test                       # verify the session
 ```
 
-That writes `~/.config/buddy/config.yaml`, stores the password in the platform secret store (Keychain on macOS), and sets a default tenant.
+That writes `~/.config/buddy/config.yaml`, stores the password in the encrypted vault (`secrets.enc`), and sets a default tenant.
 
 If this Mac already has an org MDM profile for preference domain `virtualpete.buddy.cli` (tenants and optional auth stubs), skip basic-setup and run:
 

@@ -2948,7 +2948,7 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		fmt.Println()
 		fmt.Println("This configures your first Jamf Pro *instance* tenant and a basic")
 		fmt.Println("(username/password) auth in ~/.config/buddy/config.yaml.")
-		fmt.Println("The password is stored in the platform secret store (Keychain/file),")
+		fmt.Println("The password is stored in the encrypted vault (secrets.enc),")
 		fmt.Println("not inline in config. type=oauth (instance; not Platform gateway).")
 		fmt.Println()
 		fmt.Println("Afterward you can auth test with basic, and optionally create a Jamf")
@@ -2964,7 +2964,7 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		}
 		fmt.Printf("Configured tenant %q (%s) and basic auth %q (user %s, type=basic).\n",
 			res.TenantName, res.URL, res.AuthName, res.Username)
-		fmt.Printf("Password stored in the platform secret store. Default tenant is %q.\n", cfg.Tenant.Default)
+		fmt.Printf("Password stored in the vault. Default tenant is %q.\n", cfg.Tenant.Default)
 		fmt.Println()
 		fmt.Println("Try:")
 		fmt.Printf("  buddy --user %s auth test\n", res.AuthName)
@@ -3032,7 +3032,7 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		fmt.Println("buddy setup secrets")
 		fmt.Println()
 		fmt.Println("Creates a missing auth for any tenant that has none, then stores")
-		fmt.Println("missing passwords / OAuth client secrets in the platform secret store.")
+		fmt.Println("missing passwords / OAuth client secrets in the vault.")
 		fmt.Println("MDM profiles can include client IDs or secrets; this command fills gaps.")
 		fmt.Println()
 		res, err := buddy.SetupSecrets(cfg, buddy.SetupSecretsOpts{SkipConfirm: opts.SkipConfirm})

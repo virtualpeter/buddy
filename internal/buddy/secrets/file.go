@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -62,39 +60,11 @@ func (f *FileStore) writeFile(credName string, sf *secretFile) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create secrets directory: %w", err)
-	}
 	data, err := json.Marshal(sf)
 	if err != nil {
 		return fmt.Errorf("marshal secrets file: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, credName+".*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp secrets file: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write temp secrets file: %w", err)
-	}
-	if err := tmp.Chmod(0o600); err != nil && runtime.GOOS != "windows" {
-		tmp.Close()
-		return fmt.Errorf("chmod temp secrets file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp secrets file: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("replace secrets file: %w", err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil && runtime.GOOS != "windows" {
-		return err
-	}
-	return nil
+	return writeFileAtomic0600(path, data)
 }
 
 func (f *FileStore) Get(credName string, kind Kind) (string, error) {

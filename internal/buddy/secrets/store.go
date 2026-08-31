@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 // Kind identifies which secret field is stored.
@@ -54,18 +55,48 @@ type Store interface {
 	Description() string
 }
 
-var overrideStore Store
+var (
+	overrideStore   Store
+	overrideStoreMu sync.Mutex
+)
 
 // SetStore replaces the default store (for tests). Pass nil to reset.
 func SetStore(s Store) {
+	overrideStoreMu.Lock()
 	overrideStore = s
+	overrideStoreMu.Unlock()
 }
 
-// DefaultStore returns the platform secret store (or BUDDY_SECRET_STORE override).
+func currentOverrideStore() Store {
+	overrideStoreMu.Lock()
+	defer overrideStoreMu.Unlock()
+	return overrideStore
+}
+
+// UsingOverrideStore reports whether tests replaced DefaultStore.
+func UsingOverrideStore() bool {
+	return currentOverrideStore() != nil
+}
+
+// DefaultStore returns the encrypted vault (or a test override).
 func DefaultStore() (Store, error) {
-	if overrideStore != nil {
-		return overrideStore, nil
+	if s := currentOverrideStore(); s != nil {
+		return s, nil
 	}
+	dek, err := DefaultDEKStore()
+	if err != nil {
+		return nil, err
+	}
+	recovery, err := DefaultMasterStore()
+	if err != nil {
+		return nil, err
+	}
+	return NewVaultStore("", dek).WithRecovery(recovery), nil
+}
+
+// LegacyStore returns the pre-vault per-auth backend (Keychain / file / pass)
+// used only to import existing secrets into the vault.
+func LegacyStore() (Store, error) {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("BUDDY_SECRET_STORE"))) {
 	case "file":
 		return NewFileStore()
@@ -96,20 +127,18 @@ func StoreInfo() (kind string, detail string, err error) {
 }
 
 func storeKindName() string {
-	if overrideStore != nil {
+	if currentOverrideStore() != nil {
 		return "override"
 	}
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("BUDDY_SECRET_STORE"))) {
-	case "file":
-		return "file"
-	case "pass":
-		return "pass"
-	case "keychain":
-		return "keychain"
-	default:
-		if runtime.GOOS == "darwin" {
-			return "keychain"
-		}
-		return "file"
-	}
+	return "vault"
+}
+
+// MasterKindName is the recovery-passphrase backend (keychain, file, pass).
+func MasterKindName() string {
+	return masterKindName()
+}
+
+// DEKKindName is the vault data-key backend (keychain, file, pass).
+func DEKKindName() string {
+	return dekKindName()
 }

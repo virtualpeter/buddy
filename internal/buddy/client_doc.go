@@ -30,27 +30,27 @@ var ClientsTopic = docspec.Topic{
 		"Pair with [API roles](/docs/docs/api-roles). Platform gateway oauth cannot manage API roles/integrations.",
 	},
 	AgentNotes: []string{
-		"Do not put production client secrets only in `config.yaml` when the platform secret store exists.",
+		"Do not put production client secrets only in `config.yaml` when the vault exists (`secrets.enc`).",
 		"Do not use Platform gateway oauth expecting Classic/Pro role management — use an instance-surface auth for that.",
 	},
 	Builtins: []docspec.Builtin{
-			{
-				Name: `clients`,
-				Summary: `List API clients`,
-				Returns: `list`,
-				Params: []docspec.Param{
-					{Name: `filter`, Type: `string`, Required: false, Description: `filter`},
-				},
-			},
-			{
-				Name: `client`,
-				Summary: `Load one client`,
-				Returns: `dict`,
-				Params: []docspec.Param{
-					{Name: `id`, Type: `string`, Required: true, Description: `id`},
-				},
+		{
+			Name:    `clients`,
+			Summary: `List API clients`,
+			Returns: `list`,
+			Params: []docspec.Param{
+				{Name: `filter`, Type: `string`, Required: false, Description: `filter`},
 			},
 		},
+		{
+			Name:    `client`,
+			Summary: `Load one client`,
+			Returns: `dict`,
+			Params: []docspec.Param{
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
+			},
+		},
+	},
 	ExamplesBuddy: []string{
 		`def main():
     return clients(filter="buddy-cli")`,

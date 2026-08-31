@@ -91,7 +91,7 @@ func runCredGet(cfg *buddy.Config, args []string) error {
 
 func runCredSet(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("missing item; usage: buddy cred set tenant|auth|secret <name> … (see '%s')", clispec.UsageHelp(clispec.CmdCred))
+		return fmt.Errorf("missing item; usage: buddy cred set tenant|auth|secret|passphrase <name> … (see '%s')", clispec.UsageHelp(clispec.CmdCred))
 	}
 	switch args[0] {
 	case "tenant":
@@ -103,10 +103,12 @@ func runCredSet(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 			return fmt.Errorf("missing auth name")
 		}
 		return runCredSetSecret(cfg, args[1], args[2:])
+	case "passphrase":
+		return runCredSetPassphrase(opts, args[1:])
 	case "channel":
 		return runCredSetChannel(cfg, args[1:])
 	default:
-		return errUnknownSubcommand("cred set", args[0], []string{"tenant", "auth", "channel", "secret"})
+		return errUnknownSubcommand("cred set", args[0], []string{"tenant", "auth", "channel", "secret", "passphrase"})
 	}
 }
 
@@ -1328,6 +1330,66 @@ func runCredDeleteSecret(authName string, args []string) error {
 	return nil
 }
 
+func runCredSetPassphrase(opts buddy.Opts, args []string) error {
+	var passphrase string
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--passphrase="):
+			passphrase = strings.TrimPrefix(a, "--passphrase=")
+		case a == "-y":
+			opts.SkipConfirm = true
+		case a == clispec.SubHelp:
+			fmt.Print(`buddy cred set passphrase - Create or rotate the recovery passphrase
+
+Usage:
+  buddy [global-flags] cred set passphrase [--passphrase=]
+
+Notes:
+  The recovery passphrase encrypts cred backup files (PBKDF2). Day-to-day CLI
+  unlocks ~/.config/buddy/secrets.enc with a random Keychain data key (no
+  fingerprint prompt). On macOS the recovery phrase is Keychain account
+  "master"; on Linux/Windows it is ~/.config/buddy/master (mode 0600).
+  Switching from unsigned ./buddy to the signed binary: use the same recovery
+  phrase (unwraps the vault key into this binary's Keychain) or cred backup /
+  restore.
+
+Examples:
+  buddy cred set passphrase
+  buddy cred set passphrase --passphrase=…
+`)
+			return nil
+		default:
+			return fmt.Errorf("unknown argument %q; usage: buddy cred set passphrase [--passphrase=]", a)
+		}
+	}
+	passphrase = strings.TrimSpace(passphrase)
+	if passphrase == "" {
+		if !buddy.StdinIsTerminal() {
+			return fmt.Errorf("passphrase required (interactive prompt, or --passphrase=)")
+		}
+		var err error
+		passphrase, err = buddy.PromptSecret("Recovery passphrase")
+		if err != nil {
+			return err
+		}
+		again, err := buddy.PromptSecret("Confirm recovery passphrase")
+		if err != nil {
+			return err
+		}
+		if passphrase != again {
+			return fmt.Errorf("passphrases do not match")
+		}
+	}
+	if strings.TrimSpace(passphrase) == "" {
+		return fmt.Errorf("passphrase must not be empty")
+	}
+	if err := buddy.SetVaultPassphrase(passphrase); err != nil {
+		return err
+	}
+	fmt.Println("Recovery passphrase stored.")
+	return nil
+}
+
 func runCredBackup(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	path, passphrase, err := parseCredBackupArgs("backup", args)
 	if err != nil {
@@ -1398,12 +1460,26 @@ func parseCredBackupArgs(verb string, args []string) (path, passphrase string, e
 }
 
 func runCredStore() error {
-	kind, detail, err := buddy.SecretStoreInfo()
+	kind, vaultPath, masterKind, masterDetail, dekKind, dekDetail, err := buddy.SecretStoreDetails()
 	if err != nil {
 		return err
 	}
-	fmt.Printf("store: %s\n", kind)
-	fmt.Printf("path:  %s\n", detail)
+	fmt.Printf("store:  %s\n", kind)
+	if kind == "vault" {
+		fmt.Printf("vault:  %s\n", vaultPath)
+		if dekKind != "" {
+			fmt.Printf("dek:    %s (%s)\n", dekKind, dekDetail)
+		}
+		if masterKind != "" {
+			fmt.Printf("recovery: %s (%s)\n", masterKind, masterDetail)
+		}
+		legacy, err := buddy.ListLegacySecrets()
+		if err == nil && len(legacy) > 0 {
+			fmt.Fprintf(os.Stderr, "warning: %d secret(s) still in the old per-auth store; run 'buddy cred migrate'\n", len(legacy))
+		}
+		return nil
+	}
+	fmt.Printf("path:   %s\n", vaultPath)
 	return nil
 }
 
@@ -1420,7 +1496,7 @@ Subcommands:
   tokens    Delete expired or corrupt files under ~/.config/buddy/tokens/
 
 Notes:
-  secrets: compares the platform secret store to auths: in config.yaml. Orphans are
+  secrets: compares the vault to auths: in config.yaml. Orphans are
   usually left behind after deleting an auth without clearing the store (older buddy)
   or renaming an auth.
   tokens: removes bearer cache files that are expired, corrupt, undecodable, or
@@ -1472,10 +1548,12 @@ Subcommands:
 
 Notes:
   Unlike 'cred clean secrets' (orphans only), this removes every password and
-  client-secret buddy stored. Auths, tenants, and channels in config.yaml are
-  not changed. Re-store with 'buddy cred set secret' or 'buddy setup secrets'.
-  On macOS, both Keychain services are cleared (CLI "buddy" and signed
-  "virtualpete.buddy.cli") so leftovers from the other binary are not left behind.
+  client-secret buddy stored in the vault, plus the vault data key and
+  recovery passphrase.
+  Auths, tenants, and channels in config.yaml are not changed. Re-store with
+  'buddy cred set secret' or 'buddy setup secrets'.
+  On macOS, leftover per-auth Keychain items are cleared from both services
+  (CLI "buddy" and signed "virtualpete.buddy.cli").
   -y skips the confirmation prompt.
 
 Examples:
@@ -1712,15 +1790,40 @@ func runCredMigrate(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	}
 	if found == 0 {
 		fmt.Println("No inline secrets found in config.yaml.")
+	} else if migrated == 0 {
+		fmt.Println("No inline secrets migrated.")
+	} else {
+		if err := buddy.SaveConfig(cfg); err != nil {
+			return fmt.Errorf("save config: %w", err)
+		}
+		fmt.Printf("Migrated %d inline secret(s); config.yaml updated.\n", migrated)
+	}
+
+	if len(args) > 0 {
 		return nil
 	}
-	if migrated == 0 {
-		fmt.Println("No secrets migrated.")
+	legacy, err := buddy.ListLegacySecrets()
+	if err != nil {
+		return fmt.Errorf("list legacy secrets: %w", err)
+	}
+	if len(legacy) == 0 {
 		return nil
 	}
-	if err := buddy.SaveConfig(cfg); err != nil {
-		return fmt.Errorf("save config: %w", err)
+	fmt.Printf("Found %d secret(s) in the old per-auth store.\n", len(legacy))
+	if !opts.SkipConfirm && !buddy.AskYesNo("Copy them into the vault?", true, log) {
+		return nil
 	}
-	fmt.Printf("Migrated %d secret(s); config.yaml updated.\n", migrated)
+	deleteLegacy := opts.SkipConfirm
+	if !opts.SkipConfirm {
+		deleteLegacy = buddy.AskYesNo("Delete each copied item from the old store?", true, log)
+	}
+	res, err := buddy.MigrateLegacySecrets(deleteLegacy)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Imported %d secret(s) into the vault.\n", res.Copied)
+	if res.Deleted > 0 {
+		fmt.Printf("Deleted %d secret(s) from the old store.\n", res.Deleted)
+	}
 	return nil
 }

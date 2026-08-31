@@ -2,7 +2,7 @@
 
 **buddy** is a Jamf Pro automation CLI. It covers Classic and Pro resources (policies, computer groups, configuration profiles, packages/JCDS, scripts, computers and MDM, API roles and clients) and the Platform API (blueprints, devices, device groups, DDM reporting, compliance benchmarks).
 
-Day-to-day work is **buddyscript** (Starlark): an interactive shell, `.buddy` files, a local docs UI with script IDE (`buddy serve`), and an MCP server for AI hosts (`buddy mcp`). Config is tenants + auths; secrets belong in Keychain or the file store — [docs/auth.md](docs/auth.md).
+Day-to-day work is **buddyscript** (Starlark): an interactive shell, `.buddy` files, a local docs UI with script IDE (`buddy serve`), and an MCP server for AI hosts (`buddy mcp`). Config is tenants + auths; secrets belong in the encrypted vault (`secrets.enc`), with a random Keychain data key and a recovery passphrase for backups — [docs/auth.md](docs/auth.md).
 
 New install: `make buddy` then [`buddy setup basic-setup`](docs/index.md). Builtin signatures always match the binary: `buddy help builtins`.
 
@@ -33,11 +33,11 @@ New install: `make buddy` then [`buddy setup basic-setup`](docs/index.md). Built
 make buddy
 ```
 
-The binary is built to `./buddy` (`CGO_ENABLED=0`). On macOS that binary stores secrets in Keychain via `security(1)` under service `buddy` (writes use `security -i` so the secret is not on argv). Linux/Windows use the file store. See [docs/auth.md](docs/auth.md).
+The binary is built to `./buddy` (`CGO_ENABLED=0`). On macOS that binary stores the vault data key and recovery passphrase in Keychain via `security(1)` under service `buddy` (accounts `dek` and `master`; writes use `security -i` so the secret is not on argv). Linux/Windows use `~/.config/buddy/dek` and `master` (mode `0600`). Secrets themselves live in `secrets.enc`. See [docs/auth.md](docs/auth.md).
 
-`security(1)` is rebuild-stable and needs no CGO, but Keychain ACLs attach to `/usr/bin/security`, not to buddy. Any process running as you can read those items the same way. The **signed release** calls Security.framework instead so the ACL is the creating app: only a binary signed with the same Developer ID and identifier can read secrets without a prompt. Rebuilds and upgrades keep working because the designated requirement is the Team ID, not the binary hash (ad-hoc / unsigned `go build` output would prompt on every rebuild — that is why this path requires a stable Developer ID).
+`security(1)` is rebuild-stable and needs no CGO, but Keychain ACLs attach to `/usr/bin/security`, not to buddy. Any process running as you can read those items the same way. The **signed release** calls Security.framework instead so the ACL is the creating app: only a binary signed with the same Developer ID and identifier can read without a prompt. The DEK uses `AfterFirstUnlockThisDeviceOnly` so ordinary CLI runs do not prompt for Touch ID. Rebuilds and upgrades keep working because the designated requirement is the Team ID, not the binary hash (ad-hoc / unsigned `go build` output would prompt on every rebuild — that is why this path requires a stable Developer ID).
 
-The signed binary uses a **different Keychain service** (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) so it never shares items or ACLs with the CLI store. Development can keep using `./buddy`; production uses `./buddy-darwin-arm64` after `cred set secret` (or migrate) against that binary. `make install-signed` copies it to `~/go/bin/buddy`.
+The signed binary uses a **different Keychain service** (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) so it never shares DEK, recovery passphrase, or ACLs with the CLI store. The vault file is shared. Development can keep using `./buddy`; production uses `./buddy-darwin-arm64` after `cred set passphrase` (same recovery phrase unwraps the DEK) against that binary. `make install-signed` copies it to `~/go/bin/buddy`.
 
 ```sh
 BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make buddy-darwin-arm64
@@ -48,11 +48,11 @@ BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make buddy-darwin-arm64
 | Target | Binary | Keychain | Notes |
 |--------|--------|----------|-------|
 | `make buddy` | `./buddy` | service `buddy` via `security(1)` | Default; no CGO; existing items keep working |
-| `make buddy-darwin-arm64` | `./buddy-darwin-arm64` | service `virtualpete.buddy.cli` (label Buddy) via Security.framework | Requires Darwin/arm64 and `BUDDY_CODESIGN_IDENTITY`; identifier `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) must stay stable; re-store secrets with `./buddy-darwin-arm64 cred set secret` |
+| `make buddy-darwin-arm64` | `./buddy-darwin-arm64` | service `virtualpete.buddy.cli` (label Buddy) via Security.framework | Requires Darwin/arm64 and `BUDDY_CODESIGN_IDENTITY`; identifier `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) must stay stable; store the recovery passphrase with `./buddy-darwin-arm64 cred set passphrase` |
 | `make install-signed` | `~/go/bin/buddy` | same as `buddy-darwin-arm64` | Builds the signed binary, then copies it over `~/go/bin/buddy` |
 | `make package` | `/usr/local/bin/buddy` (via pkg) | same as `buddy-darwin-arm64` | Builds `buddy-<version>.pkg`; optional `BUDDY_PKG_SIGN_IDENTITY` (Developer ID Installer) |
 
-`make buddy-darwin-arm64` fails if the host is not Darwin/arm64, the identity is missing, the signature is ad-hoc, or TeamIdentifier is unset. You can keep both binaries; each only sees its own service, so a secret stored with one is invisible to the other until you store it again.
+`make buddy-darwin-arm64` fails if the host is not Darwin/arm64, the identity is missing, the signature is ad-hoc, or TeamIdentifier is unset. You can keep both binaries; each only sees its own DEK, so a key stored with one is invisible to the other until you unwrap it (`cred set passphrase` with the recovery phrase) or restore a backup.
 
 ```sh
 make test         # default store (security CLI on macOS)
@@ -109,14 +109,16 @@ features:
   classic_instance_only: true      # optional: force Classic onto instance. Default false lets Classic use /api/proclassic. ACS and GET /api/v1/policies are always instance.
 ```
 
-**Storage:** Tenants hold host identity; auths hold type/username/clientId and link to tenants. Passwords and OAuth client secrets can stay inline for **dev/test**, or be stored outside the file (keyed by **auth name**):
+**Storage:** Tenants hold host identity; auths hold type/username/clientId and link to tenants. Passwords and OAuth client secrets can stay inline for **dev/test**, or live in the encrypted vault (`secrets.enc`, keyed by **auth name**). The vault data key is one Keychain item (macOS) or `dek` (Linux/Windows); backups use a recovery passphrase (`master`):
 
-| Platform | Default store | Override |
-|----------|---------------|----------|
-| macOS (`make buddy`) | Keychain service `buddy` via `security(1)` | `BUDDY_SECRET_STORE=keychain` |
-| macOS (`make buddy-darwin-arm64`) | Keychain service `virtualpete.buddy.cli` (label Buddy) via Security.framework | `BUDDY_SECRET_STORE=keychain` (re-store secrets; items do not overlap) |
-| Linux | `~/.config/buddy/secrets/<auth>.json` (mode 0600) | `BUDDY_SECRET_STORE=file` or `pass` |
-| Windows | `%APPDATA%\buddy\secrets\<auth>.json` | `BUDDY_SECRET_STORE=file` |
+| Platform | Vault | Data key / recovery (`BUDDY_SECRET_STORE`) |
+|----------|-------|--------------------------------------------|
+| macOS (`make buddy`) | `~/.config/buddy/secrets.enc` | Keychain service `buddy`, accounts `dek` / `master`, via `security(1)` (default / `keychain`) |
+| macOS (`make buddy-darwin-arm64`) | same vault file | Keychain service `virtualpete.buddy.cli` (label Buddy); `cred set passphrase` unwraps the DEK |
+| Linux | same | `~/.config/buddy/dek` and `master` (mode 0600), or `pass` (`buddy/dek`, `buddy/master`) |
+| Windows | `%APPDATA%\buddy\secrets.enc` | `%APPDATA%\buddy\dek` and `master` |
+
+`BUDDY_VAULT_PASSPHRASE` overrides the recovery passphrase (never written).
 
 ```sh
 buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=us --tenant-id=…
@@ -126,15 +128,16 @@ buddy cred set channel mcp --access=readonly --tenant=sandbox
 buddy cred set channel mcp --deny-builtins=computer_erase
 buddy cred set channel mcp --allow-builtins=*
 buddy cred set tenant sandbox --deny-builtins=* --allow-builtins=policies,policy
+buddy cred set passphrase
 buddy cred set secret sandbox-admin --client-secret
 buddy cred backup ./buddy.creds
 buddy cred restore ./buddy.creds
 buddy cred use sandbox
 buddy cred use --mcp sandbox
 buddy cred store
-buddy cred delete auth sandbox-admin   # also clears store secrets
-buddy cred clean secrets               # review/delete orphaned store entries
-buddy cred erase secrets               # wipe all store secrets (both macOS Keychain services)
+buddy cred delete auth sandbox-admin   # also clears vault secrets
+buddy cred clean secrets               # review/delete orphaned vault entries
+buddy cred erase secrets               # wipe vault + DEK + recovery passphrase (+ leftover Keychain items)
 buddy cred clean tokens                # delete expired/corrupt disk token cache files
 ```
 

@@ -1,15 +1,8 @@
 package buddy
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/pbkdf2"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,27 +12,14 @@ import (
 )
 
 const (
-	credBackupVersion     = 1
-	credBackupKDF         = "pbkdf2-sha256"
-	credBackupSaltLen     = 16
-	credBackupKeyLen      = 32
-	credBackupAAD         = "buddy-cred-backup-v1"
-	credBackupKind        = "cred-backup"
-	credBackupDefaultIter = 600_000
+	credBackupAAD  = secrets.AADCredBackup
+	credBackupKind = secrets.KindCredBackup
 )
 
 // credBackupIter is the PBKDF2 iteration count for new backups (tests may lower it).
-var credBackupIter = credBackupDefaultIter
+var credBackupIter = secrets.DefaultEnvelopeIter
 
-// credBackupEnvelope is the on-disk JSON wrapper (no secrets in plaintext).
-type credBackupEnvelope struct {
-	Buddy string `json:"buddy"`
-	V     int    `json:"v"`
-	KDF   string `json:"kdf"`
-	Iter  int    `json:"iter"`
-	Salt  string `json:"salt"`
-	Data  string `json:"data"` // base64(nonce || ciphertext)
-}
+type credBackupEnvelope = secrets.Envelope
 
 // credBackupPayload is the decrypted JSON body.
 type credBackupPayload struct {
@@ -86,6 +66,9 @@ func BackupCreds(cfg *Config, opts CredBackupOpts) (*CredBackupResult, error) {
 	if len(cfg.Tenants) == 0 && len(cfg.Auths) == 0 {
 		return nil, fmt.Errorf("nothing to backup (no tenants or auths)")
 	}
+	prevIter := secrets.EnvelopeIter
+	secrets.EnvelopeIter = credBackupIter
+	defer func() { secrets.EnvelopeIter = prevIter }()
 	pass, err := resolveBackupPassphrase(opts.Passphrase, true)
 	if err != nil {
 		return nil, err
@@ -150,6 +133,9 @@ func RestoreCreds(cfg *Config, opts CredBackupOpts) (*CredRestoreResult, error) 
 	if err != nil {
 		return nil, fmt.Errorf("read backup %s: %w", path, err)
 	}
+	prevIter := secrets.EnvelopeIter
+	secrets.EnvelopeIter = credBackupIter
+	defer func() { secrets.EnvelopeIter = prevIter }()
 	pass, err := resolveBackupPassphrase(opts.Passphrase, false)
 	if err != nil {
 		return nil, err
@@ -217,6 +203,14 @@ func RestoreCreds(cfg *Config, opts CredBackupOpts) (*CredRestoreResult, error) 
 			cloned[n] = cloneAuthEntry(a)
 		}
 		cfg.Auths = cloned
+	}
+
+	if !secrets.UsingOverrideStore() {
+		if ok, err := secrets.HasMasterPassphrase(); err == nil && !ok {
+			if err := secrets.SetMasterPassphrase(pass); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not store recovery passphrase: %v (run 'buddy cred set passphrase')\n", err)
+			}
+		}
 	}
 
 	stored := 0
@@ -288,10 +282,17 @@ func authRestorePrompt(name string, a AuthEntry) string {
 }
 
 func resolveBackupPassphrase(provided string, confirm bool) (string, error) {
-	pass := provided
+	pass := strings.TrimSpace(provided)
+	if pass == "" && !secrets.UsingOverrideStore() {
+		if stored, err := secrets.RecoveryPassphrase(); err == nil && strings.TrimSpace(stored) != "" {
+			if _, isDEK := secrets.ParseDEK(stored); !isDEK {
+				pass = stored
+			}
+		}
+	}
 	if pass == "" {
 		if !StdinIsTerminal() {
-			return "", fmt.Errorf("passphrase required (interactive prompt, or --passphrase=)")
+			return "", fmt.Errorf("passphrase required (interactive prompt, --passphrase=, or 'buddy cred set passphrase')")
 		}
 		var err error
 		pass, err = PromptSecret("Encryption passphrase")
@@ -382,78 +383,12 @@ func peekStoreSecret(authName string, kind secrets.Kind) string {
 }
 
 func encryptCredBackup(plain []byte, passphrase string) (credBackupEnvelope, error) {
-	salt := make([]byte, credBackupSaltLen)
-	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
-		return credBackupEnvelope{}, fmt.Errorf("salt: %w", err)
-	}
-	key, err := pbkdf2.Key(sha256.New, passphrase, salt, credBackupIter, credBackupKeyLen)
-	if err != nil {
-		return credBackupEnvelope{}, fmt.Errorf("kdf: %w", err)
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return credBackupEnvelope{}, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return credBackupEnvelope{}, err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return credBackupEnvelope{}, fmt.Errorf("nonce: %w", err)
-	}
-	sealed := gcm.Seal(nonce, nonce, plain, []byte(credBackupAAD))
-	return credBackupEnvelope{
-		Buddy: credBackupKind,
-		V:     credBackupVersion,
-		KDF:   credBackupKDF,
-		Iter:  credBackupIter,
-		Salt:  base64.StdEncoding.EncodeToString(salt),
-		Data:  base64.StdEncoding.EncodeToString(sealed),
-	}, nil
+	prev := secrets.EnvelopeIter
+	secrets.EnvelopeIter = credBackupIter
+	defer func() { secrets.EnvelopeIter = prev }()
+	return secrets.EncryptEnvelope(plain, passphrase, credBackupKind, credBackupAAD)
 }
 
 func decryptCredBackup(raw []byte, passphrase string) ([]byte, error) {
-	var env credBackupEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
-		return nil, fmt.Errorf("not a buddy cred backup (parse): %w", err)
-	}
-	if env.Buddy != credBackupKind || env.V != credBackupVersion {
-		return nil, fmt.Errorf("not a buddy cred backup (buddy=%q v=%d)", env.Buddy, env.V)
-	}
-	if env.KDF != credBackupKDF {
-		return nil, fmt.Errorf("unsupported kdf %q", env.KDF)
-	}
-	if env.Iter < 1000 || env.Iter > 10_000_000 {
-		return nil, fmt.Errorf("invalid kdf iteration count")
-	}
-	salt, err := base64.StdEncoding.DecodeString(env.Salt)
-	if err != nil || len(salt) < 8 {
-		return nil, fmt.Errorf("invalid salt")
-	}
-	sealed, err := base64.StdEncoding.DecodeString(env.Data)
-	if err != nil {
-		return nil, fmt.Errorf("invalid ciphertext")
-	}
-	key, err := pbkdf2.Key(sha256.New, passphrase, salt, env.Iter, credBackupKeyLen)
-	if err != nil {
-		return nil, fmt.Errorf("kdf: %w", err)
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	ns := gcm.NonceSize()
-	if len(sealed) < ns {
-		return nil, fmt.Errorf("ciphertext too short")
-	}
-	plain, err := gcm.Open(nil, sealed[:ns], sealed[ns:], []byte(credBackupAAD))
-	if err != nil {
-		return nil, fmt.Errorf("wrong passphrase or corrupt backup")
-	}
-	return plain, nil
+	return secrets.DecryptEnvelope(raw, passphrase, credBackupKind, credBackupAAD, "cred backup")
 }

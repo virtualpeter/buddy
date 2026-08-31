@@ -58,12 +58,13 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred help` — set/list/get/delete tenants, auths, and channel policies; manage secrets; `cred use` / `cred set channel`
 - `buddy cred status` — tenant × surface coverage (gaps, secret presence, last live check); `--test` runs `auth test --all` first
 - `buddy cred add` — guided tenant + auth + secret (optional live test)
-- `buddy cred set secret <auth>` — store password/client secret in Keychain, file, or pass
+- `buddy cred set secret <auth>` — store password/client secret in the vault
+- `buddy cred set passphrase` — create or rotate the recovery passphrase (backups; does not wrap the live vault)
 - `buddy cred delete auth|tenant <name>` — remove auth (+store secrets) or tenant (cascades sole-linked auths)
 - `buddy cred clean secrets` — review secret-store entries and prompt to delete orphans
-- `buddy cred erase secrets` — wipe every secret in the store (and both macOS Keychain services)
+- `buddy cred erase secrets` — wipe the vault, data key, recovery passphrase, and leftover Keychain items
 - `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`
-- `buddy cred migrate` — move inline config.yaml secrets into the secure store
+- `buddy cred migrate` — move inline YAML secrets and old per-auth store items into the vault
 - `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of tenants, auths (with secrets), and channels; restore prompts once per auth (Enter restores, or `-y`)
 - `buddy setup secrets` — create missing tenant auths and surface-coverage gaps; store missing passwords / client secrets
 - `buddy auth test` — ForceRenew + probe the active session (`--all` for every cell)
@@ -80,7 +81,7 @@ buddy cred set auth gateway --type=platform --client-id=<client-id> --tenants=ga
 
 Classic (`/JSSResource/…`) calls are rewritten to `/api/proclassic/tenant/{id}/…` (the `/JSSResource` prefix is stripped). Classic follows a platform pin by default (`features.classic_instance_only`, false). Set it true (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force Classic onto instance. ACS (`/api/config-profiles/…`) and undocumented Pro `GET /api/v1/policies` are always instance; they are not on the gateway and are **not** gated by that flag.
 
-**Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate`). macOS defaults to Keychain (service `buddy` via `security(1)`, or service `virtualpete.buddy.cli` / label Buddy on `make buddy-darwin-arm64`); Linux defaults to `~/.config/buddy/secrets/`. Override with `BUDDY_SECRET_STORE=file|pass|keychain`. Never commit secrets to source control.
+**Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate`). Secrets live in `secrets.enc` under a random data key (Keychain account `dek` on macOS, or `~/.config/buddy/dek` on Linux). `buddy cred set passphrase` stores a recovery passphrase (account `master` / `~/.config/buddy/master`) used for `cred backup` / `restore`, not for every CLI invoke. `BUDDY_SECRET_STORE=file|pass|keychain` selects where those keys live. Never commit `secrets.enc`, `dek`, or `master` to source control.
 
 Full YAML shape and field descriptions are in the [README](../README.md#configuration).
 
@@ -330,7 +331,8 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 | `DEBUG` | Enable debug logging when set |
 | `XDG_CONFIG_HOME` | Config directory root (default: `~/.config`) |
 | `BUDDY_DOCS_ROOT` | Optional live `docs/` override for serve/MCP (default: embedded) |
-| `BUDDY_SECRET_STORE` | Secret backend: `file`, `pass`, or `keychain` |
+| `BUDDY_SECRET_STORE` | Where the vault data key and recovery passphrase live: `file`, `pass`, or `keychain` (default: Keychain on macOS, `dek`/`master` files elsewhere) |
+| `BUDDY_VAULT_PASSPHRASE` | Override recovery passphrase (CI/tests; never written). A `dek:v1:…` value overrides the data key instead. |
 | `BUDDY_MANAGED_PLIST` | Path to a managed-config plist (replaces Darwin `/Library/Managed Preferences/virtualpete.buddy.cli.plist`) |
 | `BUDDY_CLASSIC_INSTANCE_ONLY` | Override `features.classic_instance_only` (`true`/`false`). Default false: Classic may use `/api/proclassic/` (no `/JSSResource` in the path). `true` forces **Classic `/JSSResource` only** onto instance. Does not apply to ACS or `GET /api/v1/policies` (always instance). |
 

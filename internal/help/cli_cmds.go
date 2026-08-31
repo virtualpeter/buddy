@@ -88,17 +88,18 @@ Subcommands:
   set auth <name> [args...]         Add or update an auth (link to tenants)
   set channel <cli|mcp|ide> [args...]
                                     Set channel access / tenant / tenants allowlist
-  set secret <auth> [args...]       Store password / client secret in the secure store
+  set secret <auth> [args...]       Store password / client secret in the vault
+  set passphrase [--passphrase=]    Create or rotate the recovery passphrase (backups)
   delete tenant|auth|secret <name>  Remove a tenant (cascades sole-linked auths+secrets),
                                     auth (+secrets), or stored secrets
   clean secrets                     Review secret-store entries; prompt to delete orphans
   clean tokens                      Delete expired/corrupt files under ~/.config/buddy/tokens/
-  erase secrets                     Wipe every secret from the store (and both macOS Keychain services)
+  erase secrets                     Wipe the vault, data key, recovery passphrase, and leftover Keychain items
   use [tenant]                      Show or set tenant.default
   use --cli|--mcp|--ide [tenant]
                                     Show or set channels.<client>.tenant
-  store                             Show the active secret backend
-  migrate [auth]                    Move inline config.yaml secrets into the secure store
+  store                             Show vault path, data-key backend, and recovery-passphrase backend
+  migrate [auth]                    Move inline YAML secrets and old per-auth store items into the vault
   backup <file>                     Encrypt tenants, auths (with secrets), and channels to a file
   restore <file>                    Decrypt a backup; prompt once per auth (or -y)
 
@@ -153,8 +154,11 @@ Flags for 'set secret':
   --client-secret[=value]           Store OAuth client secret
   --secret-from-stdin               Read the secret value from stdin
 
+Flags for 'set passphrase':
+  --passphrase=<pass>               Recovery passphrase for cred backup/restore (prefer interactive prompt)
+
 Flags for 'backup' / 'restore':
-  --passphrase=<pass>               Encryption passphrase (prefer interactive prompt)
+  --passphrase=<pass>               Encryption passphrase (defaults to the stored recovery passphrase)
   -y                                Overwrite backup file / restore all auths without prompting
 
   Notes:
@@ -170,17 +174,29 @@ Flags for 'backup' / 'restore':
   defaults; config.yaml wins per name. 'buddy cred list' notes managed sources.
   Deleting a managed tenant/auth warns; it returns on next load until the MDM
   profile changes. Fill secrets with 'buddy setup secrets' or 'buddy cred add'.
-  cred backup writes AES-256-GCM (PBKDF2-SHA256) JSON; auths include store
-  secrets. Restore applies tenants/channels, then prompts once per auth
+  Passwords and client secrets live in ~/.config/buddy/secrets.enc (AES-256-GCM
+  with a random data key). The data key is one Keychain item on macOS (account
+  "dek"), or ~/.config/buddy/dek on Linux/Windows. A recovery passphrase (Keychain
+  account "master", or ~/.config/buddy/master) encrypts cred backup files only;
+  day-to-day CLI does not prompt for it or for Touch ID. BUDDY_SECRET_STORE
+  selects where those keys live (keychain, file, pass). BUDDY_VAULT_PASSPHRASE
+  overrides the recovery passphrase (never written). cred set passphrase creates
+  or rotates the recovery phrase (Touch ID on the signed binary).
+  cred backup uses the stored recovery passphrase by default (--passphrase=
+  overrides). cred backup writes AES-256-GCM (PBKDF2-SHA256) JSON; auths include
+  store secrets. Restore applies tenants/channels, then prompts once per auth
   (and its secrets) unless -y. Enter/y writes that auth from the backup;
   n leaves the existing auth (or absence) in config. Auths not in the backup
   are kept. A backup with no auths restores tenants/channels only.
-  Secrets go to the platform store.
-  Secrets are keyed by auth name in the platform store.
-  Deleting an auth also removes its password/client-secret from the store.
+  Secrets go to the vault under a new local data key; if no recovery passphrase
+  exists yet, restore stores the backup passphrase as the recovery phrase.
+  Deleting an auth also removes its password/client-secret from the vault.
   Deleting a tenant deletes auths linked only to that tenant (with secrets) and
   unlinks multi-tenant auths; use 'buddy cred clean secrets' for leftover orphans
-  or 'buddy cred erase secrets' to wipe the entire store (including Keychain).
+  or 'buddy cred erase secrets' to wipe the vault, data key, recovery passphrase,
+  and any leftover per-auth Keychain items (both macOS services).
+  cred migrate moves inline YAML secrets into the vault and, with no auth name,
+  imports leftover per-auth Keychain/file/pass entries.
   Token files under ~/.config/buddy/tokens/ are purged when expired (or via
   'buddy cred clean tokens'); still-valid entries are reused across CLI runs.
   Auth channels (cli/mcp/ide) default to all. Channel policy access and
@@ -204,6 +220,7 @@ Examples:
   buddy cred set channel mcp --allow-builtins=*
   buddy cred set tenant prod --deny-builtins=* --allow-builtins=policies,policy
   buddy cred set secret platform-ro --client-secret
+  buddy cred set passphrase
   buddy cred delete auth sandbox-admin
   buddy cred delete tenant sandbox
   buddy cred clean secrets
@@ -382,7 +399,7 @@ Notes:
 Subcommands:
   basic-setup
     Interactive bootstrap for the first tenant and a basic (username/password)
-    instance auth. Stores the password in the platform secret store and sets the
+    instance auth. Stores the password in the vault and sets the
     tenant as default when appropriate. Then prints next steps (auth test, and
     optional write-script → store-oauth for day-to-day oauth).
 
@@ -394,7 +411,7 @@ Subcommands:
     Then fill instance/platform coverage gaps (instance URL with no instance
     auth, or platform identity with no platform oauth). Then prompt for any
     missing client IDs / usernames and store missing passwords or OAuth client
-    secrets in the platform secret store.
+    secrets in the vault.
     Org MDM profiles typically ship tenants and channel policy. Auths in the
     plist (including client IDs and secrets) are accepted if present; prefer
     this command so they stay in the local store. 'buddy setup managed-plist'
@@ -443,7 +460,7 @@ Subcommands:
     Rotates OAuth client credentials on a Jamf Pro *instance* API integration
     (invalidates the previous secret) and stores clientId + secret as a buddy
     oauth auth (type=oauth), linked to a tenant. The secret goes in the
-    platform secret store (Keychain/file — not Platform API oauth).
+    encrypted vault (secrets.enc — not Platform API oauth).
 
     Matching: if an oauth auth already exists for the target tenant with the same
     clientId, that auth is updated in place. Otherwise you are prompted for a new

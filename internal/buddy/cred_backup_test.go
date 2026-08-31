@@ -400,3 +400,25 @@ func TestCredBackupSkipsCommandAuthSecrets(t *testing.T) {
 		t.Fatal("expected oauth auth to peek the store")
 	}
 }
+
+func TestResolveBackupPassphraseIgnoresDEK(t *testing.T) {
+	t.Setenv(secrets.EnvVaultPassphrase, "")
+	secrets.SetStore(nil)
+	enc, err := secrets.EncodeDEK(make([]byte, secrets.EnvelopeKeyLen))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets.SetDEKStore(&secrets.MemoryMaster{Phrase: enc})
+	secrets.SetMasterStore(&secrets.MemoryMaster{Phrase: "recovery-only"})
+	t.Cleanup(func() {
+		secrets.SetDEKStore(nil)
+		secrets.SetMasterStore(nil)
+	})
+	pass, err := resolveBackupPassphrase("", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pass != "recovery-only" {
+		t.Fatalf("backup passphrase = %q (must not be the DEK)", pass)
+	}
+}

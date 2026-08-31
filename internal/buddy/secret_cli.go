@@ -147,8 +147,7 @@ type KeychainSecretGroup struct {
 }
 
 func secretStoreOverridden() bool {
-	kind, _, _ := secrets.StoreInfo()
-	return kind == "override"
+	return secrets.UsingOverrideStore()
 }
 
 // ListBuddyKeychainSecrets lists items under both buddy Keychain services on macOS.
@@ -173,23 +172,37 @@ func ListBuddyKeychainSecrets() ([]KeychainSecretGroup, error) {
 
 // EraseCredentialSecrets deletes every secret in the active store.
 // On macOS it also deletes leftover items from both buddy Keychain services
-// (CLI "buddy" and signed "virtualpete.buddy.cli").
+// (CLI "buddy" and signed "virtualpete.buddy.cli"), including the vault DEK
+// and recovery passphrase.
 func EraseCredentialSecrets() (storeDeleted, keychainDeleted int, err error) {
 	store, err := secrets.DefaultStore()
 	if err != nil {
 		return 0, 0, err
 	}
-	entries, err := store.List()
-	if err != nil {
-		return 0, 0, err
-	}
-	for _, e := range entries {
-		if err := store.Delete(e.AuthName, e.Kind); err != nil {
-			return storeDeleted, 0, fmt.Errorf("delete %s for %q: %w", e.Kind, e.AuthName, err)
+	if vs, ok := store.(*secrets.VaultStore); ok {
+		n, err := vs.Erase()
+		if err != nil {
+			return 0, 0, err
 		}
-		storeDeleted++
+		storeDeleted = n
+		if !secrets.UsingOverrideStore() {
+			if err := secrets.DeleteVaultKeys(); err != nil {
+				return storeDeleted, 0, fmt.Errorf("delete vault keys: %w", err)
+			}
+		}
+	} else {
+		entries, err := store.List()
+		if err != nil {
+			return 0, 0, err
+		}
+		for _, e := range entries {
+			if err := store.Delete(e.AuthName, e.Kind); err != nil {
+				return storeDeleted, 0, fmt.Errorf("delete %s for %q: %w", e.Kind, e.AuthName, err)
+			}
+			storeDeleted++
+		}
 	}
-	if secretStoreOverridden() {
+	if secrets.UsingOverrideStore() {
 		return storeDeleted, 0, nil
 	}
 	for _, svc := range secrets.BuddyKeychainServices() {
@@ -205,4 +218,69 @@ func EraseCredentialSecrets() (storeDeleted, keychainDeleted int, err error) {
 // ActiveKeychainService is the Keychain service this binary uses (empty off macOS).
 func ActiveKeychainService() string {
 	return secrets.ActiveKeychainService()
+}
+
+// LegacyMigrateResult is returned by MigrateLegacySecrets.
+type LegacyMigrateResult struct {
+	Copied  int
+	Deleted int
+	Skipped int
+}
+
+// ListLegacySecrets lists per-auth secrets still in the pre-vault backend.
+func ListLegacySecrets() ([]secrets.Entry, error) {
+	if secrets.UsingOverrideStore() {
+		return nil, nil
+	}
+	legacy, err := secrets.LegacyStore()
+	if err != nil {
+		return nil, err
+	}
+	return legacy.List()
+}
+
+// MigrateLegacySecrets copies per-auth Keychain/file/pass entries into the vault.
+// When deleteLegacy is true, each copied item is removed from the legacy store.
+func MigrateLegacySecrets(deleteLegacy bool) (*LegacyMigrateResult, error) {
+	res := &LegacyMigrateResult{}
+	if secrets.UsingOverrideStore() {
+		return res, nil
+	}
+	legacy, err := secrets.LegacyStore()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := legacy.List()
+	if err != nil {
+		return nil, fmt.Errorf("list legacy secrets: %w", err)
+	}
+	if len(entries) == 0 {
+		return res, nil
+	}
+	dest, err := secrets.DefaultStore()
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		val, err := legacy.Get(e.AuthName, e.Kind)
+		if err != nil {
+			return res, fmt.Errorf("read legacy %s for %q: %w", e.Kind, e.AuthName, err)
+		}
+		if err := dest.Set(e.AuthName, e.Kind, val); err != nil {
+			return res, fmt.Errorf("store %s for %q in vault: %w", e.Kind, e.AuthName, err)
+		}
+		res.Copied++
+		if deleteLegacy {
+			if err := legacy.Delete(e.AuthName, e.Kind); err != nil {
+				return res, fmt.Errorf("delete legacy %s for %q: %w", e.Kind, e.AuthName, err)
+			}
+			res.Deleted++
+		}
+	}
+	return res, nil
+}
+
+// SetVaultPassphrase creates or rotates the recovery passphrase (backups).
+func SetVaultPassphrase(passphrase string) error {
+	return secrets.SetMasterPassphrase(passphrase)
 }

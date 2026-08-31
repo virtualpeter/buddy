@@ -14,6 +14,10 @@ const (
 	keychainLabelSigned   = "Buddy"
 	// security -i truncates around this size (same limit go-keyring documents).
 	securityInteractiveMax = 4096
+	// masterKeychainAccount is the recovery passphrase (backup/restore; legacy v1 wrap).
+	masterKeychainAccount = "master"
+	// dekKeychainAccount is the random vault data key (not a per-auth secret).
+	dekKeychainAccount = "dek"
 )
 
 func keychainAccount(credName string, kind Kind) string {

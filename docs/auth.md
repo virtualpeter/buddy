@@ -1,6 +1,6 @@
 # Auth, secrets, and tokens
 
-Buddy talks to Jamf using a **tenant** (which environment) plus an **auth** (which principal). Passwords and OAuth client secrets belong in the platform secret store, not in `config.yaml`. Tokens are cached and refreshed automatically.
+Buddy talks to Jamf using a **tenant** (which environment) plus an **auth** (which principal). Passwords and OAuth client secrets belong in the encrypted vault, not in `config.yaml`. Tokens are cached and refreshed automatically.
 
 First-time install: [Getting started](index.md) (`buddy setup basic-setup` or, with an org MDM profile, `buddy setup secrets` / `buddy cred add`). YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
 
@@ -95,39 +95,48 @@ Typical profile content: `tenant.default`, `tenants`, and `channels` policy. Aut
 
 Keep production passwords and OAuth client secrets **out of YAML**. Inline secrets are fine for local tests only.
 
-Resolution order: **inline config → platform store → error**. Store keys are **auth names**.
+Resolution order: **inline config → vault → error**. Vault keys are **auth names**.
 
-| `BUDDY_SECRET_STORE` | Platform | Location |
-|----------------------|----------|----------|
-| (default) | macOS (`make buddy`) | Keychain, service `buddy`, via `security(1)` |
-| (default) | macOS (`make buddy-darwin-arm64`) | Keychain, service `virtualpete.buddy.cli` (label Buddy), via Security.framework |
-| (default) | Linux / Windows | `~/.config/buddy/secrets/<auth>.json` (mode `0600`; Windows: `%APPDATA%\buddy\secrets\`) |
-| `file` | any | Same as the Linux file store |
-| `pass` | Unix | `buddy/<auth>/password` and `buddy/<auth>/client-secret` |
-| `keychain` | macOS only | Explicit Keychain (same backend as the binary: CLI or SecItem) |
+Passwords and client secrets are stored in **`~/.config/buddy/secrets.enc`** (AES-256-GCM) next to `config.yaml`. A **random 256-bit data key (DEK)** unlocks the vault on each CLI run (no PBKDF2, no Touch ID). A **recovery passphrase** is only for `cred backup` / `restore` and for unwrapping that DEK onto a new binary or Mac.
+
+| `BUDDY_SECRET_STORE` | Platform | Data key (DEK) | Recovery passphrase |
+|----------------------|----------|----------------|---------------------|
+| (default) | macOS (`make buddy`) | Keychain, service `buddy`, account `dek`, via `security(1)` | same service, account `master` |
+| (default) | macOS (`make buddy-darwin-arm64`) | Keychain, service `virtualpete.buddy.cli` (label Buddy), account `dek`, `AfterFirstUnlockThisDeviceOnly`, via Security.framework | same service, account `master` |
+| (default) | Linux / Windows | `~/.config/buddy/dek` (mode `0600`) | `~/.config/buddy/master` (mode `0600`; Windows: `%APPDATA%\buddy\…`) |
+| `file` | any | Same as the Linux DEK file | Same as the Linux master file |
+| `pass` | Unix | `pass show buddy/dek` | `pass show buddy/master` |
+| `keychain` | macOS only | Explicit Keychain (same backend as the binary: CLI or SecItem) | same |
+
+`BUDDY_VAULT_PASSPHRASE` overrides the recovery passphrase for CI/tests (never written). If the value is a tagged DEK (`dek:v1:…`), it overrides the data key instead.
 
 The default Darwin binary writes Keychain items with `security -i` (secret on stdin, not argv) under service `buddy`. That is convenient for development (no CGO, survives `go build`), but the ACL is on `/usr/bin/security`, so any process running as you can read the same items.
 
-The signed release binary (`make buddy-darwin-arm64`, build tag `secitem`) uses Security.framework so the ACL is buddy’s Developer ID: only that signed binary can read without a prompt, and upgrades keep working as long as the Team ID and identifier stay the same. It uses a **different** service (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) so the two never share ACL or items. A signed binary does not see secrets stored by `./buddy`; run `buddy cred set secret` (or `buddy cred migrate`) again against `./buddy-darwin-arm64`. `make install-signed` copies that binary to `~/go/bin/buddy`. `buddy cred erase secrets` deletes items from **both** services.
+The signed release binary (`make buddy-darwin-arm64`, build tag `secitem`) uses Security.framework so the ACL is buddy’s Developer ID: only that signed binary can read without a prompt, and upgrades keep working as long as the Team ID and identifier stay the same. It uses a **different** service (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) so the two never share ACL or items. The vault file is shared. The DEK is stored with `AfterFirstUnlockThisDeviceOnly` (available for the rest of the login after the Mac is unlocked; screen lock does not prompt Terminal). Touch ID / user presence is requested only when creating or unwrapping the DEK, setting the recovery passphrase, or restoring a backup — not on ordinary commands such as `buddy policy list`. Unsigned `./buddy` cannot use a meaningful app ACL; biometrics are a signed-release feature.
+
+A signed binary does not see a DEK stored by `./buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against `./buddy-darwin-arm64` (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. `make install-signed` copies that binary to `~/go/bin/buddy`. `buddy cred erase secrets` deletes the vault, the DEK, the recovery passphrase, and leftover per-auth items from **both** Keychain services.
 
 `make buddy-darwin-arm64` requires Darwin/arm64 and `BUDDY_CODESIGN_IDENTITY` (a Developer ID Application identity). The identifier defaults to `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) and must stay stable across releases so Keychain ACLs survive rebuilds. The Keychain service is hardcoded to that same reverse-DNS string (not read from the running binary), so overriding the identifier at sign time still stores items under `virtualpete.buddy.cli`. Ad-hoc signatures are rejected.
+
+Older vault files used PBKDF2 with the recovery passphrase as the wrapping secret. The first CLI run after upgrade migrates them to a DEK (PBKDF2 stays on backup files and on the optional DEK wrap inside `secrets.enc`). Older installs stored one Keychain/file/pass item per secret. `buddy cred migrate` copies those into the vault (and can delete the old items).
 
 ```sh
 buddy cred status                               # tenant × surface coverage (no Jamf call)
 buddy cred add --tenant=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
+buddy cred set passphrase                        # create / rotate the recovery passphrase (backups)
 buddy cred set secret sandbox-admin                  # password (basic)
 buddy cred set secret sandbox-admin --client-secret  # OAuth
-buddy cred migrate                                   # move inline YAML secrets into the store
-buddy cred backup ./buddy.creds                      # passphrase prompt; AES-GCM file
-buddy cred restore ./buddy.creds                     # passphrase; confirm each auth
-buddy cred clean secrets                             # review / delete orphaned store entries
-buddy cred erase secrets                             # wipe all store secrets (both macOS Keychain services)
-buddy cred delete auth sandbox-admin                 # also clears store secrets
+buddy cred migrate                                   # inline YAML + old per-auth store → vault
+buddy cred backup ./buddy.creds                      # uses stored recovery passphrase by default; AES-GCM file
+buddy cred restore ./buddy.creds                     # recovery passphrase; confirm each auth; new local DEK
+buddy cred clean secrets                             # review / delete orphaned vault entries
+buddy cred erase secrets                             # wipe vault + DEK + recovery passphrase (+ leftover Keychain items)
+buddy cred delete auth sandbox-admin                 # also clears vault secrets
 ```
 
 `buddy cred get secret` and the SECRET column on `cred status` are **presence only**. `buddy auth test` discards any cached token and mints a new one: missing secret / token POST failure is an error; probe 403 after a good token is `live=token-ok` (the secret works, the role lacks that probe).
 
-`buddy cred backup` / `restore` encrypt tenants, auths (including store secrets), and channel policy with a passphrase (AES-256-GCM, PBKDF2-SHA256). Restore applies tenants and channels, then prompts once per auth unless `-y` (Enter/y writes that auth from the backup; `n` leaves the existing config entry). Auths not in the backup are kept. Secrets go back to the platform store.
+`buddy cred backup` / `restore` encrypt tenants, auths (including vault secrets), and channel policy with a **recovery passphrase** (AES-256-GCM, PBKDF2-SHA256). The DEK and any biometric/Keychain material are never written into `buddy.creds`. Backup defaults to the stored recovery passphrase (`--passphrase=` overrides). Restore applies tenants and channels, then prompts once per auth unless `-y` (Enter/y writes that auth from the backup; `n` leaves the existing config entry). Auths not in the backup are kept. Secrets go back to the vault under a **new** local DEK. If no recovery passphrase is stored yet, restore saves the backup passphrase as the recovery phrase.
 
 Config and tokens live under `~/.config/buddy` on macOS/Linux (`$XDG_CONFIG_HOME/buddy` when set), and `%APPDATA%\buddy` on Windows.
 

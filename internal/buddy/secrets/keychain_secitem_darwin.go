@@ -71,7 +71,7 @@ int buddy_secitem_get(const char *service, const char *account, char **out, size
 	return 0;
 }
 
-int buddy_secitem_set(const char *service, const char *account, const char *label, const char *value, size_t value_len) {
+int buddy_secitem_set(const char *service, const char *account, const char *label, const char *value, size_t value_len, int after_first_unlock) {
 	CFStringRef svc = cfstr(service);
 	CFStringRef acct = cfstr(account);
 	CFStringRef lbl = cfstr(label);
@@ -94,9 +94,18 @@ int buddy_secitem_set(const char *service, const char *account, const char *labe
 	CFRelease(attrs);
 	if (st == errSecItemNotFound) {
 		CFDictionaryRef item;
-		if (lbl != NULL) {
+		CFStringRef access = after_first_unlock ? kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly : NULL;
+		if (lbl != NULL && access != NULL) {
+			const void *ikeys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecAttrLabel, kSecValueData, kSecAttrAccessible};
+			const void *ivals[] = {kSecClassGenericPassword, svc, acct, lbl, data, access};
+			item = CFDictionaryCreate(NULL, ikeys, ivals, 6, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		} else if (lbl != NULL) {
 			const void *ikeys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecAttrLabel, kSecValueData};
 			const void *ivals[] = {kSecClassGenericPassword, svc, acct, lbl, data};
+			item = CFDictionaryCreate(NULL, ikeys, ivals, 5, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		} else if (access != NULL) {
+			const void *ikeys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecValueData, kSecAttrAccessible};
+			const void *ivals[] = {kSecClassGenericPassword, svc, acct, data, access};
 			item = CFDictionaryCreate(NULL, ikeys, ivals, 5, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 		} else {
 			const void *ikeys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecValueData};
@@ -193,6 +202,103 @@ func (k *KeychainStore) Description() string {
 	return fmt.Sprintf("macOS Keychain (service %q, Security.framework)", keychainService)
 }
 
+func keychainMasterDescription() string {
+	return fmt.Sprintf("macOS Keychain (service %q, account %q, Security.framework)", keychainService, masterKeychainAccount)
+}
+
+func keychainDEKDescription() string {
+	return fmt.Sprintf("macOS Keychain (service %q, account %q, AfterFirstUnlockThisDeviceOnly, Security.framework)", keychainService, dekKeychainAccount)
+}
+
+func secitemGet(service, account string) (string, error) {
+	cSvc := C.CString(service)
+	defer C.free(unsafe.Pointer(cSvc))
+	cAcct := C.CString(account)
+	defer C.free(unsafe.Pointer(cAcct))
+	var out *C.char
+	var n C.size_t
+	st := C.buddy_secitem_get(cSvc, cAcct, &out, &n)
+	defer cFree(out)
+	if int(st) == errSecItemNotFound {
+		return "", fmt.Errorf("keychain item %q not found", account)
+	}
+	if err := secitemError(st); err != nil {
+		return "", err
+	}
+	return C.GoStringN(out, C.int(n)), nil
+}
+
+func secitemSet(service, account, label, value string) error {
+	return secitemSetOpts(service, account, label, value, false)
+}
+
+func secitemSetOpts(service, account, label, value string, afterFirstUnlock bool) error {
+	cSvc := C.CString(service)
+	defer C.free(unsafe.Pointer(cSvc))
+	cAcct := C.CString(account)
+	defer C.free(unsafe.Pointer(cAcct))
+	var cVal *C.char
+	if len(value) > 0 {
+		cVal = (*C.char)(C.CBytes([]byte(value)))
+		defer C.free(unsafe.Pointer(cVal))
+	}
+	var cLbl *C.char
+	if label != "" {
+		cLbl = C.CString(label)
+		defer C.free(unsafe.Pointer(cLbl))
+	}
+	flag := 0
+	if afterFirstUnlock {
+		flag = 1
+	}
+	st := C.buddy_secitem_set(cSvc, cAcct, cLbl, cVal, C.size_t(len(value)), C.int(flag))
+	return secitemError(st)
+}
+
+func keychainMasterGet() (string, error) {
+	v, err := secitemGet(keychainService, masterKeychainAccount)
+	if err != nil {
+		return "", fmt.Errorf("recovery passphrase not set — run 'buddy cred set passphrase': %w", err)
+	}
+	return v, nil
+}
+
+func keychainMasterSet(value string) error {
+	return secitemSet(keychainService, masterKeychainAccount, keychainLabelSigned, value)
+}
+
+func keychainMasterDelete() error {
+	return secitemDeleteAccount(masterKeychainAccount)
+}
+
+func keychainDEKGet() (string, error) {
+	v, err := secitemGet(keychainService, dekKeychainAccount)
+	if err != nil {
+		return "", fmt.Errorf("vault key not set: %w", err)
+	}
+	return v, nil
+}
+
+func keychainDEKSet(value string) error {
+	return secitemSetOpts(keychainService, dekKeychainAccount, keychainLabelSigned, value, true)
+}
+
+func keychainDEKDelete() error {
+	return secitemDeleteAccount(dekKeychainAccount)
+}
+
+func secitemDeleteAccount(account string) error {
+	cSvc := C.CString(keychainService)
+	defer C.free(unsafe.Pointer(cSvc))
+	cAcct := C.CString(account)
+	defer C.free(unsafe.Pointer(cAcct))
+	st := C.buddy_secitem_delete(cSvc, cAcct)
+	if int(st) == errSecItemNotFound {
+		return nil
+	}
+	return secitemError(st)
+}
+
 func cFree(p *C.char) {
 	if p != nil {
 		C.free(unsafe.Pointer(p))
@@ -213,38 +319,15 @@ func secitemError(st C.int) error {
 
 func (k *KeychainStore) Get(credName string, kind Kind) (string, error) {
 	account := keychainAccount(credName, kind)
-	cSvc := C.CString(keychainService)
-	defer C.free(unsafe.Pointer(cSvc))
-	cAcct := C.CString(account)
-	defer C.free(unsafe.Pointer(cAcct))
-	var out *C.char
-	var n C.size_t
-	st := C.buddy_secitem_get(cSvc, cAcct, &out, &n)
-	defer cFree(out)
-	if int(st) == errSecItemNotFound {
+	val, err := secitemGet(keychainService, account)
+	if err != nil {
 		return "", fmt.Errorf("secret %q not found in keychain for credential %q", kind, credName)
 	}
-	if err := secitemError(st); err != nil {
-		return "", err
-	}
-	return C.GoStringN(out, C.int(n)), nil
+	return val, nil
 }
 
 func (k *KeychainStore) Set(credName string, kind Kind, value string) error {
-	account := keychainAccount(credName, kind)
-	cSvc := C.CString(keychainService)
-	defer C.free(unsafe.Pointer(cSvc))
-	cAcct := C.CString(account)
-	defer C.free(unsafe.Pointer(cAcct))
-	var cVal *C.char
-	if len(value) > 0 {
-		cVal = (*C.char)(C.CBytes([]byte(value)))
-		defer C.free(unsafe.Pointer(cVal))
-	}
-	cLbl := C.CString(keychainLabelSigned)
-	defer C.free(unsafe.Pointer(cLbl))
-	st := C.buddy_secitem_set(cSvc, cAcct, cLbl, cVal, C.size_t(len(value)))
-	return secitemError(st)
+	return secitemSet(keychainService, keychainAccount(credName, kind), keychainLabelSigned, value)
 }
 
 func (k *KeychainStore) Delete(credName string, kind Kind) error {

@@ -101,3 +101,27 @@ func HasCredentialSecret(credName string, kind secrets.Kind) (bool, error) {
 func SecretStoreInfo() (kind, detail string, err error) {
 	return secrets.StoreInfo()
 }
+
+// SecretStoreDetails is the vault + DEK + recovery-passphrase backends for `cred store`.
+func SecretStoreDetails() (kind, vaultPath, masterKind, masterDetail, dekKind, dekDetail string, err error) {
+	kind, detail, err := secrets.StoreInfo()
+	if err != nil {
+		return "", "", "", "", "", "", err
+	}
+	if kind != "vault" {
+		return kind, detail, "", "", "", "", nil
+	}
+	vp, err := secrets.VaultPath()
+	if err != nil {
+		return kind, detail, "", "", "", "", err
+	}
+	m, err := secrets.DefaultMasterStore()
+	if err != nil {
+		return kind, vp, secrets.MasterKindName(), "", secrets.DEKKindName(), "", err
+	}
+	d, derr := secrets.DefaultDEKStore()
+	if derr != nil {
+		return kind, vp, secrets.MasterKindName(), m.Description(), secrets.DEKKindName(), "", derr
+	}
+	return kind, vp, secrets.MasterKindName(), m.Description(), secrets.DEKKindName(), d.Description(), nil
+}
