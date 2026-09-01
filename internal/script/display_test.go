@@ -42,49 +42,10 @@ func TestFormatDisplayValueStringRaw(t *testing.T) {
 	}
 }
 
-func TestResultEnvelopeLegacy(t *testing.T) {
-	// resultOK is bare; construct a legacy envelope for peel tests.
-	env := new(starlark.Dict)
-	_ = env.SetKey(starlark.String("ok"), starlark.True)
-	_ = env.SetKey(starlark.String("value"), starlark.String("x"))
-	_ = env.SetKey(starlark.String("error"), starlark.String(""))
-	ok, val, _, isEnv := resultEnvelope(env)
-	if !isEnv || !ok {
-		t.Fatal("expected ok envelope")
-	}
-	if string(val.(starlark.String)) != "x" {
-		t.Fatalf("val %v", val)
-	}
+func TestResultOKIsBare(t *testing.T) {
 	bare := resultOK(starlark.String("x"))
 	if _, ok := bare.(starlark.String); !ok {
 		t.Fatalf("resultOK should be bare, got %T", bare)
-	}
-	plain := new(starlark.Dict)
-	_ = plain.SetKey(starlark.String("api"), starlark.String("pro"))
-	_, _, _, isEnv = resultEnvelope(plain)
-	if isEnv {
-		t.Fatal("plain dict should not be envelope")
-	}
-}
-
-func TestUnwrapOK(t *testing.T) {
-	sess, err := NewSession("default", buddy.Opts{}, slog.Default(), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res := sess.Eval("unwrap_ok", `
-v = unwrap({"ok": True, "value": {"hello": "world"}, "error": ""}, pretty=False)
-v
-`)
-	if res.Error != "" {
-		t.Fatal(res.Error)
-	}
-	got := strings.TrimSpace(res.Stdout)
-	if got != `{"hello":"world"}` {
-		t.Fatalf("stdout=%q", res.Stdout)
-	}
-	if !strings.Contains(res.Result, `"hello"`) {
-		t.Fatalf("Result=%q", res.Result)
 	}
 }
 
@@ -106,22 +67,20 @@ v
 	}
 }
 
-func TestUnwrapHardError(t *testing.T) {
+func TestUnwrapPrintsDictAsJSON(t *testing.T) {
 	sess, err := NewSession("default", buddy.Opts{}, slog.Default(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	res := sess.Eval("unwrap_err", `
-unwrap({"ok": False, "error": "boom", "value": None})
+	res := sess.Eval("unwrap_dict", `
+unwrap({"ok": False, "error": "boom"}, pretty=False)
 `)
-	if res.Error == "" {
-		t.Fatal("expected error on ok=false envelope")
+	if res.Error != "" {
+		t.Fatal(res.Error)
 	}
-	if !strings.Contains(res.Error, "boom") {
-		t.Fatalf("Error=%q", res.Error)
-	}
-	if strings.TrimSpace(res.Stdout) != "" {
-		t.Fatalf("stdout should be empty on error, got %q", res.Stdout)
+	got := strings.TrimSpace(res.Stdout)
+	if !strings.Contains(got, `"error":"boom"`) {
+		t.Fatalf("stdout=%q", res.Stdout)
 	}
 }
 

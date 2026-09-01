@@ -48,9 +48,6 @@ func TestDefaultTenantFromChannels(t *testing.T) {
 	if got := cfg.DefaultTenant(ChannelIDE); got != "prod" {
 		t.Fatalf("ide=%q", got)
 	}
-	if got := cfg.DefaultTenant(ChannelNotebook); got != "prod" {
-		t.Fatalf("notebook aliases ide default=%q", got)
-	}
 	cfg.Channels = nil
 	if got := cfg.DefaultTenant(ChannelCLI); got != "sandbox" {
 		t.Fatalf("global=%q", got)
@@ -211,39 +208,21 @@ func TestMarshalConfig_Channels(t *testing.T) {
 	}
 }
 
-func TestMigrateLegacyDefaultsAllowAuths(t *testing.T) {
-	cfg := &Config{
-		Tenant: TenantSelection{Default: "sandbox"},
-		Defaults: map[string]string{
-			"cli": "prod",
-			"ide": "prod",
-		},
-		AllowAuths: map[string][]string{
-			"mcp": {"sandbox-ro"},
-		},
-		Tenants: map[string]TenantConfig{
-			"sandbox": {URL: "https://example.jamfcloud.com"},
-			"prod":    {URL: "https://prod.example.jamfcloud.com"},
-		},
-		Auths: map[string]AuthEntry{
-			"sandbox-admin": {Type: "oauth", ClientID: "c1", Tenants: []string{"sandbox"}},
-			"sandbox-ro":    {Type: "oauth", ClientID: "c2", Tenants: []string{"sandbox"}},
-		},
+func TestRejectRemovedConfigKeys(t *testing.T) {
+	cases := []struct {
+		yaml string
+		want string
+	}{
+		{"credentials:\n  sandbox:\n    url: https://example.jamfcloud.com\n", "credentials:"},
+		{"defaults:\n  cli: sandbox\n", "defaults:"},
+		{"allow_auths:\n  mcp: [ro]\n", "allow_auths:"},
+		{"cred: sandbox\n", "cred:"},
 	}
-	if !migrateLegacyTenantDefaultsAllow(cfg, true) {
-		t.Fatal("expected migration")
-	}
-	if cfg.Channels[ChannelCLI].Tenant != "prod" || cfg.Channels[ChannelIDE].Tenant != "prod" {
-		t.Fatalf("channels=%+v", cfg.Channels)
-	}
-	if cfg.AuthAllowed(ChannelMCP, "sandbox-admin") {
-		t.Fatal("admin should lose mcp after invert")
-	}
-	if !cfg.AuthAllowed(ChannelMCP, "sandbox-ro") {
-		t.Fatal("ro should keep mcp")
-	}
-	if !cfg.AuthAllowed(ChannelCLI, "sandbox-admin") {
-		t.Fatal("cli unrestricted → admin kept")
+	for _, tc := range cases {
+		_, _, err := parseAndMigrateUserYAML([]byte(tc.yaml))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("yaml %q: err=%v want %q", tc.yaml, err, tc.want)
+		}
 	}
 }
 
@@ -253,75 +232,38 @@ func TestTenantLegacyKeysRejected(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
 		t.Fatalf("err=%v", err)
 	}
+	err = yaml.Unmarshal([]byte("sandbox\n"), &tsel)
+	if err == nil || !strings.Contains(err.Error(), "mapping") {
+		t.Fatalf("string tenant err=%v", err)
+	}
 }
 
 func TestParseAuthChannels(t *testing.T) {
-	got, err := ParseAuthChannels("cli,mcp,ide,notebook")
+	got, err := ParseAuthChannels("cli,mcp,ide")
 	if err != nil || got != nil {
-		t.Fatalf("all three after notebook→ide should clear: %v %v", got, err)
+		t.Fatalf("all three should clear: %v %v", got, err)
 	}
 	_, err = ParseAuthChannels("serve")
 	if err == nil || !strings.Contains(err.Error(), "removed") {
 		t.Fatalf("err=%v", err)
 	}
-	got, err = ParseAuthChannels("mcp,notebook")
-	if err != nil || len(got) != 2 || got[0] != ChannelIDE || got[1] != ChannelMCP {
-		t.Fatalf("got=%v err=%v", got, err)
+	_, err = ParseAuthChannels("notebook")
+	if err == nil || !strings.Contains(err.Error(), "removed") {
+		t.Fatalf("notebook err=%v", err)
 	}
 }
 
-func TestMigrateNotebookChannel(t *testing.T) {
-	cfg := &Config{
-		Tenant: TenantSelection{Default: "sandbox"},
-		Channels: map[string]ChannelPolicy{
-			ChannelNotebook: {Tenant: "sandbox", Access: AccessReadonly, Tenants: []string{"sandbox"}},
-			ChannelIDE:      {Tenant: "prod"},
-		},
-		Tenants: map[string]TenantConfig{
-			"sandbox": {URL: "https://example.jamfcloud.com"},
-			"prod":    {URL: "https://prod.example.jamfcloud.com"},
-		},
-		Auths: map[string]AuthEntry{
-			"ro": {
-				Type: "oauth", ClientID: "c1",
-				Tenants:  []string{"sandbox"},
-				Channels: []string{ChannelMCP, ChannelNotebook, ChannelIDE},
-			},
-		},
+func TestNotebookChannelRejected(t *testing.T) {
+	cfg := sampleChannelConfig()
+	cfg.Channels["notebook"] = ChannelPolicy{Tenant: "sandbox"}
+	if err := cfg.ValidateTenantSelectionAndChannels(); err == nil || !strings.Contains(err.Error(), "notebook") {
+		t.Fatalf("err=%v", err)
 	}
-	if !migrateNotebookChannel(cfg) {
-		t.Fatal("expected migration")
-	}
-	if _, ok := cfg.Channels[ChannelNotebook]; ok {
-		t.Fatal("notebook key should be dropped")
-	}
-	ide := cfg.Channels[ChannelIDE]
-	if ide.Tenant != "prod" {
-		t.Fatalf("ide tenant should stay prod, got %q", ide.Tenant)
-	}
-	if ide.EffectiveAccess() != AccessReadonly {
-		t.Fatalf("ide should inherit notebook access, got %q", ide.Access)
-	}
-	if len(ide.Tenants) != 1 || ide.Tenants[0] != "sandbox" {
-		t.Fatalf("ide tenants=%v", ide.Tenants)
-	}
-	got := cfg.Auths["ro"].Channels
-	hasMCP, hasIDE := false, false
-	for _, c := range got {
-		if c == ChannelMCP {
-			hasMCP = true
-		}
-		if c == ChannelIDE {
-			hasIDE = true
-		}
-		if c == ChannelNotebook {
-			t.Fatalf("notebook leftover in auth channels: %v", got)
-		}
-	}
-	if !hasMCP || !hasIDE || len(got) != 2 {
-		t.Fatalf("auth channels=%v", got)
-	}
-	if migrateNotebookChannel(cfg) {
-		t.Fatal("second migrate should be a no-op")
+	a := cfg.Auths["sandbox-ro"]
+	a.Channels = []string{ChannelMCP, "notebook"}
+	cfg.Auths["sandbox-ro"] = a
+	cfg.Channels = sampleChannelConfig().Channels
+	if err := cfg.ValidateTenantSelectionAndChannels(); err == nil || !strings.Contains(err.Error(), "notebook") {
+		t.Fatalf("auth notebook err=%v", err)
 	}
 }

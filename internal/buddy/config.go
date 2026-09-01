@@ -15,9 +15,6 @@ import (
 // DefaultTenant is the default tenant name used when none is configured.
 const DefaultTenant = "default"
 
-// Deprecated: DefaultCred is an alias of DefaultTenant for older call sites.
-const DefaultCred = DefaultTenant
-
 // Access levels for an auth entry.
 const (
 	AccessFull     = "full"
@@ -306,11 +303,8 @@ func ParseAuthChannels(s string) ([]string, error) {
 		if p == "" {
 			continue
 		}
-		if p == "serve" {
+		if p == "serve" || p == "notebook" {
 			return nil, fmt.Errorf("channel %q was removed; use ide (or all)", p)
-		}
-		if p == ChannelNotebook {
-			p = ChannelIDE
 		}
 		if !isBuddyChannel(p) {
 			return nil, fmt.Errorf("unknown channel %q (want cli, mcp, ide, or all)", p)
@@ -600,17 +594,16 @@ type TenantSelection struct {
 	Default string `yaml:"default"`
 }
 
-// UnmarshalYAML accepts either a string (legacy `tenant: name`) or a mapping with default only.
+// UnmarshalYAML accepts a mapping with default only (`tenant: {default: name}`).
 func (t *TenantSelection) UnmarshalYAML(value *yaml.Node) error {
 	if value == nil {
 		return nil
 	}
 	if value.Kind == yaml.ScalarNode {
-		t.Default = strings.TrimSpace(value.Value)
-		return nil
+		return fmt.Errorf("tenant: must be a mapping with default: (not a bare string)")
 	}
 	if value.Kind != yaml.MappingNode {
-		return fmt.Errorf("tenant: must be a string or mapping")
+		return fmt.Errorf("tenant: must be a mapping with default:")
 	}
 	for i := 0; i+1 < len(value.Content); i += 2 {
 		k := value.Content[i].Value
@@ -701,12 +694,6 @@ type Config struct {
 	Auths    map[string]AuthEntry     `yaml:"auths"`
 	Channels map[string]ChannelPolicy `yaml:"channels,omitempty"`
 	Features FeatureFlags             `yaml:"features,omitempty"`
-
-	// Legacy fields — populated only while unmarshaling old configs; cleared after migrate.
-	Cred        string                      `yaml:"cred,omitempty"`
-	Credentials map[string]CredentialConfig `yaml:"credentials,omitempty"`
-	Defaults    map[string]string           `yaml:"defaults,omitempty"`    // migrated away
-	AllowAuths  map[string][]string         `yaml:"allow_auths,omitempty"` // migrated away
 
 	// user is the YAML file as loaded (after migrate). mdm is managed prefs.
 	// Both are omitted from YAML; SaveConfig writes only the user overlay when mdm is set.
@@ -868,11 +855,8 @@ func (cfg *Config) ValidateTenantSelectionAndChannels() error {
 	}
 	for ch, p := range cfg.Channels {
 		ch = strings.ToLower(strings.TrimSpace(ch))
-		if ch == "serve" {
-			return fmt.Errorf("channels.serve is no longer supported; use channels.ide")
-		}
-		if ch == ChannelNotebook {
-			return fmt.Errorf("channels.notebook is no longer supported; use channels.ide")
+		if ch == "serve" || ch == "notebook" {
+			return fmt.Errorf("channels.%s is no longer supported; use channels.ide", ch)
 		}
 		if !isBuddyChannel(ch) {
 			return fmt.Errorf("channels: unknown channel %q (want cli, mcp, or ide)", ch)
@@ -924,10 +908,7 @@ func (cfg *Config) ValidateTenantSelectionAndChannels() error {
 			if c == "" {
 				continue
 			}
-			if c == "serve" {
-				return fmt.Errorf("auth %q: channel %q was removed; use ide", name, c)
-			}
-			if c == ChannelNotebook {
+			if c == "serve" || c == "notebook" {
 				return fmt.Errorf("auth %q: channel %q was removed; use ide", name, c)
 			}
 			if !isBuddyChannel(c) {
@@ -958,7 +939,8 @@ func configPath() (string, error) {
 }
 
 // LoadConfig loads config from the platform config dir (see secrets.ConfigDir).
-// Older shapes (credentials:, string tenant:, defaults:, allow_auths:) migrate in-memory and rewrite on disk.
+// Requires tenants:/auths: (legacy credentials:/defaults:/allow_auths: and a
+// bare string tenant: are rejected). Auth surface: still folds into type on load.
 // macOS managed preferences (and BUDDY_MANAGED_PLIST) overlay as org defaults; user YAML wins per name.
 func LoadConfig() (*Config, error) {
 	path, err := configPath()
@@ -1030,157 +1012,37 @@ func LoadConfig() (*Config, error) {
 }
 
 func parseAndMigrateUserYAML(data []byte) (*Config, []string, error) {
-	stringTenant := tenantKeyIsString(data)
-
-	var raw legacyConfigFile
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	if err := rejectRemovedConfigKeys(data); err != nil {
 		return nil, nil, err
 	}
-
-	cfg := &Config{
-		Tenant:     raw.Tenant,
-		Tenants:    raw.Tenants,
-		Auths:      raw.Auths,
-		Channels:   raw.Channels,
-		Defaults:   raw.Defaults,
-		AllowAuths: raw.AllowAuths,
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, nil, err
 	}
 	var notes []string
-	if len(raw.Credentials) > 0 && len(raw.Tenants) == 0 {
-		migrated, err := migrateCredentialsToTenantsAuths(&raw)
-		if err != nil {
-			return nil, nil, err
-		}
-		cfg = migrated
-		cfg.Defaults = raw.Defaults
-		cfg.AllowAuths = raw.AllowAuths
-		notes = append(notes, "credentials: to tenants:/auths:")
-	}
-	if migrated := migrateLegacyTenantDefaultsAllow(cfg, stringTenant); migrated {
-		notes = append(notes, "tenant:/defaults:/allow_auths: to tenant: object + auth channels")
-	}
-	if migrateNotebookChannel(cfg) {
-		notes = append(notes, "channels.notebook to channels.ide")
-	}
-	if migrateAuthSurfaceIntoType(cfg) {
+	if migrateAuthSurfaceIntoType(&cfg) {
 		notes = append(notes, "auth surface into type (platform oauth → type: platform)")
 	}
-	if strings.TrimSpace(cfg.Tenant.Default) == "" {
-		if raw.Cred != "" && cfg.Tenants != nil {
-			if _, ok := cfg.Tenants[raw.Cred]; ok {
-				cfg.Tenant.Default = raw.Cred
-			} else if a, ok := cfg.Auths[raw.Cred]; ok && len(a.Tenants) > 0 {
-				cfg.Tenant.Default = a.Tenants[0]
-			}
-		}
-	}
-	cfg.Cred = ""
-	cfg.Credentials = nil
-	cfg.Defaults = nil
-	cfg.AllowAuths = nil
-	normalizeAuthChannels(cfg)
-	return cfg, notes, nil
+	normalizeAuthChannels(&cfg)
+	return &cfg, notes, nil
 }
 
-func tenantKeyIsString(data []byte) bool {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return false
+func rejectRemovedConfigKeys(data []byte) error {
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil || raw == nil {
+		return nil
 	}
-	root := &doc
-	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
-		root = doc.Content[0]
+	switch {
+	case raw["credentials"] != nil:
+		return fmt.Errorf("credentials: was removed; use tenants: and auths: (see 'buddy cred help')")
+	case raw["defaults"] != nil:
+		return fmt.Errorf("defaults: was removed; use channels.<cli|mcp|ide>.tenant")
+	case raw["allow_auths"] != nil:
+		return fmt.Errorf("allow_auths: was removed; set channels: on each auth")
+	case raw["cred"] != nil:
+		return fmt.Errorf("cred: was removed; use tenant.default")
 	}
-	if root.Kind != yaml.MappingNode {
-		return false
-	}
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == "tenant" {
-			return root.Content[i+1].Kind == yaml.ScalarNode
-		}
-	}
-	return false
-}
-
-// migrateLegacyTenantDefaultsAllow folds string tenant / defaults / allow_auths into the new shape.
-// Returns true when a rewrite is needed.
-func migrateLegacyTenantDefaultsAllow(cfg *Config, stringTenant bool) bool {
-	if cfg == nil {
-		return false
-	}
-	changed := stringTenant || len(cfg.Defaults) > 0 || len(cfg.AllowAuths) > 0
-	if !changed {
-		return false
-	}
-	if len(cfg.Defaults) > 0 {
-		if cfg.Channels == nil {
-			cfg.Channels = map[string]ChannelPolicy{}
-		}
-		for _, ch := range []string{ChannelCLI, ChannelMCP, ChannelIDE} {
-			if v := strings.TrimSpace(cfg.Defaults[ch]); v != "" {
-				p := cfg.Channels[ch]
-				if strings.TrimSpace(p.Tenant) == "" {
-					p.Tenant = v
-					cfg.Channels[ch] = p
-				}
-			}
-		}
-		// Legacy defaults.notebook / defaults.serve → ide when unset.
-		for _, key := range []string{ChannelNotebook, "serve"} {
-			if v := strings.TrimSpace(cfg.Defaults[key]); v != "" {
-				p := cfg.Channels[ChannelIDE]
-				if strings.TrimSpace(p.Tenant) == "" {
-					p.Tenant = v
-					cfg.Channels[ChannelIDE] = p
-				}
-			}
-		}
-	}
-	if len(cfg.AllowAuths) > 0 {
-		applyAllowAuthsToChannels(cfg, cfg.AllowAuths)
-	}
-	cfg.Defaults = nil
-	cfg.AllowAuths = nil
-	return true
-}
-
-// migrateNotebookChannel folds channels.notebook onto channels.ide and rewrites
-// auth channels: […, notebook] → ide (deduped). Returns true when a rewrite is needed.
-func migrateNotebookChannel(cfg *Config) bool {
-	if cfg == nil {
-		return false
-	}
-	changed := false
-	if cfg.Channels != nil {
-		if nb, ok := cfg.Channels[ChannelNotebook]; ok {
-			cfg.Channels[ChannelIDE] = mergeChannelPolicyEmpty(cfg.Channels[ChannelIDE], nb)
-			delete(cfg.Channels, ChannelNotebook)
-			changed = true
-		}
-	}
-	for name, a := range cfg.Auths {
-		var out []string
-		seen := map[string]bool{}
-		mutated := false
-		for _, c := range a.Channels {
-			c2 := strings.ToLower(strings.TrimSpace(c))
-			if c2 == ChannelNotebook {
-				c2 = ChannelIDE
-				mutated = true
-			}
-			if c2 == "" || seen[c2] {
-				continue
-			}
-			seen[c2] = true
-			out = append(out, c2)
-		}
-		if mutated {
-			a.Channels = out
-			cfg.Auths[name] = a
-			changed = true
-		}
-	}
-	return changed
+	return nil
 }
 
 // migrateAuthSurfaceIntoType folds legacy auth surface into type:
@@ -1210,71 +1072,6 @@ func migrateAuthSurfaceIntoType(cfg *Config) bool {
 	return changed
 }
 
-func mergeChannelPolicyEmpty(dst, src ChannelPolicy) ChannelPolicy {
-	if strings.TrimSpace(dst.Access) == "" {
-		dst.Access = src.Access
-	}
-	if strings.TrimSpace(dst.Tenant) == "" {
-		dst.Tenant = src.Tenant
-	}
-	if len(dst.Tenants) == 0 && len(src.Tenants) > 0 {
-		dst.Tenants = append([]string(nil), src.Tenants...)
-	}
-	if len(dst.DenyBuiltins) == 0 && len(src.DenyBuiltins) > 0 {
-		dst.DenyBuiltins = append([]string(nil), src.DenyBuiltins...)
-	}
-	if len(dst.AllowBuiltins) == 0 && len(src.AllowBuiltins) > 0 {
-		dst.AllowBuiltins = append([]string(nil), src.AllowBuiltins...)
-	}
-	return dst
-}
-
-func applyAllowAuthsToChannels(cfg *Config, allow map[string][]string) {
-	if cfg == nil || len(allow) == 0 {
-		return
-	}
-	surfaces := AllBuddyChannels()
-	allowSets := map[string]map[string]bool{}
-	for _, s := range surfaces {
-		list := allow[s]
-		if s == ChannelIDE {
-			// Legacy allow_auths.notebook / allow_auths.serve apply to ide.
-			if len(list) == 0 {
-				list = allow[ChannelNotebook]
-			}
-			if len(list) == 0 {
-				list = allow["serve"]
-			}
-		}
-		if len(list) == 0 {
-			continue // unrestricted for this surface
-		}
-		set := map[string]bool{}
-		for _, n := range list {
-			n = strings.TrimSpace(n)
-			if n != "" {
-				set[n] = true
-			}
-		}
-		allowSets[s] = set
-	}
-	for name, a := range cfg.Auths {
-		var kept []string
-		for _, s := range surfaces {
-			set, restricted := allowSets[s]
-			if !restricted || set[name] {
-				kept = append(kept, s)
-			}
-		}
-		if len(kept) == len(surfaces) {
-			a.Channels = nil
-		} else {
-			a.Channels = kept
-		}
-		cfg.Auths[name] = a
-	}
-}
-
 func normalizeAuthChannels(cfg *Config) {
 	if cfg == nil {
 		return
@@ -1285,9 +1082,9 @@ func normalizeAuthChannels(cfg *Config) {
 	}
 }
 
-// ConfigFromCredentialMap builds a tenants/auths config from a legacy-style
-// name→CredentialConfig map (used by tests and migration). defaultName sets
-// Config.Tenant when it matches a migrated tenant or auth.
+// ConfigFromCredentialMap builds a tenants/auths config from a flat
+// name→CredentialConfig map (test helper). defaultName sets Config.Tenant
+// when it matches a tenant or auth.
 func ConfigFromCredentialMap(defaultName string, creds map[string]CredentialConfig) *Config {
 	cfg, err := migrateCredentialsToTenantsAuths(&legacyConfigFile{
 		Cred:        defaultName,
@@ -1408,10 +1205,6 @@ func normalizeConfigForSave(cfg *Config) {
 	if cfg == nil {
 		return
 	}
-	cfg.Cred = ""
-	cfg.Credentials = nil
-	cfg.Defaults = nil
-	cfg.AllowAuths = nil
 	normalizeAuthChannels(cfg)
 	migrateAuthSurfaceIntoType(cfg)
 	for name, t := range cfg.Tenants {

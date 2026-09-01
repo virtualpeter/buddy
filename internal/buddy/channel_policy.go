@@ -12,8 +12,6 @@ const (
 	ChannelCLI = "cli"
 	ChannelMCP = "mcp"
 	ChannelIDE = "ide"
-	// ChannelNotebook is a legacy name. LoadConfig migrates it onto ChannelIDE.
-	ChannelNotebook = "notebook"
 )
 
 // AllBuddyChannels is the closed set of buddy client channels.
@@ -185,11 +183,7 @@ func isBuddyChannel(channel string) bool {
 }
 
 func normalizeBuddyChannel(channel string) string {
-	channel = strings.ToLower(strings.TrimSpace(channel))
-	if channel == ChannelNotebook {
-		return ChannelIDE
-	}
-	return channel
+	return strings.ToLower(strings.TrimSpace(channel))
 }
 
 // TenantAllowedOnChannel reports whether tenantName may be used on channel.

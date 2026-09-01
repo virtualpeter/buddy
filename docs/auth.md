@@ -28,7 +28,7 @@ Optional auth fields:
 
 `type` encodes the Jamf surface: `basic` / `oauth` / `command` are instance; `platform` is the API Gateway. An OAuth client is never valid on both. Legacy `surface: platform` on `type: oauth` migrates to `type: platform` on load.
 
-Legacy config shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auths:`) migrate automatically on load. Only the new form is written back.
+`credentials:`, a bare string `tenant:`, `defaults:`, and `allow_auths:` are rejected — use `tenants:` / `auths:` / `tenant.default` / `channels.`.
 
 ---
 
@@ -73,7 +73,7 @@ Top-level `channels.<client>` can clamp what that client is allowed to do:
 
 MCP already denies `jamf_*` on the channel layer even when the YAML list is empty. `deny_builtins: ["*"]` is deny-all at that layer (explicit allowlist when paired with `allow_builtins`). Quote `"*"` so YAML does not treat it as an alias. Blocked builtins raise; they are a gap, not a cue to invent HTTP from the schema.
 
-The IDE uses the `ide` client channel (there is no shared `serve` channel). Legacy `channels.notebook` migrates onto `channels.ide` on load.
+The IDE uses the `ide` client channel (there is no `serve` or `notebook` channel).
 
 ```sh
 buddy cred set channel mcp --access=readonly --tenant=sandbox

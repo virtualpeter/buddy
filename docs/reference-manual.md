@@ -58,7 +58,7 @@ Config is split into four maps:
 - **Tenants** — instance URL and/or Platform `region`+`tenantId`, optional deny/allow builtins.
 - **Auths** — command/basic/oauth/platform principals linked to one or more tenants, optional deny/allow. Optional auth `channels:` (`cli`/`mcp`/`ide`; omit = all) limits which buddy clients may use that auth.
 
-Builtin deny/allow is per layer (channel allow cannot unblock a tenant deny). `deny_builtins: ["*"]` is an allowlist at that layer. Legacy shapes migrate on load; `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` client names are removed (use `channels.ide`).
+Builtin deny/allow is per layer (channel allow cannot unblock a tenant deny). `deny_builtins: ["*"]` is an allowlist at that layer. `credentials:` / string `tenant:` / `defaults:` / `allow_auths:` and the `serve` / `notebook` client names are removed (use `tenants:` / `auths:` and `channels.ide`).
 
 Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, secrets, and tokens](auth.md)**.
 
@@ -194,7 +194,7 @@ buddy serve --addr=127.0.0.1:8742
 
 - Binds **localhost only** (default `127.0.0.1:8742`).
 - `/docs/` — Curated user guides (overview, reference, builtins, API, MCP, examples). Contributor/agent material (AGENTS, Cursor rules) is MCP-only.
-- `/ide` — Single-buffer script runner with open/save, args, optional `--script-trace`-style builtin tracing, Run (file dialect + call `main()` if present), resizable output, copy/save/stash, and a Variables | Libraries sidebar. Open/save is limited to the process cwd or `BUDDY_IDE_ROOT`. Matches CLI file semantics. `/notebook` redirects here.
+- `/ide` — Single-buffer script runner with open/save, args, optional `--script-trace`-style builtin tracing, Run (file dialect + call `main()` if present), resizable output, copy/save/stash, and a Variables | Libraries sidebar. Open/save is limited to the process cwd or `BUDDY_IDE_ROOT`. Matches CLI file semantics.
 - Line breakpoints and stepping are **not** available (Starlark-go has no pause/step API). A soft `breakpoint()` builtin that only stops when the script calls it may be added later.
 - Optional `--docs-root` / `BUDDY_DOCS_ROOT` to override embedded markdown with live files while editing.
 - Confirmations for `confirm()` and Jamf mutates open a dialog in the browser. Global `-y` skips them. Serve sessions use the `ide` channel.
@@ -343,7 +343,7 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 | `BUDDY_DOCS_ROOT` | Optional live `docs/` override for serve/MCP (default: embedded) |
 | `BUDDY_IDE_ROOT` | Root directory for `/ide` open/save (default: process working directory) |
 | `BUDDY_LANG` | CLI message locale (wins over `LANG`; unknown tags fall back to `en`) |
-| `BUDDY_ACS_PAYLOAD_UUID_<id>` | Bind ACS payload UUID for Classic profile id `<id>` when HTML scrape fails (legacy alias: `BUDDY_MACOS_PAYLOAD_UUID_<id>`) |
+| `BUDDY_ACS_PAYLOAD_UUID_<id>` | Bind ACS payload UUID for Classic profile id `<id>` when HTML scrape fails |
 | `BUDDY_SECRET_STORE` | Where the vault data key and recovery passphrase live: `file`, `pass`, or `keychain` (default: Keychain on macOS, `dek`/`master` files elsewhere) |
 | `BUDDY_VAULT_PASSPHRASE` | Override recovery passphrase (CI/tests; never written). A `dek:v1:…` value overrides the data key instead. |
 | `BUDDY_MANAGED_PLIST` | Path to a managed-config plist (replaces Darwin `/Library/Managed Preferences/virtualpete.buddy.cli.plist`) |

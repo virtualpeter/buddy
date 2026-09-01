@@ -70,9 +70,6 @@ func Run(ctx context.Context, o Options) error {
 		}
 		serveDocsHTML(w, r, pages, md)
 	})
-	mux.HandleFunc("/notebook", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ide", http.StatusFound)
-	})
 	mux.HandleFunc("/ide", func(w http.ResponseWriter, r *http.Request) {
 		serveIDEHTML(w, r)
 	})

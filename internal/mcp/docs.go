@@ -52,19 +52,6 @@ func docsGet(pages []docpages.Page, idOrURI string) (*docsPageValue, error) {
 		return nil, fmt.Errorf("id is required for action=get")
 	}
 	id = strings.TrimPrefix(id, "buddy://docs/")
-	// Legacy aliases (former disk filenames).
-	switch id {
-	case "index.md":
-		id = "docs/index"
-	case "reference-manual.md":
-		id = "docs/reference-manual"
-	case "change-batches.md":
-		id = "docs/change-batches"
-	case "api-endpoints.md":
-		id = "docs/api-endpoints"
-	case "mcp.md":
-		id = "docs/mcp"
-	}
 
 	p := docpages.ByID(pages, id)
 	if p == nil {

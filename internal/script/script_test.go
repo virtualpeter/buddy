@@ -87,7 +87,7 @@ func TestRunSourceLastExpr(t *testing.T) {
 
 func TestRunSourceUnwrap(t *testing.T) {
 	logger := slog.Default()
-	src := `unwrap({"ok": True, "value": {"a": 1}, "error": ""}, pretty=False)`
+	src := `unwrap({"a": 1}, pretty=False)`
 	out, err := captureStdout(t, func() error {
 		return RunSource("default", buddy.Opts{}, src, nil, logger, false)
 	})

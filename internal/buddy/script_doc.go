@@ -147,7 +147,6 @@ Subcommands:
   history <script-id>                                 Show recent change history (last 20 entries)
   create <name> <file> [--category=<category-id>] [--priority=BEFORE|AFTER|AT_REBOOT] [--info=<text>] [--notes=<text>]
   upload <script-id> <file> [--name=<new-name>]       Upload (replace) contents of an existing script
-  update <script-id> <file> [--name=<new-name>]       Alias for upload
   download <script-id> [outfile]                      Save script body to a local file (default: <name>.sh)
   delete <script-id> [script-id...]                   Delete one or more scripts
   set name     <script-id> <value>                    Rename script

@@ -177,9 +177,8 @@ Notes:
   'buddy auth test' proves the secret (ForceRenew). Last live results live in
   ~/.config/buddy/caps/ (same obfuscation style as tokens/).
   A platform clientId may list multiple tenants under --tenants.
-  Old credentials: / string tenant: / defaults: / allow_auths: migrate on load.
-  tenant.cli|mcp|serve|ide and the serve client channel are removed — use
-  channels.<cli|mcp|ide> instead.
+  credentials: / string tenant: / defaults: / allow_auths: and the notebook
+  / serve client names are removed — use tenants:/auths: and channels.<cli|mcp|ide>.
   macOS managed preferences (domain virtualpete.buddy.cli) overlay as org
   defaults; config.yaml wins per name. 'buddy cred list' notes managed sources.
   Deleting a managed tenant/auth warns; it returns on next load until the MDM
@@ -516,7 +515,6 @@ Notes:
   Serves a curated user docs UI (guides, builtins, examples) plus:
   /ide — Single-buffer script runner (open/save, args, trace, Run as file,
          Variables/Libraries sidebar, copy/save/stash output)
-  /notebook redirects to /ide.
   AGENTS.md and Cursor rules stay in the repo for contributors; they are not
   listed in the HTML sidebar or embedded for MCP.
   When run from a checkout, serve prefers the repo docs/ tree so edits show

@@ -1587,7 +1587,7 @@ func staticGroupSplitFlags(args []string) (flagArgs []string, positional []strin
 	return flagArgs, positional
 }
 
-// parseParamArgs extracts --param=4,5,6 or --param 4,5,6 (and --params alias) from args.
+// parseParamArgs extracts --param=4,5,6 or --param 4,5,6 from args.
 // Returns paramIndices, remaining args, and error.
 func parseParamArgs(args []string) ([]int, []string, error) {
 	paramIndices := []int{4, 5, 6}
@@ -1595,19 +1595,14 @@ func parseParamArgs(args []string) ([]int, []string, error) {
 	i := 0
 	for i < len(args) {
 		a := args[i]
-		if strings.HasPrefix(a, "--param=") || strings.HasPrefix(a, "--params=") {
-			val := a
-			if strings.HasPrefix(a, "--param=") {
-				val = strings.TrimPrefix(a, "--param=")
-			} else {
-				val = strings.TrimPrefix(a, "--params=")
-			}
+		if strings.HasPrefix(a, "--param=") {
+			val := strings.TrimPrefix(a, "--param=")
 			var err error
 			paramIndices, err = parseParamVal(val)
 			if err != nil {
 				return nil, nil, err
 			}
-		} else if a == "--param" || a == "--params" {
+		} else if a == "--param" {
 			i++
 			if i >= len(args) {
 				return nil, nil, fmt.Errorf("%s requires a value (e.g. %s=4,5,6)", a, a)
@@ -2555,7 +2550,7 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 		}
 		return buddy.ScriptDownload(credName, args[0], outfile, log)
 
-	case "upload", "update":
+	case "upload":
 		var nameFlag string
 		var positional []string
 		for _, a := range args {

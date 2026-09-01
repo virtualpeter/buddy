@@ -235,38 +235,5 @@ func registerDocResources(server *mcpsdk.Server) {
 				}},
 			}, nil
 		})
-		// Backward-compatible aliases for former disk filenames.
-		if alias := legacyDocURI(page.ID); alias != "" && alias != uri {
-			a := alias
-			server.AddResource(&mcpsdk.Resource{
-				URI:         a,
-				Name:        page.ID + " (alias)",
-				Description: page.Title,
-				MIMEType:    mime,
-			}, func(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
-				return &mcpsdk.ReadResourceResult{
-					Contents: []*mcpsdk.ResourceContents{{
-						URI:      a,
-						MIMEType: mime,
-						Text:     page.Markdown,
-					}},
-				}, nil
-			})
-		}
-	}
-}
-
-func legacyDocURI(id string) string {
-	switch id {
-	case "docs/index":
-		return "buddy://docs/index.md"
-	case "docs/reference-manual":
-		return "buddy://docs/reference-manual.md"
-	case "docs/api-endpoints":
-		return "buddy://docs/api-endpoints.md"
-	case "docs/mcp":
-		return "buddy://docs/mcp.md"
-	default:
-		return ""
 	}
 }

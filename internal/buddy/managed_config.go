@@ -147,13 +147,12 @@ func configFromManagedPlist(data []byte) (*Config, error) {
 		return nil, fmt.Errorf("encode managed prefs: %w", err)
 	}
 	var cfg Config
+	if err := rejectRemovedConfigKeys(yamlBytes); err != nil {
+		return nil, fmt.Errorf("managed prefs: %w", err)
+	}
 	if err := yaml.Unmarshal(yamlBytes, &cfg); err != nil {
 		return nil, fmt.Errorf("decode managed prefs: %w", err)
 	}
-	cfg.Cred = ""
-	cfg.Credentials = nil
-	cfg.Defaults = nil
-	cfg.AllowAuths = nil
 	normalizeAuthChannels(&cfg)
 	return &cfg, nil
 }

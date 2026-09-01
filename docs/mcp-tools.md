@@ -70,7 +70,7 @@ Hosts may also connect Jamf’s remote MCP at `https://developer.jamf.com/mcp` (
 
 - **In buddyscript:** builtins return **bare values**; failures **raise**. No `{ok, value, error}` ceremony; do not use `unwrap` for correctness.
 - **MCP tool boundary only:** `buddyscript` returns `{ok, value: {stdout, stderr, result, error}}`.
-- **`unwrap`** is optional JSON-print for CLI/`jq` (legacy envelopes still peel; `ok=false` raises).
+- **`unwrap`** is optional JSON-print for CLI/`jq`.
 
 ### `buddyscript` output contract
 

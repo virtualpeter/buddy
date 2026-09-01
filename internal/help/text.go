@@ -262,7 +262,7 @@ SERIALIZATION
       Does: Print JSON of result to stdout (for jq / piping) and return the same value.
       → value: result (after printing JSON to stdout)
       Params: result: any buddyscript value. pretty?: bool (True indents; False for compact jq input).
-      Notes: Legacy {"ok","value"/"error"} envelopes are peeled; ok=false raises.
+      Notes: JSON-print only; not the error model.
   attempt(fn)
       Does: Call a zero-arg function and catch failure as an envelope instead of raising.
       → value: {"ok": bool, "value": …, "error": str}

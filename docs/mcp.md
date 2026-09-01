@@ -148,7 +148,6 @@ MCP also exposes the **agent docs** catalog as `buddy://docs/...` resources (bro
 | `buddy://docs/readme` | `README.md` |
 | `buddy://docs/examples/*` | Example scripts and mcp.json |
 | `buddy://docs/help/*` | CLI help (root, shell, starlark) |
-| `buddy://docs/*.md` | Legacy aliases for former disk filenames |
 
 The HTML docs UI shows neutral user-facing guides (no AGENTS/rules dumps; human-tone generated pages).
 
@@ -239,7 +238,7 @@ Read embedded buddy documentation (same data as `buddy://docs/...` resources):
 - Prefer `docs` before inventing buddy CLI/buddyscript conventions.
 - Typical flow: `docs` with a **resource noun** (`query: "policy"`) or page id (`"builtins"`, `"docs/apps"`), then `action: "get"` with the page `id` (e.g. `docs/policies`).
 - `query` is a case-insensitive substring on **id / title / section / keywords** (not full-text markdown body).
-- `id` may be a short id (`builtins`, `docs/policies`) or a full `buddy://docs/…` URI (including legacy `….md` aliases).
+- `id` may be a short id (`builtins`, `docs/policies`) or a full `buddy://docs/…` URI.
 - `AGENTS.md` and Cursor rules are **not** in the MCP catalog (repo/editor only).
 
 ### Platform builtins (via `buddyscript`)

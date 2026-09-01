@@ -192,14 +192,6 @@ func resolveACSPayloadUUID(credName string, classicProfileID int, logger *slog.L
 		}
 		return u, nil
 	}
-	// Legacy env name (pre-ACS rename); remove after one release cycle.
-	if u := strings.TrimSpace(os.Getenv(fmt.Sprintf("BUDDY_MACOS_PAYLOAD_UUID_%d", classicProfileID))); u != "" {
-		cacheACSPayloadUUID(classicProfileID, u)
-		if logger != nil {
-			logger.Debug("profile acs: resolved payload UUID from legacy BUDDY_MACOS_PAYLOAD_UUID_* env (prefer BUDDY_ACS_PAYLOAD_UUID_*)", "profile_id", classicProfileID, "payload_uuid", u)
-		}
-		return u, nil
-	}
 	doc, err := fetchACSConfigProfileByClassicID(credName, classicProfileID)
 	if err == nil && doc != nil {
 		if doc.PayloadUUID != nil && strings.TrimSpace(*doc.PayloadUUID) != "" {

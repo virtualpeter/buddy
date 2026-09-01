@@ -1298,59 +1298,6 @@ func rolePut(credName string, logger *slog.Logger) func(*starlark.Thread, *starl
 
 func roleCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		// Backward compatible signature:
-		//   role_create(display_name, privileges, tenant?, surface?, auth?)
-		// Component signature:
-		//   role_create(dict, tenant?, surface?, auth?)
-		if len(args) > 0 {
-			if d, ok := args[0].(*starlark.Dict); ok {
-				var sess sessionArgs
-				_ = starlark.UnpackArgs("role_create", starlark.Tuple{}, kwargs,
-					"tenant?", &sess.Tenant,
-					"surface?", &sess.Surface,
-					"auth?", &sess.Auth)
-				sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
-				if sessErr != nil {
-					return resultErr(sessErr.Error())
-				}
-				defer restoreSession()
-				c := sessionPin
-				g, err := StarlarkValueToGo(d)
-				if err != nil {
-					return resultErr(err.Error())
-				}
-				m, ok := g.(map[string]interface{})
-				if !ok {
-					return resultErr("role_create: dict must be a map")
-				}
-				displayName, _ := m["displayName"].(string)
-				var privs []string
-				if v, ok := m["privileges"]; ok {
-					switch arr := v.(type) {
-					case []interface{}:
-						for _, item := range arr {
-							if s, ok := item.(string); ok {
-								privs = append(privs, s)
-							}
-						}
-					case []string:
-						privs = arr
-					}
-				}
-				if displayName == "" {
-					return resultErr("role_create: missing displayName")
-				}
-				role, err := buddy.RoleCreateWithID(c, scriptOpts, displayName, privs, logger)
-				if err != nil {
-					return resultErr(err.Error())
-				}
-				if role == nil {
-					return resultErr("role_create: cancelled")
-				}
-				return resultOK(starlark.String(role.ID)), nil
-			}
-		}
-
 		var displayName starlark.String
 		var privileges *starlark.List
 		var sess sessionArgs
@@ -1433,62 +1380,6 @@ func clientPut(credName string, logger *slog.Logger) func(*starlark.Thread, *sta
 
 func clientCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		// Backward compatible signature:
-		//   client_create(display_name, scopes, tenant?, surface?, auth?)
-		// Component signature:
-		//   client_create(dict, tenant?, surface?, auth?)
-		if len(args) > 0 {
-			if d, ok := args[0].(*starlark.Dict); ok {
-				var sess sessionArgs
-				_ = starlark.UnpackArgs("client_create", starlark.Tuple{}, kwargs,
-					"tenant?", &sess.Tenant,
-					"surface?", &sess.Surface,
-					"auth?", &sess.Auth)
-				sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
-				if sessErr != nil {
-					return resultErr(sessErr.Error())
-				}
-				defer restoreSession()
-				c := sessionPin
-				g, err := StarlarkValueToGo(d)
-				if err != nil {
-					return resultErr(err.Error())
-				}
-				m, ok := g.(map[string]interface{})
-				if !ok {
-					return resultErr("client_create: dict must be a map")
-				}
-				displayName, _ := m["displayName"].(string)
-				var scopeList []string
-				if v, ok := m["authorizationScopes"]; ok {
-					switch arr := v.(type) {
-					case []interface{}:
-						for _, item := range arr {
-							if s, ok := item.(string); ok {
-								scopeList = append(scopeList, s)
-							}
-						}
-					case []string:
-						scopeList = arr
-					}
-				}
-				if displayName == "" {
-					return resultErr("client_create: missing displayName")
-				}
-				client, err := buddy.ClientCreateWithResult(c, scriptOpts, displayName, scopeList, logger)
-				if err != nil {
-					return resultErr(err.Error())
-				}
-				if client == nil {
-					return resultErr("client_create: cancelled")
-				}
-				out := new(starlark.Dict)
-				_ = out.SetKey(starlark.String("id"), starlark.String(strconv.Itoa(client.ID)))
-				_ = out.SetKey(starlark.String("client_id"), starlark.String(client.ClientID))
-				return resultOK(out), nil
-			}
-		}
-
 		var displayName starlark.String
 		var scopes *starlark.List
 		var sess sessionArgs

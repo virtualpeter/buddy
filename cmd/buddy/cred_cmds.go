@@ -175,7 +175,7 @@ func runCredUse(cfg *buddy.Config, args []string) error {
 	return nil
 }
 
-// parseCredChannelFlags extracts --cli|--mcp|--ide (--notebook aliases --ide).
+// parseCredChannelFlags extracts --cli|--mcp|--ide.
 func parseCredChannelFlags(args []string) (channel string, rest []string, err error) {
 	for _, a := range args {
 		switch a {
@@ -194,14 +194,8 @@ func parseCredChannelFlags(args []string) (channel string, rest []string, err er
 				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide allowed")
 			}
 			channel = buddy.ChannelIDE
-		case "--notebook":
-			if channel != "" {
-				return "", nil, fmt.Errorf("only one of --cli|--mcp|--ide allowed")
-			}
-			fmt.Fprintln(os.Stderr, "warning: --notebook is deprecated; use --ide")
-			channel = buddy.ChannelIDE
-		case "--serve":
-			return "", nil, fmt.Errorf("--serve was removed; use --ide")
+		case "--notebook", "--serve":
+			return "", nil, fmt.Errorf("%s was removed; use --ide", a)
 		default:
 			rest = append(rest, a)
 		}
@@ -211,9 +205,8 @@ func parseCredChannelFlags(args []string) (channel string, rest []string, err er
 
 func resolveCredChannelName(name string) (string, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
-	if name == buddy.ChannelNotebook {
-		fmt.Fprintln(os.Stderr, "warning: channel notebook is deprecated; using ide")
-		return buddy.ChannelIDE, nil
+	if name == "notebook" || name == "serve" {
+		return "", fmt.Errorf("channel %q was removed; use ide", name)
 	}
 	switch name {
 	case buddy.ChannelCLI, buddy.ChannelMCP, buddy.ChannelIDE:

@@ -51,12 +51,8 @@ func TestDocsListAndGet(t *testing.T) {
 		t.Fatalf("%+v", viaURI)
 	}
 
-	legacy, err := docsGet(pages, "buddy://docs/mcp.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if legacy.ID != "docs/mcp" {
-		t.Fatalf("legacy id = %q", legacy.ID)
+	if _, err := docsGet(pages, "buddy://docs/mcp.md"); err == nil {
+		t.Fatal("expected error for removed .md docs alias")
 	}
 
 	if _, err := docsGet(pages, ""); err == nil {
