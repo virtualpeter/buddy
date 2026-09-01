@@ -27,6 +27,9 @@ const (
 	CmdBlueprint   = "blueprint"
 	CmdDevice      = "device"
 	CmdDeviceGroup = "device-group"
+	CmdMobile      = "mobile-device"
+	CmdMobileGroup = "mobile-group"
+	CmdMobileProf  = "mobile-profile"
 	CmdDDM         = "ddm"
 	CmdBenchmark   = "benchmark"
 	CmdSetup       = "setup"
@@ -42,6 +45,7 @@ const (
 // Shared subcommands (never translated).
 const (
 	SubList     = "list"
+	SubLogs     = "logs"
 	SubGet      = "get"
 	SubSet      = "set"
 	SubCreate   = "create"
@@ -77,6 +81,15 @@ const (
 	FlagVersion     = "version"
 	FlagRefresh     = "refresh"
 	FlagDropCache   = "dropcache"
+	FlagJSON        = "json"
+	FlagSort        = "sort"
+	FlagSince       = "since"
+	FlagUntil       = "until"
+	FlagComputerIds = "computer-ids"
+	FlagExcludeIDs  = "exclude-ids"
+	FlagIDs         = "ids"
+	FlagPageSize    = "page-size"
+	FlagLimit       = "limit"
 )
 
 // Short flags (never translated).

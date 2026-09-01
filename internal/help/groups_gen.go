@@ -19,11 +19,11 @@ const GroupsBuiltinsSection = `GROUP
       Does: Load one smart computer group (full JSON: name, criteria, siteId, …).
       → value: dict (full smart-group JSON)
       Params: pass either id= (str) or name= (str), not both.
-  static_group(id, tenant?, surface?, auth?)
+  static_group(id=, tenant?, surface?, auth?)
       Does: Load one static computer group summary.
       → value: dict {id, name, description}
       Params: id: str (group ID).
-  smart_group_get_version(id, tenant?, surface?, auth?)
+  smart_group_version(id, tenant?, surface?, auth?)
       Does: Read the current version criterion value from a smart group.
       → value: str
       Params: id: str.
@@ -31,7 +31,7 @@ const GroupsBuiltinsSection = `GROUP
       Does: Set matching version criteria on a smart group to a new value.
       → None
       Params: id: str; version: str.
-  group_delete(id, tenant?, surface?, auth?)
+  smart_group_delete(id, tenant?, surface?, auth?)
       Does: Delete a smart computer group.
       → None
       Params: id: str.
@@ -60,29 +60,25 @@ const GroupsBuiltinsSection = `GROUP
       → None
       Params: id: str; body: dict (same shape as smart_group(id=…)).
       Notes: PUT /api/v3/computer-groups/smart-groups/{id}. SkipConfirm.
-  smart_group_get_criteria(id, tenant?, surface?, auth?)
+  smart_group_criteria(id, filter?, tenant?, surface?, auth?)
       Does: Return the criteria array from a smart group (or [] if missing).
       → value: list of dict {name, priority, andOr, searchType, value, openingParen?, closingParen?}
-      Params: id: str.
+      Params: id: str; filter?: case-insensitive substring matched against criterion name.
   smart_group_set_criteria(id, criteria, tenant?, surface?, auth?)
       Does: Replace a smart group's criteria array, preserving other fields.
       → None
-      Params: id: str; criteria: list of criteria dicts (same keys as get_criteria).
-  smart_group_find_criteria(id, name_substring, tenant?, surface?, auth?)
-      Does: Find criteria whose name contains a substring (case-insensitive).
-      → value: list of matching criteria dicts
-      Params: id: str; name_substring: str.
+      Params: id: str; criteria: list of criteria dicts (same keys as smart_group_criteria).
   smart_group_update_criterion_value(id, name_substring, new_value, tenant?, surface?, auth?)
       Does: Set value= on every criterion whose name contains name_substring.
       → None
       Params: id: str; name_substring: str; new_value: str.
       Notes: Raises if no criteria match.
-  smart_group_list_computers(id, filter?, tenant?, surface?, auth?)
+  smart_group_computers(id, filter?, tenant?, surface?, auth?)
       Does: List effective smart-group membership (Pro IDs).
       → value: list of {id, name, serial}
       Params: id: str; filter?: client-side substring on id/name/serial.
       Notes: Pro GET smart-group-membership; name/serial empty (IDs only).
-  static_group_list_computers(id, filter?, tenant?, surface?, auth?)
+  static_group_computers(id, filter?, tenant?, surface?, auth?)
       Does: List computers assigned to a static group.
       → value: list of {id, name, serial}
       Params: id: str; filter?: client-side substring on id/name/serial.
@@ -114,13 +110,13 @@ Usage:
   buddy [global-flags] group <list|get|create|delete|smart|static> [args...]
 
 Subcommands:
-  list smart [--filter=<term|rsql>]      List smart computer groups
-  list static [--filter=<term|rsql>]     List static computer groups
+  list smart [--filter=<term|rsql>] [--json]    List smart computer groups
+  list static [--filter=<term|rsql>] [--json]   List static computer groups
   get <group-id>                         Show group JSON (smart group, falling back to static)
   create smart <name> [--description=<text>] [--file=<json>]
                                          Create a smart computer group
   create smart --file=<json>             Create from full smart-group JSON body
-  create static <name> [--description=<text>] [--computer-ids=<id>[,<id>...]]
+  create static <name> [--description=<text>] [--computer-ids=<computer-id>[,<computer-id>...]]
                                          Create a static computer group
   delete <group-id>                      Delete smart group
   smart members <group-id> [--filter=<substring>]   List effective membership (Pro IDs)
@@ -130,8 +126,9 @@ Subcommands:
   smart version <group-id>               Show current version criterion
   smart set-version <group-id> <version> Update version criterion
   static members <group-id> [--filter=<substring>]   List computers in a static group (client-side filter)
-  static add <group-id> --computer-ids=<id>[,<id>...]   Add computers to a static group
-  static remove <group-id> --computer-ids=<id>[,<id>...]   Remove computers from a static group
+  static add <group-id> --computer-ids=<computer-id>[,<computer-id>...]   Add computers to a static group
+  static remove <group-id> --computer-ids=<computer-id>[,<computer-id>...]   Remove computers from a static group
+  static set <group-id> --computer-ids=<computer-id>[,<computer-id>...]   Replace static group membership (empty list clears)
 
 Flags for 'list':
   --filter=<term|rsql>   Bare term → name=="*term*"; or full RSQL (e.g. 'name=="*Chrome*"')
@@ -144,7 +141,7 @@ Flags for 'create smart':
 
 Flags for 'create static':
   --description=<text>              Optional description
-  --computer-ids=<id>[,<id>...]     Optional initial membership
+  --computer-ids=<computer-id>[,<computer-id>...]     Optional initial membership
 
 Flags for 'smart members' and 'static members':
   --filter=<substring>   Client-side substring match on computer id, name, or serial
@@ -152,14 +149,14 @@ Flags for 'smart members' and 'static members':
 Flags for 'smart set-criteria':
   --file=<json>|-        Criteria JSON array (default: stdin when omitted or '-')
 
-Flags for 'static add' and 'static remove':
-  --computer-ids=<id>[,<id>...]   Required. Comma-separated Jamf computer IDs
+Flags for 'static add', 'static remove', and 'static set':
+  --computer-ids=<computer-id>[,<computer-id>...]   Required. Comma-separated Jamf computer IDs (set may be empty to clear)
 
 Notes:
-  For smart/static members and static add/remove, flags such as --computer-ids and --filter may appear
+  For smart/static members and static add/remove/set, flags such as --computer-ids and --filter may appear
   before or after <group-id> (Go's flag parser otherwise stops at the first positional).
   Smart membership uses GET /api/v3/computer-groups/smart-group-membership/{id} (computer IDs only).
-  Criteria round-trip: buddy group smart criteria <id> > crit.json ; edit ; buddy group smart set-criteria <id> --file=crit.json
+  Criteria round-trip: buddy group smart criteria <group-id> > crit.json ; edit ; buddy group smart set-criteria <group-id> --file=crit.json
   Listing static group members prefers GET /api/v3/computer-groups/static-groups/{id} when the response
   includes assignments; otherwise Classic GET /JSSResource/computergroups/id/{id} is used (requires
   Read Computer Groups for that fallback). Updates use PUT on the v3 static group endpoint.
@@ -181,4 +178,5 @@ Examples:
   buddy group static members 42 --filter=lab
   buddy group static add 42 --computer-ids=101,102
   buddy group static remove 42 --computer-ids=101
+  buddy group static set 42 --computer-ids=101,102
 `

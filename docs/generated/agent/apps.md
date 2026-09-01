@@ -535,7 +535,7 @@ buddy [global-flags] app get <name>
 Interview (or flags) to bind policies and write index + desired-state script
 
 ```
-buddy [global-flags] app import [name] [--ss=<id>] [--install=…] [--cache=…] [--uninstall=…] [-o path]
+buddy [global-flags] app import [name] [--ss=<policy-id>] [--install=…] [--cache=…] [--uninstall=…] [-o path]
 ```
 
 #### Parameters (JSON Schema)

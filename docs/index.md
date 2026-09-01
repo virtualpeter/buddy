@@ -69,6 +69,9 @@ In the IDE, open **Libraries** → **Getting started** for a short list of built
 | [Policy apps](/docs/docs/apps) | Self Service + packages (list/get/upgrade) |
 | [Computers](/docs/docs/computers) | Inventory, Classic policy logs, MDM actions |
 | [MDM command history](/docs/docs/mdm) | Query command history (RSQL) |
+| [Mobile devices](/docs/docs/mobile-devices) | iOS/iPadOS/tvOS inventory + MDM actions |
+| [Mobile-device groups](/docs/docs/mobile-groups) | Smart criteria / static membership |
+| [Mobile profiles](/docs/docs/mobile-profiles) | Mobile configuration profiles (Classic XML) |
 | [API roles](/docs/docs/api-roles) | Pro API roles |
 | [API clients](/docs/docs/api-clients) | Pro API integrations / oauth clients |
 
@@ -80,7 +83,7 @@ In the IDE, open **Libraries** → **Getting started** for a short list of built
 | [Platform devices](/docs/docs/devices) | Platform inventory + actions |
 | [Device groups](/docs/docs/device-groups) | Platform device groups |
 | [DDM reporting](/docs/docs/ddm) | Declaration reporting |
-| [Compliance benchmarks](/docs/docs/benchmarks) | Benchmarks (beta) |
+| [Compliance benchmarks](/docs/docs/benchmarks) | Benchmarks |
 
 ## Guides
 

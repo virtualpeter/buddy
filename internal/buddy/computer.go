@@ -406,6 +406,26 @@ func computerGetManagementID(credName string, computerID int) (string, error) {
 	return "", fmt.Errorf("computer %d: no managementId found (device may not be MDM-enrolled)", computerID)
 }
 
+// sendMDMCommandToClient posts one MDM command to POST /api/v2/mdm/commands for the
+// given managementId. clientType is "COMPUTER" or "MOBILE_DEVICE". commandData must
+// already contain commandType.
+func sendMDMCommandToClient(credName, managementID, clientType string, commandData map[string]interface{}) error {
+	payload := mdmCommandRequest{
+		ClientData: []mdmClientData{
+			{ManagementID: managementID, ClientType: clientType},
+		},
+		CommandData: commandData,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal MDM command payload: %w", err)
+	}
+	if _, err := jamfPOST(credName, uriMdmCommands, data, "application/json"); err != nil {
+		return err
+	}
+	return nil
+}
+
 // computerSendMDMCommand sends an MDM command to one or more computers via POST /api/v2/mdm/commands.
 // Each computer's managementId is fetched via GET /api/v4/computers-inventory/{id}?section=GENERAL.
 func computerSendMDMCommand(credName string, computerIDs []int, commandType string, commandData map[string]interface{}, logger *slog.Logger) error {
@@ -423,17 +443,7 @@ func computerSendMDMCommand(credName string, computerIDs []int, commandType stri
 		if err != nil {
 			return err
 		}
-		payload := mdmCommandRequest{
-			ClientData: []mdmClientData{
-				{ManagementID: mgmtID, ClientType: "COMPUTER"},
-			},
-			CommandData: commandData,
-		}
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return fmt.Errorf("marshal MDM command payload: %w", err)
-		}
-		if _, err := jamfPOST(credName, uriMdmCommands, data, "application/json"); err != nil {
+		if err := sendMDMCommandToClient(credName, mgmtID, "COMPUTER", commandData); err != nil {
 			return fmt.Errorf("send MDM command to computer %d: %w", id, err)
 		}
 	}

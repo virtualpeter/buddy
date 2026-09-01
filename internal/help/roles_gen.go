@@ -13,7 +13,7 @@ const RolesBuiltinsSection = `ROLE
       → value: list of {id, display_name} (or full JSON list if full=True)
       Params: filter?: bare term → displayName=="*term*", or full RSQL. full?: bool.
         page?: int (omit = all); page_size?: int.
-  role(id, tenant?, surface?, auth?)
+  role(id=, tenant?, surface?, auth?)
       Does: Load one API role JSON document.
       → value: dict (full role record)
       Params: id: str/int (role ID).
@@ -35,7 +35,7 @@ Usage:
   buddy [global-flags] role <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<term|rsql>]             List API roles (bare → displayName contains)
+  list [--filter=<term|rsql>] [--json]             List API roles (always JSON; --json accepted)
   get <role-id>                           Show API role details
   create <displayName> [priv1 priv2...]   Create API role with optional privileges
   update <role-id> <displayName> [priv1...]    Update API role name and privileges

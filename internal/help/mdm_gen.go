@@ -28,6 +28,7 @@ Flags for 'list':
   --count               Fetch all matching records and print only the total count (table suppressed)
   --page-size=<n>       Records per API request (default 200; pagination fetches all)
   --limit=<n>           Maximum total records to return (0 = no limit)
+  --json                Print matching rows as JSON (instead of the table)
 
 RSQL filterable fields:
   uuid, clientManagementId, command, status, clientType, dateSent,

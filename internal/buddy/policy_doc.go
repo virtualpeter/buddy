@@ -218,7 +218,7 @@ Usage:
   buddy [global-flags] policy <subcommand> [args...]
 
 Subcommands:
-  list    List policies (optional keyword filter)
+  list    List policies (optional keyword filter; --json)
   get     Read policy (details, id by trigger, enable state, xml)
   logs    Policy execution logs (Classic computerhistory per Mac; bounded computer list)
   set     Modify policy properties (scope, enable/disable, trigger, name, ...)

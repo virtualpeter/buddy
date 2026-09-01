@@ -96,7 +96,7 @@ type packageDeleteRequest struct {
 // PackageList fetches and prints packages, with an optional RSQL filter.
 // sortOrder is "" (no sort), "asc", or "desc" for client-side version sort of PackageName.
 // Example filter: packageName=="*Chrome*"
-func PackageList(credName, filter, sortOrder string, logger *slog.Logger) error {
+func PackageList(credName, filter, sortOrder string, asJSON bool, logger *slog.Logger) error {
 	results, err := PackageSearch(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
@@ -105,6 +105,9 @@ func PackageList(credName, filter, sortOrder string, logger *slog.Logger) error 
 		if err := SortPackageRecordsByVersion(results, sortOrder); err != nil {
 			return err
 		}
+	}
+	if asJSON {
+		return printJSONValue(results)
 	}
 	fmt.Printf("%-8s  %-40s  %s\n", "ID", "Package Name", "File Name")
 	fmt.Printf("%-8s  %-40s  %s\n", "--------", "----------------------------------------", "--------------------")

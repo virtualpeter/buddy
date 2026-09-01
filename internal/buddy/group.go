@@ -282,21 +282,27 @@ func printGroupTable(groups []GroupSummary) {
 	fmt.Printf("\n%d group(s)\n", len(groups))
 }
 
-// GroupListSmart fetches and prints smart computer groups.
-func GroupListSmart(credName, filter string, logger *slog.Logger) error {
+// GroupListSmart fetches and prints smart computer groups (table, or JSON rows).
+func GroupListSmart(credName, filter string, asJSON bool, logger *slog.Logger) error {
 	groups, err := GroupSearchSmart(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
+	}
+	if asJSON {
+		return printJSONValue(groups)
 	}
 	printGroupTable(groups)
 	return nil
 }
 
-// GroupListStatic fetches and prints static computer groups.
-func GroupListStatic(credName, filter string, logger *slog.Logger) error {
+// GroupListStatic fetches and prints static computer groups (table, or JSON rows).
+func GroupListStatic(credName, filter string, asJSON bool, logger *slog.Logger) error {
 	groups, err := GroupSearchStatic(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
+	}
+	if asJSON {
+		return printJSONValue(groups)
 	}
 	printGroupTable(groups)
 	return nil
@@ -843,7 +849,7 @@ func SmartGroupCriteriaValue(credName, groupID string) ([]any, error) {
 }
 
 // SmartGroupSetCriteria replaces the criteria array on a smart group (fetch → replace → PUT).
-// criteriaJSON must be a JSON array (same shape as smart_group_get_criteria / buddy group smart criteria).
+// criteriaJSON must be a JSON array (same shape as smart_group_criteria / buddy group smart criteria).
 func SmartGroupSetCriteria(credName string, opts Opts, groupID string, criteriaJSON []byte, logger *slog.Logger) error {
 	groupID = strings.TrimSpace(groupID)
 	if groupID == "" {

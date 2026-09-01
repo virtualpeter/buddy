@@ -1337,8 +1337,8 @@ func PolicyFind(credName string, opts Opts, trigger string, logger *slog.Logger)
 
 // PolicySummary is a short policy list entry (id + name).
 type PolicySummary struct {
-	ID   int
-	Name string
+	ID   int    `json:"id"`
+	Name string `json:"name"`
 }
 
 // PolicyFindSummariesByKeywords returns policies matching all keywords (case-insensitive).

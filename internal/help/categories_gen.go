@@ -38,7 +38,7 @@ Usage:
   buddy [global-flags] category <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<term|rsql>]              List categories (id, priority, name)
+  list [--filter=<term|rsql>] [--json]     List categories (id, priority, name)
   get <category-id>                   Show category details (JSON)
   create <name> [--priority=<1-20>]   Create a category
   delete <category-id>                Delete a category

@@ -4,7 +4,7 @@
 package help
 
 // BenchmarksBuiltinsSection is spliced into Builtins.
-const BenchmarksBuiltinsSection = `COMPLIANCE BENCHMARK (beta Platform API)
+const BenchmarksBuiltinsSection = `COMPLIANCE BENCHMARK (Platform API)
   benchmarks(tenant?, surface?, auth?)
       Does: List tenant compliance benchmarks.
       → value: JSON (benchmark list)
@@ -43,7 +43,7 @@ const BenchmarksBuiltinsSection = `COMPLIANCE BENCHMARK (beta Platform API)
 `
 
 // BenchmarksCLIHelp is the text for buddy help / CLI.
-const BenchmarksCLIHelp = `buddy benchmark - Jamf Platform compliance benchmarks (beta)
+const BenchmarksCLIHelp = `buddy benchmark - Jamf Platform compliance benchmarks
 
 Usage:
   buddy [global-flags] benchmark <subcommand> [args...]
@@ -54,7 +54,7 @@ Subcommands:
   create [--file=<path>|-]               Create from JSON body
   delete <benchmark-id>                  Delete a benchmark
   baselines                              List mSCP baselines
-  rules [--baseline=<id>]                Catalog rules for a baseline
+  rules [--baseline=<baseline-id>]       Catalog rules for a baseline
   compliance-percentage <benchmark-id>   Overall compliance percentage
   report-devices <benchmark-id>          Devices for a benchmark report
   report-rules <benchmark-id>            Rules stats for a benchmark

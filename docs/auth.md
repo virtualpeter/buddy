@@ -42,9 +42,22 @@ Legacy config shapes (`credentials:`, string `tenant:`, `defaults:`, `allow_auth
 | `--user` / `--auth` | Pin a specific auth |
 | buddyscript / MCP `tenant=` / `surface=` / `auth=` | Per-call override (`cred=` was removed) |
 
-When auto-picking, buddy prefers a **readonly** auth for reads, requires **full** for mutates, **platform** for blueprints and other Platform product APIs, and **instance** for Classic / schema work. You can keep a platform-readonly auth and an instance-full auth on the **same tenant** — reads use the pin; mutates fall over to the full auth.
+When auto-picking, buddy:
 
-`--user` / `--auth` (and buddyscript `auth=`) is a **preference**, not a lock. Classic (while `classic_instance_only` is on), ACS, schema, and undocumented Pro `GET /api/v1/policies` need an instance auth; Platform product APIs need platform oauth. If the pin cannot serve that surface, or the pin is **readonly** and the op mutates, buddy auto-picks another linked auth on the **same tenant**. Channel `access: readonly` is the hard clamp (MCP/IDE will not mutate). `surface=` biases published Pro/JSON calls that can use either surface, and Classic when `classic_instance_only` is off; it never sends ACS or `GET /api/v1/policies` through the gateway (clone/copy destination sessions included).
+- Prefers a **readonly** auth for reads
+- Requires **full** for mutates
+- Uses **platform** for blueprints and other Platform product APIs
+- Uses **instance** for Classic / schema work
+
+You can keep a platform-readonly auth and an instance-full auth on the **same tenant** — reads use the pin; mutates fall over to the full auth.
+
+`--user` / `--auth` (and buddyscript `auth=`) is a **preference**, not a lock:
+
+- Classic (while `classic_instance_only` is on), ACS, schema, and undocumented Pro `GET /api/v1/policies` need an instance auth
+- Platform product APIs need platform oauth
+- If the pin cannot serve that surface, or the pin is **readonly** and the op mutates, buddy auto-picks another linked auth on the **same tenant**
+- Channel `access: readonly` is the hard clamp (MCP/IDE will not mutate)
+- `surface=` biases published Pro/JSON calls that can use either surface, and Classic when `classic_instance_only` is off; it never sends ACS or `GET /api/v1/policies` through the gateway (clone/copy destination sessions included)
 
 Direct one-off flags (`--url`, `--tenant-id`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for a single command.
 
@@ -110,13 +123,29 @@ Passwords and client secrets are stored in **`~/.config/buddy/secrets.enc`** (AE
 
 `BUDDY_VAULT_PASSPHRASE` overrides the recovery passphrase for CI/tests (never written). If the value is a tagged DEK (`dek:v1:…`), it overrides the data key instead.
 
-The default Darwin binary writes Keychain items with `security -i` (secret on stdin, not argv) under service `buddy`. That is convenient for development (no CGO, survives `go build`), but the ACL is on `/usr/bin/security`, so any process running as you can read the same items.
+**Default Darwin binary (`make buddy`)**
 
-The signed release binary (`make buddy-darwin-arm64`, build tag `secitem`) uses Security.framework so the ACL is buddy’s Developer ID: only that signed binary can read without a prompt, and upgrades keep working as long as the Team ID and identifier stay the same. It uses a **different** service (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) so the two never share ACL or items. The vault file is shared. The DEK is stored with `AfterFirstUnlockThisDeviceOnly` (available for the rest of the login after the Mac is unlocked; screen lock does not prompt Terminal). Touch ID / user presence is requested only when creating or unwrapping the DEK, setting the recovery passphrase, or restoring a backup — not on ordinary commands such as `buddy policy list`. Unsigned `./buddy` cannot use a meaningful app ACL; biometrics are a signed-release feature.
+- Writes Keychain items with `security -i` (secret on stdin, not argv) under service `buddy`
+- Convenient for development (no CGO, survives `go build`)
+- ACL is on `/usr/bin/security`, so any process running as you can read the same items
+
+**Signed release (`make buddy-darwin-arm64`, build tag `secitem`)**
+
+- Uses Security.framework so the ACL is buddy’s Developer ID (only that signed binary can read without a prompt)
+- Upgrades keep working as long as the Team ID and identifier stay the same
+- Separate Keychain service (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) — never shares ACL or items with `./buddy`; the vault file is shared
+- DEK uses `AfterFirstUnlockThisDeviceOnly` (available after login; screen lock does not prompt Terminal)
+- Touch ID / user presence only when creating or unwrapping the DEK, setting the recovery passphrase, or restoring a backup — not on ordinary commands such as `buddy policy list`
+- Unsigned `./buddy` cannot use a meaningful app ACL; biometrics are a signed-release feature
 
 A signed binary does not see a DEK stored by `./buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against `./buddy-darwin-arm64` (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. `make install-signed` copies that binary to `~/go/bin/buddy`. `buddy cred erase secrets` deletes the vault, the DEK, the recovery passphrase, and leftover per-auth items from **both** Keychain services.
 
-`make buddy-darwin-arm64` requires Darwin/arm64 and `BUDDY_CODESIGN_IDENTITY` (a Developer ID Application identity). The identifier defaults to `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) and must stay stable across releases so Keychain ACLs survive rebuilds. The Keychain service is hardcoded to that same reverse-DNS string (not read from the running binary), so overriding the identifier at sign time still stores items under `virtualpete.buddy.cli`. Ad-hoc signatures are rejected.
+**Codesign**
+
+- Requires Darwin/arm64 and `BUDDY_CODESIGN_IDENTITY` (a Developer ID Application identity)
+- Identifier defaults to `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) and must stay stable so Keychain ACLs survive rebuilds
+- The Keychain service is hardcoded to that reverse-DNS string (not read from the running binary), so overriding the identifier at sign time still stores items under `virtualpete.buddy.cli`
+- Ad-hoc signatures are rejected
 
 Older vault files used PBKDF2 with the recovery passphrase as the wrapping secret. The first CLI run after upgrade migrates them to a DEK (PBKDF2 stays on backup files and on the optional DEK wrap inside `secrets.enc`). Older installs stored one Keychain/file/pass item per secret. `buddy cred migrate` copies those into the vault (and can delete the old items).
 

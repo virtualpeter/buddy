@@ -606,6 +606,9 @@ var Builtins = builtinsHead +
 	AppsBuiltinsSection +
 	ComputersBuiltinsSection +
 	MdmBuiltinsSection +
+	MobileDevicesBuiltinsSection +
+	MobileGroupsBuiltinsSection +
+	MobileProfilesBuiltinsSection +
 	RolesBuiltinsSection +
 	ClientsBuiltinsSection +
 	builtinsTail

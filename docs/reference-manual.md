@@ -51,7 +51,14 @@ Default config path: `~/.config/buddy/config.yaml` (override config root with `X
 
 On macOS, org defaults may also come from managed preferences (`virtualpete.buddy.cli`); user YAML overlays them. See [Auth, secrets, and tokens](auth.md#org-defaults-macos-managed-preferences).
 
-Config is split into **tenant selection** (`tenant.default`), **channel policies** (`channels.cli|mcp|ide` with optional `access` / `tenant` / `tenants` / `deny_builtins` / `allow_builtins`; MCP defaults deny `jamf_*`), **tenants** (instance URL and/or Platform `region`+`tenantId`, optional deny/allow builtins), and **auths** (command/basic/oauth principals linked to one or more tenants, optional deny/allow). Optional auth `channels:` (`cli`/`mcp`/`ide`; omit = all) limits which buddy clients may use that auth. Builtin deny/allow is per layer (channel allow cannot unblock a tenant deny). `deny_builtins: ["*"]` is an allowlist at that layer. Legacy shapes migrate on load; `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` client names are removed (use `channels.ide`).
+Config is split into four maps:
+
+- **Tenant selection** — `tenant.default`.
+- **Channel policies** — `channels.cli|mcp|ide` with optional `access` / `tenant` / `tenants` / `deny_builtins` / `allow_builtins`. MCP defaults deny `jamf_*`.
+- **Tenants** — instance URL and/or Platform `region`+`tenantId`, optional deny/allow builtins.
+- **Auths** — command/basic/oauth/platform principals linked to one or more tenants, optional deny/allow. Optional auth `channels:` (`cli`/`mcp`/`ide`; omit = all) limits which buddy clients may use that auth.
+
+Builtin deny/allow is per layer (channel allow cannot unblock a tenant deny). `deny_builtins: ["*"]` is an allowlist at that layer. Legacy shapes migrate on load; `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` client names are removed (use `channels.ide`).
 
 Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, secrets, and tokens](auth.md)**.
 
@@ -140,20 +147,23 @@ buddy help [command] [subcommand]
 | `auth` | Test auth; print token material |
 | `cred` | Manage `config.yaml` tenants, auths, and platform secrets |
 | *(path)* | Execute a script: `buddy script.buddy` |
-| `policy` | Policies (get/set/clone/create/delete/find) |
+| `policy` | Policies (list/get/set/create/delete/logs) |
 | `group` | Smart/static computer groups (list/get/create/delete; smart/static membership) |
 | `profile` | macOS configuration profiles |
 | `package` | Package records (upload, metadata, history) |
 | `computer` | Computer inventory and MDM actions |
 | `mdm` | Query MDM command history (RSQL) |
+| `mobile-device` | Jamf Pro mobile devices (inventory + MDM actions) |
+| `mobile-group` | Smart/static mobile-device groups |
+| `mobile-profile` | Mobile-device configuration profiles |
 | `role` | API roles |
 | `client` | API integrations / OAuth clients |
 | `script` | Jamf script objects |
-| `blueprint` | Platform API Blueprints (list/get/create/set/delete/deploy/status; gateway credential required) |
+| `blueprint` | Platform API Blueprints (list/get/create/set/delete/deploy/status; Platform tenant+auth required) |
 | `device` | Platform API devices (inventory + check-in/restart/erase/…; not Pro `computer`) |
 | `device-group` | Platform API device groups (not Pro computer groups) |
 | `ddm` | Platform DDM declaration reporting (read-only) |
-| `benchmark` | Platform compliance benchmarks (beta) |
+| `benchmark` | Platform compliance benchmarks |
 | `setup` | Generate setup scripts and OAuth config helpers |
 | `serve` | Local docs browser + script IDE |
 | `mcp` | MCP stdio server for AI tools (`mcp setup` writes host configs) |
@@ -331,10 +341,23 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 | `DEBUG` | Enable debug logging when set |
 | `XDG_CONFIG_HOME` | Config directory root (default: `~/.config`) |
 | `BUDDY_DOCS_ROOT` | Optional live `docs/` override for serve/MCP (default: embedded) |
+| `BUDDY_IDE_ROOT` | Root directory for `/ide` open/save (default: process working directory) |
+| `BUDDY_LANG` | CLI message locale (wins over `LANG`; unknown tags fall back to `en`) |
+| `BUDDY_ACS_PAYLOAD_UUID_<id>` | Bind ACS payload UUID for Classic profile id `<id>` when HTML scrape fails (legacy alias: `BUDDY_MACOS_PAYLOAD_UUID_<id>`) |
 | `BUDDY_SECRET_STORE` | Where the vault data key and recovery passphrase live: `file`, `pass`, or `keychain` (default: Keychain on macOS, `dek`/`master` files elsewhere) |
 | `BUDDY_VAULT_PASSPHRASE` | Override recovery passphrase (CI/tests; never written). A `dek:v1:…` value overrides the data key instead. |
 | `BUDDY_MANAGED_PLIST` | Path to a managed-config plist (replaces Darwin `/Library/Managed Preferences/virtualpete.buddy.cli.plist`) |
 | `BUDDY_CLASSIC_INSTANCE_ONLY` | Override `features.classic_instance_only` (`true`/`false`). Default false: Classic may use `/api/proclassic/` (no `/JSSResource` in the path). `true` forces **Classic `/JSSResource` only** onto instance. Does not apply to ACS or `GET /api/v1/policies` (always instance). |
+
+### Build-only (`make buddy-darwin-arm64` / `make package`)
+
+These are Makefile variables, not runtime config:
+
+| Variable | Effect |
+|----------|--------|
+| `BUDDY_CODESIGN_IDENTITY` | Developer ID Application identity required to sign the Darwin/arm64 binary |
+| `BUDDY_CODESIGN_IDENTIFIER` | Bundle identifier (default `virtualpete.buddy.cli`); must stay stable so Keychain ACLs survive rebuilds |
+| `BUDDY_PKG_SIGN_IDENTITY` | Optional Developer ID Installer identity for `make package` |
 
 ---
 

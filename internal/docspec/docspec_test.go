@@ -50,6 +50,7 @@ func TestAllTopicsRegistered(t *testing.T) {
 		"docs/apps", "docs/policies", "docs/smart-groups", "docs/static-groups",
 		"docs/profiles", "docs/profile-payloads", "docs/packages", "docs/scripts",
 		"docs/categories", "docs/macapps", "docs/computers", "docs/mdm",
+		"docs/mobile-devices", "docs/mobile-groups", "docs/mobile-profiles",
 		"docs/api-roles", "docs/api-clients", "docs/blueprints", "docs/devices",
 		"docs/device-groups", "docs/ddm", "docs/benchmarks", "docs/icons",
 	}

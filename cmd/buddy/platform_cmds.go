@@ -108,16 +108,17 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		if err != nil {
 			return err
 		}
-		sort, rest, err := extractStringFlag(rest, "sort")
+		sort, rest, err := extractStringFlag(rest, clispec.FlagSort)
 		if err != nil {
 			return err
 		}
 		listOpts.Filter = filter
 		listOpts.Sort = sort
-		if len(rest) > 0 {
-			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdDevice))
+		asJSON, leftover := extractBareFlag(rest, clispec.FlagJSON)
+		if len(leftover) > 0 {
+			return fmt.Errorf("unknown list flag %q; run '%s'", leftover[0], clispec.UsageHelp(clispec.CmdDevice))
 		}
-		return buddy.DeviceList(credName, listOpts, log)
+		return buddy.DeviceList(credName, listOpts, asJSON, log)
 	case clispec.SubGet:
 		if len(args) < 1 {
 			return missingArgHint("device-id", clispec.UsageHelp(clispec.CmdDevice))
@@ -211,7 +212,7 @@ func runDDM(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		if err != nil {
 			return err
 		}
-		sort, rest, err := extractStringFlag(rest, "sort")
+		sort, rest, err := extractStringFlag(rest, clispec.FlagSort)
 		if err != nil {
 			return err
 		}
@@ -235,7 +236,7 @@ func runDDM(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 			if err != nil {
 				return err
 			}
-			sort, rest, err := extractStringFlag(rest, "sort")
+			sort, rest, err := extractStringFlag(rest, clispec.FlagSort)
 			if err != nil {
 				return err
 			}

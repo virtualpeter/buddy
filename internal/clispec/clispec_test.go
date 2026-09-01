@@ -79,6 +79,7 @@ func TestEnglishCatalogComplete(t *testing.T) {
 		MsgDidYouMean, MsgUseCandidates, MsgRunHelpList, MsgNoHelp,
 		MsgCmdAuth, MsgCmdCred, MsgCmdPolicy, MsgCmdCategory, MsgCmdMacApp, MsgCmdApp,
 		MsgCmdGroup, MsgCmdProfile, MsgCmdPackage, MsgCmdIcon, MsgCmdComputer, MsgCmdMdm,
+		MsgCmdMobile, MsgCmdMobileGroup, MsgCmdMobileProf,
 		MsgCmdBlueprint, MsgCmdDevice, MsgCmdDeviceGroup, MsgCmdDDM, MsgCmdBenchmark,
 		MsgCmdRole, MsgCmdClient, MsgCmdScript, MsgCmdSetup, MsgCmdServe, MsgCmdMCP,
 		MsgCmdLSP, MsgCmdVersion,

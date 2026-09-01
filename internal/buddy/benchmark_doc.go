@@ -19,12 +19,12 @@ var BenchmarksTopic = docspec.Topic{
 		`baseline`,
 		`baselines`,
 	},
-	Summary: `Platform compliance benchmarks (beta) — baselines, catalog rules, reports. Requires platform-capable tenant + auth.`,
+	Summary: `Platform compliance benchmarks — baselines, catalog rules, reports. Requires platform-capable tenant + auth.`,
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / load / mutate", BuddyScript: "`benchmark*` builtins", CLI: "`buddy benchmark …`", Notes: "Baselines, catalog rules, reports"},
 	},
 	Notes: []string{
-		"Platform compliance benchmarks (beta). Requires platform-capable tenant + auth.",
+		"Platform compliance benchmarks. Requires platform-capable tenant + auth.",
 	},
 	AgentNotes: []string{
 		"Do not invent benchmark HTTP from schema alone when builtins exist.",
@@ -57,7 +57,7 @@ var BenchmarksTopic = docspec.Topic{
 		{Title: `MCP`, Ref: `/docs/docs/mcp`},
 	},
 	HelpExport: `benchmarks`,
-	BuiltinsHelp: `COMPLIANCE BENCHMARK (beta Platform API)
+	BuiltinsHelp: `COMPLIANCE BENCHMARK (Platform API)
   benchmarks(tenant?, surface?, auth?)
       Does: List tenant compliance benchmarks.
       → value: JSON (benchmark list)
@@ -94,7 +94,7 @@ var BenchmarksTopic = docspec.Topic{
       Params: benchmark_id: str.
 
 `,
-	CLIHelp: `buddy benchmark - Jamf Platform compliance benchmarks (beta)
+	CLIHelp: `buddy benchmark - Jamf Platform compliance benchmarks
 
 Usage:
   buddy [global-flags] benchmark <subcommand> [args...]
@@ -105,7 +105,7 @@ Subcommands:
   create [--file=<path>|-]               Create from JSON body
   delete <benchmark-id>                  Delete a benchmark
   baselines                              List mSCP baselines
-  rules [--baseline=<id>]                Catalog rules for a baseline
+  rules [--baseline=<baseline-id>]       Catalog rules for a baseline
   compliance-percentage <benchmark-id>   Overall compliance percentage
   report-devices <benchmark-id>          Devices for a benchmark report
   report-rules <benchmark-id>            Rules stats for a benchmark

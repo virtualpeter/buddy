@@ -74,9 +74,9 @@ func main() {
 	channel := buddy.ChannelCLI
 	if len(args) > 0 {
 		switch args[0] {
-		case "mcp":
+		case clispec.CmdMCP:
 			channel = buddy.ChannelMCP
-		case "serve":
+		case clispec.CmdServe:
 			// Notebook/IDE set channel per session; keep cli for process --tenant default.
 			channel = buddy.ChannelCLI
 		}
@@ -178,6 +178,12 @@ func main() {
 		exitOnErr(logger, "Script command failed", runJamfScript(credName, opts, args[1:], logger))
 	case clispec.CmdMdm:
 		exitOnErr(logger, "MDM command failed", runMdm(credName, opts, args[1:], logger))
+	case clispec.CmdMobile:
+		exitOnErr(logger, "Mobile-device command failed", runMobileDevice(credName, opts, args[1:], logger))
+	case clispec.CmdMobileGroup:
+		exitOnErr(logger, "Mobile-group command failed", runMobileGroup(credName, opts, args[1:], logger))
+	case clispec.CmdMobileProf:
+		exitOnErr(logger, "Mobile-profile command failed", runMobileProfile(credName, opts, args[1:], logger))
 	case clispec.CmdBlueprint:
 		exitOnErr(logger, "Blueprint command failed", runBlueprint(credName, opts, args[1:], logger))
 	case clispec.CmdDevice:
@@ -223,12 +229,9 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		}
 		return runPolicyList(credName, opts, rest, log)
 	}
-	if mode == "find" {
-		return fmt.Errorf("buddy policy find was removed; use 'buddy policy list [%s] [--ids]'", clispec.FlagEq(clispec.FlagFilter, "keyword"))
-	}
-	if mode == "logs" {
+	if mode == clispec.SubLogs {
 		if len(rest) > 0 && rest[0] == clispec.SubHelp {
-			fmt.Print(helpPolicy)
+			fmt.Print(helpPolicyLogs)
 			return nil
 		}
 		return runPolicyLogs(credName, rest, log)
@@ -248,8 +251,6 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		return runPolicyGet(credName, opts, rest, log)
 	case clispec.SubSet:
 		return runPolicySet(credName, opts, subcommand, args, log)
-	case clispec.SubClone:
-		return fmt.Errorf("buddy policy clone was removed; use change batches (step_clone_policy / step_set_package) or policy_copy + policy_set_package in buddyscript")
 	case clispec.SubCreate:
 		return runPolicyCreate(credName, opts, subcommand, args, log)
 	case clispec.SubDelete:
@@ -276,6 +277,7 @@ func runPolicyList(credName string, opts buddy.Opts, args []string, log *slog.Lo
 	var excludeIDs []int
 	var keywords []string
 	idsOnly := false
+	asJSON := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if val, next, matched, err := takeFlagValue(args, i, clispec.FlagFilter); matched {
@@ -286,7 +288,7 @@ func runPolicyList(credName string, opts buddy.Opts, args []string, log *slog.Lo
 			i = next - 1
 			continue
 		}
-		if val, next, matched, err := takeFlagValue(args, i, "exclude-ids"); matched {
+		if val, next, matched, err := takeFlagValue(args, i, clispec.FlagExcludeIDs); matched {
 			if err != nil {
 				return err
 			}
@@ -305,8 +307,10 @@ func runPolicyList(credName string, opts buddy.Opts, args []string, log *slog.Lo
 			continue
 		}
 		switch {
-		case a == "--ids":
+		case a == clispec.Flag(clispec.FlagIDs):
 			idsOnly = true
+		case a == clispec.Flag(clispec.FlagJSON):
+			asJSON = true
 		default:
 			return fmt.Errorf("unexpected argument %q; use %s (run '%s' for usage)", a, clispec.FlagEq(clispec.FlagFilter, "keyword"), clispec.UsageHelp(clispec.CmdPolicy, clispec.SubList))
 		}
@@ -321,6 +325,9 @@ func runPolicyList(credName string, opts buddy.Opts, args []string, log *slog.Lo
 		}
 		return nil
 	}
+	if asJSON {
+		return printJSON(summaries)
+	}
 	fmt.Printf("%-8s  %s\n", "ID", "Name")
 	fmt.Printf("%-8s  %s\n", "--------", "----------------------------------------")
 	for _, s := range summaries {
@@ -332,15 +339,15 @@ func runPolicyList(credName string, opts buddy.Opts, args []string, log *slog.Lo
 func runPolicyLogs(credName string, args []string, log *slog.Logger) error {
 	fs := flag.NewFlagSet("policy logs", flag.ContinueOnError)
 	computer := fs.String("computer", "", "computer id")
-	computerIDs := fs.String("computer-ids", "", "comma-separated computer ids (caller-built candidate set)")
-	filter := fs.String("filter", "", "computers() filter (bare term or RSQL); v4 inventory bound, not log date")
+	computerIDs := fs.String(clispec.FlagComputerIds, "", "comma-separated computer ids (caller-built candidate set)")
+	filter := fs.String(clispec.FlagFilter, "", "computers() filter (bare term or RSQL); v4 inventory bound, not log date")
 	lastContact := fs.String("last-contact", "", "ISO datetime; computers with general.lastContact>=value (inventory, not logs since)")
-	since := fs.String("since", "", "keep log rows with date_completed_epoch >= value (ISO or epoch)")
-	until := fs.String("until", "", "keep log rows with date_completed_epoch <= value (ISO or epoch)")
+	since := fs.String(clispec.FlagSince, "", "keep log rows with date_completed_epoch >= value (ISO or epoch)")
+	until := fs.String(clispec.FlagUntil, "", "keep log rows with date_completed_epoch <= value (ISO or epoch)")
 	status := fs.String("status", "", "filter by log status (case-insensitive exact)")
 	skip := fs.Int("skip", 0, "computers to skip after the candidate list is built")
-	limit := fs.Int("limit", 0, "max computers to scan; with no other source uses Classic computers/subset/basic")
-	asJSON := fs.Bool("json", false, "Print flattened logs as JSON")
+	limit := fs.Int(clispec.FlagLimit, 0, "max computers to scan; with no other source uses Classic computers/subset/basic")
+	asJSON := fs.Bool(clispec.FlagJSON, false, "Print flattened logs as JSON")
 	flagArgs, positionals := staticGroupSplitFlags(args)
 	if err := fs.Parse(flagArgs); err != nil {
 		return err
@@ -858,12 +865,21 @@ func runCategory(credName string, opts buddy.Opts, args []string, log *slog.Logg
 		var filter string
 		fs := flag.NewFlagSet("category list", flag.ContinueOnError)
 		fs.StringVar(&filter, clispec.FlagFilter, "", "name substring or RSQL filter")
+		asJSON := fs.Bool(clispec.FlagJSON, false, "Print matching rows as JSON")
 		if err := fs.Parse(args); err != nil {
 			return err
 		}
 		cats, err := buddy.CategorySearch(credName, filter, buddy.PageOpts{Page: buddy.PageAll}, log)
 		if err != nil {
 			return err
+		}
+		if *asJSON {
+			b, err := json.MarshalIndent(cats, "", "  ")
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(b))
+			return nil
 		}
 		fmt.Printf("%-8s  %-8s  %s\n", "ID", "Priority", "Name")
 		fmt.Printf("%-8s  %-8s  %s\n", "--------", "--------", "----------------------------------------")
@@ -1204,14 +1220,15 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 		filter := ""
 		fs := flag.NewFlagSet("group list "+groupType, flag.ContinueOnError)
 		fs.StringVar(&filter, clispec.FlagFilter, "", "name filter (plain substring or RSQL)")
+		asJSON := fs.Bool(clispec.FlagJSON, false, "Print matching rows as JSON")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		switch groupType {
 		case "smart":
-			return buddy.GroupListSmart(credName, filter, log)
+			return buddy.GroupListSmart(credName, filter, *asJSON, log)
 		case "static":
-			return buddy.GroupListStatic(credName, filter, log)
+			return buddy.GroupListStatic(credName, filter, *asJSON, log)
 		default:
 			return errUnknownSubcommand("group list", groupType, []string{"smart", "static"})
 		}
@@ -1244,18 +1261,18 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 				return err
 			}
 			if len(positionals) < 1 {
-				return missingArg("<group-id>", clispec.UsageHelp(clispec.CmdGroup))
+				return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
 			}
 			groupID := strings.TrimSpace(positionals[0])
 			return buddy.GroupSmartListMembers(credName, groupID, filter, log)
 		case "criteria":
 			if len(args) < 1 {
-				return missingArg("<group-id>", clispec.UsageHelp(clispec.CmdGroup))
+				return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
 			}
 			return buddy.GroupSmartPrintCriteria(credName, strings.TrimSpace(args[0]), log)
 		case "set-criteria":
 			if len(args) < 1 {
-				return missingArg("<group-id>", clispec.UsageHelp(clispec.CmdGroup))
+				return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
 			}
 			groupID := strings.TrimSpace(args[0])
 			body, rest, err := readJSONFileArg(args[1:])
@@ -1268,12 +1285,12 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 			return buddy.GroupSmartSetCriteria(credName, opts, groupID, body, log)
 		case "version":
 			if len(args) < 1 {
-				return missingArg("<group-id>", clispec.UsageHelp(clispec.CmdGroup))
+				return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
 			}
 			return buddy.GroupGetVersion(credName, opts, strings.TrimSpace(args[0]), log)
 		case "set-version":
 			if len(args) < 2 {
-				return missingArg("<group-id> or <version>", clispec.UsageHelp(clispec.CmdGroup))
+				return missingArg("group-id or version", clispec.UsageHelp(clispec.CmdGroup))
 			}
 			groupID := strings.TrimSpace(args[0])
 			newVersion := strings.TrimSpace(args[1])
@@ -1283,7 +1300,7 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 		}
 	case "static":
 		if len(args) == 0 {
-			return fmt.Errorf("usage: buddy group static <members|add|remove> ...; run '%s' for usage", clispec.UsageHelp(clispec.CmdGroup))
+			return fmt.Errorf("usage: buddy group static <members|add|remove|set> ...; run '%s' for usage", clispec.UsageHelp(clispec.CmdGroup))
 		}
 		sub := args[0]
 		args = args[1:]
@@ -1297,57 +1314,46 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 				return err
 			}
 			if len(positionals) < 1 {
-				return missingArg("<group-id>", clispec.UsageHelp(clispec.CmdGroup))
+				return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
 			}
 			groupID := strings.TrimSpace(positionals[0])
 			return buddy.GroupStaticListMembers(credName, groupID, filter, log)
-		case "add":
+		case "add", "remove", clispec.SubSet:
 			var computerIDsFlag string
-			fs := flag.NewFlagSet("group static add", flag.ContinueOnError)
-			fs.StringVar(&computerIDsFlag, "computer-ids", "", "comma-separated computer IDs")
+			fs := flag.NewFlagSet("group static "+sub, flag.ContinueOnError)
+			fs.StringVar(&computerIDsFlag, clispec.FlagComputerIds, "", "comma-separated computer IDs")
 			flagArgs, positionals := staticGroupSplitFlags(args)
 			if err := fs.Parse(flagArgs); err != nil {
 				return err
 			}
 			if len(positionals) < 1 {
-				return missingArg("<group-id>", clispec.UsageHelp(clispec.CmdGroup))
+				return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
 			}
-			if computerIDsFlag == "" {
-				return fmt.Errorf("buddy group static add requires --computer-ids=<id>[,<id>...]")
+			seenIDs := false
+			for _, a := range args {
+				if a == clispec.Flag(clispec.FlagComputerIds) || strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagComputerIds)) {
+					seenIDs = true
+					break
+				}
 			}
-			groupID := strings.TrimSpace(positionals[0])
-			ids := parseCommaSeparatedIDs(computerIDsFlag)
-			if len(ids) == 0 {
-				return fmt.Errorf("no computer IDs in --computer-ids")
-			}
-			changed, err := buddy.StaticGroupAddComputers(credName, opts, groupID, ids, log)
-			if err != nil {
-				return err
-			}
-			if changed {
-				fmt.Printf("Updated static group %s.\n", groupID)
-			}
-			return nil
-		case "remove":
-			var computerIDsFlag string
-			fs := flag.NewFlagSet("group static remove", flag.ContinueOnError)
-			fs.StringVar(&computerIDsFlag, "computer-ids", "", "comma-separated computer IDs")
-			flagArgs, positionals := staticGroupSplitFlags(args)
-			if err := fs.Parse(flagArgs); err != nil {
-				return err
-			}
-			if len(positionals) < 1 {
-				return missingArg("<group-id>", clispec.UsageHelp(clispec.CmdGroup))
-			}
-			if computerIDsFlag == "" {
-				return fmt.Errorf("buddy group static remove requires --computer-ids=<id>[,<id>...]")
+			if !seenIDs {
+				return fmt.Errorf("buddy group static %s requires %s", sub, clispec.FlagEq(clispec.FlagComputerIds, "computer-id"))
 			}
 			groupID := strings.TrimSpace(positionals[0])
 			ids := parseCommaSeparatedIDs(computerIDsFlag)
-			if len(ids) == 0 {
-				return fmt.Errorf("no computer IDs in --computer-ids")
+			if sub != clispec.SubSet && len(ids) == 0 {
+				return fmt.Errorf("no computer IDs in %s", clispec.Flag(clispec.FlagComputerIds))
 			}
-			changed, err := buddy.StaticGroupRemoveComputers(credName, opts, groupID, ids, log)
+			var changed bool
+			var err error
+			switch sub {
+			case "add":
+				changed, err = buddy.StaticGroupAddComputers(credName, opts, groupID, ids, log)
+			case "remove":
+				changed, err = buddy.StaticGroupRemoveComputers(credName, opts, groupID, ids, log)
+			default:
+				changed, err = buddy.StaticGroupSetComputers(credName, opts, groupID, ids, log)
+			}
 			if err != nil {
 				return err
 			}
@@ -1356,7 +1362,7 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 			}
 			return nil
 		default:
-			return errUnknownSubcommand("group static", sub, []string{"members", "add", "remove"})
+			return errUnknownSubcommand("group static", sub, []string{"members", clispec.SubAdd, "remove", clispec.SubSet})
 		}
 	default:
 		cands := []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubDelete, "smart", "static"}
@@ -1380,7 +1386,7 @@ func runGroupCreate(credName string, opts buddy.Opts, args []string, log *slog.L
 		var description, computerIDsFlag string
 		fs := flag.NewFlagSet("group create static", flag.ContinueOnError)
 		fs.StringVar(&description, "description", "", "optional group description")
-		fs.StringVar(&computerIDsFlag, "computer-ids", "", "comma-separated computer IDs (optional)")
+		fs.StringVar(&computerIDsFlag, clispec.FlagComputerIds, "", "comma-separated computer IDs (optional)")
 		flagArgs, positionals := staticGroupSplitFlags(args)
 		if err := fs.Parse(flagArgs); err != nil {
 			return err
@@ -1745,11 +1751,38 @@ func runProfile(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		_, err = buddy.ProfileClone(credName, opts, profileID, name, log)
 		return err
 	case clispec.SubList:
-		filter, _, err := extractStringFlag(args, clispec.FlagFilter)
+		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
 		if err != nil {
 			return err
 		}
-		return buddy.ProfileList(credName, filter, log)
+		asJSON, rest := extractBareFlag(rest, clispec.FlagJSON)
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdProfile))
+		}
+		return buddy.ProfileList(credName, filter, asJSON, log)
+	case clispec.SubCreate:
+		name, rest, err := extractStringFlag(args, clispec.FlagName)
+		if err != nil {
+			return err
+		}
+		body, leftover, err := readXMLFileArg(rest)
+		if err != nil {
+			return err
+		}
+		if len(leftover) > 0 {
+			return fmt.Errorf("unexpected argument %q; usage: buddy profile create [--name=<name>] [--file=<xml>|-]", leftover[0])
+		}
+		_, err = buddy.ProfilePostXML(credName, opts, body, name, log)
+		return err
+	case clispec.SubDelete:
+		if len(args) < 1 {
+			return missingArg("profile-id", clispec.UsageHelp(clispec.CmdProfile))
+		}
+		profileID, err := parseInt(args[0], "profile-id")
+		if err != nil {
+			return err
+		}
+		return buddy.ProfileDelete(credName, opts, profileID, log)
 	case "redeploy":
 		if len(args) < 1 {
 			return missingArg("profile-id", clispec.UsageHelp(clispec.CmdProfile))
@@ -1770,7 +1803,7 @@ func runProfile(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		}
 		return runProfileSet(credName, opts, args[0], args[1:], log)
 	default:
-		return errUnknownSubcommand("profile", mode, []string{clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubClone, "redeploy"})
+		return errUnknownSubcommand("profile", mode, []string{clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubCreate, clispec.SubDelete, clispec.SubClone, "redeploy"})
 	}
 }
 
@@ -1896,7 +1929,7 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		if err != nil {
 			return err
 		}
-		sortSpec, _, err := extractStringFlag(rest, "sort")
+		sortSpec, rest, err := extractStringFlag(rest, clispec.FlagSort)
 		if err != nil {
 			return err
 		}
@@ -1904,7 +1937,11 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		if err != nil {
 			return err
 		}
-		return buddy.PackageList(credName, filter, sortOrder, log)
+		asJSON, rest := extractBareFlag(rest, clispec.FlagJSON)
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdPackage))
+		}
+		return buddy.PackageList(credName, filter, sortOrder, asJSON, log)
 	case clispec.SubGet:
 		if len(args) < 1 {
 			return missingArg("package-id", clispec.UsageHelp(clispec.CmdPackage))
@@ -2074,7 +2111,7 @@ func parsePackageBoolFlag(value, name string) (bool, error) {
 func runComputerHistory(credName string, args []string, log *slog.Logger) error {
 	fs := flag.NewFlagSet("computer history", flag.ContinueOnError)
 	subset := fs.String("subset", "PolicyLogs", "Classic history subset (default PolicyLogs); omit path segment with --subset=")
-	asJSON := fs.Bool("json", false, "Print parsed history dict as JSON")
+	asJSON := fs.Bool(clispec.FlagJSON, false, "Print parsed history dict as JSON")
 	flagArgs, positionals := staticGroupSplitFlags(args)
 	if err := fs.Parse(flagArgs); err != nil {
 		return err
@@ -2093,9 +2130,9 @@ func runComputerLogs(credName string, args []string, log *slog.Logger) error {
 	fs := flag.NewFlagSet("computer logs", flag.ContinueOnError)
 	policy := fs.String("policy", "", "filter by policy id")
 	status := fs.String("status", "", "filter by log status (case-insensitive exact)")
-	since := fs.String("since", "", "keep log rows with date_completed_epoch >= value (ISO or epoch)")
-	until := fs.String("until", "", "keep log rows with date_completed_epoch <= value (ISO or epoch)")
-	asJSON := fs.Bool("json", false, "Print flattened logs as JSON")
+	since := fs.String(clispec.FlagSince, "", "keep log rows with date_completed_epoch >= value (ISO or epoch)")
+	until := fs.String(clispec.FlagUntil, "", "keep log rows with date_completed_epoch <= value (ISO or epoch)")
+	asJSON := fs.Bool(clispec.FlagJSON, false, "Print flattened logs as JSON")
 	flagArgs, positionals := staticGroupSplitFlags(args)
 	if err := fs.Parse(flagArgs); err != nil {
 		return err
@@ -2128,15 +2165,13 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 	args = args[1:]
 
 	switch subcommand {
-	case clispec.SubFind:
-		return fmt.Errorf("buddy computer find was removed; use 'buddy computer list [%s]'", clispec.FlagEq(clispec.FlagFilter, "rsql"))
 	case clispec.SubList:
 		fs := flag.NewFlagSet("computer list", flag.ContinueOnError)
-		filter := fs.String("filter", "", "RSQL filter expression")
-		sort := fs.String("sort", "", "Jamf sort= (e.g. general.lastContact:desc)")
+		filter := fs.String(clispec.FlagFilter, "", "RSQL filter expression")
+		sort := fs.String(clispec.FlagSort, "", "Jamf sort= (e.g. general.lastContact:desc)")
 		sectionFlag := fs.String("section", "", "inventory section(s), comma-separated; omit for Jamf GENERAL default")
 		mgmtID := fs.String("management-id", "", "Look up computer by MDM management UUID (clientManagementId)")
-		asJSON := fs.Bool("json", false, "Print Jamf results[] as JSON")
+		asJSON := fs.Bool(clispec.FlagJSON, false, "Print Jamf results[] as JSON")
 		if err := fs.Parse(args); err != nil {
 			return err
 		}
@@ -2325,6 +2360,7 @@ func runRole(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 		if err != nil {
 			return err
 		}
+		_, rest = extractBareFlag(rest, clispec.FlagJSON) // RoleList is always JSON
 		if len(rest) > 0 {
 			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdRole))
 		}
@@ -2381,6 +2417,7 @@ func runClient(credName string, opts buddy.Opts, args []string, log *slog.Logger
 		if err != nil {
 			return err
 		}
+		_, rest = extractBareFlag(rest, clispec.FlagJSON) // ClientList is always JSON
 		if len(rest) > 0 {
 			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdClient))
 		}
@@ -2464,11 +2501,15 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 
 	switch subcommand {
 	case clispec.SubList:
-		filter, _, err := extractStringFlag(args, clispec.FlagFilter)
+		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
 		if err != nil {
 			return err
 		}
-		return buddy.ScriptList(credName, filter, log)
+		asJSON, rest := extractBareFlag(rest, clispec.FlagJSON)
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdScript))
+		}
+		return buddy.ScriptList(credName, filter, asJSON, log)
 
 	case clispec.SubGet:
 		if len(args) < 1 {
@@ -3090,18 +3131,17 @@ func runMdm(credName string, _ buddy.Opts, args []string, log *slog.Logger) erro
 	args = args[1:]
 
 	switch subcommand {
-	case clispec.SubFind:
-		return fmt.Errorf("buddy mdm find was removed; use 'buddy mdm list %s'", clispec.FlagEq(clispec.FlagFilter, "rsql"))
 	case clispec.SubList:
 		var filter, sort string
 		var pageSize, limit int
 		var count bool
 		fs := flag.NewFlagSet("mdm list", flag.ContinueOnError)
 		fs.StringVar(&filter, clispec.FlagFilter, "", "RSQL filter (required; at least one field)")
-		fs.StringVar(&sort, "sort", "dateSent:asc", "Sort expression (e.g. dateSent:desc)")
-		fs.IntVar(&pageSize, "page-size", 200, "Records per API request; pagination iterates until all results are fetched")
-		fs.IntVar(&limit, "limit", 0, "Maximum total records to return (0 = no limit)")
+		fs.StringVar(&sort, clispec.FlagSort, "dateSent:asc", "Sort expression (e.g. dateSent:desc)")
+		fs.IntVar(&pageSize, clispec.FlagPageSize, 200, "Records per API request; pagination iterates until all results are fetched")
+		fs.IntVar(&limit, clispec.FlagLimit, 0, "Maximum total records to return (0 = no limit)")
 		fs.BoolVar(&count, "count", false, "Print only the total count of matching records (single API call)")
+		asJSON := fs.Bool(clispec.FlagJSON, false, "Print matching rows as JSON")
 		if err := fs.Parse(args); err != nil {
 			return err
 		}
@@ -3117,7 +3157,7 @@ func runMdm(credName string, _ buddy.Opts, args []string, log *slog.Logger) erro
 			fmt.Printf("%d\n", len(records))
 			return nil
 		}
-		return buddy.MdmCommandFindPrint(credName, filter, sort, pageOpts, limit, log)
+		return buddy.MdmCommandFindPrint(credName, filter, sort, pageOpts, limit, *asJSON, log)
 	default:
 		return errUnknownSubcommand("mdm", subcommand, []string{clispec.SubList})
 	}

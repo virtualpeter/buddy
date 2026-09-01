@@ -21,6 +21,11 @@ var forbiddenLegacyBuiltinNames = []string{
 	"group_get_version", "group_set_version", "group_put",
 	"role_list", "role_fetch_list", "role_fetch", "role_privileges_list",
 	"client_fetch_list", "client_fetch",
+	// Renamed or removed in the conformity pass — no aliases.
+	"group_delete", "smart_group_list_computers", "static_group_list_computers",
+	"smart_group_get_criteria", "smart_group_find_criteria", "smart_group_get_version",
+	"script_get_contents",
+	"profile_get_payloads", "profile_get_payload", "profile_list_payloads", "profile_set_xml",
 }
 
 func TestV3BuiltinNamesPresent(t *testing.T) {
@@ -31,6 +36,8 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 		"computers", "computer", "computer_detail", "computer_history", "computer_policy_logs", "policy_logs", "mdm_commands",
 		"profiles", "profile", "profile_xml",
 		"smart_groups", "static_groups", "smart_group", "static_group",
+		"smart_group_delete", "smart_group_computers", "static_group_computers",
+		"smart_group_criteria", "smart_group_version", "script_contents",
 		"roles", "role", "role_privileges", "clients", "client",
 		"blueprints", "blueprint", "blueprint_create", "blueprint_set",
 		"blueprint_delete", "blueprint_deploy", "blueprint_undeploy",
@@ -39,6 +46,15 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 		"icon", "icons", "icon_upload", "icon_check", "icon_download", "policy_set_icon",
 		"version_extract", "version_compare", "version_sort",
 		"change_batch", "plan_change", "run_change",
+		"mobile_devices", "mobile_device", "mobile_device_send_mdm_command",
+		"mobile_device_update_inventory", "mobile_device_restart", "mobile_device_lock", "mobile_device_erase",
+		"mobile_smart_groups", "mobile_static_groups", "mobile_smart_group", "mobile_static_group",
+		"mobile_smart_group_create", "mobile_smart_group_put", "mobile_smart_group_delete",
+		"mobile_smart_group_criteria", "mobile_smart_group_set_criteria", "mobile_smart_group_devices",
+		"mobile_static_group_create", "mobile_static_group_delete", "mobile_static_group_devices",
+		"mobile_static_group_add_devices", "mobile_static_group_remove_devices", "mobile_static_group_set_devices",
+		"mobile_profiles", "mobile_profile_xml", "mobile_profile_put_xml",
+		"mobile_profile_create_xml", "mobile_profile_delete",
 	} {
 		if _, ok := dict[name]; !ok {
 			t.Errorf("missing builtin %q", name)
@@ -48,8 +64,8 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 
 func TestForbiddenLegacyBuiltinNamesAbsent(t *testing.T) {
 	dict := makeBuiltins("default", slog.Default(), false)
-	if len(forbiddenLegacyBuiltinNames) != 38 {
-		t.Fatalf("forbidden list length = %d, want 38", len(forbiddenLegacyBuiltinNames))
+	if len(forbiddenLegacyBuiltinNames) != 49 {
+		t.Fatalf("forbidden list length = %d, want 49", len(forbiddenLegacyBuiltinNames))
 	}
 	for _, name := range forbiddenLegacyBuiltinNames {
 		if _, ok := dict[name]; ok {

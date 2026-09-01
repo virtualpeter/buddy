@@ -14,7 +14,7 @@ keywords:
 
 # Compliance benchmarks
 
-Platform compliance benchmarks (beta) — baselines, catalog rules, reports. Requires platform-capable tenant + auth.
+Platform compliance benchmarks — baselines, catalog rules, reports. Requires platform-capable tenant + auth.
 
 ## Agent rules
 
@@ -24,7 +24,7 @@ Platform compliance benchmarks (beta) — baselines, catalog rules, reports. Req
 ## Facts
 
 - List / load / mutate: `benchmark*` builtins · `buddy benchmark …` — Baselines, catalog rules, reports
-- Platform compliance benchmarks (beta). Requires platform-capable tenant + auth.
+- Platform compliance benchmarks. Requires platform-capable tenant + auth.
 
 ## Builtins
 

@@ -217,7 +217,7 @@ Learn endpoints from the Jamf host schemas plus the embedded Platform specs:
 | `classic` | `GET /classicapi/doc/swagger.yaml` (Swagger 2, live) |
 | `platform` | Embedded Platform API Gateway specs (no credential needed) |
 
-- The Platform API Gateway has no live schema endpoint, so its specs (blueprints, devices, device-groups, device-actions, ddm/report, compliance-benchmarks) are vendored into the binary. Platform paths appear with their gateway base, e.g. `/api/blueprints/v1/tenant/{tenantId}/blueprints`.
+- The Platform API Gateway has no live schema endpoint (developer.jamf.com documents the APIs and the Jamf MCP can query them, but neither hosts downloadable OAS). Specs (blueprints, devices, device-groups, device-actions, ddm/report, compliance-benchmarks) are vendored from jamf-cli into the binary. Platform paths appear with their gateway base, e.g. `/api/blueprints/v1/tenant/{tenantId}/blueprints`.
 - No schema requires authentication: the Pro/Classic schema documents are served publicly by the Jamf host (only data endpoints need a bearer token), and Platform specs are embedded. buddy sends no `Authorization` header for these fetches — the credential is used only to resolve the host URL for `pro`/`classic`, so discovery works even with a secret-less credential.
 - Prefer `filter` (e.g. `"blueprints deploy"`, `"policy delete"`) — space-separated terms are AND-matched against path, method, tags, summary, operationId, description.
 - Default return is a compact `operations` list (`path`, `method`, `summary`, `api`, …). Set `full: true` only when you need parameter/response schemas.

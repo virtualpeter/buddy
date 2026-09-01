@@ -35,3 +35,17 @@ Resource cookbooks: edit `internal/buddy/*_doc.go`, then `make gendocs` (writes 
 - Tests that need a secret store: `secrets.SetStore(mock)`. Vault tests use `NewVaultStore` + `MemoryMaster` (DEK) or `secrets.SetDEKStore` / `SetMasterStore`; default store is `secrets.enc` (random DEK in Keychain/`dek`, recovery passphrase in Keychain/`master`).
 - No org-specific tenant/auth names, hostnames, or client IDs in docs, help, tests, or commit messages — use generics (`sandbox`, `prod`, `example.jamfcloud.com`).
 - Minimal diffs; match existing patterns.
+
+## Platform schema vendoring (reviewed 2026-09-01)
+
+`jamf_schema(api="platform")` embeds OAS JSON from jamf-cli (`internal/buddy/platformschema/`, `make sync-platform-schema`). Do **not** drop that snapshot or fetch Platform specs at runtime.
+
+Reviewed via Jamf MCP (`list-specs` / `list-endpoints` / `get-server-variables`) and [developer.jamf.com/platform-api](https://developer.jamf.com/platform-api):
+
+- Official docs + MCP cover the same six native services we vendor. Path lists match. Declaration Reporting docs hide two unfiltered routes that jamf-cli still marks `deprecated`.
+- MCP also lists gateway-rewritten `platform-api=Jamf Pro API` and `Classic API` (`/api/pro`, proclassic). Those are instance APIs; buddy already fetches them live. Do not vendor them.
+- No live gateway schema: `{gateway}/api/schema` and `/openapi.json` are 404; paths under `/api/{service}/` are 401 even when fake. Developer portal `openapi.json` is missing (404 / SPA HTML). MCP has no export-full-spec tool; search for `schema` / `openapi` endpoints is empty.
+- Token docs still show `/auth/token` (getting started) and `/oauth2/token` (migration). Keep the 404 fallback in `tokenauth`.
+- jamf-cli `specs/platform/` is still the only anonymous raw OAS (MIT, same six snake_case JSON files).
+
+**TODO:** After Platform API Gateway is GA (docs still said Beta on 2026-09-01), re-check for a live schema URL or downloadable OAS. If one exists, consider dropping jamf-cli vendoring; until then keep the embed so `api="platform"` stays offline and credential-free.

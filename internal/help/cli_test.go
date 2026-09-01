@@ -68,7 +68,7 @@ func TestParseCLIHelpPolicyList(t *testing.T) {
 	for _, s := range p.Sections {
 		labels[s.Label] = s.Body
 	}
-	if !strings.Contains(labels["Usage"], "buddy policy list") {
+	if !strings.Contains(labels["Usage"], "buddy [global-flags] policy list") {
 		t.Fatalf("usage = %q", labels["Usage"])
 	}
 	if _, ok := labels["Flags (list)"]; !ok {

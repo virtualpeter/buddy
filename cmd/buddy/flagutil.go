@@ -44,3 +44,17 @@ func extractStringFlag(args []string, name string) (value string, rest []string,
 	}
 	return value, rest, nil
 }
+
+// extractBareFlag removes all --name occurrences from args (boolean flags with no value).
+func extractBareFlag(args []string, name string) (present bool, rest []string) {
+	want := "--" + name
+	rest = make([]string, 0, len(args))
+	for _, a := range args {
+		if a == want {
+			present = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	return present, rest
+}

@@ -21,8 +21,8 @@ Typed per-resource MCP tools (smart/static groups, profiles, policies, packages 
 |------|------------------|--------------------------------------|--------|
 | Policies | `policies` / `policy` | `policies` / `policy` / `policy_set*` / `policy_copy` | Invent Classic policy PUT from schema |
 | Smart group criteria | `smart-groups` / `smart` | `smart_group*` / `smart_group_update_criterion_value` | `static_group*` / invent criteria PUT |
-| Smart group members | `smart-groups` / `smart` | `smart_group_list_computers` | Classic computergroup XML / invent from schema |
-| Static membership | `static-groups` / `static` | `static_group_list_computers` / add/remove/set | `smart_group*` for mutate |
+| Smart group members | `smart-groups` / `smart` | `smart_group_computers` | Classic computergroup XML / invent from schema |
+| Static membership | `static-groups` / `static` | `static_group_computers` / add/remove/set | `smart_group*` for mutate |
 | Edit profile / ACS prefs | `profile-payloads` | `profile_xml` → `payloads_list_identifiers` → `profile_xml_patch_payload(identifier=)` → `profile_put_xml` | Classic PUT from schema; `payloads_get_mcx_dict` on `com.apple.MCX` PayloadContent |
 | Create/clone profile | `profiles` / `profile-payloads` | `profile_create` / `profile_clone` / `profile_copy` | Hand-edit UUIDs |
 | Package after upload | `packages` / `jcds` | `package_wait_ready` / `package_ready` / `package_download` | Attach/download before READY |

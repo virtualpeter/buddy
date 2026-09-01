@@ -229,7 +229,7 @@ var AppsTopic = docspec.Topic{
 		},
 		{
 			Name:    "app import",
-			Usage:   "buddy [global-flags] app import [name] [--ss=<id>] [--install=…] [--cache=…] [--uninstall=…] [-o path]",
+			Usage:   "buddy [global-flags] app import [name] [--ss=<policy-id>] [--install=…] [--cache=…] [--uninstall=…] [-o path]",
 			Summary: "Interview (or flags) to bind policies and write index + desired-state script",
 			Params: []docspec.Param{
 				{Name: "name", Type: "string", Description: "App slug (prompted when omitted)"},
@@ -350,7 +350,7 @@ Subcommands:
   list [--filter=<keyword>]                              List imported apps (apps/index.json)
   scan [--filter=<keyword>] [--refresh]                  Heuristic discovery (policy cache if present)
   get <name>                                             Show one policy app (index or classify)
-  import [name] [--ss=<id>] [--install=…] [options]      Interview or flags → index + .buddy
+  import [name] [--ss=<policy-id>] [--install=…] [options]   Interview or flags → index + .buddy
   cache <status|refresh>                                 Classic policy payload cache
   upgrade <name> --version=<version> [--package-pattern=…]
                                                          One-shot bump by kind (prefer import + reconcile)
@@ -364,10 +364,10 @@ Flags for 'scan':
 
 Flags for 'import':
   -o, --output=<path>       Output .buddy path (default apps/<slug>.buddy)
-  --ss=<id>                 Self Service policy ID (non-interactive when set)
-  --install=<ids>           Comma-separated install policy IDs
-  --cache=<ids>             Comma-separated cache policy IDs
-  --uninstall=<ids>         Comma-separated uninstall policy IDs
+  --ss=<policy-id>          Self Service policy ID (non-interactive when set)
+  --install=<policy-id>[,<policy-id>...]    Comma-separated install policy IDs
+  --cache=<policy-id>[,<policy-id>...]      Comma-separated cache policy IDs
+  --uninstall=<policy-id>[,<policy-id>...]  Comma-separated uninstall policy IDs
   --package-pattern=<glob>  Package name glob
   --install-trigger=…       Install trigger
   --cache-trigger=…         Cache trigger

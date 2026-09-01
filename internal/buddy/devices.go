@@ -57,11 +57,14 @@ func DeviceListValues(credName string, listOpts DeviceListOpts, logger *slog.Log
 	return all, nil
 }
 
-// DeviceList prints a table of Platform devices.
-func DeviceList(credName string, listOpts DeviceListOpts, logger *slog.Logger) error {
+// DeviceList prints a table of Platform devices (or the rows as JSON).
+func DeviceList(credName string, listOpts DeviceListOpts, asJSON bool, logger *slog.Logger) error {
 	items, err := DeviceListValues(credName, listOpts, logger)
 	if err != nil {
 		return err
+	}
+	if asJSON {
+		return printJSONValue(items)
 	}
 	if len(items) == 0 {
 		fmt.Println("No devices found.")

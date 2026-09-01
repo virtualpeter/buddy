@@ -10,7 +10,8 @@ Jamf Classic macOS configuration profiles — lifecycle (list, get, create, clon
 | List / load | `profiles(...)` / `profile(id=…)` / `profile_xml(id=…)` | `buddy profile list` / `get xml` | XML string is the same Classic document |
 | Clone | `profile_clone(id, name)` | `buddy profile clone` | Same tenant; new UUIDs; unassigned scope |
 | Copy / migrate | `profile_copy(..., to_tenant?, to_auth?)` | — | Source = tenant/auth; dest = to_* |
-| Create | `profile_xml_prepare_for_create` → `profile_create_xml` | — | Or greenfield `profile_create` + payloads |
+| Create | `profile_xml_prepare_for_create` → `profile_create_xml` | `buddy profile create` | XML on stdin / `--file`; or greenfield `profile_create` + payloads |
+| Delete | `profile_delete(id)` | `buddy profile delete` |  |
 | Write back | `profile_put_xml(id, xml_str)` | `buddy profile set xml` | After offline edits |
 | Redeploy / ACS | `profile_redeploy` / `profile_acs_bind_uuid` | `buddy profile redeploy` | ACS bind is BuddyScript-only when HTML scrape fails |
 

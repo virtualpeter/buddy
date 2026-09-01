@@ -57,19 +57,10 @@ const ProfilesBuiltinsSection = `PROFILE
       → None
       Params: id: int/str; payload_uuid: str.
       Notes: Needed when API-token clients cannot scrape legacy HTML; lets profile_xml merge ACS Forced into Classic XML, and enables ACS writes.
-  profile_get_payloads(id, tenant?, surface?, auth?)
-      Does: Return the payloads plist XML embedded in the profile.
-      → value: str (payloads plist XML)
-      Params: id: int/str.
-  profile_get_payload(id, identifier, tenant?, surface?, auth?)
-      Does: Return one PayloadContent payload dict as plist XML.
-      → value: str (plist <dict> fragment)
-      Params: id: int/str; identifier: str (PayloadIdentifier, unique PayloadType, or unique PayloadUUID).
-      Notes: PayloadContent only; not MCX — use payloads_get_mcx_dict offline.
-  profile_list_payloads(id, tenant?, surface?, auth?)
-      Does: List PayloadContent rows.
-      → value: list of {identifier, type, uuid}
-      Params: id: int/str.
+  profile_put_xml(id, xml_str, tenant?, surface?, auth?)
+      Does: PUT full profile XML (Classic envelope) to update the profile.
+      → None
+      Params: id: int/str; xml_str: str (same shape as profile_xml(id=…)).
   profile_set_payload(id, identifier, dict_file, redeploy?, tenant?, surface?, auth?)
       Does: Merge-patch one payload (PayloadContent keys or MCX settings) and PUT the profile.
       → None
@@ -86,13 +77,15 @@ Usage:
   buddy [global-flags] profile <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<name>]                                    List configuration profiles
+  list [--filter=<name>] [--json]                           List configuration profiles
   get xml <profile-id>                                      Output full profile XML
   get payloads <profile-id>                                 Output payloads plist only (pretty-printed)
   get payload <profile-id> <identifier>                      Output one PayloadContent payload (Identifier, unique Type, or unique UUID)
   get list-payloads <profile-id>                            List PayloadContent {identifier, type, uuid}
   set xml <profile-id> [--redeploy]                         PUT profile from XML on stdin
   set payload <profile-id> <identifier> <dict-file.xml> [--redeploy]   Patch payload (PayloadContent merge or MCX settings)
+  create [--name=<name>] [--file=<xml>|-]                   POST profile XML (stdin if --file omitted)
+  delete <profile-id>                                       Delete a configuration profile
   clone <profile-id> <new-name>                             Clone profile with new name, unassigned scope
   redeploy <profile-id>                                     Redeploy to all assigned devices
 
@@ -104,12 +97,15 @@ Notes:
 Examples:
   buddy profile list
   buddy profile list --filter=Chrome
+  buddy profile list --json
   buddy profile get xml 99
   buddy profile get payloads 99
   buddy profile get list-payloads 99
   buddy profile get payload 99 com.google.chrome
   buddy profile clone 99 "New Profile"
+  buddy profile create --name="New Profile" < profile.xml
   buddy profile set xml 99 < profile.xml
   buddy profile set payload 99 com.google.chrome payload.xml --redeploy
   buddy profile redeploy 99
+  buddy profile delete 99
 `

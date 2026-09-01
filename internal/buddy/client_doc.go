@@ -67,7 +67,7 @@ var ClientsTopic = docspec.Topic{
       → value: list of dicts (id, displayName, …)
       Params: filter?: bare term → displayName=="*term*", or full RSQL. page?: int (omit = all);
         page_size?: int.
-  client(id, tenant?, surface?, auth?)
+  client(id=, tenant?, surface?, auth?)
       Does: Load one API integration JSON document.
       → value: dict (full client record)
       Params: id: str/int (integration ID).
@@ -87,7 +87,7 @@ Usage:
   buddy [global-flags] client <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<term|rsql>]                           List API integrations (bare → displayName contains)
+  list [--filter=<term|rsql>] [--json]                           List API integrations (always JSON; --json accepted)
   get <client-id>                                   Show API integration details
   create <displayName> [scope1 scope2...]           Create integration with role scopes
   update <client-id> <displayName> [scope1 scope2...]  Update integration name and scopes

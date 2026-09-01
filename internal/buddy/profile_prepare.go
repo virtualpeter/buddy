@@ -327,7 +327,10 @@ func collectPayloadUUIDs(v interface{}, out *[]string) {
 func ProfilePostXML(credName string, opts Opts, xml []byte, profileName string, logger *slog.Logger) (*ProfileCreateOutcome, error) {
 	profileName = strings.TrimSpace(profileName)
 	if profileName == "" {
-		return nil, fmt.Errorf("profile name is required")
+		profileName = extractProfileNameFromXML(xml)
+	}
+	if profileName == "" {
+		return nil, fmt.Errorf("profile name is required (pass --name= or include <name> in the XML)")
 	}
 	if !opts.SkipConfirm {
 		msg := fmt.Sprintf("\nPOST configuration profile %q?", profileName)

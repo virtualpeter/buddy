@@ -113,12 +113,13 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
   - **Behavior**:
     - Encodes `body` to JSON and `PUT`s it to `/api/v3/computer-groups/smart-groups/{id}` using script opts with `SkipConfirm=true`.
 
-- `smart_group_get_criteria(id, tenant?, surface?, auth?) → value: list[dict]`
+- `smart_group_criteria(id, filter?, tenant?, surface?, auth?) → value: list[dict]`
   - **Params**:
     - `id` (string).
+    - `filter?` (string, optional): Case-insensitive substring to match on each criterion’s `name`; omit for all criteria.
     - `tenant?` / `surface?` / `auth?` (string, optional).
   - **Returns**:
-    - `value`: the `criteria` array from the smart group JSON (or `[]` if missing). Each element is a dict:
+    - `value`: the `criteria` array from the smart group JSON (or `[]` if missing), optionally filtered by `filter`. Each element is a dict:
       - `name` (string)
       - `priority` (int)
       - `andOr` (string)
@@ -136,14 +137,6 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
     - Fetches the smart group, replaces its `criteria` field with `criteria`, and PUTs the updated JSON.
     - Other fields (`name`, `siteId`, etc.) are preserved.
 
-- `smart_group_find_criteria(id, name_substring, tenant?, surface?, auth?) → value: list[dict]`
-  - **Params**:
-    - `id` (string).
-    - `name_substring` (string): Case-insensitive substring to match on each criterion’s `name`.
-    - `tenant?` / `surface?` / `auth?` (string, optional).
-  - **Returns**:
-    - `value`: list of criteria dicts whose `name` contains `name_substring` (case-insensitive).
-
 - `smart_group_update_criterion_value(id, name_substring, new_value, tenant?, surface?, auth?) → value: None`
   - **Params**:
     - `id` (string).
@@ -154,7 +147,7 @@ The following builtins work with Jamf smart computer groups using the v2 JSON AP
     - Fetches the smart group, scans its `criteria` list, and for each criterion whose `name` contains `name_substring`, sets `value` to `new_value`.
     - Raises if no criteria match.
 
-- `smart_group_list_computers(id, filter?, tenant?, surface?, auth?) → value: list[dict]`
+- `smart_group_computers(id, filter?, tenant?, surface?, auth?) → value: list[dict]`
   - **Params**:
     - `id` (string): Smart computer group ID.
     - `filter?` (string, optional): Client-side substring; matched case-insensitively against `id`, `name`, and `serial`.
@@ -181,7 +174,7 @@ These builtins manage **static** Jamf computer group membership. Listing prefers
 `PUT /api/v3/computer-groups/static-groups/{id}` with a full `assignments`
 array. They return bare values and raise on failure.
 
-- `static_group_list_computers(id, filter?, tenant?, surface?, auth?) → value: list[dict]`
+- `static_group_computers(id, filter?, tenant?, surface?, auth?) → value: list[dict]`
   - **Params**:
     - `id` (string): Static computer group ID.
     - `filter?` (string, optional): Client-side substring; matched case-insensitively against `id`, `name`, and `serial`.

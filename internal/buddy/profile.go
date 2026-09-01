@@ -449,10 +449,13 @@ func ProfileSearch(credName string, nameFilter string, logger *slog.Logger) ([]P
 }
 
 // ProfileList fetches and prints configuration profiles, with an optional name filter.
-func ProfileList(credName string, nameFilter string, logger *slog.Logger) error {
+func ProfileList(credName string, nameFilter string, asJSON bool, logger *slog.Logger) error {
 	records, err := ProfileSearch(credName, nameFilter, logger)
 	if err != nil {
 		return err
+	}
+	if asJSON {
+		return printJSON(records)
 	}
 	fmt.Printf("%-8s  %s\n", "ID", "Name")
 	fmt.Printf("%-8s  %s\n", "--------", "----------------------------------------")

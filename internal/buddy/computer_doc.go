@@ -145,11 +145,11 @@ var ComputersTopic = docspec.Topic{
       Notes: Summary dicts include lastContact, lastCheckIn, reportDate, lastEnrolledDate, platform from GENERAL.
         reportDate is last inventory. v3 lastContactTime and Platform lastCheckInTime are not valid on this API.
         ids and raw are mutually exclusive.
-  computer(id, section?, tenant?, surface?, auth?)
+  computer(id=, section?, tenant?, surface?, auth?)
       Does: Load one computer's inventory JSON (requested sections).
       → value: dict (GET /api/v4/computers-inventory/{id} JSON)
       Params: id: str; section?: string or list → ?section= (omit = Jamf GENERAL default).
-  computer_detail(id, tenant?, surface?, auth?)
+  computer_detail(id=, tenant?, surface?, auth?)
       Does: Load one computer with all inventory sections.
       → value: dict (GET /api/v4/computers-inventory-detail/{id} JSON)
       Params: id: str.
@@ -234,7 +234,7 @@ Subcommands:
   get <computer-id> [--section=<name>[,<name>...]]            Show inventory JSON (default GENERAL)
   detail <computer-id>                                        Show all inventory sections (inventory-detail)
   history <computer-id> [--subset=PolicyLogs] [--json]        Classic computer history (default PolicyLogs table)
-  logs <computer-id> [--policy=<policy-id>] [--status=] [--since=] [--until=]  Flattened policy execution logs
+  logs <computer-id> [--policy=<policy-id>] [--status=] [--since=] [--until=] [--json]  Flattened policy execution logs
   reboot <computer-id> [computer-id...]                       Send RESTART_DEVICE MDM command
   redeploy <computer-id> [computer-id...]                     Trigger Jamf management framework redeploy
   shutdown <computer-id> [computer-id...]                     Send SHUT_DOWN_DEVICE MDM command
@@ -267,6 +267,7 @@ Flags for 'logs':
   --status=<status>              Client-side filter (case-insensitive exact, e.g. Completed)
   --since=<iso-or-epoch>         Keep rows with date_completed_epoch >= value
   --until=<iso-or-epoch>         Keep rows with date_completed_epoch <= value
+  --json                         Print flattened logs as JSON
 
 Examples:
   buddy computer list

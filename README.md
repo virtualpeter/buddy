@@ -17,7 +17,7 @@ New install: `make buddy` then [`buddy setup basic-setup`](docs/index.md). Built
 | [docs/change-batches.md](docs/change-batches.md) | Plan → approve → apply change-record workflows |
 | [docs/mcp.md](docs/mcp.md) | MCP server setup for AI hosts |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | MCP tool scorecard and agent priority |
-| [docs/profile-payloads.md](docs/profile-payloads.md) | Profile payload dissect/assemble |
+| [docs/generated/human/profile-payloads.md](docs/generated/human/profile-payloads.md) | Profile payload dissect/assemble |
 | [docs/editor.md](docs/editor.md) | `buddy lsp`; VSIX is the sibling [buddy-extension](../buddy-extension) checkout |
 | [docs/api-endpoints.md](docs/api-endpoints.md) | Jamf HTTP endpoints used by buddy |
 | [examples/](examples/) | Runnable `.buddy` examples and index |
@@ -33,11 +33,7 @@ New install: `make buddy` then [`buddy setup basic-setup`](docs/index.md). Built
 make buddy
 ```
 
-The binary is built to `./buddy` (`CGO_ENABLED=0`). On macOS that binary stores the vault data key and recovery passphrase in Keychain via `security(1)` under service `buddy` (accounts `dek` and `master`; writes use `security -i` so the secret is not on argv). Linux/Windows use `~/.config/buddy/dek` and `master` (mode `0600`). Secrets themselves live in `secrets.enc`. See [docs/auth.md](docs/auth.md).
-
-`security(1)` is rebuild-stable and needs no CGO, but Keychain ACLs attach to `/usr/bin/security`, not to buddy. Any process running as you can read those items the same way. The **signed release** calls Security.framework instead so the ACL is the creating app: only a binary signed with the same Developer ID and identifier can read without a prompt. The DEK uses `AfterFirstUnlockThisDeviceOnly` so ordinary CLI runs do not prompt for Touch ID. Rebuilds and upgrades keep working because the designated requirement is the Team ID, not the binary hash (ad-hoc / unsigned `go build` output would prompt on every rebuild — that is why this path requires a stable Developer ID).
-
-The signed binary uses a **different Keychain service** (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) so it never shares DEK, recovery passphrase, or ACLs with the CLI store. The vault file is shared. Development can keep using `./buddy`; production uses `./buddy-darwin-arm64` after `cred set passphrase` (same recovery phrase unwraps the DEK) against that binary. `make install-signed` copies it to `~/go/bin/buddy`.
+The binary is built to `./buddy` (`CGO_ENABLED=0`). On macOS the default binary stores the vault data key and recovery passphrase in Keychain via `security(1)` (service `buddy`). The **signed release** (`make buddy-darwin-arm64`) uses Security.framework and a separate Keychain service (`virtualpete.buddy.cli`) so only that Developer ID can read the DEK without a prompt. Secrets stay in `secrets.enc`. See [docs/auth.md](docs/auth.md) for Keychain ACLs, Touch ID, and `cred set passphrase`.
 
 ```sh
 BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make buddy-darwin-arm64
@@ -52,7 +48,7 @@ BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make buddy-darwin-arm64
 | `make install-signed` | `~/go/bin/buddy` | same as `buddy-darwin-arm64` | Builds the signed binary, then copies it over `~/go/bin/buddy` |
 | `make package` | `/usr/local/bin/buddy` (via pkg) | same as `buddy-darwin-arm64` | Builds `buddy-<version>.pkg`; optional `BUDDY_PKG_SIGN_IDENTITY` (Developer ID Installer) |
 
-`make buddy-darwin-arm64` fails if the host is not Darwin/arm64, the identity is missing, the signature is ad-hoc, or TeamIdentifier is unset. You can keep both binaries; each only sees its own DEK, so a key stored with one is invisible to the other until you unwrap it (`cred set passphrase` with the recovery phrase) or restore a backup.
+`make buddy-darwin-arm64` fails if the host is not Darwin/arm64, the identity is missing, the signature is ad-hoc, or TeamIdentifier is unset. Each binary only sees its own DEK until you unwrap with `cred set passphrase` or restore a backup.
 
 ```sh
 make test         # default store (security CLI on macOS)
@@ -86,7 +82,7 @@ channels:
 tenants:
   sandbox:
     url: https://your-instance.jamfcloud.com   # instance (Pro/Classic)
-    region: us                                  # optional Platform gateway
+    region: us                                  # Platform gateway (us, eu, apac, …; list may grow)
     tenantId: e77c1408-10c8-4007-b177-abc9157fbcaa
     # deny_builtins: ["*"]         # tenant-layer allowlist
     # allow_builtins: [policies, policy]
@@ -280,13 +276,15 @@ A runnable file with the same ideas (and optional steps you can uncomment) lives
 
 [jamf-cli](https://github.com/Jamf-Concepts/jamf-cli) is Jamf’s official CLI. buddy started before that project was known of publicly; there is some overlap in what both tools talk to, but buddy is not an attempt to replace jamf-cli.
 
-The only use of jamf-cli in this repo is a vendored snapshot of its Platform API OpenAPI specs (`internal/buddy/platformschema/specs/`, MIT). The Platform API Gateway does not publish a single live schema the way Jamf Pro (`/api/schema`) and Classic (`/classicapi/doc/swagger.yaml`) do, and I have not found a better official source in Jamf’s documentation. When an update is needed refresh the copies with `make sync-platform-schema` and commit the result.
+The only use of jamf-cli in this repo is a vendored snapshot of its Platform API OpenAPI specs (`internal/buddy/platformschema/specs/`, MIT). Jamf documents those APIs on [developer.jamf.com/platform-api](https://developer.jamf.com/platform-api) and the [developer MCP](https://developer.jamf.com/mcp), but the gateway still has no live schema like Jamf Pro (`/api/schema`) or Classic (`/classicapi/doc/swagger.yaml`), and the portal does not host downloadable OpenAPI JSON. Keep the snapshot so `jamf_schema(api="platform")` works offline. Refresh with `make sync-platform-schema` and commit the result. See [API schema documents](docs/api-endpoints.md#api-schema-documents).
 
 ## License
 
 MIT License — see [LICENSE](LICENSE). Copyright © 2026 Peter Viertel.
 
 ## Environment Variables
+
+See the [reference manual](docs/reference-manual.md#environment-variables) for the full table (`DEBUG`, `XDG_CONFIG_HOME`, `BUDDY_*` runtime and build-only vars). Common ones:
 
 | Variable          | Description                              |
 |-------------------|------------------------------------------|
@@ -299,34 +297,19 @@ MIT License — see [LICENSE](LICENSE). Copyright © 2026 Peter Viertel.
 
 ```
 buddy/
-├── LICENSE
-├── cmd/buddy/
-│   ├── main.go         # CLI entry point
-│   └── help.go         # Help text
+├── cmd/buddy/           # CLI entry, dispatch, help
+├── cmd/gendocs/         # Regenerates docs/generated and internal/help/*_gen.go
 ├── internal/
-│   ├── buddy/          # Library: config, API client, policy/group/computer/profile/package/role/mdm/Jamf script
-│   │   ├── apiclient.go
-│   │   ├── auth.go
-│   │   ├── common.go    # Logger, HTTP helpers (PerformRequest, GetBaseURL)
-│   │   ├── config.go
-│   │   ├── computer.go
-│   │   ├── group.go
-│   │   ├── mdm.go
-│   │   ├── package.go
-│   │   ├── policy.go
-│   │   ├── policy_types.go
-│   │   ├── profile.go
-│   │   ├── role.go
-│   │   ├── setup.go      # Setup script generator (role + client)
-│   │   └── script_jamf.go
-│   ├── script/         # buddyscript runner and builtins
-│   └── lsp/            # buddy lsp (editor language server)
-├── scripts/
-│   └── integration_test.buddy  # Broad Jamf integration harness (non-production)
-├── examples/            # Runnable .buddy samples (see examples/README.md)
-├── docs/                # Reference manual, API catalog
-├── go.mod
-├── go.sum
+│   ├── buddy/           # Jamf API clients, config, auth, secrets
+│   │   └── secrets/     # Encrypted vault (secrets.enc) + Keychain/file DEK
+│   ├── clispec/         # Command/flag identifiers and English catalog
+│   ├── help/            # CLI help strings (some generated)
+│   ├── script/          # buddyscript runner and builtins
+│   ├── mcp/             # buddy mcp stdio server
+│   ├── serve/           # buddy serve docs + /ide
+│   └── lsp/             # buddy lsp
+├── examples/            # Runnable .buddy samples
+├── docs/                # User guides; docs/generated is from make gendocs
 ├── Makefile
 └── README.md
 ```

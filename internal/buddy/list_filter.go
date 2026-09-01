@@ -33,6 +33,7 @@ var (
 	FilterSpecDevices      = ListFilterSpec{DefaultField: "name", Match: ListFilterContains}
 	FilterSpecDeviceGroups = ListFilterSpec{DefaultField: "name", Match: ListFilterContains}
 	FilterSpecDDM          = ListFilterSpec{DefaultField: "name", Match: ListFilterContains}
+	FilterSpecMobileGroups = ListFilterSpec{DefaultField: "groupName", Match: ListFilterContains}
 	FilterSpecRoles        = ListFilterSpec{DefaultField: "displayName", Match: ListFilterContains}
 	FilterSpecClients      = ListFilterSpec{DefaultField: "displayName", Match: ListFilterContains}
 )

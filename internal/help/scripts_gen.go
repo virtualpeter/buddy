@@ -15,7 +15,7 @@ const ScriptsBuiltinsSection = `SCRIPT (Jamf Pro scripts)
       → value: dict (full Jamf JSON: id, name, categoryId, scriptContents, …)
       Params: pass either id= or name=, not both. name= uses RSQL name=="…" and
         returns that list row when it includes scriptContents; otherwise GET by id.
-  script_get_contents(id, tenant?, surface?, auth?)
+  script_contents(id, tenant?, surface?, auth?)
       Does: Return the raw script body only.
       → value: str
       Params: id: str/int.
@@ -66,13 +66,12 @@ Usage:
   buddy [global-flags] script <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<term|rsql>]                         List scripts (bare term → name contains; or RSQL)
+  list [--filter=<term|rsql>] [--json]                List scripts (bare term → name contains; or RSQL)
   get <script-id>                                     Show full script record (includes body)
   get contents <script-id>                            Output raw script body only (pipeable)
   get id <name>                                       Resolve script name to numeric ID
   history <script-id>                                 Show recent change history (last 20 entries)
-  create <name> <file> [flags]                        Create a new script from a local file
-        [--category=<category-id>] [--priority=BEFORE|AFTER|AT_REBOOT] [--info=<text>] [--notes=<text>]
+  create <name> <file> [--category=<category-id>] [--priority=BEFORE|AFTER|AT_REBOOT] [--info=<text>] [--notes=<text>]
   upload <script-id> <file> [--name=<new-name>]       Upload (replace) contents of an existing script
   update <script-id> <file> [--name=<new-name>]       Alias for upload
   download <script-id> [outfile]                      Save script body to a local file (default: <name>.sh)

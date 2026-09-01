@@ -10,7 +10,7 @@
 # Verbose API trace:  buddy -y -v scripts/integration_test.buddy
 #
 # Optional knobs (leave "" to use defaults):
-#   TEST_STATIC_GROUP_ID   — static_group_list_computers read-only smoke
+#   TEST_STATIC_GROUP_ID   — static_group_computers read-only smoke
 #   TEST_COPY_DEST_TENANT    — cross-tenant profile_copy
 #   TEST_SOURCE_PROFILE      — skip built-in MCX fixture; clone/copy an existing profile
 #
@@ -202,7 +202,7 @@ def cleanup_policy(cred, created):
 
 def try_group_delete(gid):
     def _delete():
-        return group_delete(id=gid, auth=auth)
+        return smart_group_delete(id=gid, auth=auth)
     return attempt(_delete)
 
 
@@ -225,7 +225,7 @@ def test_smart_group(cred, created):
             continue
         dres = try_group_delete(gid)
         if not dres["ok"]:
-            error("cleanup old group_delete error:", dres["error"])
+            error("cleanup old smart_group_delete error:", dres["error"])
 
     group_name = TEST_PREFIX + "group"
     body = {
@@ -249,7 +249,7 @@ def test_smart_group(cred, created):
     if str(loaded["id"]) != group_id:
         fail("smart_group id mismatch after create")
 
-    criteria = smart_group_get_criteria(id=group_id, auth=auth)
+    criteria = smart_group_criteria(id=group_id, auth=auth)
     if len(criteria) < 1:
         fail("expected at least one criterion")
 
@@ -265,7 +265,7 @@ def cleanup_smart_group(cred, created):
     for gid in created["groups"]:
         res = try_group_delete(gid)
         if not res["ok"]:
-            error("cleanup group_delete error:", res["error"])
+            error("cleanup smart_group_delete error:", res["error"])
     created["groups"].clear()
 
 
@@ -275,11 +275,11 @@ def test_static_group_list(cred):
         "Read-only membership list; set TEST_STATIC_GROUP_ID to enable.",
     )
     if TEST_STATIC_GROUP_ID == "":
-        error("static_group_list_computers: skipped (set TEST_STATIC_GROUP_ID)")
+        error("static_group_computers: skipped (set TEST_STATIC_GROUP_ID)")
         return
-    members = static_group_list_computers(id=TEST_STATIC_GROUP_ID, auth=auth)
+    members = static_group_computers(id=TEST_STATIC_GROUP_ID, auth=auth)
     if type(members) != "list":
-        fail("static_group_list_computers: expected list")
+        fail("static_group_computers: expected list")
 
 
 def build_acs_payloads_plist(settings):

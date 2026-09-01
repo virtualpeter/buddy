@@ -51,8 +51,8 @@ func TestServerInstructions(t *testing.T) {
 	if !strings.Contains(ServerInstructions, "deny_builtins") {
 		t.Fatal("instructions should mention deny_builtins")
 	}
-	if !strings.Contains(ServerInstructions, "smart_group_list_computers") {
-		t.Fatal("instructions should name smart_group_list_computers for effective membership")
+	if !strings.Contains(ServerInstructions, "smart_group_computers") {
+		t.Fatal("instructions should name smart_group_computers for effective membership")
 	}
 	if !strings.Contains(ServerInstructions, "never invent Classic PUT") {
 		t.Fatal("instructions should forbid inventing Classic profile PUTs")
@@ -84,7 +84,7 @@ func TestAgentPlaybook(t *testing.T) {
 		"buddyscript",
 		"no while",
 		"smart_group",
-		"smart_group_list_computers",
+		"smart_group_computers",
 		"Bare values",
 		"{ok, value",
 		"value.result",
@@ -105,8 +105,8 @@ func TestAgentPlaybook(t *testing.T) {
 }
 
 func TestDescBuddyscriptNamesSmartGroupMembership(t *testing.T) {
-	if !strings.Contains(descBuddyscript, "smart_group_list_computers") {
-		t.Fatal("buddyscript tool description should name smart_group_list_computers")
+	if !strings.Contains(descBuddyscript, "smart_group_computers") {
+		t.Fatal("buddyscript tool description should name smart_group_computers")
 	}
 	if !strings.Contains(descBuddyscript, "membership mutate") {
 		t.Fatal("buddyscript tool description should distinguish static membership mutate")

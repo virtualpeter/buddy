@@ -166,11 +166,14 @@ func ScriptFetchByName(credName, name string, logger *slog.Logger) (*ScriptDetai
 	return scriptGetFull(credName, m.s.ID)
 }
 
-// ScriptList fetches and prints scripts in a tabular format, with an optional name filter.
-func ScriptList(credName, filter string, logger *slog.Logger) error {
+// ScriptList fetches and prints scripts (table, or JSON rows), with an optional name filter.
+func ScriptList(credName, filter string, asJSON bool, logger *slog.Logger) error {
 	scripts, err := ScriptSearch(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
+	}
+	if asJSON {
+		return printJSONValue(scripts)
 	}
 	fmt.Printf("%-8s  %-40s  %s\n", "ID", "Name", "Category")
 	fmt.Printf("%-8s  %-40s  %s\n", "--------", "----------------------------------------", "--------------------")

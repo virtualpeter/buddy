@@ -26,11 +26,9 @@ var helpPolicySet = help.PolicySet
 
 var helpPolicyCreate = help.PolicyCreate
 
-var helpPolicyClone = help.PolicyClone
-
-var helpPolicyFind = help.PolicyFind
-
 var helpPolicyDelete = help.PolicyDelete
+
+var helpPolicyLogs = help.PolicyLogs
 
 // helpMdm is generated (make gendocs).
 var helpMdm = help.MdmCLIHelp
@@ -60,6 +58,15 @@ var helpDevice = help.DevicesCLIHelp
 
 // helpDeviceGroup is generated (make gendocs).
 var helpDeviceGroup = help.DeviceGroupsCLIHelp
+
+// helpMobileDevice is generated (make gendocs).
+var helpMobileDevice = help.MobileDevicesCLIHelp
+
+// helpMobileGroup is generated (make gendocs).
+var helpMobileGroup = help.MobileGroupsCLIHelp
+
+// helpMobileProfile is generated (make gendocs).
+var helpMobileProfile = help.MobileProfilesCLIHelp
 
 // helpDDM is generated (make gendocs).
 var helpDDM = help.DdmCLIHelp
@@ -104,9 +111,8 @@ func printCommandHelp(path []string) {
 		clispec.HelpPath(clispec.CmdPolicy, clispec.SubGet):    helpPolicyGet,
 		clispec.HelpPath(clispec.CmdPolicy, clispec.SubSet):    helpPolicySet,
 		clispec.HelpPath(clispec.CmdPolicy, clispec.SubCreate): helpPolicyCreate,
-		clispec.HelpPath(clispec.CmdPolicy, clispec.SubClone):  helpPolicyClone,
-		clispec.HelpPath(clispec.CmdPolicy, clispec.SubFind):   helpPolicyFind,
 		clispec.HelpPath(clispec.CmdPolicy, clispec.SubDelete): helpPolicyDelete,
+		clispec.HelpPath(clispec.CmdPolicy, clispec.SubLogs):   helpPolicyLogs,
 		clispec.CmdCategory:    helpCategory,
 		clispec.CmdMacApp:      helpMacApp,
 		clispec.CmdApp:         helpApp,
@@ -116,6 +122,9 @@ func printCommandHelp(path []string) {
 		clispec.CmdIcon:        helpIcon,
 		clispec.CmdComputer:    helpComputer,
 		clispec.CmdMdm:         helpMdm,
+		clispec.CmdMobile:      helpMobileDevice,
+		clispec.CmdMobileGroup: helpMobileGroup,
+		clispec.CmdMobileProf:  helpMobileProfile,
 		clispec.CmdBlueprint:   helpBlueprint,
 		clispec.CmdDevice:      helpDevice,
 		clispec.CmdDeviceGroup: helpDeviceGroup,
@@ -150,12 +159,10 @@ func policySubHelp(mode string) string {
 		return helpPolicySet
 	case clispec.SubCreate:
 		return helpPolicyCreate
-	case clispec.SubClone:
-		return helpPolicyClone
-	case clispec.SubFind:
-		return helpPolicyFind
 	case clispec.SubDelete:
 		return helpPolicyDelete
+	case clispec.SubLogs:
+		return helpPolicyLogs
 	default:
 		return helpPolicy
 	}

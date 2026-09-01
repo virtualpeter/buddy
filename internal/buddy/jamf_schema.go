@@ -207,10 +207,11 @@ func fetchOneJamfSchema(credName, api, filter string, full bool) (*SchemaResult,
 }
 
 // fetchPlatformSchema merges the embedded Platform API specs into one catalog.
-// The Platform API Gateway has no single live schema document, so each service's
-// OpenAPI spec is vendored (see internal/buddy/platformschema). Path keys are
-// prefixed with each spec's server base (e.g. /api/blueprints) so they match the
-// real gateway paths, and the service segment is added as a tag for filtering.
+// The Platform API Gateway has no single live schema document (docs/MCP query
+// only), so each service's OpenAPI spec is vendored from jamf-cli (see
+// internal/buddy/platformschema). Path keys are prefixed with each spec's
+// server base (e.g. /api/blueprints) so they match the real gateway paths, and
+// the service segment is added as a tag for filtering.
 func fetchPlatformSchema(filter string, full bool) (*SchemaResult, error) {
 	specs, err := platformschema.All()
 	if err != nil {

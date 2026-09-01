@@ -116,11 +116,14 @@ func MdmCommandFind(credName, filter, sort string, opts PageOpts, limit int, _ *
 	return all, nil
 }
 
-// MdmCommandFindPrint fetches MDM commands and prints them as a table.
-func MdmCommandFindPrint(credName, filter, sort string, opts PageOpts, limit int, logger *slog.Logger) error {
+// MdmCommandFindPrint fetches MDM commands and prints them as a table (or JSON rows).
+func MdmCommandFindPrint(credName, filter, sort string, opts PageOpts, limit int, asJSON bool, logger *slog.Logger) error {
 	records, err := MdmCommandFind(credName, filter, sort, opts, limit, logger)
 	if err != nil {
 		return err
+	}
+	if asJSON {
+		return printJSONValue(records)
 	}
 	fmt.Printf("%-38s  %-30s  %-13s  %-12s  %-36s  %-24s  %s\n",
 		"UUID", "Command", "State", "ClientType", "ManagementID", "DateSent", "DateCompleted")

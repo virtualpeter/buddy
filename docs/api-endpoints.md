@@ -6,9 +6,9 @@ Buddy communicates with Jamf through direct HTTP requests (no third-party SDK).
 
 - **Classic API** — XML-based, path prefix `/JSSResource/`
 - **Jamf Pro API** — JSON-based, path prefix `/api/v1/` or `/api/v2/` / `/api/v3/`
-- **Platform API Gateway (optional)** — set `region` (e.g. `us`) and/or gateway `url` `https://{us|eu|apac}.apigw.jamf.com`, plus OAuth client credentials and `tenantId` on the credential
+- **Platform API Gateway** — first-class surface for blueprints, devices, device groups, DDM, and compliance benchmarks. Set `region` (currently `us`, `eu`, `apac`; the list may grow) and/or gateway `url` `https://{region}.apigw.jamf.com`, plus OAuth client credentials and `tenantId` on the **tenant**.
 
-Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`). When the credential has `tenantId` set, buddy rewrites them:
+Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`). When the **tenant** has `tenantId` set, buddy rewrites them:
 
 | Caller path | Gateway path |
 |-------------|--------------|
@@ -47,7 +47,9 @@ Each Jamf **instance** host publishes its live Pro/Classic specs (use `jamf_sche
 
 Example: `jamf_schema(filter="policy delete")` searches Pro, Classic, and Platform (default `api="all"`). MCP exposes the same helper as tool `jamf_schema`.
 
-The embedded Platform specs are vendored from [`Jamf-Concepts/jamf-cli`](https://github.com/Jamf-Concepts/jamf-cli/tree/main/specs/platform) (MIT) into `internal/buddy/platformschema/specs/`. Refresh them with `make sync-platform-schema` and commit the result.
+Official discovery is [Jamf’s Platform API docs](https://developer.jamf.com/platform-api) and the remote MCP at `https://developer.jamf.com/mcp` (same six native services: blueprints, devices, device-groups, device-actions, ddm/report, compliance-benchmarks). Those are HTML / MCP query surfaces — they do **not** publish a downloadable OpenAPI document, and the gateway has no `/api/schema`. buddy therefore vendors the per-service OAS JSON from [`Jamf-Concepts/jamf-cli`](https://github.com/Jamf-Concepts/jamf-cli/tree/main/specs/platform) (MIT) into `internal/buddy/platformschema/specs/` so `jamf_schema(api="platform")` works offline with no credential. Refresh with `make sync-platform-schema` and commit the result.
+
+Do not vendor the MCP’s `platform-api=Jamf Pro API` / `Classic API` copies — those are gateway-rewritten instance APIs; buddy already loads them live from the Jamf Pro host. Revisit dropping jamf-cli vendoring after the Platform API Gateway is GA, if Jamf adds a live schema URL.
 
 ### Pagination
 
@@ -59,6 +61,34 @@ Jamf Pro JSON list endpoints that return `{totalCount, results}` are fetched via
 
 Applies to scripts, packages, computers inventory, smart/static group lists, API roles, API integrations, and blueprints. MDM command list uses the same `page` / `page_size` options but ends on a short page (that API’s `totalCount` is not a reliable global total).
 
+### Contents
+
+- [Blueprints](#blueprints-platform-api-gateway)
+- [Platform devices](#platform-devices-apidevices)
+- [Platform device actions](#platform-device-actions-apidevice-actions)
+- [Platform device groups](#platform-device-groups-apidevice-groups)
+- [DDM declaration reporting](#ddm-declaration-reporting-apiddmreport)
+- [Compliance benchmarks](#compliance-benchmarks-apicompliance-benchmarks)
+- [Scripts](#scripts-jamf-pro-api-v1)
+- [Policies](#policies-classic-api)
+- [Packages](#packages-jamf-pro-api-v1)
+- [Icons](#icons-jamf-pro-api-v1)
+- [Mac App Store apps](#mac-app-store-apps-classic-api)
+- [Configuration profiles](#configuration-profiles-classic-api)
+- [API roles](#api-roles-jamf-pro-api-v1)
+- [API integrations / clients](#api-integrations--clients-jamf-pro-api-v1)
+- [Computers](#computers-jamf-pro-api-v4v2v1)
+- [Computer history](#computer-history-classic-api)
+- [MDM commands](#mdm-commands-jamf-pro-api-v2)
+- [Mobile devices](#mobile-devices-jamf-pro-api-v2)
+- [Mobile-device groups](#mobile-device-groups-jamf-pro-api-v2)
+- [Mobile profiles](#mobile-profiles-classic-api)
+- [Computer groups](#computer-groups-jamf-pro-api-v3)
+- [Categories](#categories-jamf-pro-api-v1)
+- [Request flow](#request-flow-per-operation)
+- [RSQL](#rsql-filter-syntax)
+- [Base URLs](#base-urls)
+
 ---
 
 ## Blueprints (Platform API Gateway)
@@ -66,7 +96,7 @@ Applies to scripts, packages, computers inventory, smart/static group lists, API
 Base path (logical): `/api/blueprints/v1/blueprints`  
 Rewritten: `/api/blueprints/v1/tenant/{tenantId}/blueprints`
 
-Requires a credential with `tenantId` and `region` (or gateway `url`, e.g. `https://us.apigw.jamf.com`). CLI: `buddy blueprint …`. buddyscript: `blueprints` / `blueprint` / `blueprint_*`.
+Requires a **tenant** with `tenantId` and `region` (or gateway `url`, e.g. `https://us.apigw.jamf.com`) and a linked `type: platform` auth. CLI: `buddy blueprint …`. buddyscript: `blueprints` / `blueprint` / `blueprint_*`.
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
@@ -127,7 +157,7 @@ Read-only. CLI: `buddy ddm …`. buddyscript: `ddm_*`.
 | `GET` | `…/devices/{id}/declarations` | `DDMDeviceDeclarations` | Declarations for device |
 | `GET` | `…/devices/{id}/channels` | `DDMDeviceChannels` | Channels for device |
 
-## Compliance benchmarks (`/api/compliance-benchmarks`, beta)
+## Compliance benchmarks (`/api/compliance-benchmarks`)
 
 CLI: `buddy benchmark …`. buddyscript: `benchmark` / `benchmark_*`.
 
@@ -160,7 +190,7 @@ Base path: `/api/v1/scripts`
 - `priority` values in the v1 API are uppercase: `BEFORE`, `AFTER`, `AT_REBOOT` (Classic API used `Before`, `After`, `At Reboot`).
 - `ScriptCreate` and `ScriptUpdate` read script body from a local file and send it as the `scriptContents` JSON field.
 - `ScriptSet*` functions use a fetch-then-PUT pattern, preserving all fields not being modified.
-- Jamf’s list OpenAPI model may include `scriptContents` on each row; buddy’s `ScriptSearch` / buddyscript `scripts()` strip bodies and return `{id,name,categoryId,categoryName}` only. Use `GET /api/v1/scripts/{id}` (`script(id=…)`, `script_get_contents`) for the script body.
+- Jamf’s list OpenAPI model may include `scriptContents` on each row; buddy’s `ScriptSearch` / buddyscript `scripts()` strip bodies and return `{id,name,categoryId,categoryName}` only. Use `GET /api/v1/scripts/{id}` (`script(id=…)`, `script_contents`) for the script body.
 
 ---
 
@@ -204,11 +234,22 @@ Base path: `/api/v1/packages`
 
 ### Notes
 
+#### List / get / READY
+
 - `PackageGet` prints the full v1 package object (including `md5` / `sha256` / `sha3512` / `hashType` / `hashValue` / `size` / `cloudTransferStatus` when present), then adds `lastChanged` / `lastChangedBy` from `history?sort=date:desc&page-size=1`.
 - `cloudTransferStatus` is server-managed. Jamf’s UI “Availability Pending” clears when the value is `"READY"` (case-sensitive). Anything else (including empty) means not ready for policy use / JCDS download. A successful `GET /api/v1/packages/{id}` alone does **not** mean the package is usable. While transfer is pending, `sha256` is often blank while `hashValue` is already set (typically `hashType` SHA3_512) — that is **not** a signal to re-upload. A record with **no `hashValue`** (and no comparable md5/sha256) usually means the multipart upload failed after the metadata create — re-upload is appropriate (`--force` / `force=True` overrides skip/not-ready guards).
 - `PackageReady` / buddyscript `package_ready` return true only when the package exists, `cloudTransferStatus == "READY"`, and `sha256` is non-empty (404 → false). `PackageWaitReady` / `package_wait_ready` poll for both with backoff (default 10 minutes) and best-effort POST `jcds/refresh-inventory?file-name=…` between polls. Use after upload / before attaching the package to a policy.
+
+#### Download
+
 - `PackageDownload` / `package_download` / `buddy package download`: wait until READY **and** non-empty `sha256` → GET JCDS pre-signed URI → stream to a temp file beside the destination while hashing SHA-256 → rename only on match; delete temp on failure; retry once on URI HTTP 403. **JCDS only** (Jamf Cloud); not for on-prem non-JCDS distribution points. Verify is always on (no skip flag). Do not invent this loop from OpenAPI alone — call the builtin.
+
+#### Upload
+
 - `PackageUpload` looks up `fileName` first. If a record exists, it GETs the full object, compares local MD5/SHA-256 to server checksums, and **skips** the file transfer when they match; if comparable checksums are empty, status is not READY, and `hashValue` is set, `--wait-ready` / `wait_ready=True` **skips the file transfer and polls until READY** (re-run after an upload that omitted the flag); without wait-ready that case **errors as not ready** instead of treating blank hashes as “needs upload”; if there is **no `hashValue`**, it treats the record as a failed upload and streams a replacement; `--force` / `force=True` re-uploads regardless. Metadata flags (`--name`, `--notes`, `--info`, `--category`, `--priority`, `--reboot`) apply on create and on update when they differ (including metadata-only updates when the file is unchanged). If no record exists, it POSTs metadata (no confirm prompt), polls GET until the ID is readable (Jamf Cloud create is async), **waits 5s** so the upload endpoint can catch up, then streams the multipart upload. After upload, scripts should use `package_wait_ready` before attaching the package to a policy.
+
+#### Scan / set / find / delete
+
 - `PackageScan` / `packages_scan` / `buddy package scan` pages the packages list and classifies incomplete records from list fields: `failed-upload` (no `hashValue` and no md5/sha256), `pending` (`hashValue` set, not READY), `unusable-ready` (READY but empty `sha256`). Optional `--class=` / `class=` narrows; default is all three.
 - `packagePut` / `PackageSetAttrs` (used by `buddy package set <id> --…`) omit server-managed `size` / `cloudTransferStatus` and client-only history fields from the PUT body so a metadata update does not blank Jamf’s size.
 - `PackageFindID` is shared between the CLI (`policy set package`) and buddyscript (`package(name=..., version=...)` builtin). List/search walks all pages unless a single `page` is requested from buddyscript.
@@ -272,6 +313,12 @@ Base path: `/JSSResource/osxconfigurationprofiles`
 
 Jamf Application & Custom Settings (ACS) lives on undocumented `/api/config-profiles/macos/...` JSON endpoints (the path still contains `macos` as a platform segment). Buddy uses this surface whenever Classic cannot store the MCX preference strings the ACS UI shows.
 
+- **Always instance.** ACS is the Jamf Pro UI API, not a Platform product API. Gateway POST is `404`; buddy always routes these calls to an instance auth. That is **not** `features.classic_instance_only`.
+- **Do not invent Classic PUT from schema.** Live checks: `scripts/integration_test.buddy` (phase C) and `scripts/integration_test_acs_profile7.buddy`.
+- Builtins and payload editing: [profile payloads](/docs/docs/profile-payloads).
+
+#### Ampersand forms
+
 Two different ampersands show up in MCX:
 
 | Form | What it is | Classic | Buddy |
@@ -332,7 +379,7 @@ Builtins and payload editing: [profile payloads](/docs/docs/profile-payloads).
 
 - List/get/clone still go through Classic XML. There is no public v1/v2 profile CRUD; ACS JSON is the undocumented UI API for Application & Custom Settings only.
 - `--redeploy` sets `redeploy_on_update` to `All` in the XML before the **metadata** Classic PUT, causing Jamf to push the profile to all currently-assigned devices rather than only new assignments.
-- **Payload handling**: The profile XML contains a `<general><payloads>` element whose content is entity-encoded plist XML. Buddy supports PayloadContent (`identifier=` matches PayloadIdentifier, unique PayloadType, or unique PayloadUUID) and MCX (`mcx_preference_settings` preference domains). **Get/list** (`get payload`, `list-payloads`, `profile_get_payload`, `payloads_list_identifiers`) are PayloadContent only and list `{identifier, type, uuid}`; **set/patch** merge PayloadContent keys or replace MCX settings. See [profile payloads](/docs/docs/profile-payloads).
+- **Payload handling**: The profile XML contains a `<general><payloads>` element whose content is entity-encoded plist XML. Buddy supports PayloadContent (`identifier=` matches PayloadIdentifier, unique PayloadType, or unique PayloadUUID) and MCX (`mcx_preference_settings` preference domains). **Get/list** (`get payload`, `list-payloads`, `payloads_get_payload`, `payloads_list_identifiers`) are PayloadContent only and list `{identifier, type, uuid}`; **set/patch** merge PayloadContent keys or replace MCX settings. See [profile payloads](/docs/docs/profile-payloads).
 - **UUID preservation**: When updating a profile via `set xml` or `set payload`, the existing profile UUID is preserved (the fetched body is only modified in the payloads section or redeploy flag). Preserving the same UUID avoids duplicate or orphaned profiles on devices when updating from another instance.
 
 ---
@@ -441,6 +488,70 @@ Base path: `/api/v2/mdm/commands`
 ### RSQL Filterable Fields
 
 `uuid`, `clientManagementId`, `command`, `status`, `clientType`, `dateSent`, `validAfter`, `dateCompleted`, `profileId`, `profileIdentifier`, `active`
+
+---
+
+## Mobile Devices (Jamf Pro API v2)
+
+Base path: `/api/v2/mobile-devices`
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/api/v2/mobile-devices` | `MobileDeviceSearch`, `mobile_devices` | List mobile devices (paginated; **no server-side filter** — buddy filters client-side) |
+| `GET` | `/api/v2/mobile-devices/{id}` | `MobileDeviceGet`, `mobile_device`, `mobileDeviceGetManagementID` | Fetch one device (summary record incl. `managementId`) |
+| `GET` | `/api/v2/mobile-devices/{id}/detail` | `MobileDeviceGet --detail`, `mobile_device(detail=True)` | Full inventory detail |
+| `POST` | `/api/v2/mdm/commands` | `MobileDeviceUpdateInventory`, `MobileDeviceRestart`, `MobileDeviceLock`, `MobileDeviceErase`, `mobile_device_send_mdm_command` | Send MDM command with `clientType: "MOBILE_DEVICE"` |
+
+### Notes
+
+- The list endpoint has no RSQL `filter`; buddy's `--filter` / `filter=` is a client-side substring over id/name/serial/udid/username/model/type.
+- MDM actions resolve each device's `managementId` from `GET /api/v2/mobile-devices/{id}`, then POST `/api/v2/mdm/commands` — same send path as computers, different `clientType`.
+- Command types used: `DEVICE_INFORMATION` (update-inventory), `RESTART_DEVICE`, `DEVICE_LOCK` (optional `message`/`phoneNumber`/`pin`), `ERASE_DEVICE` (optional `pin`, `obliterationBehavior`, `preserveDataPlan`, `disallowProximitySetup`).
+
+---
+
+## Mobile-Device Groups (Jamf Pro API v2)
+
+Base path: `/api/v2/mobile-device-groups`
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/api/v2/mobile-device-groups/smart-groups` | `MobileGroupSearchSmart`, `mobile_smart_groups` | List smart groups (paginated, RSQL filter; bare → `groupName=="*term*"`) |
+| `GET` | `/api/v2/mobile-device-groups/static-groups` | `MobileGroupSearchStatic`, `mobile_static_groups` | List static groups |
+| `GET` | `/api/v2/mobile-device-groups/smart-groups/{id}` | `mobile_smart_group`, criteria helpers | Fetch smart group (name, criteria) |
+| `GET` | `/api/v2/mobile-device-groups/static-groups/{id}` | `mobile_static_group` | Fetch static group |
+| `GET` | `/api/v2/mobile-device-groups/smart-group-membership/{id}` | `MobileSmartGroupFetchMembers`, `mobile_smart_group_devices` | Effective smart-group membership |
+| `GET` | `/api/v2/mobile-device-groups/static-group-membership/{id}` | `MobileStaticGroupFetchMembers`, `mobile_static_group_devices` | Static-group membership |
+| `POST` | `/api/v2/mobile-device-groups/smart-groups` | `MobileGroupCreateSmart`, `mobile_smart_group_create` | Create smart group |
+| `POST` | `/api/v2/mobile-device-groups/static-groups` | `MobileGroupCreateStatic`, `mobile_static_group_create` | Create static group |
+| `PUT` | `/api/v2/mobile-device-groups/smart-groups/{id}` | `MobileGroupPutSmartRaw`, `MobileSmartGroupSetCriteria` | Update smart group (criteria) |
+| `PATCH` | `/api/v2/mobile-device-groups/static-groups/{id}` | `MobileStaticGroupAssign`, `MobileStaticGroupSetDevices` | Mutate static membership (`assignments: [{mobileDeviceId, selected}]`) |
+| `DELETE` | `/api/v2/mobile-device-groups/{smart,static}-groups/{id}` | `MobileGroupDeleteSmart` / `MobileGroupDeleteStatic` | Delete a group |
+
+### Notes
+
+- Summary rows use `groupId` / `groupName` / `groupDescription` (unlike computer groups' `id` / `name`).
+- Static membership mutates are read-modify-write: buddy reads current membership, then PATCHes an `assignments` array of `{mobileDeviceId, selected}` rows.
+- Criteria share the computer smart-group shape: `{name, priority, andOr, searchType, value, openingParen?, closingParen?}`.
+
+---
+
+## Mobile Profiles (Classic API)
+
+Base path: `/JSSResource/mobiledeviceconfigurationprofiles`
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/JSSResource/mobiledeviceconfigurationprofiles` | `MobileProfileSearch`, `mobile_profiles` | List profiles (XML; buddy filters by name client-side) |
+| `GET` | `/JSSResource/mobiledeviceconfigurationprofiles/id/{id}` | `MobileProfileFetchXML`, `mobile_profile_xml` | Fetch profile XML envelope |
+| `PUT` | `/JSSResource/mobiledeviceconfigurationprofiles/id/{id}` | `MobileProfilePutXML`, `mobile_profile_put_xml` | Update profile XML (optional redeploy_on_update=All) |
+| `POST` | `/JSSResource/mobiledeviceconfigurationprofiles/id/0` | `MobileProfileCreateXML`, `mobile_profile_create_xml` | Create profile from XML |
+| `DELETE` | `/JSSResource/mobiledeviceconfigurationprofiles/id/{id}` | `MobileProfileDelete`, `mobile_profile_delete` | Delete profile |
+
+### Notes
+
+- The XML envelope mirrors macOS computer profiles (root `configuration_profile`, entity-encoded `<payloads>` plist), so the offline `profile_xml_*` / `payloads_*` helpers work on mobile profile XML unchanged.
+- Classic routing follows the same instance/proclassic rules as other `/JSSResource` calls (see Notes at the end of this document).
 
 ---
 
@@ -925,6 +1036,4 @@ computers(
 
 ## Base URLs
 
-Base URLs are configured per credential in `~/.config/buddy/config.yaml`. Each named credential specifies its own `url` field. There is no hardcoded URL logic.
-
-See `buddy cred help` for how to add or update credentials.
+Instance URLs live on **tenants** in `~/.config/buddy/config.yaml` (`tenants.<name>.url`). Platform gateway URLs are derived from tenant `region` (or an explicit gateway `url`). There is no hardcoded host. See `buddy cred help` and [Auth, secrets, and tokens](auth.md).

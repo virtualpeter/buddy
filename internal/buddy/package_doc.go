@@ -132,7 +132,7 @@ var PackagesTopic = docspec.Topic{
         wait instead of re-uploading; no hashValue → treat as failed upload
         and re-upload; apply metadata flags when they differ). New fileName →
         create with flags (no confirm), wait until readable, then stream upload.
-  package_delete(ids)
+  package_delete(ids, tenant?, surface?, auth?)
       Does: Delete one or more package records.
       → None
       Params: ids: str/int or list of package IDs.
@@ -148,7 +148,7 @@ Usage:
   buddy [global-flags] package <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<term|rsql>] [--sort=version[:asc|desc]]  List packages
+  list [--filter=<term|rsql>] [--sort=version[:asc|desc]] [--json]  List packages
   get <package-id>                                    Show package record details
   download <package-id> [outfile]                     Download package file via JCDS (SHA-256 verified)
   history <package-id>                                Show recent change history (last 20 entries)

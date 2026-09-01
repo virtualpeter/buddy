@@ -33,6 +33,9 @@ const (
 	MsgCmdBlueprint   = "cli.cmd.blueprint"
 	MsgCmdDevice      = "cli.cmd.device"
 	MsgCmdDeviceGroup = "cli.cmd.device_group"
+	MsgCmdMobile      = "cli.cmd.mobile_device"
+	MsgCmdMobileGroup = "cli.cmd.mobile_group"
+	MsgCmdMobileProf  = "cli.cmd.mobile_profile"
 	MsgCmdDDM         = "cli.cmd.ddm"
 	MsgCmdBenchmark   = "cli.cmd.benchmark"
 	MsgCmdRole        = "cli.cmd.role"
@@ -72,12 +75,12 @@ var en = map[string]string{
 
 	MsgCmdAuth:        "Test authentication for the active tenant/auth",
 	MsgCmdCred:        "Manage tenants, auths, and secrets in the config file",
-	MsgCmdPolicy:      "Manage Jamf policies (list/get/set/create/delete)",
+	MsgCmdPolicy:      "Manage Jamf policies (list/get/set/create/delete/logs)",
 	MsgCmdCategory:    "Manage categories (list/get/create/delete)",
 	MsgCmdMacApp:      "Manage Classic Mac App Store apps (list/get/create/delete)",
-	MsgCmdApp:         "Manage policy apps (list/get/upgrade)",
+	MsgCmdApp:         "Manage policy apps (list/scan/get/import/cache/upgrade)",
 	MsgCmdGroup:       "Manage computer groups (list/get/create/delete; smart/static membership)",
-	MsgCmdProfile:     "Manage configuration profiles (list/get/set/clone/redeploy)",
+	MsgCmdProfile:     "Manage configuration profiles (list/get/set/create/delete/clone/redeploy)",
 	MsgCmdPackage:     "Manage package records (list/get/download/upload/delete/set/history)",
 	MsgCmdIcon:        "Manage Self Service icons (list/get/upload/check/download)",
 	MsgCmdComputer:    "Manage computers and MDM commands (list/get/reboot/lock/erase/...)",
@@ -85,8 +88,11 @@ var en = map[string]string{
 	MsgCmdBlueprint:   "Manage Platform API blueprints (list/get/create/set/delete/deploy/…)",
 	MsgCmdDevice:      "Manage Platform API devices (inventory + check-in/restart/erase/…)",
 	MsgCmdDeviceGroup: "Manage Platform API device groups (not Pro computer groups)",
+	MsgCmdMobile:      "Manage Jamf Pro mobile devices (list/get/update-inventory/restart/lock/erase)",
+	MsgCmdMobileGroup: "Manage mobile-device groups (smart criteria; static membership)",
+	MsgCmdMobileProf:  "Manage mobile-device configuration profiles (list/get/put/create/delete)",
 	MsgCmdDDM:         "Platform DDM declaration reporting (read-only)",
-	MsgCmdBenchmark:   "Platform compliance benchmarks (beta)",
+	MsgCmdBenchmark:   "Platform compliance benchmarks",
 	MsgCmdRole:        "Manage API roles (list/get/create/update/delete/privileges)",
 	MsgCmdClient:      "Manage API integrations (list/get/create/update/delete/credentials/set)",
 	MsgCmdScript:      "Manage Jamf scripts (list/get/create/upload/download/delete/set)",

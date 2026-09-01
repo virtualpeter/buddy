@@ -112,7 +112,7 @@ Usage:
   buddy [global-flags] device <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<term|rsql>] [--sort=]    List Platform devices (table)
+  list [--filter=<term|rsql>] [--sort=] [--json]   List Platform devices (table or JSON)
   get <device-id>                      Fetch one device (JSON)
   set <device-id> [--file=|-]          PATCH device JSON
   delete <device-id>                   Delete a device

@@ -18,8 +18,8 @@ Usage:
 Subcommands:
   test [--all]                 Prove the secret (ForceRenew + probe); --all tests every tenant×surface×auth
   caps [--all]                 Print cached last-check / privileges for the current pin (or every cell)
-  token [flags]                Print Authorization header or raw bearer token
-  refresh [flags] [<token>]    Refresh a bearer token via keep-alive (instance basic auth)
+  token [args...]              Print Authorization header or raw bearer token
+  refresh [<token>] [args...]  Refresh a bearer token via keep-alive (instance basic auth)
 
 Flags for 'test':
   --all                        Test every covering auth × tenant × surface (not just the default session)
@@ -32,10 +32,10 @@ Flags for 'token':
   --url=<url>                  Jamf Pro or Platform gateway base URL (direct auth)
   --region=<region>            Platform gateway region (direct auth; builds URL when --url omitted)
   --tenant-id=<tenant-id>      Platform API Gateway tenant id (direct auth; requires oauth)
-  --username=<u>                 Username (direct basic auth)
-  --password=<p>                 Password (direct basic auth)
-  --client-id=<id>               OAuth2 client ID (direct auth)
-  --client-secret=<s>            OAuth2 client secret (direct auth)
+  --username=<username>          Username (direct basic auth)
+  --password=<password>          Password (direct basic auth)
+  --client-id=<client-id>        OAuth2 client ID (direct auth)
+  --client-secret=<client-secret>  OAuth2 client secret (direct auth)
   --oauth2-creds-file=<path>     JSON file with client_id and client_secret
 
 Flags for 'refresh':
@@ -57,7 +57,7 @@ Examples:
   buddy auth token --raw
   buddy --user dev auth token --raw
   buddy auth token --raw --url=https://example.jamfcloud.com --username=admin --password=secret
-  buddy auth token --raw --region=us --tenant-id=<tenant-id> --client-id=<id> --client-secret=<secret>
+  buddy auth token --raw --region=us --tenant-id=<tenant-id> --client-id=<client-id> --client-secret=<client-secret>
   buddy auth refresh eyJhbGciOiJIUzI1NiJ9...
   buddy --user dev auth refresh --token=eyJhbGciOiJIUzI1NiJ9...
 `
@@ -71,9 +71,9 @@ the pin unless classic_instance_only is on; ACS and GET /api/v1/policies are
 always instance).
 
 Usage:
-  buddy cred <subcommand> [args...]
-  buddy cred backup <file> [--passphrase=] [-y]
-  buddy cred restore <file> [--passphrase=] [-y]
+  buddy [global-flags] cred <subcommand> [args...]
+  buddy [global-flags] cred backup <file> [--passphrase=] [-y]
+  buddy [global-flags] cred restore <file> [--passphrase=] [-y]
 
 Subcommands:
   status [--test]                   Tenant × surface coverage (gaps, secret presence, last live check)
@@ -112,7 +112,7 @@ Flags for 'add':
   --region=<region>                 Platform region (creating a tenant)
   --tenant-id=<tenant-id>           Platform tenant id (creating a tenant)
   --type=oauth|basic|platform       Auth type (default oauth; platform-only tenant → platform)
-  --client-id=<id>                  OAuth client id
+  --client-id=<client-id>           OAuth client id
   --username=<user>                 Basic username
   --client-secret=<secret>          OAuth secret (non-interactive)
   --password=<password>             Basic password (non-interactive)
@@ -139,8 +139,8 @@ Flags for 'set auth':
   --run=<cmd>                       Command auth
   --username=<user>                 Basic auth
   --password=<password>             Basic password inline (dev/test)
-  --client-id=<id>                  OAuth client id
-  --client-secret=<secret>          OAuth secret inline (dev/test)
+  --client-id=<client-id>           OAuth client id
+  --client-secret=<client-secret>   OAuth secret inline (dev/test)
 
 Flags for 'set channel':
   --access=readonly|full            Clamp mutates for this client (omit = full)
@@ -161,7 +161,17 @@ Flags for 'backup' / 'restore':
   --passphrase=<pass>               Encryption passphrase (defaults to the stored recovery passphrase)
   -y                                Overwrite backup file / restore all auths without prompting
 
-  Notes:
+Notes for 'backup' / 'restore':
+  cred backup uses the stored recovery passphrase by default (--passphrase=
+  overrides). It writes AES-256-GCM (PBKDF2-SHA256) JSON; auths include store
+  secrets. Restore applies tenants/channels, then prompts once per auth (and
+  its secrets) unless -y. Enter/y writes that auth from the backup; n leaves
+  the existing auth (or absence) in config. Auths not in the backup are kept.
+  A backup with no auths restores tenants/channels only. Secrets go to the
+  vault under a new local data key; if no recovery passphrase exists yet,
+  restore stores the backup passphrase as the recovery phrase.
+
+Notes:
   cred status is the maintenance view (tenant × surface coverage). cred list is
   the raw dump. cred get secret / status SECRET column are presence only —
   'buddy auth test' proves the secret (ForceRenew). Last live results live in
@@ -182,14 +192,6 @@ Flags for 'backup' / 'restore':
   selects where those keys live (keychain, file, pass). BUDDY_VAULT_PASSPHRASE
   overrides the recovery passphrase (never written). cred set passphrase creates
   or rotates the recovery phrase (Touch ID on the signed binary).
-  cred backup uses the stored recovery passphrase by default (--passphrase=
-  overrides). cred backup writes AES-256-GCM (PBKDF2-SHA256) JSON; auths include
-  store secrets. Restore applies tenants/channels, then prompts once per auth
-  (and its secrets) unless -y. Enter/y writes that auth from the backup;
-  n leaves the existing auth (or absence) in config. Auths not in the backup
-  are kept. A backup with no auths restores tenants/channels only.
-  Secrets go to the vault under a new local data key; if no recovery passphrase
-  exists yet, restore stores the backup passphrase as the recovery phrase.
   Deleting an auth also removes its password/client-secret from the vault.
   Deleting a tenant deletes auths linked only to that tenant (with secrets) and
   unlinks multi-tenant auths; use 'buddy cred clean secrets' for leftover orphans
@@ -236,7 +238,7 @@ Examples:
 const PolicyList = `buddy policy list - List policies
 
 Usage:
-  buddy policy list [--filter=<keyword>] [--ids] [--exclude-ids=1,2,3]
+  buddy [global-flags] policy list [--filter=<keyword>] [--ids] [--exclude-ids=1,2,3] [--json]
 
 Flags for 'list':
   --filter=<keyword>    Match policy names (space-separated keywords all required).
@@ -245,6 +247,7 @@ Flags for 'list':
                         resolves via custom trigger lookup.
   --ids                 Print matching policy IDs only (one per line)
   --exclude-ids=1,2,3   Exclude specific policy IDs from results
+  --json                Print matching rows as JSON
 
 Examples:
   buddy policy list
@@ -252,14 +255,15 @@ Examples:
   buddy policy list --filter="chrome install" --ids
   buddy policy list --filter=install-chrome-next
   buddy policy list --filter=chrome --exclude-ids=100,101
+  buddy policy list --json
 `
 const PolicyGet = `buddy policy get - Read policy properties
 
 Usage:
-  buddy policy get <policy-id>
-  buddy policy get id <trigger>
-  buddy policy get enable <policy-id>
-  buddy policy get xml <policy-id>
+  buddy [global-flags] policy get <policy-id>
+  buddy [global-flags] policy get id <trigger>
+  buddy [global-flags] policy get enable <policy-id>
+  buddy [global-flags] policy get xml <policy-id>
 
 Subcommands:
   id <trigger>         Resolve custom trigger to policy ID (bare, pipeable)
@@ -282,24 +286,24 @@ Examples:
 const PolicySet = `buddy policy set - Modify policy properties
 
 Usage:
-  buddy policy set ss <policy-id> [version] [flags...]
+  buddy [global-flags] policy set ss <policy-id> [version]
         Flags: [--display-name=...] [--description=...] [--install-text=...] [--reinstall-text=...]
                [--force-view|--no-force-view] [--feature|--no-feature]
                [--self-service|--no-self-service] [--group-ids=1,2,3]
-  buddy policy set scope <policy-id> all
-  buddy policy set scope <policy-id> <group-id> [group-id...]  [--group-ids=1,2,3]
-  buddy policy set enable <policy-id>
-  buddy policy set disable <policy-id>
-  buddy policy set trigger <policy-id> <trigger>
-  buddy policy set name <policy-id> <new-name>
-  buddy policy set frequency <policy-id> <frequency>
-  buddy policy set icon <policy-id> <image-file>
-  buddy policy set install <policy-id> <version> [--param=4,5,6]
-  buddy policy set package <policy-id> <version> [flags]
-  buddy policy set package <version> --trigger=<trigger> [flags]
+  buddy [global-flags] policy set scope <policy-id> all
+  buddy [global-flags] policy set scope <policy-id> <group-id> [group-id...]  [--group-ids=1,2,3]
+  buddy [global-flags] policy set enable <policy-id>
+  buddy [global-flags] policy set disable <policy-id>
+  buddy [global-flags] policy set trigger <policy-id> <trigger>
+  buddy [global-flags] policy set name <policy-id> <new-name>
+  buddy [global-flags] policy set frequency <policy-id> <frequency>
+  buddy [global-flags] policy set icon <policy-id> <image-file>
+  buddy [global-flags] policy set install <policy-id> <version> [--param=4,5,6]
+  buddy [global-flags] policy set package <policy-id> <version>
+  buddy [global-flags] policy set package <version> --trigger=<trigger>
         Flags: [--name=<name>] [--package=<pattern>]
                [--disable-source|--keep-source]
-  buddy policy set xml <policy-id>
+  buddy [global-flags] policy set xml <policy-id>
 
 Notes:
   Source policy for 'set package':
@@ -337,10 +341,10 @@ Examples:
 const PolicyCreate = `buddy policy create - Create a new policy
 
 Usage:
-  buddy policy create package <name> <version> [flags]
+  buddy [global-flags] policy create package <name> <version>
         Flags: [--action=install|cache] [--scope=all|<group-id>[,<group-id>...]]
                [--category=<name>] [--package=<pattern>]
-  buddy policy create ss <trigger> <display-name> [--category=<name>] [--script-id=<id>]
+  buddy [global-flags] policy create ss <trigger> <display-name> [--category=<name>] [--script-id=<script-id>]
 
 Arguments:
   <name>     Package name keyword (used for the package search and to build
@@ -350,7 +354,7 @@ Arguments:
 Notes:
   create package invents triggers: install → install-<name>-next;
   cache → cache-<name>-<version>.
-  create ss defaults to no script (--script-id omitted / 0). Pass --script-id
+  create ss defaults to no script (--script-id omitted / 0). Pass --script-id=<script-id>
   to attach a Jamf script (parameter4 = <trigger>). Scope is all computers.
 
 Examples:
@@ -359,23 +363,38 @@ Examples:
   buddy policy create ss install-chrome "Install Chrome" --category="Mac Apps"
   buddy policy create ss install-chrome "Install Chrome" --script-id=12
 `
-const PolicyClone = `buddy policy clone — removed
+const PolicyLogs = `buddy policy logs - Policy execution logs (Classic computer history)
 
-Versioned policy clone was retired. Prefer:
+Usage:
+  buddy [global-flags] policy logs <policy-id> [--computer=<computer-id>] [--computer-ids=<computer-id>[,<computer-id>...]] [--filter=<term|rsql>] [--last-contact=<iso>] [--since=<iso-or-epoch>] [--until=<iso-or-epoch>] [--status=<status>] [--skip=<n>] [--limit=<n>] [--json]
 
-  • Change batches: step_clone_policy / step_set_package (see docs/change-batches.md)
-  • buddyscript: policy_copy + policy_set_package / policy_set_ss / policy_set_install
-`
-const PolicyFind = `buddy policy find — removed
+Flags for 'logs':
+  --computer=<computer-id>        Single computer to scan
+  --computer-ids=<computer-id>[,<computer-id>...]   Caller-built candidate computer set
+  --filter=<term|rsql>            computers() inventory filter (v4; bare term → name)
+  --last-contact=<iso>            Computers with general.lastContact >= value (inventory, not "logs since")
+  --since=<iso|epoch>             Keep rows with date_completed_epoch >= value
+  --until=<iso|epoch>             Keep rows with date_completed_epoch <= value
+  --status=<status>               Filter by log status (case-insensitive exact)
+  --skip=<n>                      Computers to skip after the candidate list is built
+  --limit=<n>                     Max computers to scan (alone: Classic computers/subset/basic)
+  --json                          Print flattened logs as JSON
 
-Keyword search moved to 'buddy policy list':
+Notes:
+  Jamf publishes policy execution logs per computer (Classic computerhistory
+  PolicyLogs subset), so buddy scans a bounded computer set and filters by
+  policy ID client-side. Pass exactly one computer source; an unconstrained
+  fleet walk is rejected.
 
-  buddy policy list [--filter=<keyword>] [--ids] [--exclude-ids=1,2,3]
+Examples:
+  buddy policy logs 42 --computer=101
+  buddy policy logs 42 --last-contact=2026-08-01T00:00:00Z --since=2026-08-01
+  buddy policy logs 42 --limit=200 --status=Failed --json
 `
 const PolicyDelete = `buddy policy delete - Delete one or more policies
 
 Usage:
-  buddy policy delete <policy-id> [policy-id...]
+  buddy [global-flags] policy delete <policy-id> [policy-id...]
 
 Examples:
   buddy policy delete 42
@@ -390,81 +409,12 @@ Usage:
   buddy [global-flags] setup write-script [path]
   buddy [global-flags] setup store-oauth [--user=<auth>] [--tenant=<tenant>] [--client-name=buddy-cli] [--name=<auth>] [-y]
 
-Notes:
-  write-script and store-oauth target the Jamf Pro *instance* (API roles and
-  integrations). Platform gateway oauth cannot create roles or clients.
-  If you have no config yet, start with basic-setup (instance URL + basic auth).
-  If an MDM profile already provides tenants, run setup secrets instead.
-
 Subcommands:
-  basic-setup
-    Interactive bootstrap for the first tenant and a basic (username/password)
-    instance auth. Stores the password in the vault and sets the
-    tenant as default when appropriate. Then prints next steps (auth test, and
-    optional write-script → store-oauth for day-to-day oauth).
-
-    Non-interactive: pass --tenant, --url, --username, and --password (and
-    optionally --name for the auth; default <tenant>-admin).
-
-  secrets
-    For each tenant with no linked auth, prompt to create one (oauth by default).
-    Then fill instance/platform coverage gaps (instance URL with no instance
-    auth, or platform identity with no platform oauth). Then prompt for any
-    missing client IDs / usernames and store missing passwords or OAuth client
-    secrets in the vault.
-    Org MDM profiles typically ship tenants and channel policy. Auths in the
-    plist (including client IDs and secrets) are accepted if present; prefer
-    this command so they stay in the local store. 'buddy setup managed-plist'
-    omits auths entirely. 'buddy cred status' shows remaining holes.
-
-    Non-interactive / -y: report gaps and exit non-zero (use a terminal, or
-    'buddy cred add' / 'buddy cred set auth' / 'buddy cred set secret').
-
-  managed-plist [path]
-    Write tenants and channel policy as XML plist to path, or stdout if path is
-    omitted. Omits auths (names, client IDs, and secrets are per-user). Upload
-    as Jamf Application & Custom Settings for preference domain
-    virtualpete.buddy.cli. User ~/.config/buddy/config.yaml overlays managed
-    prefs (user wins per tenant/auth/channel name).
-
-  write-script [path]
-    Writes a buddyscript script that creates a Jamf Pro API role with privileges
-    needed for buddy and an API client (integration) scoped to that role.
-    Default path is setup_buddy_role.buddy.
-
-    Prerequisites: a tenant with an instance URL and an auth that can manage
-    API roles/integrations (typically the basic auth from basic-setup). The
-    script uses the active session (--tenant / --user).
-
-    Run the generated script with:
-      ./<path> -y
-      buddy <path> -y
-    Then rotate the instance client secret and store it as a buddy oauth auth
-    (type=oauth, not type=platform):
-      buddy setup store-oauth
-      buddy --user <auth-name> auth test
-    Or get the client secret once with:
-      buddy client credentials <client-id>
-
-    The script is idempotent for role "Buddy" and client "buddy-cli".
-
-    If role creation fails (e.g. privilege names differ on your Jamf version), run
-    "buddy role privileges" to see your instance's list and edit the script.
-
-    The role may include destructive privileges (e.g. wipe computer, erase) so a
-    single script can cover all buddy features. After setup, review the role in Jamf
-    and remove API privileges you do not need before treating the auth as
-    production-ready.
-
-  store-oauth
-    Rotates OAuth client credentials on a Jamf Pro *instance* API integration
-    (invalidates the previous secret) and stores clientId + secret as a buddy
-    oauth auth (type=oauth), linked to a tenant. The secret goes in the
-    encrypted vault (secrets.enc — not Platform API oauth).
-
-    Matching: if an oauth auth already exists for the target tenant with the same
-    clientId, that auth is updated in place. Otherwise you are prompted for a new
-    auth name (default <tenant>-oauth, or buddy-oauth).
+  basic-setup [args...]     First tenant + basic instance auth (vault password)
+  secrets [-y]              Fill missing auths and secrets for existing tenants
+  managed-plist [path]      Write org MDM plist (tenants + channels; no auths)
+  write-script [path]       Generate role+client buddyscript (default setup_buddy_role.buddy)
+  store-oauth [args...]     Rotate instance client secret into a buddy oauth auth
 
 Flags for 'basic-setup':
   --tenant=<name>     Tenant name (default: prompt, or "default")
@@ -484,6 +434,36 @@ Flags for 'store-oauth':
   --name=<auth>         Buddy auth to create/update (--auth= alias)
   -y                    Skip confirmation when rotating the Jamf client secret
 
+Notes:
+  write-script and store-oauth target the Jamf Pro *instance* (API roles and
+  integrations). Platform gateway oauth cannot create roles or clients.
+  If you have no config yet, start with basic-setup (instance URL + basic auth).
+  If an MDM profile already provides tenants, run setup secrets instead.
+
+  basic-setup stores the password in the vault and sets the tenant as default
+  when appropriate, then prints next steps (auth test, optional write-script →
+  store-oauth). Non-interactive: pass --tenant, --url, --username, and
+  --password (and optionally --name; default <tenant>-admin).
+
+  secrets: for each tenant with no linked auth, prompt to create one (oauth by
+  default), then fill instance/platform coverage gaps, then store missing
+  passwords or OAuth client secrets. Org MDM profiles typically ship tenants
+  and channel policy; auths in the plist are accepted if present, but prefer
+  this command so they stay in the local store. managed-plist omits auths.
+  Non-interactive / -y reports gaps and exits non-zero.
+
+  managed-plist writes tenants and channel policy as XML plist (stdout if path
+  omitted). Upload as Jamf Application & Custom Settings for preference domain
+  virtualpete.buddy.cli. User config.yaml overlays managed prefs (user wins per
+  name).
+
+  write-script is idempotent for role "Buddy" and client "buddy-cli". Run it
+  with the active session, then rotate the secret with store-oauth (type=oauth,
+  not type=platform). Review the role in Jamf and drop destructive privileges
+  you do not need. If role creation fails, run "buddy role privileges" and edit
+  the script. store-oauth updates an existing oauth auth with the same clientId
+  in place, otherwise prompts for a name (default <tenant>-oauth).
+
 Examples:
   buddy setup basic-setup
   buddy setup secrets
@@ -497,9 +477,9 @@ Examples:
 const ScriptGet = `buddy script get - Retrieve script information
 
 Usage:
-  buddy script get <script-id>           Show full script record (includes scriptContents)
-  buddy script get contents <script-id>  Output raw script body only (pipeable)
-  buddy script get id <name>             Resolve script name to numeric ID
+  buddy [global-flags] script get <script-id>           Show full script record (includes scriptContents)
+  buddy [global-flags] script get contents <script-id>  Output raw script body only (pipeable)
+  buddy [global-flags] script get id <name>             Resolve script name to numeric ID
 
 Examples:
   buddy script get 7
@@ -510,11 +490,11 @@ Examples:
 const ScriptSet = `buddy script set - Modify script properties
 
 Usage:
-  buddy script set name     <script-id> <value>             Rename script
-  buddy script set category <script-id> <category-id>        Set category
-  buddy script set priority <script-id> BEFORE|AFTER|AT_REBOOT  Set execution priority
-  buddy script set info     <script-id> <value>              Set info field
-  buddy script set notes    <script-id> <value>              Set notes field
+  buddy [global-flags] script set name     <script-id> <value>             Rename script
+  buddy [global-flags] script set category <script-id> <category-id>        Set category
+  buddy [global-flags] script set priority <script-id> BEFORE|AFTER|AT_REBOOT  Set execution priority
+  buddy [global-flags] script set info     <script-id> <value>              Set info field
+  buddy [global-flags] script set notes    <script-id> <value>              Set notes field
 
 Examples:
   buddy script set name 7 "Install Chrome"

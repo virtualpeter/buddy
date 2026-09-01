@@ -1181,13 +1181,6 @@ func roleBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 	}
 }
 
-// role_privileges — alias of role_privileges_list under shorter name
-func rolePrivilegesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	inner := rolePrivilegesList(credName, logger)
-	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		return inner(thread, b, args, kwargs)
-	}
-}
 
 // clients(filter?, page?, page_size?, tenant?, surface?, auth?)
 func clientsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
@@ -1265,11 +1258,11 @@ func clientBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 	}
 }
 
-func smartGroupGetVersionNamed(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+func smartGroupVersionNamed(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var groupID starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("smart_group_get_version", args, kwargs, "id", &groupID,
+		if err := starlark.UnpackArgs("smart_group_version", args, kwargs, "id", &groupID,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
