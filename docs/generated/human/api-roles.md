@@ -21,5 +21,5 @@ def main():
 ## Related
 
 - [API clients](/docs/docs/api-clients)
-- [Getting started](/docs/docs/index)
+- [Getting started](/docs/docs/getting-started)
 - [API endpoints](/docs/docs/api-endpoints)

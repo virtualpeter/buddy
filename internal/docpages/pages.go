@@ -166,7 +166,10 @@ func (e curatedDoc) agentPath() string {
 // curatedDocEntries is the curated docs/*.md order for serve + MCP.
 // Keywords are search-only (MCP docs list); they are not shown in the UI.
 var curatedDocEntries = []curatedDoc{
-	{id: "docs/index", title: "Getting started", section: "Start here", file: "index.md"},
+	{id: "docs/index", title: "About", section: "Start here", file: "index.md",
+		keywords: []string{"about", "home", "landing", "overview", "map"}},
+	{id: "docs/getting-started", title: "Getting started", section: "Start here", file: "getting-started.md",
+		keywords: []string{"install", "setup", "basic-setup", "auth test", "first", "quickstart"}},
 
 	// Resources — Classic / Pro object cookbooks
 	{id: "docs/policies", title: "Policies", section: "Resources",

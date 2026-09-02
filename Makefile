@@ -19,7 +19,7 @@ GO_MAIN_FILES := $(shell find . -name "*.go" -type f -exec grep -l "^package mai
 BUDDY_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 # Buddy CLI (builds to ./buddy)
-BUDDY_GO_FILES := $(shell find cmd/buddy internal docfs stdlib \( -name "*.go" -o -name "*.buddy" \) 2>/dev/null)
+BUDDY_GO_FILES := $(shell find cmd/buddy internal docfs stdlib \( -name "*.go" -o -name "*.buddy" -o -name "buddy.png" \) 2>/dev/null)
 DOC_SOURCES := $(shell find docs examples -type f \( -name '*.md' -o -name '*.buddy' -o -name '*.json' \) 2>/dev/null) README.md
 
 .PHONY: gendocs
@@ -115,7 +115,8 @@ install-signed: $(SIGNED_TARGET)
 	cp $(SIGNED_TARGET) ~/go/bin/$(BUILDTARGET)
 .PHONY: install-signed
 
-# Component pkg: signed Darwin/arm64 binary → /usr/local/bin/buddy
+# Branded product archive: signed Darwin/arm64 binary → /usr/local/bin/buddy
+# (installer welcome/background + Finder icon from internal/serve/buddy.png).
 # pkgbuild --version must be period-delimited integers (strip v prefix and -dirty / -N-gSHA).
 # Optional: BUDDY_PKG_SIGN_IDENTITY='Developer ID Installer: …' to productsign the pkg.
 PKG_VERSION ?= $(shell v=$$(printf '%s' "$(BUDDY_VERSION)" | sed -E 's/^v//;s/-.*//'); printf '%s\n' "$${v:-0.0.0}")
@@ -123,25 +124,7 @@ PKG_TARGET ?= buddy-$(PKG_VERSION).pkg
 .PHONY: package
 package: $(SIGNED_TARGET)
 	@test "$$(uname -s)" = Darwin || { echo "make package is macOS-only"; exit 1; }
-	@root=$$(mktemp -d /tmp/buddy-pkg.XXXXXX); \
-	cp $(SIGNED_TARGET) "$$root/buddy"; \
-	chmod 755 "$$root/buddy"; \
-	codesign --verify --verbose=2 "$$root/buddy"; \
-	pkgbuild \
-		--root "$$root" \
-		--identifier "$(BUDDY_CODESIGN_IDENTIFIER)" \
-		--version "$(PKG_VERSION)" \
-		--install-location /usr/local/bin \
-		"$(PKG_TARGET)"; \
-	status=$$?; rm -rf "$$root"; \
-	test $$status -eq 0
-	@if [ -n "$(BUDDY_PKG_SIGN_IDENTITY)" ]; then \
-		tmp="$(PKG_TARGET).unsigned"; mv "$(PKG_TARGET)" "$$tmp"; \
-		productsign --sign "$(BUDDY_PKG_SIGN_IDENTITY)" "$$tmp" "$(PKG_TARGET)"; \
-		rm -f "$$tmp"; \
-	fi
-	@ls -lh "$(PKG_TARGET)"
-	@echo "Install: sudo installer -pkg $(PKG_TARGET) -target /"
+	@./scripts/build-pkg.sh "$(SIGNED_TARGET)" "$(PKG_TARGET)" "$(PKG_VERSION)" "$(BUDDY_CODESIGN_IDENTIFIER)" "$(BUDDY_PKG_SIGN_IDENTITY)"
 
 # Run unit tests (default Keychain: security(1) on Darwin, CGO off).
 test: sync-docfs
@@ -200,7 +183,7 @@ help:
 	@echo "  sync-platform-schema - Refresh vendored Jamf Platform API OpenAPI specs"
 	@echo "  install   - Install $(BUILDTARGET) CLI to ~/go/bin/"
 	@echo "  install-signed - Build $(SIGNED_TARGET) and install as ~/go/bin/$(BUILDTARGET)"
-	@echo "  package   - Build $(SIGNED_TARGET) into a pkg that installs /usr/local/bin/buddy"
+	@echo "  package   - Build $(SIGNED_TARGET) into a branded pkg that installs /usr/local/bin/buddy"
 	@echo "  test      - Run unit tests (default Keychain / CGO off)"
 	@echo "  test-signed - Darwin: unit tests with -tags secitem (Security.framework, CGO)"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"
@@ -213,5 +196,5 @@ help:
 	@echo "Build tags (TAGS=…): noserve, nomcp, nolsp — omit optional features"
 	@echo "CGO_ENABLED=$(CGO_ENABLED) by default (set CGO_ENABLED=1 to override)"
 	@echo "$(SIGNED_TARGET): BUDDY_CODESIGN_IDENTITY required; BUDDY_CODESIGN_IDENTIFIER=$(BUDDY_CODESIGN_IDENTIFIER)"
-	@echo "package: same as $(SIGNED_TARGET); optional BUDDY_PKG_SIGN_IDENTITY (Developer ID Installer)"
+	@echo "package: same as $(SIGNED_TARGET); branded installer + Finder icon; optional BUDDY_PKG_SIGN_IDENTITY (Developer ID Installer)"
 .PHONY: help

@@ -53,7 +53,7 @@ var RolesTopic = docspec.Topic{
 	},
 	Related: []docspec.RelatedLink{
 		{Title: `API clients`, Ref: `/docs/docs/api-clients`},
-		{Title: `Getting started`, Ref: `/docs/docs/index`},
+		{Title: `Getting started`, Ref: `/docs/docs/getting-started`},
 		{Title: `API endpoints`, Ref: `/docs/docs/api-endpoints`},
 	},
 	HelpExport: `roles`,

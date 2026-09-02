@@ -353,7 +353,7 @@ func rewriteDocLinks(markdown string, pages []DocPage) string {
 		dest = strings.TrimSpace(dest)
 		if dest == "" || strings.HasPrefix(dest, "#") ||
 			strings.HasPrefix(dest, "http://") || strings.HasPrefix(dest, "https://") ||
-			strings.HasPrefix(dest, "mailto:") || strings.HasPrefix(dest, "/docs/") {
+			strings.HasPrefix(dest, "mailto:") || strings.HasPrefix(dest, "/") {
 			return m
 		}
 		frag := ""

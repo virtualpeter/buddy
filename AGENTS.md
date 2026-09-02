@@ -1,8 +1,8 @@
 # Agent guide: buddy
 
-**buddy** is a Go CLI for Jamf Pro automation: policies, groups, profiles, packages, Platform API, buddyscript, and MCP. Config lives at `~/.config/buddy/config.yaml`.
+**buddy** is a Go CLI for Jamf Pro automation: policies, groups, profiles, packages, Platform API, buddyscript, and MCP. It is independent MIT software that calls Jamf APIs; it is not affiliated with or endorsed by Jamf. Config lives at `~/.config/buddy/config.yaml`.
 
-Human docs: [docs/index.md](docs/index.md). Auth/secrets/tokens: [docs/auth.md](docs/auth.md). MCP: [docs/mcp.md](docs/mcp.md). Endpoints: [docs/api-endpoints.md](docs/api-endpoints.md).
+Human docs: [docs/index.md](docs/index.md) (About), [docs/getting-started.md](docs/getting-started.md). Auth/secrets/tokens: [docs/auth.md](docs/auth.md). MCP: [docs/mcp.md](docs/mcp.md). Endpoints: [docs/api-endpoints.md](docs/api-endpoints.md).
 
 ## Layout
 
@@ -20,7 +20,7 @@ Human docs: [docs/index.md](docs/index.md). Auth/secrets/tokens: [docs/auth.md](
 | `docs/` | User-facing docs (`docs/generated/` is from `make gendocs`) |
 | `.cursor/rules/` | CLI, builtins, and auth conventions |
 
-Build: `make buddy` → `./buddy` (`CGO_ENABLED=0`). Signed Darwin/arm64: `make buddy-darwin-arm64` → `./buddy-darwin-arm64`; `make install-signed` copies that to `~/go/bin/buddy`; `make package` wraps it in a pkg that installs `/usr/local/bin/buddy`. Tests: `go test ./...`. Docs UI: `make docs-serve`. Cross-compile: `make buddy-linux` / `make buddy-windows`. Lite tags: `make buddy-lite`.
+Build: `make buddy` → `./buddy` (`CGO_ENABLED=0`). Signed Darwin/arm64: `make buddy-darwin-arm64` → `./buddy-darwin-arm64`; `make install-signed` copies that to `~/go/bin/buddy`; `make package` wraps it in a branded pkg that installs `/usr/local/bin/buddy`. Tests: `go test ./...`. Docs UI: `make docs-serve`. Cross-compile: `make buddy-linux` / `make buddy-windows`. Lite tags: `make buddy-lite`.
 
 Resource cookbooks: edit `internal/buddy/*_doc.go`, then `make gendocs` (writes `docs/generated/{human,agent}/*.md` + `internal/help/*_gen.go`). Do not hand-edit generated markdown. After `docs/` or generated changes: `make sync-docfs`. `AGENTS.md` and `.cursor/rules` are repo/editor only (not embedded for MCP). `BUDDY_DOCS_ROOT` is an optional live override.
 

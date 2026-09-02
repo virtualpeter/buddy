@@ -2,7 +2,7 @@
 
 Buddy talks to Jamf using a **tenant** (which environment) plus an **auth** (which principal). Passwords and OAuth client secrets belong in the encrypted vault, not in `config.yaml`. Tokens are cached and refreshed automatically.
 
-First-time install: [Getting started](index.md) (`buddy setup basic-setup` or, with an org MDM profile, `buddy setup secrets` / `buddy cred add`). YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
+First-time install: [Getting started](getting-started.md) (`buddy setup basic-setup` or, with an org MDM profile, `buddy setup secrets` / `buddy cred add`). YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
 
 Maintenance: `buddy cred status` shows each tenant × surface (instance URL vs platform identity), covering auths, whether a secret is **stored**, and the last `auth test` result. Gaps are tenants that have an identity but no covering auth (or no secret). Low-level `buddy cred set tenant|auth|secret` still works.
 

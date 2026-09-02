@@ -80,5 +80,5 @@ Open `../buddy-extension` in VS Code or Cursor, run `make compile`, and press **
 
 - `buddy help lsp` — CLI notes for the language server
 - [Reference manual](reference-manual.md) — scripting overview
-- [Getting started](index.md) — install buddy and connect to Jamf
+- [Getting started](getting-started.md) — install buddy and connect to Jamf
 - Extension: [buddy-extension](https://github.com/virtualpeter/buddy-extension) (sibling folder `../buddy-extension`)

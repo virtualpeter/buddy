@@ -53,6 +53,8 @@ func Run(ctx context.Context, o Options) error {
 	store := newSessionStore(o.TenantName, o.CredName, o.Opts, o.Logger)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/buddy.png", serveLogo)
+	mux.HandleFunc("/favicon.ico", serveLogo)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -68,7 +70,14 @@ func Run(ctx context.Context, o Options) error {
 			http.Redirect(w, r, "/docs/builtins", http.StatusFound)
 			return
 		}
-		serveDocsHTML(w, r, pages, md)
+		// Live docs root: re-read markdown on each request so docs-serve picks up edits.
+		live := pages
+		if docsSource != "" && docsSource != "embedded" {
+			if p, _, err := loadDocPages(o.DocsRoot); err == nil {
+				live = p
+			}
+		}
+		serveDocsHTML(w, r, live, md)
 	})
 	mux.HandleFunc("/ide", func(w http.ResponseWriter, r *http.Request) {
 		serveIDEHTML(w, r)

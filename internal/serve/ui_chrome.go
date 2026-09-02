@@ -85,9 +85,17 @@ html[data-theme="light"] {
 .app-header .brand {
   font-weight: 700; font-size: 1.15rem; letter-spacing: -0.03em;
   margin: 0;
-  display: inline-flex; align-items: baseline; gap: .4rem;
+  display: inline-flex; align-items: center; gap: .4rem;
 }
-.app-header .brand a { color: var(--ink); text-decoration: none; }
+.app-header .brand a {
+  color: var(--ink); text-decoration: none;
+  display: inline-flex; align-items: center; gap: .45rem;
+}
+.app-header .brand img {
+  width: 1.7rem; height: 1.7rem;
+  border-radius: .4rem;
+  flex-shrink: 0;
+}
 .app-header .brand .ver {
   font-size: .7rem; font-weight: 500; color: var(--muted);
   letter-spacing: 0;
@@ -298,7 +306,7 @@ func chromeHeader(active, sessionHTML, actionsHTML, runHTML string) string {
 		b.WriteString(`<script>window.name="buddy-` + active + `";</script>`)
 	}
 	b.WriteString(`<header class="app-header">`)
-	b.WriteString(`<div class="brand"><a href="/docs/" target="buddy-docs">buddy</a>`)
+	b.WriteString(`<div class="brand"><a href="/docs/" target="buddy-docs"><img src="` + logoURL + `" width="28" height="28" alt="">buddy</a>`)
 	b.WriteString(`<span class="ver" title="buddy version">` + html.EscapeString(chromeVersion) + `</span></div>`)
 	b.WriteString(`<nav class="app-nav">`)
 	b.WriteString(nav("docs", "/docs/", "docs"))
@@ -320,7 +328,9 @@ func chromeHeader(active, sessionHTML, actionsHTML, runHTML string) string {
 }
 
 func chromeHeadTags() string {
-	return `<script>` + chromeThemeBootJS + `</script>` +
+	return `<link rel="icon" type="image/png" href="` + logoURL + `">` +
+		`<link rel="apple-touch-icon" href="` + logoURL + `">` +
+		`<script>` + chromeThemeBootJS + `</script>` +
 		`<script>` + chromePersistHelpersJS + `</script>` +
 		`<script>` + chromeSoftTabJS + `</script>` +
 		"\n<style>\n" + chromeCSS + "\n</style>\n"

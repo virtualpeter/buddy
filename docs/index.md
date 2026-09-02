@@ -1,105 +1,69 @@
-# Getting started with buddy
+# buddy
 
-**buddy** is a Jamf Pro CLI and buddyscript tool: policies, groups, profiles, packages, scripts, computers/MDM, Platform API (blueprints, devices, …), plus a local docs UI and script IDE.
+<p class="about-hero"><img src="/buddy.png" width="168" height="168" alt="buddy"></p>
 
-## 1. Install
+**buddy** for Jamf Pro is a multipurpose tool with CLI, MCP, and its own scripting language. It covers Classic and Pro api functions (policies, computer groups, configuration profiles, packages/JCDS, scripts, computers and MDM, API roles and clients) and newer features only found via the Platform API (blueprints, devices, device groups, DDM reporting, compliance benchmarks).
 
-```sh
-make buddy
-make install    # optional: ~/go/bin/buddy
-```
+**buddy** is independent open-source software (MIT). It talks to [Jamf Pro](https://www.jamf.com/) and Jamf Platform **APIs**. It is not affiliated with, endorsed by, or sponsored by Jamf. Jamf, Jamf Pro, and related names are trademarks of Jamf.
 
-## 2. Connect to Jamf (`buddy setup`)
+Day-to-day work can follow several different styles — you can work with **buddyscript** (an extended version of Starlark) via an interactive shell, `.buddy` script files, or via this local docs UI with script IDE (`buddy serve`). Alternatively, connect it as an MCP server for AI hosts (`buddy mcp`) and let the agent learn how to use buddyscript.
 
-If you have **no config yet**, do not hand-edit `config.yaml` first — bootstrap with setup:
+The only required config is to define tenants + auths; passwords or oauth secrets get stored in the encrypted vault (`secrets.enc`), with a random Keychain data key and a recovery passphrase for backups — [Auth, secrets, and tokens](auth.md).
 
-```sh
-buddy setup basic-setup               # prompts: tenant name, Jamf URL, username, password
-buddy auth test                       # verify the session
-```
+## Start here
 
-That writes `~/.config/buddy/config.yaml`, stores the password in the encrypted vault (`secrets.enc`), and sets a default tenant.
-
-If this Mac already has an org MDM profile for preference domain `virtualpete.buddy.cli` (tenants and optional auth stubs), skip basic-setup and run:
-
-```sh
-buddy setup secrets                   # create missing auths; store client secrets / passwords
-buddy cred status                     # see tenant × surface coverage / gaps
-buddy auth test
-```
-
-**Optional — API client (oauth) for day-to-day use** (instance only; not Platform gateway):
-
-```sh
-buddy setup write-script              # writes setup_buddy_role.buddy
-buddy setup_buddy_role.buddy -y       # creates role "Buddy" + client "buddy-cli" (idempotent)
-buddy setup store-oauth               # rotates client secret into a buddy oauth auth
-buddy --user <auth-name> auth test
-```
-
-See `buddy setup help` for flags. After setup, review the Jamf API role and **drop privileges** you do not need (especially destructive MDM actions).
-
-Already have tenants/auths? Use `buddy cred …` and `buddy auth test` instead — details in the [reference manual](/docs/docs/reference-manual) and [Auth, secrets, and tokens](/docs/docs/auth).
-
-## 3. Try it
-
-```sh
-buddy policy list                     # or: group list, package list, …
-buddy serve --open                    # docs + /ide in the browser
-buddy help                            # CLI overview
-buddy help builtins                   # buddyscript API reference
-```
-
-In the IDE, open **Libraries** → **Getting started** for a short list of builtins to try.
+<ul class="about-jump">
+<li><a href="/docs/docs/getting-started">Getting started</a><span>Install, <code>buddy setup</code>, and your first commands</span></li>
+<li><a href="/ide">Script IDE</a><span>Open, edit, and run <code>.buddy</code> scripts in the browser</span></li>
+<li><a href="/docs/docs/auth">Auth, secrets, and tokens</a><span>Tenants, vault, channel policy, token cache</span></li>
+<li><a href="/docs/docs/reference-manual">Reference manual</a><span>Config, CLI, buddyscript, environment</span></li>
+<li><a href="/docs/docs/mcp">MCP for AI tools</a><span>Use buddy from Cursor, Claude Desktop, and other hosts</span></li>
+<li><a href="/docs/builtins">Function index</a><span>Every buddyscript builtin</span></li>
+<li><a href="/docs/cli">Command index</a><span>Every <code>buddy</code> CLI command</span></li>
+<li><a href="/docs/examples/README.md">Examples</a><span>Runnable <code>.buddy</code> samples</span></li>
+</ul>
 
 ## Resources (by object type)
 
 | Guide | What it’s for |
 |-------|----------------|
-| [Policies](/docs/docs/policies) | Classic policies: list/set/copy/migrate |
-| [Smart computer groups](/docs/docs/smart-groups) | Criteria-based membership |
-| [Static computer groups](/docs/docs/static-groups) | Explicit computer ID membership |
-| [Configuration profiles](/docs/docs/profiles) | Profile lifecycle (clone/copy/redeploy) |
-| [Profile payloads](/docs/docs/profile-payloads) | Dissect/assemble PayloadContent vs MCX |
-| [Packages / JCDS](/docs/docs/packages) | READY gate, wait, download |
-| [Icons](/docs/docs/icons) | Self Service icons (list via weekly catalog cache; get/upload/check/download) |
-| [Scripts](/docs/docs/scripts) | List vs body; copy/migrate |
-| [Categories](/docs/docs/categories) | Category copy (migrate step 1) |
-| [Mac App Store apps](/docs/docs/macapps) | Classic macapplications (list/get/create/delete) |
-| [Policy apps](/docs/docs/apps) | Self Service + packages (list/get/upgrade) |
-| [Computers](/docs/docs/computers) | Inventory, Classic policy logs, MDM actions |
-| [MDM command history](/docs/docs/mdm) | Query command history (RSQL) |
-| [Mobile devices](/docs/docs/mobile-devices) | iOS/iPadOS/tvOS inventory + MDM actions |
-| [Mobile-device groups](/docs/docs/mobile-groups) | Smart criteria / static membership |
-| [Mobile profiles](/docs/docs/mobile-profiles) | Mobile configuration profiles (Classic XML) |
-| [API roles](/docs/docs/api-roles) | Pro API roles |
-| [API clients](/docs/docs/api-clients) | Pro API integrations / oauth clients |
+| [Policies](policies.md) | Classic policies: list/set/copy/migrate |
+| [Smart computer groups](smart-groups.md) | Criteria-based membership |
+| [Static computer groups](static-groups.md) | Explicit computer ID membership |
+| [Configuration profiles](profiles.md) | Profile lifecycle (clone/copy/redeploy) |
+| [Profile payloads](profile-payloads.md) | Dissect/assemble PayloadContent vs MCX |
+| [Packages / JCDS](packages.md) | READY gate, wait, download |
+| [Icons](icons.md) | Self Service icons (list via weekly catalog cache; get/upload/check/download) |
+| [Scripts](scripts.md) | List vs body; copy/migrate |
+| [Categories](categories.md) | Category copy (migrate step 1) |
+| [Mac App Store apps](macapps.md) | Classic macapplications (list/get/create/delete) |
+| [Policy apps](apps.md) | Self Service + packages (list/get/upgrade) |
+| [Computers](computers.md) | Inventory, Classic policy logs, MDM actions |
+| [MDM command history](mdm.md) | Query command history (RSQL) |
+| [Mobile devices](mobile-devices.md) | iOS/iPadOS/tvOS inventory + MDM actions |
+| [Mobile-device groups](mobile-groups.md) | Smart criteria / static membership |
+| [Mobile profiles](mobile-profiles.md) | Mobile configuration profiles (Classic XML) |
+| [API roles](api-roles.md) | Pro API roles |
+| [API clients](api-clients.md) | Pro API integrations / oauth clients |
 
 ### Platform
 
 | Guide | What it’s for |
 |-------|----------------|
-| [Blueprints](/docs/docs/blueprints) | Platform blueprints CRUD / deploy |
-| [Platform devices](/docs/docs/devices) | Platform inventory + actions |
-| [Device groups](/docs/docs/device-groups) | Platform device groups |
-| [DDM reporting](/docs/docs/ddm) | Declaration reporting |
-| [Compliance benchmarks](/docs/docs/benchmarks) | Benchmarks |
+| [Blueprints](blueprints.md) | Platform blueprints CRUD / deploy |
+| [Platform devices](devices.md) | Platform inventory + actions |
+| [Device groups](device-groups.md) | Platform device groups |
+| [DDM reporting](ddm.md) | Declaration reporting |
+| [Compliance benchmarks](benchmarks.md) | Benchmarks |
 
 ## Guides
 
 | Guide | What it’s for |
 |-------|----------------|
-| [Auth, secrets, and tokens](/docs/docs/auth) | Tenants, auths, channel policy, secret stores, token cache |
-| [Reference manual](/docs/docs/reference-manual) | Config, credentials, CLI, buddyscript, environment |
-| [BuddyScript overview](/docs/docs/buddyscript) | Language, runners, conventions |
-| [BuddyScript syntax](/docs/docs/buddyscript-syntax) | Starlark subset + external spec links |
-| [BuddyScript stdlib](/docs/docs/buddyscript-stdlib) | Reserved `load("stdlib/….buddy", …)` path (empty; recipes in `examples/`) |
-| [Function index](/docs/builtins) | Every builtin (signatures, params, returns) |
-| [Command index](/docs/cli) | Every CLI command (`buddy help` / `buddy help <command>`) |
-| [Change batches](/docs/docs/change-batches) | Plan → approve → apply workflows |
-| [API endpoints](/docs/docs/api-endpoints) | Jamf HTTP APIs buddy calls |
-| [MCP for AI tools](/docs/docs/mcp) | buddy as an MCP server (Cursor, Claude Desktop, …) |
-| [MCP tools scorecard](/docs/docs/mcp-tools) | Agent tool priority and pathfinding |
-| [Editor / LSP](/docs/docs/editor) | `buddy lsp`; VSIX is the sibling `buddy-extension` checkout |
-| [Examples index](/docs/examples/README.md) | Runnable `.buddy` samples |
-| [Script IDE](/ide) | Single-buffer runner (open/save, args, trace, Libraries) |
+| [BuddyScript overview](buddyscript.md) | Language, runners, conventions |
+| [BuddyScript syntax](buddyscript-syntax.md) | Starlark subset + external spec links |
+| [BuddyScript stdlib](buddyscript-stdlib.md) | Reserved `load("stdlib/….buddy", …)` path (empty; recipes in `examples/`) |
+| [Change batches](change-batches.md) | Plan → approve → apply workflows |
+| [API endpoints](api-endpoints.md) | Jamf HTTP APIs buddy calls |
+| [MCP tools scorecard](mcp-tools.md) | Agent tool priority and pathfinding |
+| [Editor / LSP](editor.md) | `buddy lsp`; VSIX is the sibling `buddy-extension` checkout |

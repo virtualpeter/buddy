@@ -9,7 +9,7 @@ import (
 
 func TestDocsNavGroups(t *testing.T) {
 	pages := []DocPage{
-		{ID: "docs/index", Title: "Getting started", Section: "Start here"},
+		{ID: "docs/index", Title: "About", Section: "Start here"},
 		{ID: "docs/policies", Title: "Policies", Section: "Resources"},
 		{ID: "docs/packages", Title: "Packages", Section: "Resources"},
 		{ID: "docs/blueprints", Title: "Blueprints", Section: "Platform"},
@@ -55,7 +55,7 @@ func TestDocsNavCollapsibleHTML(t *testing.T) {
 	}
 	err := docsTmpl.Execute(&buf, docsView{
 		Groups: []docsNavGroup{
-			{Name: "Start here", Pages: []DocPage{{ID: "docs/index", Title: "Getting started"}}, Open: true},
+			{Name: "Start here", Pages: []DocPage{{ID: "docs/index", Title: "About"}}, Open: true},
 			resources,
 		},
 		ActiveID:      "docs/blueprints",

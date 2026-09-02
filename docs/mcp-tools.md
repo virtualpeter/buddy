@@ -38,7 +38,7 @@ Typed per-resource MCP tools (smart/static groups, profiles, policies, packages 
 | DDM / benchmarks | `ddm` / `benchmarks` | `ddm_*` / `benchmark*` | Invent from schema alone |
 | Unknown endpoint | `jamf_schema` then `builtins` | Prefer named builtin; else `jamf_get`/`jamf_put` | Schema as license to PUT profiles/groups |
 
-Object cookbooks live under `docs/<name>` (see [index](index.md) Resources / Platform tables).
+Object cookbooks live under `docs/<name>` (see [About](index.md) Resources / Platform tables).
 
 ---
 

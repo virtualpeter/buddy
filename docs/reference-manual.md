@@ -2,7 +2,7 @@
 
 **buddy** is a command-line tool for [Jamf Pro](https://www.jamf.com/products/jamf-pro/) automation: policies, computer groups, configuration profiles, packages, scripts, computers / MDM, API roles, and API clients. It includes a **buddyscript** runtime (built on [Starlark](https://github.com/google/starlark-go)) so multi-step workflows can live in `.buddy` scripts.
 
-**New install?** Start with [`buddy setup basic-setup`](#first-time-api-setup) (also covered in [Getting started](index.md)), then come back here for the full picture.
+**New install?** Start with [`buddy setup basic-setup`](#first-time-api-setup) (also covered in [Getting started](getting-started.md)), then come back here for the full picture.
 
 This manual describes how the pieces fit together. For behavior that must stay in lockstep with the code, buddy exposes the same text via `buddy help` (see [CLI help](#cli-help)).
 
@@ -29,6 +29,8 @@ This manual describes how the pieces fit together. For behavior that must stay i
 ## License
 
 This project is released under the MIT License. See the [`LICENSE`](../LICENSE) file in the repository root. Copyright © 2026 Peter Viertel.
+
+**buddy** is independent open-source software. It talks to [Jamf](https://www.jamf.com/) Pro and Platform **APIs**. It is not affiliated with, endorsed by, or sponsored by Jamf. Jamf, Jamf Pro, and related names are trademarks of Jamf.
 
 ---
 
@@ -357,14 +359,15 @@ These are Makefile variables, not runtime config:
 |----------|--------|
 | `BUDDY_CODESIGN_IDENTITY` | Developer ID Application identity required to sign the Darwin/arm64 binary |
 | `BUDDY_CODESIGN_IDENTIFIER` | Bundle identifier (default `virtualpete.buddy.cli`); must stay stable so Keychain ACLs survive rebuilds |
-| `BUDDY_PKG_SIGN_IDENTITY` | Optional Developer ID Installer identity for `make package` |
+| `BUDDY_PKG_SIGN_IDENTITY` | Optional Developer ID Installer identity for `make package` (branded product archive + Finder icon from `internal/serve/buddy.png`) |
 
 ---
 
 ## See also
 
 - [README](../README.md) — quick start, configuration table, command cheat sheet
-- [`docs/index.md`](index.md) — Getting started (install, `buddy setup`, first commands)
+- [`docs/index.md`](index.md) — About (landing page + docs map)
+- [`docs/getting-started.md`](getting-started.md) — Install, `buddy setup`, first commands
 - [Auth, secrets, and tokens](auth.md) — tenants, auths, channel policy, secret stores, token cache
 - [Change batches howto](/docs/docs/change-batches) — plan / approve / apply for change records
 - [Editor / LSP](editor.md) — VS Code/Cursor extension and `buddy lsp`

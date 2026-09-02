@@ -1,6 +1,6 @@
 # Buddy MCP server
 
-**buddy** can run as a [Model Context Protocol](https://modelcontextprotocol.io/) server so AI tools (Cursor, Claude Desktop, and other MCP hosts) call Jamf helpers as tools instead of shelling out.
+**buddy** can run as a [Model Context Protocol](https://modelcontextprotocol.io/) server so AI tools (Cursor, Claude Desktop, and other MCP hosts) call Jamf helpers as tools instead of shelling out. buddy is independent open-source software; it is not Jamf’s MCP and is not affiliated with, endorsed by, or sponsored by Jamf.
 
 ```sh
 buddy mcp
@@ -224,7 +224,7 @@ Learn endpoints from the Jamf host schemas plus the embedded Platform specs:
 
 ### Groups, profiles, and object cookbooks
 
-See **[mcp-tools.md](mcp-tools.md)** pathfinding map and the **Resources / Platform** pages in [index.md](index.md). Payload deep-dive: [profile-payloads.md](/docs/docs/profile-payloads). Query `docs` with a resource noun (`policy`, `packages`, `smart-groups`, `blueprints`, …) — list matches id/title/section/**keywords**.
+See **[mcp-tools.md](mcp-tools.md)** pathfinding map and the **Resources / Platform** directory on [About](index.md). Payload deep-dive: [profile-payloads.md](/docs/docs/profile-payloads). Query `docs` with a resource noun (`policy`, `packages`, `smart-groups`, `blueprints`, …) — list matches id/title/section/**keywords**.
 
 ### `docs` tips
 

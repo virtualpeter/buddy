@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>buddy</title>
+    <organization>@IDENTIFIER@</organization>
+    <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <background file="background.png" mime-type="image/png" alignment="center" scaling="proportional"/>
+    <background-darkAqua file="background-darkAqua.png" mime-type="image/png" alignment="center" scaling="proportional"/>
+    <welcome file="welcome.html" mime-type="text/html"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="@IDENTIFIER@"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="@IDENTIFIER@" visible="false">
+        <pkg-ref id="@IDENTIFIER@"/>
+    </choice>
+    <pkg-ref id="@IDENTIFIER@" version="@VERSION@" onConclusion="none">component.pkg</pkg-ref>
+</installer-gui-script>

@@ -1,17 +1,24 @@
 # buddy
 
-**buddy** is a Jamf Pro automation CLI. It covers Classic and Pro resources (policies, computer groups, configuration profiles, packages/JCDS, scripts, computers and MDM, API roles and clients) and the Platform API (blueprints, devices, device groups, DDM reporting, compliance benchmarks).
+<img src="internal/serve/buddy.png" alt="buddy" width="128" height="128">
 
-Day-to-day work is **buddyscript** (Starlark): an interactive shell, `.buddy` files, a local docs UI with script IDE (`buddy serve`), and an MCP server for AI hosts (`buddy mcp`). Config is tenants + auths; secrets belong in the encrypted vault (`secrets.enc`), with a random Keychain data key and a recovery passphrase for backups — [docs/auth.md](docs/auth.md).
+**buddy** for Jamf Pro is a multipurpose tool with CLI, MCP, and its own scripting language. It covers Classic and Pro api functions (policies, computer groups, configuration profiles, packages/JCDS, scripts, computers and MDM, API roles and clients) and newer features only found via the Platform API (blueprints, devices, device groups, DDM reporting, compliance benchmarks).
 
-New install: `make buddy` then [`buddy setup basic-setup`](docs/index.md). Builtin signatures always match the binary: `buddy help builtins`.
+**buddy** is independent open-source software (MIT). It talks to [Jamf Pro](https://www.jamf.com/) and Jamf Platform **APIs**. It is not affiliated with, endorsed by, or sponsored by Jamf. Jamf, Jamf Pro, and related names are trademarks of Jamf.
+
+Day-to-day work can follow several different styles - you can work with **buddyscript** (an extended version of Starlark) via an interactive shell, `.buddy` script files, or via a local docs UI with script IDE (`buddy serve`). Alternatively, connect it as an MCP server for AI hosts (`buddy mcp`) and let the agent learn how to use buddyscript.
+
+The only required config is to define tenants + auths; passwords or oauth secrets get stored in the encrypted vault (`secrets.enc`), with a random Keychain data key and a recovery passphrase for backups — [docs/auth.md](docs/auth.md).
+
+New install: if there isn’t a released binary available and you have Go installed you can `make install-signed` (preferred) or `make install` (if you don’t have a signing cert), then [`buddy setup basic-setup`](docs/getting-started.md). 
 
 ## Documentation
 
 | Resource | Description |
 |----------|-------------|
 | [AGENTS.md](AGENTS.md) | Contributor notes for AI agents (layout, conventions) |
-| [docs/index.md](docs/index.md) | Getting started: install, `buddy setup`, first commands |
+| [docs/index.md](docs/index.md) | About: landing page and docs map |
+| [docs/getting-started.md](docs/getting-started.md) | Install, `buddy setup`, first commands |
 | [docs/auth.md](docs/auth.md) | Tenants, auths, secrets, and token caching |
 | [docs/reference-manual.md](docs/reference-manual.md) | Full reference: config, CLI, scripting, builtins overview, API doc link |
 | [docs/change-batches.md](docs/change-batches.md) | Plan → approve → apply change-record workflows |
@@ -33,7 +40,9 @@ New install: `make buddy` then [`buddy setup basic-setup`](docs/index.md). Built
 make buddy
 ```
 
-The binary is built to `./buddy` (`CGO_ENABLED=0`). On macOS the default binary stores the vault data key and recovery passphrase in Keychain via `security(1)` (service `buddy`). The **signed release** (`make buddy-darwin-arm64`) uses Security.framework and a separate Keychain service (`virtualpete.buddy.cli`) so only that Developer ID can read the DEK without a prompt. Secrets stay in `secrets.enc`. See [docs/auth.md](docs/auth.md) for Keychain ACLs, Touch ID, and `cred set passphrase`.
+The binary is built to `./buddy` (`CGO_ENABLED=0`). On macOS the default binary stores the vault data key and recovery passphrase in Keychain via `security(1)` (service `buddy`).
+
+The **signed release** (`make buddy-darwin-arm64`) uses Security.framework and a separate Keychain service (`virtualpete.buddy.cli`) so only buddy can read the DEK without a prompt. Secrets stay in `secrets.enc`. See [docs/auth.md](docs/auth.md) for Keychain ACLs, Touch ID, and `cred set passphrase`.
 
 ```sh
 BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make buddy-darwin-arm64
@@ -46,7 +55,7 @@ BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make buddy-darwin-arm64
 | `make buddy` | `./buddy` | service `buddy` via `security(1)` | Default; no CGO; existing items keep working |
 | `make buddy-darwin-arm64` | `./buddy-darwin-arm64` | service `virtualpete.buddy.cli` (label Buddy) via Security.framework | Requires Darwin/arm64 and `BUDDY_CODESIGN_IDENTITY`; identifier `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) must stay stable; store the recovery passphrase with `./buddy-darwin-arm64 cred set passphrase` |
 | `make install-signed` | `~/go/bin/buddy` | same as `buddy-darwin-arm64` | Builds the signed binary, then copies it over `~/go/bin/buddy` |
-| `make package` | `/usr/local/bin/buddy` (via pkg) | same as `buddy-darwin-arm64` | Builds `buddy-<version>.pkg`; optional `BUDDY_PKG_SIGN_IDENTITY` (Developer ID Installer) |
+| `make package` | `/usr/local/bin/buddy` (via pkg) | same as `buddy-darwin-arm64` | Branded `buddy-<version>.pkg` (installer UI + Finder icon); optional `BUDDY_PKG_SIGN_IDENTITY` (Developer ID Installer) |
 
 `make buddy-darwin-arm64` fails if the host is not Darwin/arm64, the identity is missing, the signature is ad-hoc, or TeamIdentifier is unset. Each binary only sees its own DEK until you unwrap with `cred set passphrase` or restore a backup.
 
@@ -281,6 +290,10 @@ The only use of jamf-cli in this repo is a vendored snapshot of its Platform API
 ## License
 
 MIT License — see [LICENSE](LICENSE). Copyright © 2026 Peter Viertel.
+
+## Trademark
+
+Jamf, Jamf Pro, and related names are trademarks of Jamf. buddy is not affiliated with, endorsed by, or sponsored by Jamf. See [License](#license).
 
 ## Environment Variables
 

@@ -15,6 +15,7 @@ func TestChromeHeaderSlots(t *testing.T) {
 		`class="app-header"`,
 		`href="/docs/"`,
 		`href="/ide"`,
+		`src="/buddy.png?v=`,
 		`target="buddy-docs"`,
 		`target="buddy-ide"`,
 		`window.name="buddy-ide"`,
@@ -105,6 +106,7 @@ func TestIDESharedChrome(t *testing.T) {
 		`id="theme-dark"`,
 		`class="app-header"`,
 		`class="app-nav"`,
+		`src="/buddy.png?v=`,
 		`id="tenant"`,
 		`id="auth"`,
 		`data-theme`,
@@ -180,6 +182,8 @@ func TestChromePersistAndSoftTab(t *testing.T) {
 		`buddyServeStore`,
 		`buddyServeSoftTab`,
 		`buddy-serve-docs-last`,
+		`rel="icon"`,
+		`/buddy.png?v=`,
 	} {
 		if !strings.Contains(head, want) && !strings.Contains(foot, want) {
 			t.Errorf("chrome scripts missing %q", want)

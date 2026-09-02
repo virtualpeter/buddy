@@ -44,6 +44,7 @@ func serveDocsHTML(w http.ResponseWriter, r *http.Request, pages []DocPage, md g
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	htmlBody = strings.ReplaceAll(htmlBody, `src="/buddy.png"`, `src="`+logoURL+`"`)
 	toc := extractTOC(p.Markdown)
 	groups := docsNavGroups(pages)
 	applyNavOpen(groups, p.ID, pageSection(*p))
@@ -250,8 +251,62 @@ a:hover { text-decoration: underline; }
 }
 main { padding: 1.5rem 2rem 3rem; max-width: 52rem; }
 main > h1:first-child { margin-top: 0; }
+.about-hero {
+  float: right;
+  margin: .1rem 0 1.1rem 1.75rem;
+}
+.about-hero img {
+  display: block;
+  width: 10.5rem;
+  height: 10.5rem;
+  border-radius: 1.45rem;
+}
+@media (max-width: 640px) {
+  .about-hero {
+    float: none;
+    margin: .15rem 0 1.1rem;
+  }
+}
+.about-jump {
+  list-style: none;
+  margin: 0 0 1.75rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr));
+  gap: .7rem;
+  max-width: none;
+}
+.about-jump li {
+  margin: 0;
+  padding: .8rem .9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--bg));
+  line-height: 1.45;
+}
+.about-jump a {
+  display: block;
+  font-weight: 600;
+  margin: 0 0 .25rem;
+  color: var(--ink);
+}
+.about-jump a:hover { color: var(--accent); text-decoration: none; }
+.about-jump span {
+  display: block;
+  color: var(--muted);
+  font-size: .88rem;
+}
+.about-jump code {
+  font-size: .84em;
+}
 h1,h2,h3 { line-height: 1.25; }
-main h2 { margin: 2rem 0 .85rem; padding-bottom: .35rem; border-bottom: 1px solid var(--line); font-size: 1.15rem; }
+main h2 {
+  clear: both;
+  margin: 2rem 0 .85rem;
+  padding-bottom: .35rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 1.15rem;
+}
 main h3 { margin: 1.35rem 0 .55rem; font-size: 1.02rem; }
 main p { margin: 0 0 .9rem; max-width: 42rem; }
 main ul, main ol {
