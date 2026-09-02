@@ -14,7 +14,7 @@ Human docs: [docs/index.md](docs/index.md) (About), [docs/getting-started.md](do
 | `internal/buddy/tokenauth/` | Token acquisition, cache, 401 refresh |
 | `internal/script/` | buddyscript (Starlark) builtins + session |
 | `internal/mcp/` | `buddy mcp` stdio server |
-| `internal/serve/` | `buddy serve` docs + `/ide` |
+| `internal/serve/` | `buddy serve` docs + `/config` + `/ide` |
 | `internal/lsp/` | `buddy lsp` |
 | `stdlib/` | Reserved `load("stdlib/….buddy")` modules (currently empty) |
 | `docs/` | User-facing docs (`docs/generated/` is from `make gendocs`) |

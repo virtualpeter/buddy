@@ -107,6 +107,21 @@ func main() {
 	buddy.SetHTTPTrace(globals.trace)
 	logger := buddy.GetLogger()
 
+	if buddy.ConfigNeedsSetup(cfg) && buddy.StdinIsTerminal() && shouldOfferFirstTimeSetup(args) {
+		if _, err := buddy.RunFirstTimeSetup(cfg, opts, logger); err != nil {
+			logger.Error("First-time setup failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		buddy.SetActiveConfig(cfg)
+		tenantName = cfg.DefaultTenant(channel)
+		if globals.tenant != "" {
+			tenantName = globals.tenant
+		}
+		buddy.SetActiveSelection(tenantName, authPin)
+		credName = authPin
+	}
+
 	if globals.evalSource != "" {
 		scriptArgs := script.ParseEvalArgs(args)
 		if err := script.RunSource(credName, opts, globals.evalSource, scriptArgs, logger, globals.scriptTrace); err != nil {
@@ -210,6 +225,30 @@ func main() {
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, clispec.T(clispec.MsgRunHelpList))
 		os.Exit(1)
+	}
+}
+
+// shouldOfferFirstTimeSetup is false for meta / setup / local-UI commands that
+// must work without tenants (or that implement their own unconfigured mode).
+func shouldOfferFirstTimeSetup(args []string) bool {
+	if len(args) == 0 {
+		return true // REPL
+	}
+	cmd := args[0]
+	if !isKnownCommand(cmd) && isScriptPath(cmd) {
+		return true
+	}
+	switch cmd {
+	case clispec.CmdHelp, clispec.CmdVersion:
+		return false
+	case clispec.CmdSetup, clispec.CmdCred, clispec.CmdAuth:
+		return false
+	case clispec.CmdServe, clispec.CmdLSP:
+		return false
+	case clispec.CmdMCP:
+		return false // MCP registers zero tools when unconfigured
+	default:
+		return true
 	}
 }
 

@@ -19,6 +19,9 @@ Groups: smart_group* (criteria + smart_group_computers) vs static_group* (member
 buddyscript: prefer def main(): … return …; Starlark has no while/try/class (use for … in / range, or builtins like package_wait_ready for polling); builtins return bare values and raise on failure; MCP wraps {ok,value} only at the tool boundary.
 Jamf remote MCP (developer.jamf.com/mcp) is useful for product schemas; prefer buddy builtins for tenant changes.`
 
+// ServerInstructionsUnconfigured is used when no tenants are configured — no tools are registered.
+const ServerInstructionsUnconfigured = `buddy MCP is not configured. Add a tenant and auth with ` + "`buddy cred add`" + ` (or run any buddy CLI command interactively for the setup wizard). Secrets stay in the terminal vault, not in the browser. After setup, reload/restart the MCP host so tools appear.`
+
 // AgentPlaybook is the firm guidance returned by get_instructions.
 const AgentPlaybook = `# buddy MCP agent playbook
 

@@ -13,7 +13,8 @@ The only required config is to define tenants + auths; passwords or oauth secret
 ## Start here
 
 <ul class="about-jump">
-<li><a href="/docs/docs/getting-started">Getting started</a><span>Install, <code>buddy setup</code>, and your first commands</span></li>
+<li><a href="/docs/docs/getting-started">Getting started</a><span>Install, setup wizard / <code>buddy cred add</code>, and your first commands</span></li>
+<li><a href="/config">Config</a><span>View and edit tenants / auths (metadata; secrets stay in the CLI)</span></li>
 <li><a href="/ide">Script IDE</a><span>Open, edit, and run <code>.buddy</code> scripts in the browser</span></li>
 <li><a href="/docs/docs/auth">Auth, secrets, and tokens</a><span>Tenants, vault, channel policy, token cache</span></li>
 <li><a href="/docs/docs/reference-manual">Reference manual</a><span>Config, CLI, buddyscript, environment</span></li>

@@ -8,6 +8,8 @@ buddy mcp
 
 Uses **stdio** JSON-RPC (the first-class product path). The active tenant/auth comes from `~/.config/buddy/config.yaml` (override with `--tenant=<name>` and/or `--user=<auth>` on the command in the host’s MCP config). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 
+**Not configured yet?** If no tenants are in config, `buddy mcp` starts with **zero tools** and server instructions that point at `buddy cred add` (or the interactive CLI setup wizard). Secrets are never collected over MCP. After you add a tenant and auth, reload/restart the MCP host so tools appear.
+
 A Platform-capable tenant (`region`/`url` + `tenantId`) with a linked oauth auth works the same way: Platform product builtins (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) route through the gateway via `buddyscript`.
 
 Streamable HTTP MCP under `buddy serve` is **not** offered today. Hosts (Cursor, Claude Desktop) spawn `buddy mcp` over stdio; keep that as the supported setup. A localhost streamable endpoint may be revisited later for HTTP-only clients or long-lived debug workflows — not as a replacement for stdio.

@@ -169,7 +169,7 @@ var curatedDocEntries = []curatedDoc{
 	{id: "docs/index", title: "About", section: "Start here", file: "index.md",
 		keywords: []string{"about", "home", "landing", "overview", "map"}},
 	{id: "docs/getting-started", title: "Getting started", section: "Start here", file: "getting-started.md",
-		keywords: []string{"install", "setup", "basic-setup", "auth test", "first", "quickstart"}},
+		keywords: []string{"install", "setup", "cred add", "basic-setup", "auth test", "first", "quickstart", "config"}},
 
 	// Resources — Classic / Pro object cookbooks
 	{id: "docs/policies", title: "Policies", section: "Resources",

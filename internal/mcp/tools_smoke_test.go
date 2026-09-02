@@ -24,6 +24,12 @@ func TestServerInstructions(t *testing.T) {
 	if !strings.Contains(ServerInstructions, "get_instructions") {
 		t.Fatal("instructions should tell agents to call get_instructions first")
 	}
+	if !strings.Contains(ServerInstructionsUnconfigured, "not configured") {
+		t.Fatal("unconfigured instructions should say not configured")
+	}
+	if !strings.Contains(ServerInstructionsUnconfigured, "buddy cred add") {
+		t.Fatal("unconfigured instructions should point at buddy cred add")
+	}
 	if !strings.Contains(ServerInstructions, "developer.jamf.com/mcp") {
 		t.Fatal("instructions should mention Jamf hosted MCP URL")
 	}

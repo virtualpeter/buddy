@@ -17,26 +17,26 @@ const (
 
 // CoverageAuth is one auth covering a tenant×surface cell.
 type CoverageAuth struct {
-	Name   string
-	Secret string // missing | stored | inline | n/a
-	Live   string // never | ok | token-ok | token-fail | secret-missing
+	Name   string `json:"name"`
+	Secret string `json:"secret"` // missing | stored | inline | n/a
+	Live   string `json:"live"`   // never | ok | token-ok | token-fail | secret-missing
 }
 
 // CoverageCell is one tenant identity (instance or platform) and the auths that can use it.
 type CoverageCell struct {
-	Tenant    string
-	Surface   string
-	Gap       bool
-	GapReason string
-	Auths     []CoverageAuth
+	Tenant    string         `json:"tenant"`
+	Surface   string         `json:"surface"`
+	Gap       bool           `json:"gap"`
+	GapReason string         `json:"gap_reason,omitempty"`
+	Auths     []CoverageAuth `json:"auths,omitempty"`
 }
 
 // CoverageReport is the cred-status view of config + store + last live check.
 type CoverageReport struct {
-	Cells         []CoverageCell
-	UnlinkedAuths []string
-	ChannelHidden []string // "auth (hidden from mcp, ide)"
-	HasGaps       bool
+	Cells         []CoverageCell `json:"cells"`
+	UnlinkedAuths []string       `json:"unlinked_auths,omitempty"`
+	ChannelHidden []string       `json:"channel_hidden,omitempty"` // "auth (hidden from mcp, ide)"
+	HasGaps       bool           `json:"has_gaps"`
 }
 
 // AuthCoversSurface reports whether auth may be used on surface for this tenant identity.

@@ -40,11 +40,19 @@ func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) 
 		version = "dev"
 	}
 	opts = withMCPOpts(opts)
+	instructions := ServerInstructions
+	unconfigured := buddy.ConfigNeedsSetup(buddy.GetActiveConfig())
+	if unconfigured {
+		instructions = ServerInstructionsUnconfigured
+		logger.Info("buddy mcp: no tenants configured — registering zero tools")
+	}
 	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "buddy", Version: version}, &mcpsdk.ServerOptions{
-		Instructions: ServerInstructions,
+		Instructions: instructions,
 	})
-	registerTools(server, credName, opts, logger, version)
-	registerDocResources(server)
+	if !unconfigured {
+		registerTools(server, credName, opts, logger, version)
+		registerDocResources(server)
+	}
 	return server.Run(context.Background(), &mcpsdk.StdioTransport{})
 }
 

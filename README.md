@@ -10,7 +10,7 @@ Day-to-day work can follow several different styles - you can work with **buddys
 
 The only required config is to define tenants + auths; passwords or oauth secrets get stored in the encrypted vault (`secrets.enc`), with a random Keychain data key and a recovery passphrase for backups — [docs/auth.md](docs/auth.md).
 
-New install: if there isn’t a released binary available and you have Go installed you can `make install-signed` (preferred) or `make install` (if you don’t have a signing cert), then [`buddy setup basic-setup`](docs/getting-started.md). 
+New install: if there isn’t a released binary available and you have Go installed you can `make install-signed` (preferred) or `make install` (if you don’t have a signing cert), then run any Jamf command (e.g. `buddy policy list`) for the interactive setup wizard, or [`buddy cred add`](docs/getting-started.md). 
 
 ## Documentation
 
@@ -149,14 +149,15 @@ buddy cred clean tokens                # delete expired/corrupt disk token cache
 Config is `tenant.default` + `tenants:` + `auths:` + optional `channels:`. Older `credentials:`, a bare string `tenant:`, `defaults:`, and `allow_auths:` are rejected. Inline secrets: `buddy cred migrate`. Selection: `--tenant` (auto-pick auth by operation) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all). Per-client policy lives under top-level `channels:` (`access` / `tenant` / `tenants` / `deny_builtins` / `allow_builtins`; MCP defaults deny `jamf_*`). The same deny/allow lists may be set on tenants and auths (per-layer; channel allow cannot unblock a tenant deny). `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` clients are removed.
 ### Setting up a role and client for buddy
 
-If you have **no config yet**, bootstrap an instance tenant + basic auth first:
+If you have **no tenants yet**, run any interactive Jamf command (or `buddy cred add`) for the setup wizard — tenant name, instance URL and/or platform region+id, then auth + vault secret:
 
 ```sh
-buddy setup basic-setup               # prompts for tenant, URL, username, password
-buddy --user <admin-auth> auth test
+buddy policy list                     # prompts when config is empty
+# or: buddy cred add
+buddy auth test
 ```
 
-If an MDM profile already provides tenants, run `buddy setup secrets` instead (creates missing auths and fills instance/platform coverage gaps). `buddy cred status` shows remaining holes.
+`buddy setup basic-setup` is still available for instance URL + basic auth only. If an MDM profile already provides tenants, run `buddy setup secrets` instead (creates missing auths and fills instance/platform coverage gaps). `buddy cred status` shows remaining holes. The docs UI **config** page (`buddy serve` → `/config`) edits tenant/auth metadata; secrets stay in the terminal vault.
 
 Then (optional) create a Jamf Pro **instance** API role/client and store oauth (Platform gateway oauth cannot manage roles/integrations):
 
@@ -319,7 +320,7 @@ buddy/
 │   ├── help/            # CLI help strings (some generated)
 │   ├── script/          # buddyscript runner and builtins
 │   ├── mcp/             # buddy mcp stdio server
-│   ├── serve/           # buddy serve docs + /ide
+│   ├── serve/           # buddy serve docs + /config + /ide
 │   └── lsp/             # buddy lsp
 ├── examples/            # Runnable .buddy samples
 ├── docs/                # User guides; docs/generated is from make gendocs

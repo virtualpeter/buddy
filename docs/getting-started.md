@@ -9,18 +9,30 @@ make buddy
 make install    # optional: ~/go/bin/buddy
 ```
 
-## 2. Connect to Jamf (`buddy setup`)
+## 2. Connect to Jamf
 
-If you have **no config yet**, do not hand-edit `config.yaml` first — bootstrap with setup:
+If you have **no tenants configured**, the easiest path is to run any Jamf command on a terminal — buddy prompts for the first tenant and auth (same flow as `buddy cred add`):
 
 ```sh
-buddy setup basic-setup               # prompts: tenant name, Jamf URL, username, password
-buddy auth test                       # verify the session
+buddy policy list                     # interactive wizard when config is empty
+# or explicitly:
+buddy cred add
+```
+
+You will be asked for a **tenant name**, optional Jamf Pro instance URL, optional Platform region + tenant id, then auth type and credentials. Secrets go into the encrypted vault.
+
+Alternatively:
+
+```sh
+buddy setup basic-setup               # instance URL + basic auth only
+buddy auth test
 ```
 
 That writes `~/.config/buddy/config.yaml`, stores the password in the encrypted vault (`secrets.enc`), and sets a default tenant.
 
-If this Mac already has an org MDM profile for preference domain `virtualpete.buddy.cli` (tenants and optional auth stubs), skip basic-setup and run:
+In the local docs UI (`buddy serve`), open **config** to view and edit tenant/auth **metadata**. Vault secrets are still set from the terminal (`buddy cred set secret …`).
+
+If this Mac already has an org MDM profile for preference domain `virtualpete.buddy.cli` (tenants and optional auth stubs), skip the wizard and run:
 
 ```sh
 buddy setup secrets                   # create missing auths; store client secrets / passwords
@@ -45,7 +57,7 @@ Already have tenants/auths? Use `buddy cred …` and `buddy auth test` instead �
 
 ```sh
 buddy policy list                     # or: group list, package list, …
-buddy serve --open                    # docs + /ide in the browser
+buddy serve --open                    # docs + /config + /ide in the browser
 buddy help                            # CLI overview
 buddy help builtins                   # buddyscript API reference
 ```

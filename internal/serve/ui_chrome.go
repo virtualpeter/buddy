@@ -302,7 +302,7 @@ func chromeHeader(active, sessionHTML, actionsHTML, runHTML string) string {
 	var b strings.Builder
 	// Claim this tab's name so later chrome clicks from another surface find it
 	// even if the tab was opened via URL/bookmark rather than a named target.
-	if active == "docs" || active == "ide" {
+	if active == "docs" || active == "ide" || active == "config" {
 		b.WriteString(`<script>window.name="buddy-` + active + `";</script>`)
 	}
 	b.WriteString(`<header class="app-header">`)
@@ -311,6 +311,7 @@ func chromeHeader(active, sessionHTML, actionsHTML, runHTML string) string {
 	b.WriteString(`<nav class="app-nav">`)
 	b.WriteString(nav("docs", "/docs/", "docs"))
 	b.WriteString(nav("ide", "/ide", "ide"))
+	b.WriteString(nav("config", "/config", "config"))
 	b.WriteString(`</nav>`)
 	if sessionHTML != "" {
 		b.WriteString(sessionHTML)

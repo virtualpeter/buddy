@@ -158,14 +158,16 @@ func runCredUse(cfg *buddy.Config, args []string) error {
 		return fmt.Errorf("tenant %q not found; run 'buddy cred list'", name)
 	}
 	if surface == "" {
-		cfg.SetDefaultTenant(name)
+		if err := buddy.SetSelection(cfg, buddy.SetSelectionOpts{DefaultTenant: name}); err != nil {
+			return err
+		}
 		if err := buddy.SaveConfig(cfg); err != nil {
 			return fmt.Errorf("save config: %w", err)
 		}
 		fmt.Printf("tenant.default set to %q\n", name)
 		return nil
 	}
-	if err := cfg.SetChannelPolicy(surface, "", name, nil, false, true, false, nil, false, nil, false); err != nil {
+	if err := buddy.SetSelection(cfg, buddy.SetSelectionOpts{Channel: surface, ChannelTenant: name}); err != nil {
 		return err
 	}
 	if err := buddy.SaveConfig(cfg); err != nil {
@@ -465,7 +467,7 @@ func parseCredAddArgs(args []string, skipConfirm bool) (buddy.CredAddOpts, error
 
 func runCredList(cfg *buddy.Config) error {
 	if len(cfg.Tenants) == 0 && len(cfg.Auths) == 0 {
-		fmt.Printf("No tenants/auths configured. Use 'buddy cred set tenant|auth …' (see '%s').\n", clispec.UsageHelp(clispec.CmdCred))
+		fmt.Printf("No tenants/auths configured. Use 'buddy cred add' (or any Jamf command interactively) — see '%s'.\n", clispec.UsageHelp(clispec.CmdCred))
 		return nil
 	}
 	fmt.Println("TENANTS")
@@ -672,48 +674,32 @@ func runCredSetTenant(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	if err != nil {
 		return err
 	}
-	prev, existing := cfg.Tenants[parsed.Name]
-	if existing {
-		t := parsed.Tenant
-		if strings.TrimSpace(t.URL) == "" {
-			t.URL = prev.URL
-		}
-		if strings.TrimSpace(t.Region) == "" {
-			t.Region = prev.Region
-		}
-		if strings.TrimSpace(t.TenantID) == "" {
-			t.TenantID = prev.TenantID
-		}
-		if !parsed.SetDeny {
-			t.DenyBuiltins = prev.DenyBuiltins
-		}
-		if !parsed.SetAllow {
-			t.AllowBuiltins = prev.AllowBuiltins
-		}
-		parsed.Tenant = t
-	}
-	if err := parsed.Tenant.Validate(); err != nil {
-		return err
-	}
+	_, existing := cfg.Tenants[parsed.Name]
 	if existing && !parsed.SkipConfirm {
 		if !buddy.AskYesNo(fmt.Sprintf("Tenant %q already exists. Overwrite?", parsed.Name), false, nil) {
 			return nil
 		}
 	}
-	if cfg.Tenants == nil {
-		cfg.Tenants = map[string]buddy.TenantConfig{}
-	}
-	cfg.Tenants[parsed.Name] = parsed.Tenant
-	if strings.TrimSpace(cfg.Tenant.Default) == "" {
-		cfg.Tenant.Default = parsed.Name
+	created, err := buddy.SetTenantMetadata(cfg, parsed.Name, buddy.SetTenantOpts{
+		URL:           parsed.Tenant.URL,
+		Region:        parsed.Tenant.Region,
+		TenantID:      parsed.Tenant.TenantID,
+		DenyBuiltins:  parsed.Tenant.DenyBuiltins,
+		AllowBuiltins: parsed.Tenant.AllowBuiltins,
+		SetDeny:       parsed.SetDeny,
+		SetAllow:      parsed.SetAllow,
+		Overwrite:     true,
+	})
+	if err != nil {
+		return err
 	}
 	if err := buddy.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
-	if existing {
-		fmt.Printf("Updated tenant %q\n", parsed.Name)
-	} else {
+	if created {
 		fmt.Printf("Added tenant %q\n", parsed.Name)
+	} else {
+		fmt.Printf("Updated tenant %q\n", parsed.Name)
 	}
 	return nil
 }
@@ -723,42 +709,45 @@ func runCredSetAuth(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := parsed.Auth.Validate(); err != nil {
-		return err
-	}
-	for _, tn := range parsed.Auth.Tenants {
-		if _, ok := cfg.Tenants[tn]; !ok {
-			return fmt.Errorf("tenant %q not found — create it with 'buddy cred set tenant %s …' first", tn, tn)
-		}
-	}
-	prev, existing := cfg.Auths[parsed.Name]
+	_, existing := cfg.Auths[parsed.Name]
 	if existing && !parsed.SkipConfirm {
 		if !buddy.AskYesNo(fmt.Sprintf("Auth %q already exists. Overwrite?", parsed.Name), false, nil) {
 			return nil
 		}
 	}
-	if existing && !parsed.ChannelsSet {
-		parsed.Auth.Channels = prev.Channels
+	created, err := buddy.SetAuthMetadata(cfg, parsed.Name, buddy.SetAuthMetadataOpts{
+		Type:          parsed.Auth.Type,
+		Username:      parsed.Auth.Username,
+		ClientID:      parsed.Auth.ClientID,
+		RunCommand:    parsed.Auth.RunCommand,
+		Tenants:       parsed.Auth.Tenants,
+		Access:        parsed.Auth.Access,
+		Channels:      parsed.Auth.Channels,
+		ChannelsSet:   parsed.ChannelsSet,
+		DenyBuiltins:  parsed.Auth.DenyBuiltins,
+		AllowBuiltins: parsed.Auth.AllowBuiltins,
+		SetDeny:       parsed.SetDeny,
+		SetAllow:      parsed.SetAllow,
+		Overwrite:     true,
+	})
+	if err != nil {
+		return err
 	}
-	if existing && !parsed.SetDeny {
-		parsed.Auth.DenyBuiltins = prev.DenyBuiltins
+	// Preserve inline secrets from CLI flags when provided on create/update.
+	if a := cfg.Auths[parsed.Name]; strings.TrimSpace(parsed.Auth.Password) != "" || strings.TrimSpace(parsed.Auth.ClientSecret) != "" {
+		a.Password = parsed.Auth.Password
+		a.ClientSecret = parsed.Auth.ClientSecret
+		cfg.Auths[parsed.Name] = a
 	}
-	if existing && !parsed.SetAllow {
-		parsed.Auth.AllowBuiltins = prev.AllowBuiltins
-	}
-	if cfg.Auths == nil {
-		cfg.Auths = map[string]buddy.AuthEntry{}
-	}
-	cfg.Auths[parsed.Name] = parsed.Auth
 	if err := buddy.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
-	if existing {
-		fmt.Printf("Updated auth %q\n", parsed.Name)
-	} else {
+	if created {
 		fmt.Printf("Added auth %q\n", parsed.Name)
+	} else {
+		fmt.Printf("Updated auth %q\n", parsed.Name)
 	}
-	cred := buddy.ComposeCredential(cfg.Tenants[parsed.Auth.Tenants[0]], parsed.Auth, parsed.Auth.EffectiveSurface())
+	cred := buddy.ComposeCredential(cfg.Tenants[cfg.Auths[parsed.Name].Tenants[0]], cfg.Auths[parsed.Name], cfg.Auths[parsed.Name].EffectiveSurface())
 	return offerStoreSecret(parsed.Name, cred, parsed.SkipConfirm)
 }
 
@@ -1102,6 +1091,7 @@ func runCredDeleteTenant(cfg *buddy.Config, opts buddy.Opts, name string) error 
 	if _, ok := cfg.Tenants[name]; !ok {
 		return fmt.Errorf("tenant %q not found", name)
 	}
+	// Preview cascade for confirm (same logic as DeleteTenantMetadata).
 	var deleteAuths []string
 	var unlinkAuths []string
 	for an, a := range cfg.Auths {
@@ -1130,54 +1120,17 @@ func runCredDeleteTenant(cfg *buddy.Config, opts buddy.Opts, name string) error 
 		}
 	}
 
-	for _, an := range deleteAuths {
-		if err := deleteAuthRecord(cfg, an); err != nil {
-			return err
-		}
+	res, err := buddy.DeleteTenantMetadata(cfg, name)
+	if err != nil {
+		return err
+	}
+	for _, an := range res.DeletedAuths {
 		fmt.Printf("Deleted auth %q (and related secrets)\n", an)
 	}
-	for _, an := range unlinkAuths {
-		a := cfg.Auths[an]
-		var kept []string
-		for _, t := range a.Tenants {
-			if t != name {
-				kept = append(kept, t)
-			}
-		}
-		a.Tenants = kept
-		cfg.Auths[an] = a
+	for _, an := range res.UnlinkedAuths {
 		fmt.Printf("Unlinked auth %q from tenant %q\n", an, name)
 	}
-
-	delete(cfg.Tenants, name)
-	cleared := false
-	if cfg.Tenant.Default == name {
-		cfg.Tenant.Default = buddy.DefaultTenant
-		cleared = true
-	}
-	for ch, p := range cfg.Channels {
-		changed := false
-		if p.Tenant == name {
-			p.Tenant = ""
-			changed = true
-		}
-		if len(p.Tenants) > 0 {
-			var kept []string
-			for _, t := range p.Tenants {
-				if t != name {
-					kept = append(kept, t)
-				}
-			}
-			if len(kept) != len(p.Tenants) {
-				p.Tenants = kept
-				changed = true
-			}
-		}
-		if changed {
-			cfg.Channels[ch] = p
-		}
-	}
-	if cleared {
+	if res.ClearedDefault {
 		fmt.Printf("Note: tenant.default was %q; reset to %q\n", name, buddy.DefaultTenant)
 	}
 	if err := buddy.SaveConfig(cfg); err != nil {
@@ -1199,7 +1152,7 @@ func runCredDeleteAuth(cfg *buddy.Config, opts buddy.Opts, name string) error {
 			return nil
 		}
 	}
-	if err := deleteAuthRecord(cfg, name); err != nil {
+	if err := buddy.DeleteAuthMetadata(cfg, name); err != nil {
 		return err
 	}
 	if err := buddy.SaveConfig(cfg); err != nil {
@@ -1208,16 +1161,6 @@ func runCredDeleteAuth(cfg *buddy.Config, opts buddy.Opts, name string) error {
 	fmt.Printf("Deleted auth %q (and related secrets)\n", name)
 	if cfg.AuthFromManagedPrefs(name) {
 		fmt.Fprintf(os.Stderr, "warning: auth %q is still provided by managed preferences; it will return on next load unless you override it in config.yaml or remove it from the MDM profile\n", name)
-	}
-	return nil
-}
-
-// deleteAuthRecord removes an auth from cfg and deletes password + client-secret from the store.
-func deleteAuthRecord(cfg *buddy.Config, name string) error {
-	delete(cfg.Auths, name)
-	if err := buddy.DeleteCredentialSecrets(name, true, true); err != nil {
-		// Store may be unavailable; still remove the auth record.
-		fmt.Fprintf(os.Stderr, "warning: could not delete secrets for %q: %v\n", name, err)
 	}
 	return nil
 }

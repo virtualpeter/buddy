@@ -2,7 +2,7 @@
 
 **buddy** is a command-line tool for [Jamf Pro](https://www.jamf.com/products/jamf-pro/) automation: policies, computer groups, configuration profiles, packages, scripts, computers / MDM, API roles, and API clients. It includes a **buddyscript** runtime (built on [Starlark](https://github.com/google/starlark-go)) so multi-step workflows can live in `.buddy` scripts.
 
-**New install?** Start with [`buddy setup basic-setup`](#first-time-api-setup) (also covered in [Getting started](getting-started.md)), then come back here for the full picture.
+**New install?** Start with [Getting started](getting-started.md) (interactive wizard / `buddy cred add`, or [`buddy setup basic-setup`](#first-time-api-setup)), then come back here for the full picture.
 
 This manual describes how the pieces fit together. For behavior that must stay in lockstep with the code, buddy exposes the same text via `buddy help` (see [CLI help](#cli-help)).
 
@@ -98,14 +98,24 @@ Full YAML shape and field descriptions are in the [README](../README.md#configur
 
 ## First-time API setup
 
-If you have **no config yet**, start with instance basic auth:
+If you have **no tenants yet**, the preferred path is the interactive wizard (same as `buddy cred add`):
+
+```sh
+buddy policy list                     # prompts when config is empty
+# or: buddy cred add
+buddy auth test
+```
+
+You will be asked for a tenant name, optional Jamf Pro instance URL, optional Platform region + tenant id, then auth type and credentials (secrets go in the vault).
+
+`buddy setup basic-setup` remains for **instance URL + basic auth only**:
 
 ```sh
 buddy setup basic-setup               # prompts for tenant, URL, username, password
 buddy --user <admin-auth> auth test
 ```
 
-If an MDM profile already provides tenants (preference domain `virtualpete.buddy.cli`), run `buddy setup secrets` instead to create missing auths (including instance/platform coverage gaps) and store client secrets. `buddy cred status` shows remaining holes; `buddy cred add` is the one-shot guided path.
+If an MDM profile already provides tenants (preference domain `virtualpete.buddy.cli`), run `buddy setup secrets` instead to create missing auths (including instance/platform coverage gaps) and store client secrets. `buddy cred status` shows remaining holes. In `buddy serve`, **config** (`/config`) edits tenant/auth metadata only — not vault secrets.
 
 Then (optional) create a Jamf Pro **instance** API role/client and store oauth (Platform gateway oauth cannot manage roles/integrations):
 
@@ -167,7 +177,7 @@ buddy help [command] [subcommand]
 | `ddm` | Platform DDM declaration reporting (read-only) |
 | `benchmark` | Platform compliance benchmarks |
 | `setup` | Generate setup scripts and OAuth config helpers |
-| `serve` | Local docs browser + script IDE |
+| `serve` | Local docs browser + config + script IDE |
 | `mcp` | MCP stdio server for AI tools (`mcp setup` writes host configs) |
 | `lsp` | Language server for the Cursor/VS Code buddy extension |
 
@@ -196,6 +206,7 @@ buddy serve --addr=127.0.0.1:8742
 
 - Binds **localhost only** (default `127.0.0.1:8742`).
 - `/docs/` — Curated user guides (overview, reference, builtins, API, MCP, examples). Contributor/agent material (AGENTS, Cursor rules) is MCP-only.
+- `/config` — View/edit tenant and auth **metadata** (defaults, coverage gaps). Vault secrets stay CLI-only (`buddy cred set secret`).
 - `/ide` — Single-buffer script runner with open/save, args, optional `--script-trace`-style builtin tracing, Run (file dialect + call `main()` if present), resizable output, copy/save/stash, and a Variables | Libraries sidebar. Open/save is limited to the process cwd or `BUDDY_IDE_ROOT`. Matches CLI file semantics.
 - Line breakpoints and stepping are **not** available (Starlark-go has no pause/step API). A soft `breakpoint()` builtin that only stops when the script calls it may be added later.
 - Optional `--docs-root` / `BUDDY_DOCS_ROOT` to override embedded markdown with live files while editing.
@@ -223,7 +234,7 @@ Add a `mcpServers.buddy` entry (absolute `command` path, `args: ["mcp"]`) to you
 
 Curated MCP tools: `get_instructions`, `buddy_info`, `docs`, `jamf_schema`, `buddyscript` (primary automation). Call `get_instructions` once at session start. Pro groups, profiles, policies, package READY/download, Platform CRUD, and related helpers run as **named builtins inside `buddyscript`**. Full table and agent priority: [`docs/mcp.md`](mcp.md) and [`docs/mcp-tools.md`](mcp-tools.md). Resources under `buddy://docs/...` (agents should prefer the `docs` tool).
 
-Uses the active tenant/auth (`--tenant` / `--user` to override). MCP inherits that session’s Jamf privileges—treat it like the CLI.
+Uses the active tenant/auth (`--tenant` / `--user` to override). MCP inherits that session’s Jamf privileges—treat it like the CLI. With **no tenants** configured, `buddy mcp` registers **no tools** and points the host at `buddy cred add` / the interactive CLI wizard (secrets never over MCP).
 
 ---
 

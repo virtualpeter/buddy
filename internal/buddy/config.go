@@ -740,7 +740,7 @@ func ComposeCredential(tenant TenantConfig, auth AuthEntry, surface string) Cred
 // ResolveTenant looks up a named tenant.
 func (cfg *Config) ResolveTenant(name string) (TenantConfig, error) {
 	if cfg.Tenants == nil {
-		return TenantConfig{}, fmt.Errorf("no tenants configured — run 'buddy cred set tenant' (see 'buddy cred help')")
+		return TenantConfig{}, fmt.Errorf("no tenants configured — run 'buddy cred add' (or any buddy command interactively for the setup wizard; see 'buddy cred help')")
 	}
 	t, ok := cfg.Tenants[name]
 	if !ok {
@@ -936,6 +936,29 @@ func configPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "config.yaml"), nil
+}
+
+// ConfigNeedsSetup reports whether cfg has no tenants after LoadConfig merge
+// (missing config.yaml, empty file, or tenants map absent). False when MDM
+// managed preferences already supply tenants.
+func ConfigNeedsSetup(cfg *Config) bool {
+	return cfg == nil || len(cfg.Tenants) == 0
+}
+
+// ConfigFileExists reports whether ~/.config/buddy/config.yaml (or XDG equivalent) exists.
+func ConfigFileExists() (bool, error) {
+	path, err := configPath()
+	if err != nil {
+		return false, err
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return !fi.IsDir(), nil
 }
 
 // LoadConfig loads config from the platform config dir (see secrets.ConfigDir).

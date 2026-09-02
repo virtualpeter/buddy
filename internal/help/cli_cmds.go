@@ -436,7 +436,9 @@ Flags for 'store-oauth':
 Notes:
   write-script and store-oauth target the Jamf Pro *instance* (API roles and
   integrations). Platform gateway oauth cannot create roles or clients.
-  If you have no config yet, start with basic-setup (instance URL + basic auth).
+  If you have no tenants yet, prefer any interactive Jamf command or
+  'buddy cred add' (tenant name, URL and/or platform region+id, auth + secret).
+  'setup basic-setup' is the instance URL + basic auth shortcut.
   If an MDM profile already provides tenants, run setup secrets instead.
 
   basic-setup stores the password in the vault and sets the tenant as default
@@ -501,7 +503,7 @@ Examples:
   buddy script set priority 7 AFTER
   buddy script set notes 7 "Installs Google Chrome"
 `
-const Serve = `buddy serve - Local docs and script IDE web UI
+const Serve = `buddy serve - Local docs, config, and script IDE web UI
 
 Usage:
   buddy [global-flags] serve [args...]
@@ -513,6 +515,7 @@ Flags for 'serve':
 
 Notes:
   Serves a curated user docs UI (guides, builtins, examples) plus:
+  /config — Tenant/auth metadata editor (defaults, coverage). Secrets stay CLI.
   /ide — Single-buffer script runner (open/save, args, trace, Run as file,
          Variables/Libraries sidebar, copy/save/stash output)
   AGENTS.md and Cursor rules stay in the repo for contributors; they are not
@@ -557,6 +560,8 @@ Notes:
   docs, jamf_schema, buddyscript (primary), plus buddy://docs/... resources.
   Resource automation uses named builtins via buddyscript.
   Uses the active tenant/auth from config (override with --tenant / --user).
+  With no tenants configured, buddy mcp registers no tools and instructs the
+  host to run CLI setup first (buddy cred add / interactive Jamf command).
 
   Every tool returns a JSON object {ok, value, error?, count?} — never a bare
   array (hosts require object structuredContent). buddy_info reports binary

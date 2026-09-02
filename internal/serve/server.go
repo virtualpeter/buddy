@@ -82,6 +82,9 @@ func Run(ctx context.Context, o Options) error {
 	mux.HandleFunc("/ide", func(w http.ResponseWriter, r *http.Request) {
 		serveIDEHTML(w, r)
 	})
+	mux.HandleFunc("/config", serveConfigHTML)
+	mux.HandleFunc("/api/config", handleConfigAPI)
+	mux.HandleFunc("/api/config/", handleConfigAPI)
 	mux.HandleFunc("/api/pages", func(w http.ResponseWriter, r *http.Request) {
 		type item struct {
 			ID    string `json:"id"`
@@ -174,6 +177,7 @@ func Run(ctx context.Context, o Options) error {
 	url := "http://" + o.Addr + "/docs/"
 	o.Logger.Info("buddy serve listening", "url", url, "docs", docsSource)
 	fmt.Printf("buddy serve: %s\n", url)
+	fmt.Printf("config:      http://%s/config\n", o.Addr)
 	fmt.Printf("ide:         http://%s/ide\n", o.Addr)
 
 	if o.Open {
