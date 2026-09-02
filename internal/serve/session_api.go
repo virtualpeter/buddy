@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"buddy/internal/buddy"
@@ -12,17 +15,26 @@ import (
 	"github.com/google/uuid"
 )
 
+type liveSession struct {
+	sess    *script.Session
+	tenant  string
+	auth    string // auth pin; empty = auto-pick
+	channel string // ide
+}
+
 type sessionStore struct {
 	mu       sync.Mutex
-	sessions map[string]*script.Session
-	credName string
+	sessions map[string]*liveSession
+	tenant   string
+	credName string // default auth pin
 	opts     buddy.Opts
 	logger   *slog.Logger
 }
 
-func newSessionStore(credName string, opts buddy.Opts, logger *slog.Logger) *sessionStore {
+func newSessionStore(tenant, credName string, opts buddy.Opts, logger *slog.Logger) *sessionStore {
 	return &sessionStore{
-		sessions: make(map[string]*script.Session),
+		sessions: make(map[string]*liveSession),
+		tenant:   tenant,
 		credName: credName,
 		opts:     opts,
 		logger:   logger,
@@ -30,17 +42,110 @@ func newSessionStore(credName string, opts buddy.Opts, logger *slog.Logger) *ses
 }
 
 type createSessionReq struct {
-	Cred string `json:"cred"`
+	Tenant    string
+	Cred      string // auth pin (empty = auto-pick for tenant)
+	Auth      string // alias of cred
+	Channel   string // ide
+	Trace     bool
+	Args      []string
+	tenantSet bool
+	authSet   bool
+}
+
+func (c *createSessionReq) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if v, ok := raw["tenant"]; ok {
+		c.tenantSet = true
+		if err := json.Unmarshal(v, &c.Tenant); err != nil {
+			return err
+		}
+	}
+	if v, ok := raw["auth"]; ok {
+		c.authSet = true
+		if err := json.Unmarshal(v, &c.Auth); err != nil {
+			return err
+		}
+	}
+	if v, ok := raw["cred"]; ok {
+		c.authSet = true
+		if err := json.Unmarshal(v, &c.Cred); err != nil {
+			return err
+		}
+	}
+	if v, ok := raw["channel"]; ok {
+		if err := json.Unmarshal(v, &c.Channel); err != nil {
+			return err
+		}
+	}
+	if v, ok := raw["trace"]; ok {
+		if err := json.Unmarshal(v, &c.Trace); err != nil {
+			return err
+		}
+	}
+	if v, ok := raw["args"]; ok {
+		if err := json.Unmarshal(v, &c.Args); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type createSessionResp struct {
-	ID   string `json:"id"`
-	Cred string `json:"cred"`
+	ID     string   `json:"id"`
+	Tenant string   `json:"tenant"`
+	Cred   string   `json:"cred"`
+	Auth   string   `json:"auth"`
+	Trace  bool     `json:"trace"`
+	Args   []string `json:"args"`
 }
 
-type evalReq struct {
-	Source string `json:"source"`
-	Cell   string `json:"cell"`
+type stashReq struct {
+	Name string `json:"name"`
+}
+
+type configSessionReq struct {
+	Trace *bool    `json:"trace"`
+	Args  []string `json:"args"`
+	// ArgsSet is true when args was present in JSON (including empty list).
+	ArgsSet bool `json:"-"`
+}
+
+func (c *configSessionReq) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if v, ok := raw["trace"]; ok {
+		var b bool
+		if err := json.Unmarshal(v, &b); err != nil {
+			return err
+		}
+		c.Trace = &b
+	}
+	if v, ok := raw["args"]; ok {
+		c.ArgsSet = true
+		if err := json.Unmarshal(v, &c.Args); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type runReq struct {
+	Source   string `json:"source"`
+	Filename string `json:"filename"`
+}
+
+type runResp struct {
+	Stdout    string             `json:"stdout"`
+	Stderr    string             `json:"stderr"`
+	Result    string             `json:"result,omitempty"`
+	Error     string             `json:"error,omitempty"`
+	Stashable bool               `json:"stashable"`
+	Globals   []script.GlobalVar `json:"globals"`
 }
 
 func (s *sessionStore) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -50,45 +155,229 @@ func (s *sessionStore) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var req createSessionReq
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	cred := s.credName
-	if req.Cred != "" {
-		cred = req.Cred
+	channel := strings.ToLower(strings.TrimSpace(req.Channel))
+	switch channel {
+	case buddy.ChannelIDE:
+	default:
+		channel = buddy.ChannelIDE
 	}
-	sess, err := script.NewSession(cred, s.opts, s.logger, false)
+	tenant := s.tenant
+	if req.tenantSet {
+		tenant = req.Tenant
+	}
+	if tenant == "" {
+		if cfg := buddy.GetActiveConfig(); cfg != nil {
+			tenant = cfg.DefaultTenant(channel)
+		}
+	}
+	auth := s.credName
+	if req.authSet {
+		auth = req.Auth
+		if auth == "" {
+			auth = req.Cred
+		}
+	}
+	if cfg := buddy.GetActiveConfig(); cfg != nil {
+		if tenant != "" && !cfg.TenantAllowedOnChannel(channel, tenant) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "tenant " + tenant + " is not allowed for " + channel + " (see channels." + channel + ".tenants in config)",
+			})
+			return
+		}
+		if auth != "" && !cfg.AuthAllowed(channel, auth) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "auth " + auth + " is not allowed for " + channel + " (see auth channels in config)",
+			})
+			return
+		}
+	}
+	// Apply selection for ResolveSessionForCred (empty auth → auto-pick).
+	buddy.SetActiveChannel(channel)
+	buddy.SetActiveSelection(tenant, auth)
+	sess, err := script.NewSessionArgs(auth, s.opts, s.logger, req.Trace, req.Args)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	id := uuid.NewString()
 	s.mu.Lock()
-	s.sessions[id] = sess
+	s.sessions[id] = &liveSession{sess: sess, tenant: tenant, auth: auth, channel: channel}
 	s.mu.Unlock()
-	writeJSON(w, http.StatusOK, createSessionResp{ID: id, Cred: cred})
+	writeJSON(w, http.StatusOK, createSessionResp{
+		ID: id, Tenant: tenant, Cred: auth, Auth: auth, Trace: req.Trace, Args: sess.Args(),
+	})
 }
 
-func (s *sessionStore) handleEval(w http.ResponseWriter, r *http.Request, id string) {
+func (s *sessionStore) get(id string) *liveSession {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sessions[id]
+}
+
+func (s *sessionStore) activate(live *liveSession) {
+	if live == nil {
+		return
+	}
+	if live.channel != "" {
+		buddy.SetActiveChannel(live.channel)
+	}
+	buddy.SetActiveSelection(live.tenant, live.auth)
+}
+
+func (s *sessionStore) handleStash(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	s.mu.Lock()
-	sess := s.sessions[id]
-	s.mu.Unlock()
-	if sess == nil {
+	live := s.get(id)
+	if live == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 		return
 	}
-	var req evalReq
+	var req stashReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	cell := req.Cell
-	if cell == "" {
-		cell = "cell"
+	s.activate(live)
+	if err := live.sess.Stash(req.Name); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
 	}
-	result := sess.Eval(cell, req.Source)
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"globals": live.sess.InspectGlobals(),
+	})
+}
+
+func (s *sessionStore) handleDrop(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	live := s.get(id)
+	if live == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+	var req stashReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	s.activate(live)
+	if err := live.sess.Drop(req.Name); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"globals": live.sess.InspectGlobals(),
+	})
+}
+
+func (s *sessionStore) handleConfirm(w http.ResponseWriter, r *http.Request, id string) {
+	live := s.get(id)
+	if live == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		pending := live.sess.PendingConfirm()
+		if pending == nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writeJSON(w, http.StatusOK, pending)
+	case http.MethodPost:
+		var req struct {
+			Answer string `json:"answer"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			return
+		}
+		if err := live.sess.AnswerConfirm(req.Answer); err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *sessionStore) handleRun(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	live := s.get(id)
+	if live == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+	var req runReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	filename := req.Filename
+	if filename == "" {
+		filename = "<script>"
+	}
+	s.activate(live)
+	out, globals := live.sess.RunScript(filename, req.Source)
+	writeJSON(w, http.StatusOK, runResp{
+		Stdout: out.Stdout, Stderr: out.Stderr, Result: out.Result, Error: out.Error,
+		Stashable: live.sess.HasLastValue(), Globals: globals,
+	})
+}
+
+func (s *sessionStore) handleConfig(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	live := s.get(id)
+	if live == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+	var req configSessionReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	sess := live.sess
+	if req.ArgsSet {
+		sess.SetArgs(req.Args)
+	}
+	if req.Trace != nil && *req.Trace != sess.Trace() {
+		if err := sess.SetTrace(*req.Trace); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":    true,
+		"trace": sess.Trace(),
+		"args":  sess.Args(),
+	})
+}
+
+func (s *sessionStore) handleGlobals(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	live := s.get(id)
+	if live == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"globals": live.sess.InspectGlobals()})
 }
 
 func (s *sessionStore) handleDelete(w http.ResponseWriter, r *http.Request, id string) {
@@ -97,13 +386,13 @@ func (s *sessionStore) handleDelete(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 	s.mu.Lock()
-	sess := s.sessions[id]
-	if sess != nil {
-		_ = sess.Reset()
+	live := s.sessions[id]
+	if live != nil {
+		_ = live.sess.Reset()
 		delete(s.sessions, id)
 	}
 	s.mu.Unlock()
-	if sess == nil {
+	if live == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 		return
 	}
@@ -115,18 +404,94 @@ func (s *sessionStore) handleReset(w http.ResponseWriter, r *http.Request, id st
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	s.mu.Lock()
-	sess := s.sessions[id]
-	s.mu.Unlock()
-	if sess == nil {
+	live := s.get(id)
+	if live == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 		return
 	}
-	if err := sess.Reset(); err != nil {
+	s.activate(live)
+	if err := live.sess.Reset(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"globals": live.sess.InspectGlobals(),
+	})
+}
+
+func handleFSRead(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if r.Method == http.MethodPost {
+		var body struct {
+			Path string `json:"path"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Path != "" {
+			path = body.Path
+		}
+	}
+	abs, err := resolveIDEPath(path)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	rel, _ := relToIDERoot(abs)
+	root, _ := ideRoot()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path":    filepath.ToSlash(rel),
+		"abs":     abs,
+		"root":    root,
+		"content": string(data),
+	})
+}
+
+func handleFSWrite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	abs, err := resolveIDEPath(body.Path)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := os.WriteFile(abs, []byte(body.Content), 0755); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	rel, _ := relToIDERoot(abs)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "path": filepath.ToSlash(rel)})
+}
+
+func handleFSRoot(w http.ResponseWriter, r *http.Request) {
+	root, err := ideRoot()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"root": root})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

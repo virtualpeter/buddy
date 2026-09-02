@@ -1,16 +1,15 @@
 package buddy
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"os"
 	"strings"
 )
+
+const uriScripts = "/api/v1/scripts"
 
 // ScriptRecord is a summary record from the scripts list endpoint.
 type ScriptRecord struct {
@@ -41,12 +40,6 @@ type ScriptDetail struct {
 	ScriptContents string `json:"scriptContents,omitempty"`
 }
 
-// scriptSearchResults is the paginated response from GET /api/v1/scripts.
-type scriptSearchResults struct {
-	TotalCount int            `json:"totalCount"`
-	Results    []ScriptDetail `json:"results"`
-}
-
 // ScriptHistoryEntry is one record from GET /api/v1/scripts/{id}/history.
 type ScriptHistoryEntry struct {
 	ID       int    `json:"id"`
@@ -61,33 +54,51 @@ type scriptHistoryResponse struct {
 	Results    []ScriptHistoryEntry `json:"results"`
 }
 
-// isRSQLFilter reports whether s contains any RSQL comparison operator.
-// Plain name fragments (e.g. "install") contain none of these.
-func isRSQLFilter(s string) bool {
-	for _, op := range []string{"==", "!=", "=lt=", "=gt=", "=le=", "=ge=", "=in=", "=out="} {
-		if strings.Contains(s, op) {
-			return true
-		}
+// ScriptSearch fetches scripts via paginated requests and returns summary records
+// matching the optional filter (id, name, category only — never scriptContents).
+// Jamf's list OpenAPI model may include full Script bodies; buddy strips them.
+// When opts.Page is PageAll, all pages are fetched.
+// Filter: bare term → name=="*term*" (server); RSQL expression → pass-through.
+func ScriptSearch(credName, filter string, opts PageOpts, logger *slog.Logger) ([]ScriptRecord, error) {
+	normalized, err := NormalizeListFilter(filter, FilterSpecScripts)
+	if err != nil {
+		return nil, err
 	}
-	return false
+	extra := url.Values{}
+	if normalized != "" {
+		extra.Set("filter", normalized)
+	}
+	var all []ScriptRecord
+	err = fetchJamfPaged(credName, uriScripts, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+		// Unmarshal as full ScriptDetail (Jamf may send scriptContents), then project.
+		var page []ScriptDetail
+		if err := json.Unmarshal(resultsJSON, &page); err != nil {
+			return 0, fmt.Errorf("parse response: %w", err)
+		}
+		for _, s := range page {
+			all = append(all, ScriptRecord{
+				ID:           s.ID,
+				Name:         s.Name,
+				CategoryID:   s.CategoryID,
+				CategoryName: s.CategoryName,
+			})
+		}
+		return len(page), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return all, nil
 }
 
-// ScriptSearch fetches scripts via paginated requests and returns records
-// matching the optional filter. When opts.Page is PageAll, all pages are fetched.
-// Two filter modes are supported:
-//   - Plain string (e.g. "install"): fetches pages per opts, then filters client-side
-//     by case-insensitive name substring.
-//   - RSQL expression (e.g. `name=="*Jamf*"`): passes &filter= to the API on
-//     each page request so the server filters.
-func ScriptSearch(credName, filter string, opts PageOpts, logger *slog.Logger) ([]ScriptDetail, error) {
-	rsql := filter != "" && isRSQLFilter(filter)
+func scriptSearchRaw(credName, rsqlFilter string, opts PageOpts) ([]json.RawMessage, error) {
 	extra := url.Values{}
-	if rsql {
-		extra.Set("filter", filter)
+	if strings.TrimSpace(rsqlFilter) != "" {
+		extra.Set("filter", rsqlFilter)
 	}
-	var all []ScriptDetail
-	err := fetchJamfPaged(credName, "/api/v1/scripts", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
-		var page []ScriptDetail
+	var all []json.RawMessage
+	err := fetchJamfPaged(credName, uriScripts, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+		var page []json.RawMessage
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)
 		}
@@ -97,24 +108,72 @@ func ScriptSearch(credName, filter string, opts PageOpts, logger *slog.Logger) (
 	if err != nil {
 		return nil, err
 	}
-	if filter != "" && !rsql {
-		filterLower := strings.ToLower(strings.TrimSpace(filter))
-		var out []ScriptDetail
-		for _, s := range all {
-			if strings.Contains(strings.ToLower(s.Name), filterLower) {
-				out = append(out, s)
-			}
-		}
-		return out, nil
-	}
 	return all, nil
 }
 
-// ScriptList fetches and prints scripts in a tabular format, with an optional name filter.
-func ScriptList(credName, filter string, logger *slog.Logger) error {
+func scriptJSONHasContents(raw json.RawMessage) bool {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return false
+	}
+	_, ok := m["scriptContents"]
+	return ok
+}
+
+// ScriptFetchByName loads one script by exact name (case-insensitive).
+// It filters with RSQL name=="…" and returns that list row when Jamf included
+// scriptContents; otherwise GET /api/v1/scripts/{id} for the full document.
+func ScriptFetchByName(credName, name string, logger *slog.Logger) (*ScriptDetail, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("script name is required")
+	}
+	filter, err := RSQLEq("name", name)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := scriptSearchRaw(credName, filter, PageOpts{Page: PageAll})
+	if err != nil {
+		return nil, err
+	}
+	type hit struct {
+		raw json.RawMessage
+		s   ScriptDetail
+	}
+	var matches []hit
+	for _, raw := range rows {
+		var s ScriptDetail
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil, fmt.Errorf("parse response: %w", err)
+		}
+		if strings.EqualFold(s.Name, name) {
+			matches = append(matches, hit{raw: raw, s: s})
+		}
+	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no script found with name %q", name)
+	}
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("multiple scripts found with name %q", name)
+	}
+	m := matches[0]
+	if scriptJSONHasContents(m.raw) {
+		return &m.s, nil
+	}
+	if strings.TrimSpace(m.s.ID) == "" {
+		return nil, fmt.Errorf("script %q has no id", name)
+	}
+	return scriptGetFull(credName, m.s.ID)
+}
+
+// ScriptList fetches and prints scripts (table, or JSON rows), with an optional name filter.
+func ScriptList(credName, filter string, asJSON bool, logger *slog.Logger) error {
 	scripts, err := ScriptSearch(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
+	}
+	if asJSON {
+		return printJSONValue(scripts)
 	}
 	fmt.Printf("%-8s  %-40s  %s\n", "ID", "Name", "Category")
 	fmt.Printf("%-8s  %-40s  %s\n", "--------", "----------------------------------------", "--------------------")
@@ -131,24 +190,9 @@ func ScriptList(credName, filter string, logger *slog.Logger) error {
 
 // scriptGetFull fetches a single script by ID and returns the full detail struct.
 func scriptGetFull(credName, id string) (*ScriptDetail, error) {
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return nil, err
-	}
-	endpoint := baseURL + "/api/v1/scripts/" + id
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGET(credName, uriScripts+"/"+id)
 	if err != nil {
 		return nil, fmt.Errorf("get script %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get script %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	var s ScriptDetail
 	if err := json.Unmarshal(body, &s); err != nil {
@@ -195,17 +239,11 @@ func ScriptGetContentsStr(credName, id string) (string, error) {
 
 // ScriptGetID resolves a script name to its string ID (exact match, case-insensitive).
 func ScriptGetID(credName, name string, logger *slog.Logger) (string, error) {
-	scripts, err := ScriptSearch(credName, "", PageOpts{Page: PageAll}, logger)
+	s, err := ScriptFetchByName(credName, name, logger)
 	if err != nil {
 		return "", err
 	}
-	nameLower := strings.ToLower(strings.TrimSpace(name))
-	for _, s := range scripts {
-		if strings.ToLower(s.Name) == nameLower {
-			return s.ID, nil
-		}
-	}
-	return "", fmt.Errorf("no script found with name %q", name)
+	return s.ID, nil
 }
 
 // ScriptHistory fetches and prints recent audit history for a script.
@@ -213,25 +251,9 @@ func ScriptHistory(credName, id string, limit int, logger *slog.Logger) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return err
-	}
-	endpoint := fmt.Sprintf("%s/api/v1/scripts/%s/history?sort=date:desc&page-size=%d",
-		baseURL, id, limit)
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGET(credName, fmt.Sprintf("%s/%s/history?sort=date:desc&page-size=%d", uriScripts, id, limit))
 	if err != nil {
 		return fmt.Errorf("get script history %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("get script history %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	var result scriptHistoryResponse
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -252,6 +274,95 @@ func ScriptHistory(credName, id string, limit int, logger *slog.Logger) error {
 	}
 	fmt.Printf("\n%d of %d history entries\n", len(result.Results), result.TotalCount)
 	return nil
+}
+
+// ScriptPostDetail POSTs a full script record and returns the created detail.
+func ScriptPostDetail(credName string, opts Opts, s ScriptDetail, logger *slog.Logger) (*ScriptDetail, error) {
+	s.Name = strings.TrimSpace(s.Name)
+	if s.Name == "" {
+		return nil, fmt.Errorf("script name is required")
+	}
+	s.ID = ""
+	data, err := json.Marshal(s)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	if !opts.SkipConfirm {
+		if !ConfirmPrompt(fmt.Sprintf("Create script %q", s.Name), logger) {
+			return nil, nil
+		}
+	}
+	body, err := jamfPOST(credName, uriScripts, data, "application/json")
+	if err != nil {
+		return nil, fmt.Errorf("create script: %w", err)
+	}
+	created, err := mergeScriptWriteResponse(s, body, "")
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("Created script (ID %s): %s\n", created.ID, created.Name)
+	return created, nil
+}
+
+// mergeScriptWriteResponse overlays a POST/PUT JSON body onto the payload we sent.
+// Jamf POST is {id, href}; PUT is a Script. Keys present in the response win; href is dropped.
+// fallbackID is used when the body has no id (PUT path id).
+func mergeScriptWriteResponse(posted ScriptDetail, body []byte, fallbackID string) (*ScriptDetail, error) {
+	postedJSON, err := json.Marshal(posted)
+	if err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	var merged map[string]any
+	if err := json.Unmarshal(postedJSON, &merged); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	id := strings.TrimSpace(fallbackID)
+	if v, ok := resp["id"]; ok {
+		if s := jsonStringID(v); s != "" {
+			id = s
+		}
+	}
+	if id == "" {
+		return nil, fmt.Errorf("write response missing id: %s", string(body))
+	}
+	for k, v := range resp {
+		if k == "href" {
+			continue
+		}
+		merged[k] = v
+	}
+	merged["id"] = id
+	outJSON, err := json.Marshal(merged)
+	if err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	var out ScriptDetail
+	if err := json.Unmarshal(outJSON, &out); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &out, nil
+}
+
+func jsonStringID(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(t)
+	case json.Number:
+		return strings.TrimSpace(t.String())
+	case float64:
+		if t == float64(int64(t)) {
+			return fmt.Sprintf("%.0f", t)
+		}
+		return strings.TrimSpace(fmt.Sprintf("%v", t))
+	default:
+		return strings.TrimSpace(fmt.Sprint(t))
+	}
 }
 
 // ScriptCreate creates a new Jamf script, reading the script body from a local file.
@@ -276,41 +387,8 @@ func ScriptCreate(credName string, opts Opts, name, file, category, priority, in
 	if notes != "" {
 		s.Notes = notes
 	}
-	if !opts.SkipConfirm {
-		if !ConfirmPrompt(fmt.Sprintf("Create script %q from %q", name, file), logger) {
-			return nil
-		}
-	}
-	data, err := json.Marshal(s)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return err
-	}
-	endpoint := baseURL + "/api/v1/scripts"
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return fmt.Errorf("create script: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("create script status %d: %s", resp.StatusCode, string(body))
-	}
-	var created ScriptDetail
-	if err := json.Unmarshal(body, &created); err != nil {
-		return fmt.Errorf("parse response: %w", err)
-	}
-	fmt.Printf("Created script (ID %s): %s\n", created.ID, created.Name)
-	return nil
+	_, err = ScriptPostDetail(credName, opts, s, logger)
+	return err
 }
 
 // scriptPut replaces a script record via PUT /api/v1/scripts/{id}.
@@ -319,31 +397,15 @@ func scriptPut(credName, id string, s *ScriptDetail) (*ScriptDetail, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return nil, err
-	}
-	endpoint := baseURL + "/api/v1/scripts/" + id
-	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfPUT(credName, uriScripts+"/"+id, data, "application/json")
 	if err != nil {
 		return nil, fmt.Errorf("update script %s: %w", id, err)
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("update script %s status %d: %s", id, resp.StatusCode, string(body))
+	updated, err := mergeScriptWriteResponse(*s, body, id)
+	if err != nil {
+		return nil, fmt.Errorf("update script %s: %w", id, err)
 	}
-	var updated ScriptDetail
-	if err := json.Unmarshal(body, &updated); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-	return &updated, nil
+	return updated, nil
 }
 
 // ScriptPutFields fetches the existing script, applies updates from fields, then PUTs the full payload.
@@ -464,23 +526,8 @@ func ScriptDelete(credName string, opts Opts, ids []string, logger *slog.Logger)
 }
 
 func scriptDeleteOne(credName, id, name string) error {
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return err
-	}
-	endpoint := baseURL + "/api/v1/scripts/" + id
-	req, err := http.NewRequest(http.MethodDelete, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
+	if err := jamfDELETE(credName, uriScripts+"/"+id); err != nil {
 		return fmt.Errorf("delete script %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete script %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	fmt.Printf("Deleted script %s (%s)\n", id, name)
 	return nil

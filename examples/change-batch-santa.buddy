@@ -1,0 +1,51 @@
+#!/usr/bin/env buddy
+# Example: enterprise-style change batch for a Santa package bump.
+#
+# Usage:
+#   buddy examples/change-batch-santa.buddy              # plan only (default)
+#   buddy examples/change-batch-santa.buddy -- apply     # plan + apply (after approval)
+#   buddy -y examples/change-batch-santa.buddy -- apply  # apply without prompts
+#
+# Adjust triggers / package patterns for your tenant. Created policy IDs appear
+# only in the Outcomes section after apply — not in the plan document.
+
+def main():
+    mode = "plan"
+    if len(args) > 0 and args[0] in ("apply", "run"):
+        mode = "apply"
+
+    change = change_batch(
+        title = "Santa 2026.3 cache + install rollout",
+        summary = """Bump Santa cache to 2026.3 (keep prior versioned cache for rollback).
+Replace install-santa-next with the 2026.3 package; Self Service already calls that trigger.""",
+        risk = "low",
+        window = "maintenance window TBD",
+    )
+
+    steps = [
+        step_set_package(
+            name = "santa",
+            version = "2026.3",
+            from_trigger = "cache-santa-2026.2",
+            package_pattern = "*santa*2026.3*",
+            note = "Create versioned cache policy; leave 2026.2 cache enabled for rollback.",
+        ),
+        step_set_package(
+            name = "santa",
+            version = "2026.3",
+            from_trigger = "install-santa-next",
+            package_pattern = "*santa*2026.3*",
+            note = "Replace unversioned install-next; disable the prior install policy.",
+        ),
+        step_note(
+            note = "Self Service policy 'Install Santa [SS]' already invokes install-santa-next; no SS edit required.",
+        ),
+    ]
+
+    planned = plan_change(change = change, steps = steps)
+
+    if mode != "apply":
+        print("Plan only. Re-run with: buddy examples/change-batch-santa.buddy -- apply")
+        return
+
+    run_change(change = change, steps = steps, planned = planned)

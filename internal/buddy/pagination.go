@@ -45,10 +45,6 @@ type jamfPageEnvelope struct {
 // it should return the number of items in that page.
 func fetchJamfPaged(credName, apiPath string, extra url.Values, opts PageOpts, onPage func(resultsJSON []byte, totalCount int) (n int, err error)) error {
 	opts = opts.Normalize()
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return err
-	}
 	if extra == nil {
 		extra = url.Values{}
 	}
@@ -57,13 +53,23 @@ func fetchJamfPaged(credName, apiPath string, extra url.Values, opts PageOpts, o
 		q := cloneURLValues(extra)
 		q.Set("page", fmt.Sprintf("%d", page))
 		q.Set("page-size", fmt.Sprintf("%d", opts.PageSize))
-		endpoint := baseURL + apiPath + "?" + q.Encode()
+		// Match JamfRequest: pick auth/surface from the path (e.g. blueprints → platform).
+		// Bind resource class from the logical path for both URL pick and token pick
+		// so hybrid tenants cannot mix a platform gateway URL with an instance auth.
+		op := opClassForPath(http.MethodGet, apiPath)
+		restoreClass := setResourceClass(resourceClassForPath(apiPath))
+		defer restoreClass()
+		endpoint, err := ResolveEndpointOp(credName, apiPath, op)
+		if err != nil {
+			return 0, 0, err
+		}
+		endpoint = endpoint + "?" + q.Encode()
 		req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 		if err != nil {
 			return 0, 0, fmt.Errorf("create request: %w", err)
 		}
 		req.Header.Set("Accept", "application/json")
-		resp, err := PerformRequest(nil, req, credName)
+		resp, err := PerformRequestOp(req, credName, op)
 		if err != nil {
 			return 0, 0, fmt.Errorf("list %s (page %d): %w", apiPath, page, err)
 		}

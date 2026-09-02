@@ -2,7 +2,11 @@ package buddy
 
 import (
 	"bytes"
+	"crypto/md5"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,21 +15,57 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
-// PackageRecord represents a Jamf Pro package record from the v1 API.
+const uriPackages = "/api/v1/packages"
+
+// PackageRecord is a Jamf Pro package from the v1 API (list or get).
+// List endpoints may leave optional fields empty; GET /api/v1/packages/{id}
+// returns the full object including checksums. LastChanged/LastChangedBy are
+// client-enriched from history when printing package get (not Jamf package fields).
 type PackageRecord struct {
-	ID            string `json:"id"`
-	PackageName   string `json:"packageName"`
-	FileName      string `json:"fileName"`
-	CategoryID    string `json:"categoryId"`
-	Info          string `json:"info,omitempty"`
-	Notes         string `json:"notes,omitempty"`
-	Priority      int    `json:"priority"`
-	LastChanged   string `json:"lastChanged,omitempty"`
-	LastChangedBy string `json:"lastChangedBy,omitempty"`
+	ID                   string `json:"id,omitempty"`
+	PackageName          string `json:"packageName"`
+	FileName             string `json:"fileName"`
+	CategoryID           string `json:"categoryId"`
+	Info                 string `json:"info,omitempty"`
+	Notes                string `json:"notes,omitempty"`
+	Priority             int    `json:"priority"`
+	OsRequirements       string `json:"osRequirements,omitempty"`
+	FillUserTemplate     bool   `json:"fillUserTemplate"`
+	FillExistingUsers    bool   `json:"fillExistingUsers,omitempty"`
+	Swu                  bool   `json:"swu,omitempty"`
+	RebootRequired       bool   `json:"rebootRequired"`
+	SelfHealNotify       bool   `json:"selfHealNotify,omitempty"`
+	SelfHealingAction    string `json:"selfHealingAction,omitempty"`
+	OsInstall            bool   `json:"osInstall"`
+	SerialNumber         string `json:"serialNumber,omitempty"`
+	ParentPackageID      string `json:"parentPackageId,omitempty"`
+	BasePath             string `json:"basePath,omitempty"`
+	SuppressUpdates      bool   `json:"suppressUpdates"`
+	IgnoreConflicts      bool   `json:"ignoreConflicts,omitempty"`
+	SuppressFromDock     bool   `json:"suppressFromDock"`
+	SuppressEula         bool   `json:"suppressEula"`
+	SuppressRegistration bool   `json:"suppressRegistration"`
+	InstallLanguage      string `json:"installLanguage,omitempty"`
+	Md5                  string `json:"md5,omitempty"`
+	Sha256               string `json:"sha256,omitempty"`
+	Sha3512              string `json:"sha3512,omitempty"`
+	HashType             string `json:"hashType,omitempty"`
+	HashValue            string `json:"hashValue,omitempty"`
+	Size                 string `json:"size,omitempty"`                // server-managed, read-only
+	CloudTransferStatus  string `json:"cloudTransferStatus,omitempty"` // server-managed; READY when JCDS available
+	OsInstallerVersion   string `json:"osInstallerVersion,omitempty"`
+	Manifest             string `json:"manifest,omitempty"`
+	ManifestFileName     string `json:"manifestFileName,omitempty"`
+	Format               string `json:"format,omitempty"`
+	LastChanged          string `json:"lastChanged,omitempty"`
+	LastChangedBy        string `json:"lastChangedBy,omitempty"`
 }
 
 // PackageHistoryEntry is one record from GET /api/v1/packages/{id}/history.
@@ -54,11 +94,20 @@ type packageDeleteRequest struct {
 }
 
 // PackageList fetches and prints packages, with an optional RSQL filter.
+// sortOrder is "" (no sort), "asc", or "desc" for client-side version sort of PackageName.
 // Example filter: packageName=="*Chrome*"
-func PackageList(credName, filter string, logger *slog.Logger) error {
+func PackageList(credName, filter, sortOrder string, asJSON bool, logger *slog.Logger) error {
 	results, err := PackageSearch(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
+	}
+	if sortOrder != "" {
+		if err := SortPackageRecordsByVersion(results, sortOrder); err != nil {
+			return err
+		}
+	}
+	if asJSON {
+		return printJSONValue(results)
 	}
 	fmt.Printf("%-8s  %-40s  %s\n", "ID", "Package Name", "File Name")
 	fmt.Printf("%-8s  %-40s  %s\n", "--------", "----------------------------------------", "--------------------")
@@ -69,16 +118,20 @@ func PackageList(credName, filter string, logger *slog.Logger) error {
 	return nil
 }
 
-// PackageSearch returns package records matching the optional RSQL filter without printing.
-// Used by DSL builtins that need structured data rather than human-readable output.
+// PackageSearch returns package records matching the optional filter without printing.
+// Bare term → packageName=="*term*"; RSQL expression → pass-through.
 // When opts.Page is PageAll, all pages are fetched.
 func PackageSearch(credName, filter string, opts PageOpts, logger *slog.Logger) ([]PackageRecord, error) {
+	normalized, err := NormalizeListFilter(filter, FilterSpecPackages)
+	if err != nil {
+		return nil, err
+	}
 	extra := url.Values{}
-	if filter != "" {
-		extra.Set("filter", filter)
+	if normalized != "" {
+		extra.Set("filter", normalized)
 	}
 	var all []PackageRecord
-	err := fetchJamfPaged(credName, "/api/v1/packages", extra, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, uriPackages, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		var page []PackageRecord
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)
@@ -96,36 +149,15 @@ func PackageSearch(credName, filter string, opts PageOpts, logger *slog.Logger) 
 // It also fetches the most recent history entry and injects lastChanged and
 // lastChangedBy into the printed record.
 func PackageGet(credName, id string, logger *slog.Logger) error {
-	baseURL, err := GetBaseURL(credName)
+	pkg, err := packageGet(credName, id)
 	if err != nil {
 		return err
-	}
-	endpoint := baseURL + "/api/v1/packages/" + id
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return fmt.Errorf("get package %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("get package %s status %d: %s", id, resp.StatusCode, string(body))
-	}
-	var pkg PackageRecord
-	if err := json.Unmarshal(body, &pkg); err != nil {
-		return fmt.Errorf("parse response: %w", err)
 	}
 	if latest, err := packageGetLatestHistory(credName, id); err == nil && latest != nil {
 		pkg.LastChanged = latest.Date
 		pkg.LastChangedBy = latest.Username
 	}
-	out, _ := json.MarshalIndent(pkg, "", "  ")
-	fmt.Println(string(out))
-	return nil
+	return printJSON(pkg)
 }
 
 // PackageDelete deletes one or more packages by ID.
@@ -147,23 +179,8 @@ func PackageDelete(credName string, opts Opts, ids []string, logger *slog.Logger
 }
 
 func packageDeleteOne(credName, id string) error {
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return err
-	}
-	endpoint := baseURL + "/api/v1/packages/" + id
-	req, err := http.NewRequest(http.MethodDelete, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
+	if err := jamfDELETE(credName, uriPackages+"/"+id); err != nil {
 		return fmt.Errorf("delete package %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete package %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	fmt.Printf("Deleted package (ID %s)\n", id)
 	return nil
@@ -175,59 +192,74 @@ func packageDeleteMultiple(credName string, ids []string) error {
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return err
-	}
-	endpoint := baseURL + "/api/v1/packages/delete-multiple"
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
+	if _, err := jamfPOST(credName, uriPackages+"/delete-multiple", data, "application/json"); err != nil {
 		return fmt.Errorf("delete packages: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete packages status %d: %s", resp.StatusCode, string(body))
 	}
 	fmt.Printf("Deleted %d package(s): %s\n", len(ids), strings.Join(ids, ", "))
 	return nil
 }
 
-// PackageFindID finds a package by app name and version using the v1 API.
-// It filters server-side by app name and then picks the best version match in Go,
+// PackageFindID finds a package by name keyword and version using the v1 API.
+// It filters server-side by the keyword and then picks the best version match in Go,
 // using the same heuristic as the legacy Classic API path in policy.go.
 // Returns the string ID and package name, or empty strings if not found.
 //
-// When patternOverride is non-empty, it overrides the default app+version search:
+// When patternOverride is non-empty, it overrides the default name+version search:
 //   - Exact: "FalconSensorMacOS-7.32.20408.pkg" → RSQL exact match
 //   - Template: "FalconSensorMacOS-{version}.pkg" → substitute {version}, then exact RSQL
 //   - Regex: "re:FalconSensor.*\.pkg" → broad RSQL + client-side regex filter
-func PackageFindID(credName, appName, version, patternOverride string, logger *slog.Logger) (id, name string, err error) {
+func PackageFindID(credName, name, version, patternOverride string, logger *slog.Logger) (id, pkgName string, err error) {
 	if patternOverride != "" {
-		return packageFindByPattern(credName, appName, version, patternOverride, logger)
+		return packageFindByPattern(credName, name, version, patternOverride, logger)
 	}
-	return packageFindByAppVersion(credName, appName, version, logger)
+	return packageFindByNameVersion(credName, name, version, logger)
 }
 
-func packageFindByAppVersion(credName, appName, version string, logger *slog.Logger) (id, name string, err error) {
-	// Build RSQL: packageName=="*appName*"
-	rsql := `packageName=="*` + appName + `*"`
+// PackageFindIDByExactName returns the package id whose packageName equals name (case-insensitive).
+func PackageFindIDByExactName(credName, name string, logger *slog.Logger) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("package name is required")
+	}
+	escaped := EscapeRSQLString(name)
+	rsql := `packageName=="` + escaped + `"`
+	results, err := PackageSearch(credName, rsql, PageOpts{Page: PageAll}, logger)
+	if err != nil {
+		return "", err
+	}
+	nameLower := strings.ToLower(name)
+	for _, p := range results {
+		if strings.ToLower(p.PackageName) == nameLower {
+			return p.ID, nil
+		}
+	}
+	// Client-side fallback if RSQL exact match is picky about quoting.
+	all, err := PackageSearch(credName, "", PageOpts{Page: PageAll}, logger)
+	if err != nil {
+		return "", err
+	}
+	for _, p := range all {
+		if strings.ToLower(p.PackageName) == nameLower {
+			return p.ID, nil
+		}
+	}
+	return "", fmt.Errorf("no package found with name %q", name)
+}
+
+func packageFindByNameVersion(credName, name, version string, logger *slog.Logger) (id, pkgName string, err error) {
+	// Build RSQL: packageName=="*name*"
+	rsql := `packageName=="*` + name + `*"`
 	results, err := PackageSearch(credName, rsql, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return "", "", err
 	}
 
-	appLower := strings.ToLower(appName)
+	nameLower := strings.ToLower(name)
 	versionLower := strings.ToLower(version)
 	var candidates []PackageRecord
 	for _, p := range results {
 		n := strings.ToLower(p.PackageName)
-		if strings.Contains(n, appLower) && strings.Contains(n, versionLower) {
+		if strings.Contains(n, nameLower) && strings.Contains(n, versionLower) {
 			candidates = append(candidates, p)
 		}
 	}
@@ -236,14 +268,14 @@ func packageFindByAppVersion(credName, appName, version string, logger *slog.Log
 	}
 	// Prefer exact version match extracted from the package name.
 	for _, c := range candidates {
-		if strings.EqualFold(extractPkgVersion(c.PackageName), version) {
+		if strings.EqualFold(ExtractVersion(c.PackageName), version) {
 			return c.ID, c.PackageName, nil
 		}
 	}
 	return candidates[0].ID, candidates[0].PackageName, nil
 }
 
-func packageFindByPattern(credName, appName, version, patternOverride string, logger *slog.Logger) (id, name string, err error) {
+func packageFindByPattern(credName, _, version, patternOverride string, logger *slog.Logger) (id, pkgName string, err error) {
 	const rePrefix = "re:"
 	if strings.HasPrefix(patternOverride, rePrefix) {
 		return packageFindByRegex(credName, version, strings.TrimPrefix(patternOverride, rePrefix), logger)
@@ -302,133 +334,590 @@ func extractRSQLHintFromRegex(rePattern string) string {
 	return b.String()
 }
 
-// extractPkgVersion extracts a semver string from a package name, e.g.
-// "GoogleChrome-130.0.6723.59.pkg" → "130.0.6723.59".
-// Mirrors extractVersionFromPackageName in policy.go.
-func extractPkgVersion(pkgName string) string {
-	// Reuse the same regex pattern as policy.go.
-	// Pattern: -<version>[-arm64|-amd64].pkg at end of name.
-	name := strings.ToLower(pkgName)
-	// Walk backwards from .pkg to find -<digits.digits...>
-	if !strings.HasSuffix(name, ".pkg") {
-		return ""
-	}
-	// Strip optional arch suffix then .pkg
-	for _, arch := range []string{"-arm64.pkg", "-amd64.pkg", ".pkg"} {
-		if strings.HasSuffix(name, arch) {
-			name = strings.TrimSuffix(name, arch)
-			break
-		}
-	}
-	idx := strings.LastIndex(name, "-")
-	if idx < 0 {
-		return ""
-	}
-	candidate := name[idx+1:]
-	// Validate it looks like a version number.
-	if len(candidate) == 0 || candidate[0] < '0' || candidate[0] > '9' {
-		return ""
-	}
-	return candidate
-}
-
-// PackageFull is the complete Package object required for PUT /api/v1/packages/{id}.
-// All boolean required fields are always serialised (no omitempty) so the API
-// receives a valid body even when their value is false.
-type PackageFull struct {
-	ID                   string `json:"id,omitempty"`
-	PackageName          string `json:"packageName"`
-	FileName             string `json:"fileName"`
-	CategoryID           string `json:"categoryId"`
-	Info                 string `json:"info,omitempty"`
-	Notes                string `json:"notes,omitempty"`
-	Priority             int    `json:"priority"`
-	OsRequirements       string `json:"osRequirements,omitempty"`
-	FillUserTemplate     bool   `json:"fillUserTemplate"`
-	FillExistingUsers    bool   `json:"fillExistingUsers,omitempty"`
-	Swu                  bool   `json:"swu,omitempty"`
-	RebootRequired       bool   `json:"rebootRequired"`
-	SelfHealNotify       bool   `json:"selfHealNotify,omitempty"`
-	SelfHealingAction    string `json:"selfHealingAction,omitempty"`
-	OsInstall            bool   `json:"osInstall"`
-	SerialNumber         string `json:"serialNumber,omitempty"`
-	ParentPackageID      string `json:"parentPackageId,omitempty"`
-	BasePath             string `json:"basePath,omitempty"`
-	SuppressUpdates      bool   `json:"suppressUpdates"`
-	IgnoreConflicts      bool   `json:"ignoreConflicts,omitempty"`
-	SuppressFromDock     bool   `json:"suppressFromDock"`
-	SuppressEula         bool   `json:"suppressEula"`
-	SuppressRegistration bool   `json:"suppressRegistration"`
-	InstallLanguage      string `json:"installLanguage,omitempty"`
-	Md5                  string `json:"md5,omitempty"`
-	Sha256               string `json:"sha256,omitempty"`
-	HashType             string `json:"hashType,omitempty"`
-	HashValue            string `json:"hashValue,omitempty"`
-	OsInstallerVersion   string `json:"osInstallerVersion,omitempty"`
-	Manifest             string `json:"manifest,omitempty"`
-	ManifestFileName     string `json:"manifestFileName,omitempty"`
-}
-
-// packageGetFull fetches the full Package object for a given ID without printing.
-func packageGetFull(credName, id string) (*PackageFull, error) {
-	baseURL, err := GetBaseURL(credName)
+// packageGet fetches a package by ID (full v1 object).
+func packageGet(credName, id string) (*PackageRecord, error) {
+	pkg, status, err := packageGetStatus(credName, id)
 	if err != nil {
 		return nil, err
 	}
-	endpoint := baseURL + "/api/v1/packages/" + id
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("get package %s status %d", id, status)
+	}
+	return pkg, nil
+}
+
+// packageGetStatus GETs /api/v1/packages/{id} and returns the HTTP status.
+// On 404, pkg is nil and err is nil.
+func packageGetStatus(credName, id string) (pkg *PackageRecord, status int, err error) {
+	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id)
+	if err != nil {
+		return nil, 0, err
+	}
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, 0, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := PerformRequest(nil, req, credName)
 	if err != nil {
-		return nil, fmt.Errorf("get package %s: %w", id, err)
+		return nil, 0, fmt.Errorf("get package %s: %w", id, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return nil, 0, err
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, http.StatusNotFound, nil
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get package %s status %d: %s", id, resp.StatusCode, string(body))
+		return nil, resp.StatusCode, fmt.Errorf("get package %s status %d: %s", id, resp.StatusCode, string(body))
 	}
-	var pkg PackageFull
-	if err := json.Unmarshal(body, &pkg); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+	var out PackageRecord
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("parse response: %w", err)
 	}
-	return &pkg, nil
+	return &out, http.StatusOK, nil
 }
 
-// PackageFetchFull fetches the full Package object for a given ID (for script/component use).
-func PackageFetchFull(credName, id string) (*PackageFull, error) {
-	return packageGetFull(credName, id)
+// PackageFetchFull fetches the package object for a given ID (for script/component use).
+func PackageFetchFull(credName, id string) (*PackageRecord, error) {
+	return packageGet(credName, id)
 }
 
-// packagePut sends a full Package object to PUT /api/v1/packages/{id}.
-func packagePut(credName, id string, pkg *PackageFull) (*PackageFull, error) {
-	data, err := json.Marshal(pkg)
+// packageCloudTransferReady is Jamf’s cloudTransferStatus when the package is
+// available from JCDS (UI “Availability Pending” clears).
+const packageCloudTransferReady = "READY"
+
+const packageWaitReadyDefaultTimeout = 10 * time.Minute
+
+func packageIsCloudReady(pkg *PackageRecord) bool {
+	return pkg != nil && pkg.CloudTransferStatus == packageCloudTransferReady
+}
+
+// packageHasComparableChecksum reports whether the record has a checksum we can
+// compare to a local file (sha256, md5, or MD5/SHA-256 hashValue).
+func packageHasComparableChecksum(pkg *PackageRecord) bool {
+	if pkg == nil {
+		return false
+	}
+	if strings.TrimSpace(pkg.Sha256) != "" || strings.TrimSpace(pkg.Md5) != "" {
+		return true
+	}
+	if strings.TrimSpace(pkg.HashValue) == "" {
+		return false
+	}
+	switch strings.ToUpper(strings.ReplaceAll(pkg.HashType, "-", "_")) {
+	case "SHA256", "SHA_256", "MD5":
+		return true
+	default:
+		return false
+	}
+}
+
+// packageHasPendingTransferEvidence reports whether Jamf has started cloud
+// transfer for this package. Mid-transfer records typically populate hashValue
+// with a non-comparable type (usually SHA3_512 / hashType SHA3_512) while sha256
+// is still empty. A failed upload typically leaves a metadata record with no
+// hashValue (and no comparable checksums).
+func packageHasPendingTransferEvidence(pkg *PackageRecord) bool {
+	if pkg == nil || strings.TrimSpace(pkg.HashValue) == "" {
+		return false
+	}
+	// MD5/SHA-256 hashValue is a comparable checksum (see packageHasComparableChecksum).
+	switch strings.ToUpper(strings.ReplaceAll(pkg.HashType, "-", "_")) {
+	case "SHA256", "SHA_256", "MD5":
+		return false
+	default:
+		// Empty hashType with a hashValue still counts — Jamf often uses SHA3 here.
+		return true
+	}
+}
+
+// packageUploadShouldWaitNotReady is true when the record looks mid-transfer
+// (not READY, no comparable checksums yet, but hashValue present). Callers should
+// wait with package_wait_ready instead of re-uploading. Empty checksums with no
+// hashValue mean a failed/empty upload — re-upload is appropriate.
+func packageUploadShouldWaitNotReady(pkg *PackageRecord) bool {
+	return pkg != nil &&
+		!packageIsCloudReady(pkg) &&
+		!packageHasComparableChecksum(pkg) &&
+		packageHasPendingTransferEvidence(pkg)
+}
+
+// packageUploadWaitOnly is true when upload should skip the file transfer and
+// only poll until READY: --wait-ready on a mid-transfer record (hashValue set,
+// sha256 empty). Without WaitReady that same record is an error (do not re-upload).
+func packageUploadWaitOnly(upOpts PackageUploadOptions, pkg *PackageRecord) bool {
+	return upOpts.WaitReady && !upOpts.Force && packageUploadShouldWaitNotReady(pkg)
+}
+
+// Package issue classes returned by PackageScan / packages_scan.
+const (
+	PackageIssueFailedUpload  = "failed-upload"  // no hashValue and no md5/sha256
+	PackageIssuePending       = "pending"        // mid-transfer: hashValue set, sha256 empty, not READY
+	PackageIssueUnusableReady = "unusable-ready" // READY but sha256 still empty
+)
+
+// PackageScanHit is one package that matches an issue class.
+type PackageScanHit struct {
+	ID                  string `json:"id"`
+	PackageName         string `json:"packageName"`
+	FileName            string `json:"fileName"`
+	CloudTransferStatus string `json:"cloudTransferStatus,omitempty"`
+	Class               string `json:"class"`
+	HashType            string `json:"hashType,omitempty"`
+	HashValue           string `json:"hashValue,omitempty"`
+	Sha256              string `json:"sha256,omitempty"`
+	Md5                 string `json:"md5,omitempty"`
+}
+
+// packageIssueClass returns a scan class for pkg, or "" if it looks healthy.
+func packageIssueClass(pkg *PackageRecord) string {
+	if pkg == nil {
+		return ""
+	}
+	// READY without sha256 is its own class (even when hashValue is also missing).
+	if packageIsCloudReady(pkg) && strings.TrimSpace(pkg.Sha256) == "" {
+		return PackageIssueUnusableReady
+	}
+	if packageUploadShouldWaitNotReady(pkg) {
+		return PackageIssuePending
+	}
+	if !packageHasComparableChecksum(pkg) && !packageHasPendingTransferEvidence(pkg) {
+		return PackageIssueFailedUpload
+	}
+	return ""
+}
+
+// ParsePackageScanClasses parses a class filter. Empty or "all" → all issue classes.
+// Accepts a single class or comma-separated list.
+func ParsePackageScanClasses(spec string) ([]string, error) {
+	spec = strings.TrimSpace(strings.ToLower(spec))
+	if spec == "" || spec == "all" {
+		return []string{PackageIssueFailedUpload, PackageIssuePending, PackageIssueUnusableReady}, nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		switch part {
+		case PackageIssueFailedUpload, PackageIssuePending, PackageIssueUnusableReady:
+			if !seen[part] {
+				seen[part] = true
+				out = append(out, part)
+			}
+		default:
+			return nil, fmt.Errorf("unknown package scan class %q (use failed-upload, pending, unusable-ready, or all)", part)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no package scan classes specified")
+	}
+	return out, nil
+}
+
+// PackageScan lists packages (optional RSQL/bare filter) and returns those whose
+// issue class is in classes. classes must be non-empty (see ParsePackageScanClasses).
+// Uses the collection list response (checksums/status are included there).
+func PackageScan(credName, filter string, classes []string, logger *slog.Logger) ([]PackageScanHit, error) {
+	want := map[string]bool{}
+	for _, c := range classes {
+		want[c] = true
+	}
+	if len(want) == 0 {
+		return nil, fmt.Errorf("package scan: no classes selected")
+	}
+	pkgs, err := PackageSearch(credName, filter, PageOpts{Page: PageAll}, logger)
+	if err != nil {
+		return nil, err
+	}
+	var hits []PackageScanHit
+	for i := range pkgs {
+		pkg := &pkgs[i]
+		class := packageIssueClass(pkg)
+		if class == "" || !want[class] {
+			continue
+		}
+		hits = append(hits, PackageScanHit{
+			ID:                  pkg.ID,
+			PackageName:         pkg.PackageName,
+			FileName:            pkg.FileName,
+			CloudTransferStatus: pkg.CloudTransferStatus,
+			Class:               class,
+			HashType:            pkg.HashType,
+			HashValue:           pkg.HashValue,
+			Sha256:              pkg.Sha256,
+			Md5:                 pkg.Md5,
+		})
+	}
+	return hits, nil
+}
+
+// PackageScanPrint runs PackageScan and prints a table.
+func PackageScanPrint(credName, filter, classSpec string, logger *slog.Logger) error {
+	classes, err := ParsePackageScanClasses(classSpec)
+	if err != nil {
+		return err
+	}
+	hits, err := PackageScan(credName, filter, classes, logger)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%-8s  %-16s  %-8s  %-36s  %s\n", "ID", "CLASS", "STATUS", "Package Name", "File Name")
+	fmt.Printf("%-8s  %-16s  %-8s  %-36s  %s\n", "--------", "----------------", "--------", "------------------------------------", "--------------------")
+	for _, h := range hits {
+		status := h.CloudTransferStatus
+		if status == "" {
+			status = "(none)"
+		}
+		fmt.Printf("%-8s  %-16s  %-8s  %-36s  %s\n", h.ID, h.Class, truncatePkg(status, 8), truncatePkg(h.PackageName, 36), h.FileName)
+	}
+	fmt.Printf("\n%d issue(s)\n", len(hits))
+	return nil
+}
+
+// packageIsUsable is READY with a non-empty sha256 (JCDS inventory settled).
+func packageIsUsable(pkg *PackageRecord) bool {
+	return packageIsCloudReady(pkg) && strings.TrimSpace(pkg.Sha256) != ""
+}
+
+// PackageReady reports whether the package exists, cloudTransferStatus is READY,
+// and sha256 is populated. A missing package (HTTP 404) returns false, nil — not an error.
+func PackageReady(credName, id string) (bool, error) {
+	pkg, status, err := packageGetStatus(credName, id)
+	if err != nil {
+		return false, err
+	}
+	if status == http.StatusNotFound || pkg == nil {
+		return false, nil
+	}
+	if status != http.StatusOK {
+		return false, fmt.Errorf("get package %s status %d", id, status)
+	}
+	return packageIsUsable(pkg), nil
+}
+
+// PackageWaitReady polls until the package exists, cloudTransferStatus is READY,
+// and sha256 is non-empty. timeout ≤ 0 uses the default (10 minutes). Optionally
+// nudges JCDS inventory using the package fileName between polls.
+func PackageWaitReady(credName, id string, timeout time.Duration, logger *slog.Logger) error {
+	_, err := packageWaitUntil(credName, id, timeout, true, logger)
+	return err
+}
+
+// packageWaitUntil polls GET /api/v1/packages/{id} until cloudTransferStatus is
+// READY (and optionally sha256 is non-empty). Returns the last successful record.
+func packageWaitUntil(credName, id string, timeout time.Duration, requireSHA256 bool, logger *slog.Logger) (*PackageRecord, error) {
+	if timeout <= 0 {
+		timeout = packageWaitReadyDefaultTimeout
+	}
+	start := time.Now()
+	deadline := start.Add(timeout)
+	backoff := packageWaitInitialBackoff
+	var lastAnnounce time.Time
+	var last *PackageRecord
+	gets := 0
+	for {
+		gets++
+		pkg, status, err := packageGetStatus(credName, id)
+		if err != nil {
+			return nil, err
+		}
+		if status != http.StatusNotFound && status != http.StatusOK {
+			return nil, fmt.Errorf("get package %s status %d", id, status)
+		}
+		if status == http.StatusOK && pkg != nil {
+			last = pkg
+			ready := packageIsCloudReady(pkg)
+			if ready && requireSHA256 && strings.TrimSpace(pkg.Sha256) == "" {
+				ready = false
+			}
+			if ready {
+				_ = logger
+				return pkg, nil
+			}
+			if pkg.FileName != "" {
+				_ = jcdsRefreshInventory(credName, pkg.FileName)
+			}
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			want := "cloudTransferStatus READY"
+			if requireSHA256 {
+				want += " and sha256"
+			}
+			statusNote := "missing"
+			if last != nil {
+				statusNote = fmt.Sprintf("cloudTransferStatus=%q", last.CloudTransferStatus)
+				if requireSHA256 {
+					sha := strings.TrimSpace(last.Sha256)
+					if sha == "" {
+						statusNote += " sha256=(none)"
+					} else {
+						statusNote += fmt.Sprintf(" sha256=%q", sha)
+					}
+				}
+			}
+			return nil, fmt.Errorf("package %s not %s within %s (%d polls, %s; last: %s)",
+				id, want, timeout, gets, formatUploadDuration(time.Since(start)), statusNote)
+		}
+		now := time.Now()
+		if lastAnnounce.IsZero() || now.Sub(lastAnnounce) >= packageWaitAnnounceEvery {
+			msg := fmt.Sprintf("Waiting for package %s cloudTransferStatus=READY", id)
+			if requireSHA256 {
+				msg += " and sha256"
+			}
+			if last != nil {
+				parts := []string{}
+				if last.CloudTransferStatus != "" {
+					parts = append(parts, fmt.Sprintf("status=%q", last.CloudTransferStatus))
+				} else {
+					parts = append(parts, `status=""`)
+				}
+				if requireSHA256 {
+					if strings.TrimSpace(last.Sha256) == "" {
+						parts = append(parts, "sha256=(none)")
+					} else {
+						parts = append(parts, "sha256=set")
+					}
+				}
+				msg += " (" + strings.Join(parts, " ") + ")"
+			}
+			fmt.Fprintf(os.Stderr, "%s…\n", msg)
+			lastAnnounce = now
+		}
+		d := backoff
+		if d > remaining {
+			d = remaining
+		}
+		time.Sleep(d)
+		backoff *= 2
+		if backoff > packageWaitMaxBackoff {
+			backoff = packageWaitMaxBackoff
+		}
+	}
+}
+
+// jcdsRefreshInventory POSTs /api/v1/jcds/refresh-inventory?file-name=… to nudge
+// JCDS availability checks. Failures are ignored by the caller (best-effort).
+func jcdsRefreshInventory(credName, fileName string) error {
+	q := url.Values{}
+	q.Set("file-name", fileName)
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/jcds/refresh-inventory?"+q.Encode())
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := PerformRequest(nil, req, credName)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("jcds refresh-inventory status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+type jcdsDownloadURI struct {
+	URI string `json:"uri"`
+}
+
+type jcdsHTTPStatusError struct {
+	StatusCode int
+}
+
+func (e *jcdsHTTPStatusError) Error() string {
+	return fmt.Sprintf("HTTP %d", e.StatusCode)
+}
+
+// jcdsFetchPresignedURI GETs /api/v1/jcds/files/{fileName} and returns the uri.
+func jcdsFetchPresignedURI(credName, fileName string) (string, error) {
+	endpoint, err := ResolveEndpoint(credName, "/api/v1/jcds/files/"+url.PathEscape(fileName))
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := PerformRequest(nil, req, credName)
+	if err != nil {
+		return "", fmt.Errorf("get jcds file %q: %w", fileName, err)
+	}
+	defer resp.Body.Close()
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("get jcds file %q status %d: %s", fileName, resp.StatusCode, string(body))
+	}
+	var result jcdsDownloadURI
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("parse jcds download URI: %w", err)
+	}
+	if result.URI == "" {
+		return "", fmt.Errorf("jcds returned empty download URI for %q", fileName)
+	}
+	return result.URI, nil
+}
+
+// PackageDownload waits until the package is READY with a sha256, fetches a JCDS
+// presigned URI, streams to a temp file while hashing SHA-256, verifies against
+// the package record, and renames into place only on match. Retries once on URI
+// HTTP 403 (presigned TTL). JCDS only — not for on-prem non-JCDS distribution points.
+// outfile empty defaults to the package fileName in the current directory.
+func PackageDownload(credName, id, outfile string, logger *slog.Logger) error {
+	pkg, err := packageWaitUntil(credName, id, 0, true, logger)
+	if err != nil {
+		return err
+	}
+	if pkg.FileName == "" {
+		return fmt.Errorf("package %s has empty fileName", id)
+	}
+	wantSHA := strings.TrimSpace(pkg.Sha256)
+	if wantSHA == "" {
+		return fmt.Errorf("package %s has empty sha256 after wait", id)
+	}
+	if outfile == "" {
+		outfile = filepath.Base(pkg.FileName)
+	}
+	outfile, err = filepath.Abs(outfile)
+	if err != nil {
+		return fmt.Errorf("resolve outfile: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(outfile), 0o755); err != nil {
+		return fmt.Errorf("create outfile directory: %w", err)
+	}
+
+	uri, err := jcdsFetchPresignedURI(credName, pkg.FileName)
+	if err != nil {
+		return err
+	}
+	n, gotSHA, err := jcdsStreamVerifyToFile(uri, outfile, wantSHA, logger)
+	var httpErr *jcdsHTTPStatusError
+	if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusForbidden {
+		fmt.Fprintf(os.Stderr, "warning: pre-signed URL expired (403), retrying with fresh URL\n")
+		uri, err = jcdsFetchPresignedURI(credName, pkg.FileName)
+		if err != nil {
+			return err
+		}
+		n, gotSHA, err = jcdsStreamVerifyToFile(uri, outfile, wantSHA, logger)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Downloaded package %s (%s) → %s (%s, sha256 ok)\n", id, pkg.FileName, outfile, formatBytes(n))
+	_ = gotSHA
+	_ = logger
+	return nil
+}
+
+// jcdsStreamVerifyToFile downloads uri to a temp file beside outfile while hashing
+// SHA-256. Renames to outfile only when the hex digest matches wantSHA (case-insensitive).
+// Deletes the temp file on any failure. Non-2xx responses return *jcdsHTTPStatusError.
+func jcdsStreamVerifyToFile(uri, outfile, wantSHA string, logger *slog.Logger) (n int64, gotSHA string, err error) {
+	req, err := http.NewRequest(http.MethodGet, uri, nil)
+	if err != nil {
+		return 0, "", fmt.Errorf("create download request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, "", fmt.Errorf("download file: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return 0, "", &jcdsHTTPStatusError{StatusCode: resp.StatusCode}
+	}
+
+	dir := filepath.Dir(outfile)
+	tmp, err := os.CreateTemp(dir, ".buddy-pkg-*.tmp")
+	if err != nil {
+		return 0, "", fmt.Errorf("create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	h := sha256.New()
+	var body io.Reader = io.TeeReader(resp.Body, h)
+	total := resp.ContentLength
+	if total >= minProgressSize {
+		var lastWrite time.Time
+		pr := &progressReader{
+			r:     body,
+			total: total,
+			onProgress: func(read, tot int64) {
+				now := time.Now()
+				if lastWrite.IsZero() || now.Sub(lastWrite) >= 200*time.Millisecond || read == tot {
+					fmt.Fprintf(os.Stderr, "\r%s", formatProgressBar("Downloading", read, tot))
+					lastWrite = now
+				}
+			},
+		}
+		body = pr
+	}
+
+	buf := make([]byte, 4<<20)
+	n, err = io.CopyBuffer(tmp, body, buf)
+	if total >= minProgressSize {
+		fmt.Fprintln(os.Stderr)
+	}
+	if err != nil {
+		return 0, "", fmt.Errorf("write download: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return 0, "", fmt.Errorf("close temp file: %w", err)
+	}
+	gotSHA = hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(gotSHA, wantSHA) {
+		return n, gotSHA, fmt.Errorf("sha256 mismatch: got %s, want %s", gotSHA, wantSHA)
+	}
+	if err := os.Rename(tmpName, outfile); err != nil {
+		return n, gotSHA, fmt.Errorf("rename into place: %w", err)
+	}
+	cleanup = false
+	_ = logger
+	return n, gotSHA, nil
+}
+
+// packagePut sends a Package object to PUT /api/v1/packages/{id}.
+func packagePut(credName, id string, pkg *PackageRecord) (*PackageRecord, error) {
+	// Strip fields Jamf manages or that we only inject for display. Sending
+	// size on PUT can blank the server-managed value.
+	toSend := *pkg
+	toSend.Size = ""
+	toSend.CloudTransferStatus = ""
+	toSend.LastChanged = ""
+	toSend.LastChangedBy = ""
+
+	data, err := json.Marshal(&toSend)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return nil, err
-	}
-	endpoint := baseURL + "/api/v1/packages/" + id
-	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfPUT(credName, uriPackages+"/"+id, data, "application/json")
 	if err != nil {
 		return nil, fmt.Errorf("update package %s: %w", id, err)
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("update package %s status %d: %s", id, resp.StatusCode, string(body))
-	}
-	var updated PackageFull
+	var updated PackageRecord
 	if err := json.Unmarshal(body, &updated); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
@@ -451,8 +940,8 @@ func packagePut(credName, id string, pkg *PackageFull) (*PackageFull, error) {
 // - suppressRegistration (bool)
 // - fillUserTemplate (bool)
 // - osInstall (bool)
-func PackagePutFields(credName string, opts Opts, id string, fields map[string]interface{}, logger *slog.Logger) (*PackageFull, error) {
-	pkg, err := packageGetFull(credName, id)
+func PackagePutFields(credName string, opts Opts, id string, fields map[string]interface{}, logger *slog.Logger) (*PackageRecord, error) {
+	pkg, err := packageGet(credName, id)
 	if err != nil {
 		return nil, err
 	}
@@ -510,12 +999,14 @@ func PackagePutFields(credName string, opts Opts, id string, fields map[string]i
 	return packagePut(credName, id, pkg)
 }
 
-// packageCreatePayload is the minimal payload for POST /api/v1/packages (create).
+// packageCreatePayload is the payload for POST /api/v1/packages (create).
 type packageCreatePayload struct {
 	PackageName          string `json:"packageName"`
 	FileName             string `json:"fileName"`
 	CategoryID           string `json:"categoryId"`
 	Priority             int    `json:"priority"`
+	Notes                string `json:"notes,omitempty"`
+	Info                 string `json:"info,omitempty"`
 	FillUserTemplate     bool   `json:"fillUserTemplate"`
 	RebootRequired       bool   `json:"rebootRequired"`
 	OsInstall            bool   `json:"osInstall"`
@@ -525,31 +1016,115 @@ type packageCreatePayload struct {
 	SuppressRegistration bool   `json:"suppressRegistration"`
 }
 
+// PackageAttrs are optional package metadata fields shared by upload and set.
+// A nil pointer means "leave unchanged" (set) or "use default" (upload create).
+type PackageAttrs struct {
+	Name       *string
+	CategoryID *string
+	Priority   *int
+	Notes      *string
+	Info       *string
+	Reboot     *bool
+}
+
+// AnySet reports whether at least one attribute was explicitly provided.
+func (a PackageAttrs) AnySet() bool {
+	return a.Name != nil || a.CategoryID != nil || a.Priority != nil ||
+		a.Notes != nil || a.Info != nil || a.Reboot != nil
+}
+
+// Validate checks priority range when Priority is set.
+func (a PackageAttrs) Validate() error {
+	if a.Priority != nil && (*a.Priority < 1 || *a.Priority > 20) {
+		return fmt.Errorf("priority must be between 1 and 20, got %d", *a.Priority)
+	}
+	return nil
+}
+
+// Apply writes set attributes onto pkg.
+func (a PackageAttrs) Apply(pkg *PackageRecord) {
+	if pkg == nil {
+		return
+	}
+	if a.Name != nil {
+		pkg.PackageName = *a.Name
+	}
+	if a.CategoryID != nil {
+		pkg.CategoryID = *a.CategoryID
+	}
+	if a.Priority != nil {
+		pkg.Priority = *a.Priority
+	}
+	if a.Notes != nil {
+		pkg.Notes = *a.Notes
+	}
+	if a.Info != nil {
+		pkg.Info = *a.Info
+	}
+	if a.Reboot != nil {
+		pkg.RebootRequired = *a.Reboot
+	}
+}
+
+// DiffersFrom reports whether applying attrs would change pkg.
+func (a PackageAttrs) DiffersFrom(pkg *PackageRecord) bool {
+	if pkg == nil {
+		return a.AnySet()
+	}
+	if a.Name != nil && *a.Name != pkg.PackageName {
+		return true
+	}
+	if a.CategoryID != nil && *a.CategoryID != pkg.CategoryID {
+		return true
+	}
+	if a.Priority != nil && *a.Priority != pkg.Priority {
+		return true
+	}
+	if a.Notes != nil && *a.Notes != pkg.Notes {
+		return true
+	}
+	if a.Info != nil && *a.Info != pkg.Info {
+		return true
+	}
+	if a.Reboot != nil && *a.Reboot != pkg.RebootRequired {
+		return true
+	}
+	return false
+}
+
+func (a PackageAttrs) summaryLines(pkg *PackageRecord) []string {
+	var lines []string
+	if a.Name != nil {
+		lines = append(lines, fmt.Sprintf("name=%q", *a.Name))
+	}
+	if a.CategoryID != nil {
+		lines = append(lines, fmt.Sprintf("categoryId=%s", *a.CategoryID))
+	}
+	if a.Priority != nil {
+		lines = append(lines, fmt.Sprintf("priority=%d", *a.Priority))
+	}
+	if a.Notes != nil {
+		lines = append(lines, "notes=(set)")
+	}
+	if a.Info != nil {
+		lines = append(lines, "info=(set)")
+	}
+	if a.Reboot != nil {
+		lines = append(lines, fmt.Sprintf("rebootRequired=%v", *a.Reboot))
+	}
+	_ = pkg
+	return lines
+}
+
 // packageCreate POSTs a new package record and returns the created package ID.
 func packageCreate(credName string, payload *packageCreatePayload) (string, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshal create payload: %w", err)
 	}
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return "", err
-	}
-	endpoint := baseURL + "/api/v1/packages"
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfPOST(credName, uriPackages, data, "application/json")
 	if err != nil {
 		return "", fmt.Errorf("create package: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("create package status %d: %s", resp.StatusCode, string(body))
 	}
 	var created PackageRecord
 	if err := json.Unmarshal(body, &created); err != nil {
@@ -577,11 +1152,116 @@ func packageFindByFileName(credName, fileName string, logger *slog.Logger) (id s
 	return results[0].ID, nil
 }
 
+// packageProbeReadable GETs /api/v1/packages/{id}.
+// Returns (true, nil) when the record is readable (HTTP 200),
+// (false, nil) when Jamf has not propagated it yet (HTTP 404),
+// or an error for other failures.
+func packageProbeReadable(credName, id string) (bool, error) {
+	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id)
+	if err != nil {
+		return false, err
+	}
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return false, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := PerformRequest(nil, req, credName)
+	if err != nil {
+		return false, fmt.Errorf("get package %s: %w", id, err)
+	}
+	defer resp.Body.Close()
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return false, err
+	}
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("get package %s status %d: %s", id, resp.StatusCode, string(body))
+	}
+}
+
+const (
+	packageWaitTimeout        = 2 * time.Minute
+	packageWaitInitialBackoff = 500 * time.Millisecond
+	packageWaitMaxBackoff     = 3 * time.Second
+	packageWaitAnnounceEvery  = 3 * time.Second
+	// GET 200 after create is not enough for POST .../upload on a loaded Jamf;
+	// starting the file transfer immediately often 500s.
+	packageUploadSettleAfterCreate = 5 * time.Second
+)
+
+// packageWaitReadable polls until GET /api/v1/packages/{id} succeeds.
+// Jamf Cloud create is often async: POST can return an ID before the record is readable.
+// Returns the number of GET probes and wall time until the first successful read.
+func packageWaitReadable(credName, id string) (gets int, elapsed time.Duration, err error) {
+	return waitUntilPackageReadable(id, func() (bool, error) {
+		return packageProbeReadable(credName, id)
+	}, packageWaitTimeout, packageWaitInitialBackoff, packageWaitMaxBackoff, time.Sleep)
+}
+
+// settleAfterPackageCreate pauses after the metadata record is GET-readable so
+// Jamf Cloud can finish wiring the upload endpoint (avoids 500 on POST .../upload).
+func settleAfterPackageCreate(id string, sleep func(time.Duration)) {
+	if sleep == nil {
+		sleep = time.Sleep
+	}
+	fmt.Printf("Waiting %s after create before file upload (package %s)…\n",
+		formatUploadDuration(packageUploadSettleAfterCreate), id)
+	sleep(packageUploadSettleAfterCreate)
+}
+
+// waitUntilPackageReadable runs probe until ready, deadline exceeded, or probe error.
+// sleep is injectable for tests. gets counts every probe call (including the successful one).
+func waitUntilPackageReadable(
+	id string,
+	probe func() (bool, error),
+	timeout, initialBackoff, maxBackoff time.Duration,
+	sleep func(time.Duration),
+) (gets int, elapsed time.Duration, err error) {
+	start := time.Now()
+	deadline := start.Add(timeout)
+	backoff := initialBackoff
+	var lastAnnounce time.Time
+	for {
+		gets++
+		ready, err := probe()
+		if err != nil {
+			return gets, time.Since(start), err
+		}
+		if ready {
+			return gets, time.Since(start), nil
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return gets, time.Since(start), fmt.Errorf("package record %s not readable within %s (Jamf create may still be propagating)", id, timeout)
+		}
+		now := time.Now()
+		if lastAnnounce.IsZero() || now.Sub(lastAnnounce) >= packageWaitAnnounceEvery {
+			fmt.Fprintf(os.Stderr, "Waiting for package record %s…\n", id)
+			lastAnnounce = now
+		}
+		d := backoff
+		if d > remaining {
+			d = remaining
+		}
+		sleep(d)
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
 // progressReader wraps io.Reader and invokes onProgress as bytes are read.
 type progressReader struct {
-	r         io.Reader
-	total     int64
-	read      int64
+	r          io.Reader
+	total      int64
+	read       int64
 	onProgress func(read, total int64)
 }
 
@@ -611,8 +1291,9 @@ func formatBytes(n int64) string {
 // progressBarWidth is the number of characters for the bar.
 const progressBarWidth = 40
 
-// formatProgressBar returns a line like "[########################--------] 75% (1.1 GB / 1.5 GB)".
-func formatProgressBar(read, total int64) string {
+// formatProgressBar returns a line like "Uploading: [####----] 75% (1.1 GB / 1.5 GB)".
+// label may be empty for an unlabeled bar.
+func formatProgressBar(label string, read, total int64) string {
 	if total <= 0 {
 		return ""
 	}
@@ -625,81 +1306,214 @@ func formatProgressBar(read, total int64) string {
 		filled = progressBarWidth
 	}
 	bar := strings.Repeat("#", filled) + strings.Repeat("-", progressBarWidth-filled)
-	return fmt.Sprintf("[%s] %.0f%% (%s / %s)", bar, pct*100, formatBytes(read), formatBytes(total))
+	body := fmt.Sprintf("[%s] %.0f%% (%s / %s)", bar, pct*100, formatBytes(read), formatBytes(total))
+	if label == "" {
+		return body
+	}
+	return label + ": " + body
 }
 
 // minProgressSize is the minimum file size (bytes) to show progress bar.
 const minProgressSize = 100 * 1024 // 100 KB
 
-// packageUploadFile POSTs the file as multipart/form-data to /api/v1/packages/{id}/upload.
-func packageUploadFile(credName, id string, file *os.File, opts Opts) error {
-	info, err := file.Stat()
-	if err != nil {
-		return fmt.Errorf("stat file: %w", err)
-	}
-	total := info.Size()
+// errPackageUploadNotFound is returned when POST .../upload gets HTTP 404
+// (package record not yet visible — Jamf Cloud create race).
+var errPackageUploadNotFound = errors.New("package upload target not found")
 
+func isPackageUploadNotFound(err error) bool {
+	return errors.Is(err, errPackageUploadNotFound)
+}
+
+// multipartFormFileLength returns Content-Type and Content-Length for a
+// multipart body that contains a single form file of fileSize bytes.
+// boundary must match the writer used to stream the real body.
+func multipartFormFileLength(boundary, filename string, fileSize int64) (contentType string, contentLength int64, err error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
-	part, err := w.CreateFormFile("file", path.Base(file.Name()))
+	if err := w.SetBoundary(boundary); err != nil {
+		return "", 0, err
+	}
+	part, err := w.CreateFormFile("file", filename)
 	if err != nil {
-		return fmt.Errorf("create form file: %w", err)
+		return "", 0, err
+	}
+	_ = part // empty probe body
+	if err := w.Close(); err != nil {
+		return "", 0, err
+	}
+	return w.FormDataContentType(), int64(buf.Len()) + fileSize, nil
+}
+
+// formatUploadDuration returns a compact duration for upload stats (e.g. "320ms", "12.3s").
+func formatUploadDuration(d time.Duration) string {
+	if d < time.Second {
+		ms := d.Milliseconds()
+		if ms < 1 && d > 0 {
+			ms = 1
+		}
+		return fmt.Sprintf("%dms", ms)
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
+}
+
+// formatPackageGETCount returns "1 GET" or "N GETs".
+func formatPackageGETCount(n int) string {
+	if n == 1 {
+		return "1 GET"
+	}
+	return fmt.Sprintf("%d GETs", n)
+}
+
+// formatUploadRate returns a human transfer rate like "45.2 MB/s".
+func formatUploadRate(n int64, d time.Duration) string {
+	sec := d.Seconds()
+	if sec <= 0 {
+		return formatBytes(n) + "/s"
+	}
+	return formatBytes(int64(float64(n)/sec)) + "/s"
+}
+
+// packageUploadFile streams the file as multipart/form-data to /api/v1/packages/{id}/upload.
+// Progress (when shown) tracks bytes of the HTTP request body as they are sent.
+// On success it returns the file byte count and wall time of the HTTP transfer.
+func packageUploadFile(credName, id string, file *os.File, opts Opts) (uploaded int64, elapsed time.Duration, err error) {
+	_ = opts
+	info, err := file.Stat()
+	if err != nil {
+		return 0, 0, fmt.Errorf("stat file: %w", err)
+	}
+	fileSize := info.Size()
+	filename := path.Base(file.Name())
+
+	pr, pw := io.Pipe()
+	w := multipart.NewWriter(pw)
+	contentType, contentLength, err := multipartFormFileLength(w.Boundary(), filename, fileSize)
+	if err != nil {
+		_ = pr.Close()
+		return 0, 0, fmt.Errorf("multipart length: %w", err)
 	}
 
-	var src io.Reader = file
-	if total >= minProgressSize && total > 0 {
-		var lastPct int
-		src = &progressReader{
-			r:     file,
-			total: total,
+	writeErrCh := make(chan error, 1)
+	go func() {
+		defer close(writeErrCh)
+		part, err := w.CreateFormFile("file", filename)
+		if err != nil {
+			_ = pw.CloseWithError(err)
+			writeErrCh <- err
+			return
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			_ = pw.CloseWithError(err)
+			writeErrCh <- err
+			return
+		}
+		if err := w.Close(); err != nil {
+			_ = pw.CloseWithError(err)
+			writeErrCh <- err
+			return
+		}
+		_ = pw.Close()
+		writeErrCh <- nil
+	}()
+
+	var body io.Reader = pr
+	showProgress := fileSize >= minProgressSize && fileSize > 0
+	var waitingShown atomic.Bool
+	if showProgress {
+		fmt.Fprintf(os.Stderr, "Uploading %s (%s)…\n", filename, formatBytes(fileSize))
+		var lastWrite time.Time
+		body = &progressReader{
+			r:     pr,
+			total: contentLength,
 			onProgress: func(read, tot int64) {
-				pct := int(100 * float64(read) / float64(tot))
-				if pct > 100 {
-					pct = 100
+				now := time.Now()
+				if !(lastWrite.IsZero() || now.Sub(lastWrite) >= 200*time.Millisecond || read >= tot) {
+					return
 				}
-				// Throttle: update every 1% or at completion
-				if pct != lastPct && (pct-lastPct >= 1 || pct == 100 || read == tot) {
-					lastPct = pct
-					fmt.Fprintf(os.Stderr, "\r%s", formatProgressBar(read, tot))
+				lastWrite = now
+				if read >= tot {
+					if waitingShown.CompareAndSwap(false, true) {
+						fmt.Fprintf(os.Stderr, "\r%s\nWaiting for server response…\n", formatProgressBar("Uploading", tot, tot))
+					}
+					return
 				}
+				fmt.Fprintf(os.Stderr, "\r%s", formatProgressBar("Uploading", read, tot))
 			},
 		}
 	}
-	if _, err := io.Copy(part, src); err != nil {
-		return fmt.Errorf("write file to form: %w", err)
-	}
-	if total >= minProgressSize && total > 0 {
-		fmt.Fprintf(os.Stderr, "\r%s\n", formatProgressBar(total, total))
-	}
-	if err := w.Close(); err != nil {
-		return fmt.Errorf("close multipart writer: %w", err)
-	}
-	uploadBase, err := GetBaseURL(credName)
+
+	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id+"/upload")
 	if err != nil {
-		return err
+		_ = pr.Close()
+		<-writeErrCh
+		return 0, 0, err
 	}
-	endpoint := uploadBase + "/api/v1/packages/" + id + "/upload"
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf.Bytes()))
+	req, err := http.NewRequest(http.MethodPost, endpoint, body)
 	if err != nil {
-		return fmt.Errorf("create upload request: %w", err)
+		_ = pr.Close()
+		<-writeErrCh
+		return 0, 0, fmt.Errorf("create upload request: %w", err)
 	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("Content-Type", contentType)
+	req.ContentLength = contentLength
+
+	start := time.Now()
 	resp, err := PerformRequest(nil, req, credName)
+	elapsed = time.Since(start)
+	writeErr := <-writeErrCh
 	if err != nil {
-		return fmt.Errorf("upload package file: %w", err)
+		if showProgress && !waitingShown.Load() {
+			fmt.Fprintln(os.Stderr)
+		}
+		if writeErr != nil {
+			return 0, elapsed, fmt.Errorf("upload package file: %w (writer: %v)", err, writeErr)
+		}
+		return 0, elapsed, fmt.Errorf("upload package file: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("upload package file status %d: %s", resp.StatusCode, string(body))
+	if showProgress && !waitingShown.Load() {
+		fmt.Fprintf(os.Stderr, "\r%s\n", formatProgressBar("Uploading", contentLength, contentLength))
 	}
-	return nil
+	if writeErr != nil && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return 0, elapsed, fmt.Errorf("upload package file: %w", writeErr)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return 0, elapsed, fmt.Errorf("%w: status %d: %s", errPackageUploadNotFound, resp.StatusCode, strings.TrimSpace(httpErrorBody(resp)))
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		msg := strings.TrimSpace(httpErrorBody(resp))
+		if msg == "" {
+			msg = "(empty response body)"
+		}
+		return 0, elapsed, fmt.Errorf("upload package file status %d: %s", resp.StatusCode, msg)
+	}
+	return fileSize, elapsed, nil
+}
+
+// PackageUploadOptions controls optional post-upload behavior.
+type PackageUploadOptions struct {
+	// WaitReady polls until cloudTransferStatus is READY and sha256 is set.
+	WaitReady bool
+	// WaitReadyTimeout caps the wait; ≤0 uses the PackageWaitReady default (10 minutes).
+	WaitReadyTimeout time.Duration
+	// Force re-uploads even when checksums match or the record looks mid-transfer
+	// (overrides skip-if-unchanged and the not-ready wait guard).
+	Force bool
 }
 
 // PackageUpload creates a new package record and uploads the file to Jamf Pro.
-func PackageUpload(credName string, opts Opts, filePath string, nameOverride, categoryID string, priority int, logger *slog.Logger) error {
-	if priority < 1 || priority > 20 {
-		return fmt.Errorf("priority must be between 1 and 20, got %d", priority)
+// If a package with the same fileName already exists, the file is treated as an
+// update: the existing record is fetched, summarised, and the upload is skipped
+// when a server checksum matches the local file. attrs set metadata on create
+// and are applied to an existing record when they differ (even if the file is skipped).
+// When upOpts.WaitReady is set, polls until the package is READY (and sha256 set)
+// after a successful upload, skip-if-unchanged, or a mid-transfer record that
+// already has the file (hashValue set, sha256 empty) — that case does not re-upload.
+// On create, waits until GET /packages/{id} succeeds, then settles 5s before
+// the multipart upload (Jamf Cloud often 500s if the file POST starts immediately).
+func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAttrs, upOpts PackageUploadOptions, logger *slog.Logger) error {
+	if err := attrs.Validate(); err != nil {
+		return err
 	}
 	fileName := path.Base(filePath)
 	ext := strings.ToLower(path.Ext(fileName))
@@ -711,197 +1525,424 @@ func PackageUpload(credName string, opts Opts, filePath string, nameOverride, ca
 		return fmt.Errorf("open file: %w", err)
 	}
 	defer file.Close()
-	packageName := nameOverride
-	if packageName == "" {
-		packageName = fileName
+	info, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("stat file: %w", err)
 	}
-	if categoryID == "" {
-		categoryID = "-1"
+
+	packageName := fileName
+	if attrs.Name != nil && *attrs.Name != "" {
+		packageName = *attrs.Name
 	}
+	categoryID := "-1"
+	if attrs.CategoryID != nil && *attrs.CategoryID != "" {
+		categoryID = *attrs.CategoryID
+	}
+	priority := 10
+	if attrs.Priority != nil {
+		priority = *attrs.Priority
+	}
+	reboot := false
+	if attrs.Reboot != nil {
+		reboot = *attrs.Reboot
+	}
+	notes := ""
+	if attrs.Notes != nil {
+		notes = *attrs.Notes
+	}
+	infoStr := ""
+	if attrs.Info != nil {
+		infoStr = *attrs.Info
+	}
+
 	payload := &packageCreatePayload{
 		PackageName:          packageName,
 		FileName:             fileName,
 		CategoryID:           categoryID,
 		Priority:             priority,
+		Notes:                notes,
+		Info:                 infoStr,
 		FillUserTemplate:     false,
-		RebootRequired:       false,
+		RebootRequired:       reboot,
 		OsInstall:            false,
 		SuppressUpdates:      false,
 		SuppressFromDock:     false,
 		SuppressEula:         false,
 		SuppressRegistration: false,
 	}
-	if !opts.SkipConfirm {
-		if !ConfirmPrompt(fmt.Sprintf("\nUpload package %q as %q (priority %d)?", filePath, packageName, priority), logger) {
-			return nil
-		}
-	}
-	var id string
+
+	fmt.Printf("Checking for existing package with fileName %q…\n", fileName)
 	existingID, err := packageFindByFileName(credName, fileName, logger)
 	if err != nil {
 		return err
 	}
+
+	var id string
+	created := false
+	updating := false
 	if existingID != "" {
+		updating = true
 		id = existingID
+		doUpload, err := packageUploadExisting(credName, opts, file, info, id, attrs, upOpts, logger)
+		if err != nil || !doUpload {
+			return err
+		}
 	} else {
-		id, err = packageCreate(credName, payload)
+		id, err = packageUploadCreate(credName, fileName, payload)
+		if err != nil {
+			return err
+		}
+		created = true
+	}
+
+	if created {
+		if err := packageWaitReadableAndSettle(credName, id, ""); err != nil {
+			return err
+		}
+	}
+	uploaded, elapsed, err := packageUploadFileWithRetry(credName, id, file, opts)
+	if err != nil {
+		return err
+	}
+	action := "Uploaded"
+	if updating {
+		action = "Updated"
+	}
+	fmt.Printf("%s package %q (ID %s) — %s in %s (%s)\n",
+		action, packageName, id, formatBytes(uploaded), formatUploadDuration(elapsed), formatUploadRate(uploaded, elapsed))
+	return maybeWaitPackageReady(credName, id, upOpts, logger)
+}
+
+func packageUploadCreate(credName, fileName string, payload *packageCreatePayload) (string, error) {
+	fmt.Printf("No existing package with fileName %q — create path\n", fileName)
+	id, err := packageCreate(credName, payload)
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("Created package record (ID %s)\n", id)
+	return id, nil
+}
+
+// packageUploadExisting handles the update path. doUpload is true when the caller
+// should proceed to multipart upload.
+func packageUploadExisting(credName string, opts Opts, file *os.File, info os.FileInfo, id string, attrs PackageAttrs, upOpts PackageUploadOptions, logger *slog.Logger) (doUpload bool, err error) {
+	fmt.Printf("Found existing package record (ID %s) — update path\n", id)
+	pkg, err := packageGet(credName, id)
+	if err != nil {
+		return false, err
+	}
+	printPackageRecordSummary(pkg)
+
+	metaNeeded := attrs.AnySet() && attrs.DiffersFrom(pkg)
+	if packageUploadWaitOnly(upOpts, pkg) {
+		status := pkg.CloudTransferStatus
+		if status == "" {
+			status = "(empty)"
+		}
+		fmt.Printf("Package is not READY yet (cloudTransferStatus=%s) — skipping file upload, waiting until READY\n", status)
+		if metaNeeded {
+			fmt.Printf("Updating metadata: %s\n", strings.Join(attrs.summaryLines(pkg), ", "))
+			ok, err := packageConfirmApplyAttrs(credName, id, opts, attrs, pkg, logger)
+			if err != nil || !ok {
+				return false, err
+			}
+		}
+		return false, maybeWaitPackageReady(credName, id, upOpts, logger)
+	}
+
+	fmt.Printf("Hashing local file (%s)…\n", formatBytes(info.Size()))
+	localHashes, err := hashPackageReader(file, info.Size())
+	if err != nil {
+		return false, fmt.Errorf("hash local file: %w", err)
+	}
+	fmt.Printf("  local md5:    %s\n", localHashes.MD5)
+	fmt.Printf("  local sha256: %s\n", localHashes.SHA256)
+
+	fileMatch, how := packageFileMatches(pkg, localHashes)
+
+	if fileMatch && !upOpts.Force {
+		if !metaNeeded {
+			fmt.Printf("File unchanged (%s matches) — skipping upload\n", how)
+			return false, maybeWaitPackageReady(credName, id, upOpts, logger)
+		}
+		fmt.Printf("File unchanged (%s matches) — updating metadata only\n", how)
+		ok, err := packageConfirmApplyAttrs(credName, id, opts, attrs, pkg, logger)
+		if err != nil || !ok {
+			return false, err
+		}
+		return false, maybeWaitPackageReady(credName, id, upOpts, logger)
+	}
+	// Mid-transfer: sha256/md5 empty but hashValue present (usually SHA3) → wait.
+	// Failed upload: no hashValue / comparable checksums → allow re-upload.
+	if !upOpts.Force && packageUploadShouldWaitNotReady(pkg) {
+		status := pkg.CloudTransferStatus
+		if status == "" {
+			status = "(empty)"
+		}
+		return false, fmt.Errorf("package %s (%q) is not ready yet (cloudTransferStatus=%s, sha256 empty, hashValue set); wait with package_wait_ready / 'buddy package wait-ready' before re-uploading or attaching (or pass --force / force=True to upload anyway)",
+			id, pkg.PackageName, status)
+	}
+	switch {
+	case upOpts.Force && fileMatch:
+		fmt.Printf("Force: re-uploading even though %s matches\n", how)
+	case upOpts.Force && packageUploadShouldWaitNotReady(pkg):
+		fmt.Println("Force: re-uploading even though package looks mid-transfer (hashValue set, sha256 empty)")
+	case !packageHasComparableChecksum(pkg) && !packageHasPendingTransferEvidence(pkg):
+		fmt.Println("Package record has no checksums (previous upload may have failed) — file upload needed")
+	default:
+		fmt.Println("Local file differs from server checksums — file upload needed")
+	}
+	if metaNeeded {
+		fmt.Printf("Metadata will also be updated: %s\n", strings.Join(attrs.summaryLines(pkg), ", "))
+	}
+
+	if !opts.SkipConfirm {
+		if !ConfirmPrompt(fmt.Sprintf("\nReplace file for package %s (%q)?", id, pkg.PackageName), logger) {
+			return false, nil
+		}
+	}
+	if metaNeeded {
+		if err := packageApplyAttrs(credName, id, opts, attrs, pkg, logger); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func packageConfirmApplyAttrs(credName, id string, opts Opts, attrs PackageAttrs, pkg *PackageRecord, logger *slog.Logger) (ok bool, err error) {
+	if !opts.SkipConfirm {
+		if !ConfirmPrompt(fmt.Sprintf("\nUpdate metadata for package %s (%q)?", id, pkg.PackageName), logger) {
+			return false, nil
+		}
+	}
+	if err := packageApplyAttrs(credName, id, opts, attrs, pkg, logger); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func packageWaitReadableAndSettle(credName, id, retryNote string) error {
+	gets, waitElapsed, err := packageWaitReadable(credName, id)
+	if err != nil {
+		return err
+	}
+	if retryNote != "" {
+		fmt.Printf("Package record ready after %s in %s (%s)\n",
+			formatPackageGETCount(gets), formatUploadDuration(waitElapsed), retryNote)
+	} else {
+		fmt.Printf("Package record ready after %s in %s\n",
+			formatPackageGETCount(gets), formatUploadDuration(waitElapsed))
+	}
+	settleAfterPackageCreate(id, time.Sleep)
+	return nil
+}
+
+func packageUploadFileWithRetry(credName, id string, file *os.File, opts Opts) (int64, time.Duration, error) {
+	if _, err := file.Seek(0, 0); err != nil {
+		return 0, 0, fmt.Errorf("seek file for upload: %w", err)
+	}
+	uploaded, elapsed, err := packageUploadFile(credName, id, file, opts)
+	if err == nil {
+		return uploaded, elapsed, nil
+	}
+	if !isPackageUploadNotFound(err) {
+		return 0, 0, err
+	}
+	if err := packageWaitReadableAndSettle(credName, id, "upload retry"); err != nil {
+		return 0, 0, err
+	}
+	if _, seekErr := file.Seek(0, 0); seekErr != nil {
+		return 0, 0, fmt.Errorf("seek file for upload retry: %w", seekErr)
+	}
+	return packageUploadFile(credName, id, file, opts)
+}
+
+// maybeWaitPackageReady runs PackageWaitReady when upOpts.WaitReady is set.
+func maybeWaitPackageReady(credName, id string, upOpts PackageUploadOptions, logger *slog.Logger) error {
+	if !upOpts.WaitReady || strings.TrimSpace(id) == "" {
+		return nil
+	}
+	timeout := upOpts.WaitReadyTimeout
+	if timeout <= 0 {
+		timeout = packageWaitReadyDefaultTimeout
+	}
+	fmt.Printf("Waiting until package %s is READY (timeout %s)…\n", id, formatUploadDuration(timeout))
+	if err := PackageWaitReady(credName, id, timeout, logger); err != nil {
+		return err
+	}
+	fmt.Printf("Package %s is READY\n", id)
+	return nil
+}
+
+// packageFileHashes holds local checksums used to decide whether an upload is needed.
+type packageFileHashes struct {
+	MD5    string
+	SHA256 string
+}
+
+// hashPackageReader computes MD5 and SHA-256 of r in a single pass.
+// When totalSize >= minProgressSize, writes a labeled progress bar to stderr
+// (reading the file for checksums — not the network upload).
+func hashPackageReader(r io.Reader, totalSize int64) (packageFileHashes, error) {
+	md5Hash := md5.New()
+	sha256Hash := sha256.New()
+	var src io.Reader = io.TeeReader(r, io.MultiWriter(md5Hash, sha256Hash))
+	showProgress := totalSize >= minProgressSize && totalSize > 0
+	if showProgress {
+		var lastWrite time.Time
+		src = &progressReader{
+			r:     src,
+			total: totalSize,
+			onProgress: func(read, tot int64) {
+				now := time.Now()
+				if lastWrite.IsZero() || now.Sub(lastWrite) >= 200*time.Millisecond || read >= tot {
+					fmt.Fprintf(os.Stderr, "\r%s", formatProgressBar("Hashing", read, tot))
+					lastWrite = now
+				}
+			},
+		}
+	}
+	if _, err := io.Copy(io.Discard, src); err != nil {
+		if showProgress {
+			fmt.Fprintln(os.Stderr)
+		}
+		return packageFileHashes{}, err
+	}
+	if showProgress {
+		fmt.Fprintf(os.Stderr, "\r%s\n", formatProgressBar("Hashing", totalSize, totalSize))
+	}
+	return packageFileHashes{
+		MD5:    hex.EncodeToString(md5Hash.Sum(nil)),
+		SHA256: hex.EncodeToString(sha256Hash.Sum(nil)),
+	}, nil
+}
+
+func hexEqualFold(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
+// packageFileMatches reports whether the Jamf package record's checksums match local.
+// Prefers sha256, then md5, then hashType/hashValue when those are MD5 or SHA-256.
+// Returns false when the server has no comparable checksum yet — callers must also
+// check packageUploadShouldWaitNotReady (blank hashes with hashValue while not READY
+// means transfer pending; blank hashes with no hashValue means a failed/empty upload).
+func packageFileMatches(pkg *PackageRecord, local packageFileHashes) (matched bool, field string) {
+	if pkg == nil {
+		return false, ""
+	}
+	if pkg.Sha256 != "" && hexEqualFold(pkg.Sha256, local.SHA256) {
+		return true, "sha256"
+	}
+	if pkg.Md5 != "" && hexEqualFold(pkg.Md5, local.MD5) {
+		return true, "md5"
+	}
+	if pkg.HashValue == "" {
+		return false, ""
+	}
+	switch strings.ToUpper(strings.ReplaceAll(pkg.HashType, "-", "_")) {
+	case "SHA256", "SHA_256":
+		if hexEqualFold(pkg.HashValue, local.SHA256) {
+			return true, "hashValue(SHA256)"
+		}
+	case "MD5":
+		if hexEqualFold(pkg.HashValue, local.MD5) {
+			return true, "hashValue(MD5)"
+		}
+	}
+	return false, ""
+}
+
+// printPackageRecordSummary prints key fields from an existing package before update/skip.
+func printPackageRecordSummary(pkg *PackageRecord) {
+	if pkg == nil {
+		return
+	}
+	fmt.Printf("  packageName: %s\n", pkg.PackageName)
+	fmt.Printf("  fileName:    %s\n", pkg.FileName)
+	fmt.Printf("  categoryId:  %s\n", pkg.CategoryID)
+	fmt.Printf("  priority:    %d\n", pkg.Priority)
+	status := pkg.CloudTransferStatus
+	if status == "" {
+		status = "(none)"
+	}
+	fmt.Printf("  status:      %s\n", status)
+	if pkg.Md5 != "" {
+		fmt.Printf("  md5:         %s\n", pkg.Md5)
+	} else {
+		fmt.Printf("  md5:         (none)\n")
+	}
+	if pkg.Sha256 != "" {
+		fmt.Printf("  sha256:      %s\n", pkg.Sha256)
+	} else {
+		fmt.Printf("  sha256:      (none)\n")
+	}
+	if pkg.Sha3512 != "" {
+		fmt.Printf("  sha3512:     %s\n", pkg.Sha3512)
+	} else {
+		fmt.Printf("  sha3512:     (none)\n")
+	}
+	fmt.Printf("  hashType:    %s\n", emptyDash(pkg.HashType))
+	fmt.Printf("  hashValue:   %s\n", emptyDash(pkg.HashValue))
+}
+
+func emptyDash(s string) string {
+	if s == "" {
+		return "(none)"
+	}
+	return s
+}
+
+// packageApplyAttrs applies attrs onto existing (or fetches) and PUTs.
+func packageApplyAttrs(credName, id string, opts Opts, attrs PackageAttrs, existing *PackageRecord, logger *slog.Logger) error {
+	_ = opts
+	_ = logger
+	pkg := existing
+	var err error
+	if pkg == nil {
+		pkg, err = packageGet(credName, id)
 		if err != nil {
 			return err
 		}
 	}
-	if _, err := file.Seek(0, 0); err != nil {
-		return fmt.Errorf("seek file for upload: %w", err)
-	}
-	if err := packageUploadFile(credName, id, file, opts); err != nil {
-		return err
-	}
-	fmt.Printf("Uploaded package %q (ID %s)\n", packageName, id)
-	return nil
-}
-
-// PackageSetName updates the display name of a package record.
-func PackageSetName(credName, id string, opts Opts, value string, logger *slog.Logger) error {
-	pkg, err := packageGetFull(credName, id)
-	if err != nil {
-		return err
-	}
-	if !opts.SkipConfirm {
-		if !ConfirmPrompt(fmt.Sprintf("Set package %s name: %q → %q", id, pkg.PackageName, value), logger) {
-			return nil
-		}
-	}
-	pkg.PackageName = value
+	attrs.Apply(pkg)
 	updated, err := packagePut(credName, id, pkg)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Updated package %s: name = %q\n", id, updated.PackageName)
+	fmt.Printf("Updated package %s metadata: %s\n", id, strings.Join(attrs.summaryLines(updated), ", "))
 	return nil
 }
 
-// PackageSetNotes updates the notes field of a package record.
-func PackageSetNotes(credName, id string, opts Opts, value string, logger *slog.Logger) error {
-	pkg, err := packageGetFull(credName, id)
+// PackageSetAttrs updates one or more package metadata fields (same attrs as upload).
+func PackageSetAttrs(credName, id string, opts Opts, attrs PackageAttrs, logger *slog.Logger) error {
+	if err := attrs.Validate(); err != nil {
+		return err
+	}
+	if !attrs.AnySet() {
+		return fmt.Errorf("no package attributes to set (use --name=, --notes=, --info=, --category=, --priority=, --reboot=)")
+	}
+	pkg, err := packageGet(credName, id)
 	if err != nil {
 		return err
 	}
+	if !attrs.DiffersFrom(pkg) {
+		fmt.Printf("Package %s (%q): metadata already matches — nothing to do\n", id, pkg.PackageName)
+		return nil
+	}
 	if !opts.SkipConfirm {
-		if !ConfirmPrompt(fmt.Sprintf("Set package %s (%s) notes", id, pkg.PackageName), logger) {
+		if !ConfirmPrompt(fmt.Sprintf("\nUpdate package %s (%q): %s?", id, pkg.PackageName, strings.Join(attrs.summaryLines(pkg), ", ")), logger) {
 			return nil
 		}
 	}
-	pkg.Notes = value
-	if _, err := packagePut(credName, id, pkg); err != nil {
-		return err
-	}
-	fmt.Printf("Updated package %s: notes set\n", id)
-	return nil
-}
-
-// PackageSetInfo updates the info field of a package record.
-func PackageSetInfo(credName, id string, opts Opts, value string, logger *slog.Logger) error {
-	pkg, err := packageGetFull(credName, id)
-	if err != nil {
-		return err
-	}
-	if !opts.SkipConfirm {
-		if !ConfirmPrompt(fmt.Sprintf("Set package %s (%s) info", id, pkg.PackageName), logger) {
-			return nil
-		}
-	}
-	pkg.Info = value
-	if _, err := packagePut(credName, id, pkg); err != nil {
-		return err
-	}
-	fmt.Printf("Updated package %s: info set\n", id)
-	return nil
-}
-
-// PackageSetPriority updates the install priority of a package record (valid range 1–10).
-func PackageSetPriority(credName, id string, opts Opts, priority int, logger *slog.Logger) error {
-	if priority < 1 || priority > 10 {
-		return fmt.Errorf("priority must be between 1 and 10, got %d", priority)
-	}
-	pkg, err := packageGetFull(credName, id)
-	if err != nil {
-		return err
-	}
-	if !opts.SkipConfirm {
-		if !ConfirmPrompt(fmt.Sprintf("Set package %s (%s) priority: %d → %d", id, pkg.PackageName, pkg.Priority, priority), logger) {
-			return nil
-		}
-	}
-	pkg.Priority = priority
-	updated, err := packagePut(credName, id, pkg)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Updated package %s: priority = %d\n", id, updated.Priority)
-	return nil
-}
-
-// PackageSetCategory updates the category of a package record.
-// Use categoryId "-1" to clear the category.
-func PackageSetCategory(credName, id string, opts Opts, categoryID string, logger *slog.Logger) error {
-	pkg, err := packageGetFull(credName, id)
-	if err != nil {
-		return err
-	}
-	if !opts.SkipConfirm {
-		if !ConfirmPrompt(fmt.Sprintf("Set package %s (%s) category: %q → %q", id, pkg.PackageName, pkg.CategoryID, categoryID), logger) {
-			return nil
-		}
-	}
-	pkg.CategoryID = categoryID
-	updated, err := packagePut(credName, id, pkg)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Updated package %s: categoryId = %s\n", id, updated.CategoryID)
-	return nil
-}
-
-// PackageSetReboot updates the rebootRequired flag of a package record.
-func PackageSetReboot(credName, id string, opts Opts, value bool, logger *slog.Logger) error {
-	pkg, err := packageGetFull(credName, id)
-	if err != nil {
-		return err
-	}
-	if !opts.SkipConfirm {
-		if !ConfirmPrompt(fmt.Sprintf("Set package %s (%s) rebootRequired: %v → %v", id, pkg.PackageName, pkg.RebootRequired, value), logger) {
-			return nil
-		}
-	}
-	pkg.RebootRequired = value
-	updated, err := packagePut(credName, id, pkg)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Updated package %s: rebootRequired = %v\n", id, updated.RebootRequired)
-	return nil
+	return packageApplyAttrs(credName, id, opts, attrs, pkg, logger)
 }
 
 // packageGetLatestHistory fetches the single most-recent history entry for a package.
 // Returns nil (no error) when no history entries exist.
 func packageGetLatestHistory(credName, id string) (*PackageHistoryEntry, error) {
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return nil, err
-	}
-	endpoint := baseURL + "/api/v1/packages/" + id + "/history?sort=date:desc&page-size=1"
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGET(credName, uriPackages+"/"+id+"/history?sort=date:desc&page-size=1")
 	if err != nil {
 		return nil, fmt.Errorf("get package history %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get package history %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	var result packageHistoryResponse
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -919,25 +1960,9 @@ func PackageHistory(credName, id string, limit int, logger *slog.Logger) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	histBase, err := GetBaseURL(credName)
-	if err != nil {
-		return err
-	}
-	endpoint := fmt.Sprintf("%s/api/v1/packages/%s/history?sort=date:desc&page-size=%d",
-		histBase, id, limit)
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGET(credName, fmt.Sprintf("%s/%s/history?sort=date:desc&page-size=%d", uriPackages, id, limit))
 	if err != nil {
 		return fmt.Errorf("get package history %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("get package history %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	var result packageHistoryResponse
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -964,4 +1989,3 @@ func truncatePkg(s string, n int) string {
 	}
 	return string(runes[:n-1]) + "…"
 }
-

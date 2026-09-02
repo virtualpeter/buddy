@@ -1,0 +1,519 @@
+#!/usr/bin/env buddy
+#
+# Live integration suite for a Jamf-refactored ACS profile (default Classic id=7).
+#
+# Profile 7-shaped tenants store preference-domain text on
+#   PUT/GET /api/config-profiles/macos/{payloadUUID}
+# while Classic often shows an empty ManagedClient shell. Buddy hydrates empty
+# Classic MCX from the ACS API on read, and prefers ACS writes when a document is linked.
+#
+# This suite mutates the *same* profile in place (same tenant), then restores the
+# original MCX dict after each case (and again at the end). Clones/copies use
+# buddy-test-* names and are deleted.
+#
+# If the script fails mid-case, re-check ACS settings in Jamf (or re-run after fixing);
+# the final restore only runs on success. Marker key BuddyAcs7Marker should not linger.
+#
+# Run:
+#   buddy -y scripts/integration_test_acs_profile7.buddy
+#   buddy -y -v scripts/integration_test_acs_profile7.buddy
+#   make integration-test-acs7
+#
+# Knobs (edit below; leave defaults for id=7 / auto domain):
+#   TEST_ACS_PROFILE_ID   — Classic profile id (default 7)
+#   TEST_ACS_DOMAIN       — preference domain; "" = auto-detect first ManagedClient domain
+#   TEST_ACS_PAYLOAD_UUID — ACS payload UUID (Jamf FIELD_EXTERNAL_CONFIGPROFILE_ID).
+#                           Required when API auth cannot scrape legacy HTML (common).
+#                           Or export BUDDY_ACS_PAYLOAD_UUID_<id>=...
+#   TEST_SKIP_CLONE       — "1" to skip clone/copy cases
+#   TEST_SKIP_REDEPLOY    — "1" to skip redeploy (default skip; redeploy can push to devices)
+
+TEST_PREFIX = "buddy-test-acs7-"
+TEST_ACS_PROFILE_ID = 300
+TEST_ACS_DOMAIN = ""
+TEST_ACS_PAYLOAD_UUID = ""
+TEST_SKIP_CLONE = ""
+TEST_SKIP_REDEPLOY = "1"
+
+APPLY_FORM_URL = "https://example.com/search?q=acs7&amp;buddy=1"
+BARE_AMP_URL = "https://example.com/search?q=acs7&buddy=1"
+MARKER_KEY = "BuddyAcs7Marker"
+MARKER_VAL = "buddy-acs7-integration"
+
+
+def section(title, why):
+    print("")
+    print("=== " + title + " ===")
+    if why != "":
+        print(why)
+
+
+def copy_dict(d):
+    out = {}
+    for k in d:
+        out[k] = d[k]
+    return out
+
+
+def settings_equal(a, b):
+    if len(a) != len(b):
+        return False
+    for k in a:
+        if k not in b:
+            return False
+        if a[k] != b[k]:
+            return False
+    return True
+
+
+def extract_first_uuid(xml):
+    open_tag = "<uuid>"
+    close_tag = "</uuid>"
+    i = xml.find(open_tag)
+    if i < 0:
+        return ""
+    i = i + len(open_tag)
+    j = xml.find(close_tag, i)
+    if j < 0:
+        return ""
+    return xml[i:j].strip()
+
+
+def discover_mcx_domains(payloads_plist):
+    root = plist_decode(payloads_plist)
+    domains = []
+    content = root.get("PayloadContent", [])
+    if type(content) != "list":
+        content = []
+    for item in content:
+        if type(item) != "dict":
+            continue
+        if item.get("PayloadType", "") != "com.apple.ManagedClient.preferences":
+            continue
+        nested = item.get("PayloadContent", {})
+        if type(nested) != "dict":
+            continue
+        for d in nested:
+            domains.append(d)
+    return domains
+
+
+def load_acs(profile_id, domain):
+    """Fetch profile (hydrated), return xml, payloads, domain, settings dict, mcx_dict_xml, general_uuid."""
+    xml = profile_xml(id=profile_id, auth=auth)
+    general_uuid = extract_first_uuid(xml)
+    payloads = profile_xml_extract_payloads(xml)
+    if domain == "":
+        domains = discover_mcx_domains(payloads)
+        if not domains:
+            fail("no ManagedClient preference domains on profile %d (hydrate empty?)" % profile_id)
+        domain = domains[0]
+        if len(domains) > 1:
+            print("note: multiple MCX domains %r — using %r" % (domains, domain))
+    mcx_xml = payloads_get_mcx_dict(payloads, domain)
+    settings = plist_decode(mcx_xml)
+    if type(settings) != "dict":
+        fail("mcx settings not a dict: %r" % type(settings))
+    return {
+        "xml": xml,
+        "payloads": payloads,
+        "domain": domain,
+        "settings": settings,
+        "mcx_xml": mcx_xml,
+        "general_uuid": general_uuid,
+    }
+
+
+def put_mcx_dict_xml(profile_id, domain, mcx_dict_xml, ctx):
+    """Replace preference-domain settings exactly, then PUT."""
+    xml = profile_xml(id=profile_id, auth=auth)
+    payloads = profile_xml_extract_payloads(xml)
+    payloads = payloads_replace_mcx_dict(payloads, domain, mcx_dict_xml)
+    xml = profile_xml_replace_payloads(xml, payloads)
+    profile_put_xml(id=profile_id, xml_str=xml, auth=auth)
+
+
+def put_mcx_settings_map(profile_id, domain, settings, ctx):
+    mcx_xml = plist_normalise_dict(plist_encode(settings))
+    put_mcx_dict_xml(profile_id, domain, mcx_xml, ctx)
+
+
+def restore_original(profile_id, domain, original_mcx_xml, ctx):
+    put_mcx_dict_xml(profile_id, domain, original_mcx_xml, "restore (%s)" % ctx)
+    got = load_acs(profile_id, domain)
+    want = plist_decode(original_mcx_xml)
+    if not settings_equal(got["settings"], want):
+        fail("%s: restore mismatch want=%r got=%r" % (ctx, want, got["settings"]))
+
+
+def assert_settings_contain(settings, required, ctx):
+    for k in required:
+        if k not in settings:
+            fail("%s: missing key %r (have %r)" % (ctx, k, settings.keys()))
+
+
+def assert_example_url_retained(settings, ctx, want_parts):
+    if "ExampleURL" not in settings:
+        fail("%s: missing ExampleURL" % ctx)
+    got = settings["ExampleURL"]
+    for part in want_parts:
+        if part not in got:
+            fail("%s: ExampleURL missing %r in %r" % (ctx, part, got))
+    return got
+
+
+# --- cases -------------------------------------------------------------------
+
+def case_read_hydrate(snap):
+    section(
+        "Case 1 — read hydrate",
+        "profile_xml must surface non-empty MCX for the ACS preference domain (ACS Forced may back Classic).",
+    )
+    if len(snap["settings"]) == 0:
+        fail("case 1: hydrated settings empty for domain %r — UUID resolve/hydrate failed?" % snap["domain"])
+    print("case 1 ok: domain=%r keys=%r uuid=%s" % (snap["domain"], snap["settings"].keys(), snap["general_uuid"]))
+
+
+def case_idempotent_put(profile_id, snap):
+    section(
+        "Case 2 — idempotent PUT",
+        "PUT current hydrated XML unchanged; settings + general <uuid> must stay stable (no orphan UUID swap).",
+    )
+    profile_put_xml(id=profile_id, xml_str=snap["xml"], auth=auth)
+    after = load_acs(profile_id, snap["domain"])
+    if after["general_uuid"] != snap["general_uuid"]:
+        fail("case 2: general uuid changed %s → %s (orphan risk)" % (snap["general_uuid"], after["general_uuid"]))
+    if not settings_equal(after["settings"], snap["settings"]):
+        fail("case 2: settings drifted after no-op put: %r → %r" % (snap["settings"], after["settings"]))
+    print("case 2 ok: uuid+settings stable")
+
+
+def case_change_existing_key(profile_id, snap):
+    section(
+        "Case 3 — change an existing key",
+        "Flip one existing preference value, read back, restore original MCX dict.",
+    )
+    settings = copy_dict(snap["settings"])
+    keys = settings.keys()
+    if not keys:
+        fail("case 3: no keys to change")
+    key = keys[0]
+    original = settings[key]
+    settings[key] = "%s-changed" % MARKER_VAL
+    put_mcx_settings_map(profile_id, snap["domain"], settings, "case 3 change")
+    after = load_acs(profile_id, snap["domain"])
+    if after["settings"].get(key) != settings[key]:
+        fail("case 3: key %r not updated (got %r)" % (key, after["settings"].get(key)))
+    if after["general_uuid"] != snap["general_uuid"]:
+        fail("case 3: uuid changed")
+    restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 3")
+    print("case 3 ok: changed %r (%r → …) and restored" % (key, original))
+
+
+def case_add_and_remove_key(profile_id, snap):
+    section(
+        "Case 4 — add then remove marker key",
+        "Add BuddyAcs7Marker, verify, remove via exact dict replace, restore original.",
+    )
+    settings = copy_dict(snap["settings"])
+    settings[MARKER_KEY] = MARKER_VAL
+    put_mcx_settings_map(profile_id, snap["domain"], settings, "case 4 add")
+    after = load_acs(profile_id, snap["domain"])
+    assert_settings_contain(after["settings"], [MARKER_KEY], "case 4 after add")
+    if after["settings"][MARKER_KEY] != MARKER_VAL:
+        fail("case 4: marker value mismatch")
+
+    # Remove marker only (keep other keys as currently on server).
+    trimmed = copy_dict(after["settings"])
+    trimmed.pop(MARKER_KEY)
+    put_mcx_settings_map(profile_id, snap["domain"], trimmed, "case 4 remove marker")
+    after2 = load_acs(profile_id, snap["domain"])
+    if MARKER_KEY in after2["settings"]:
+        fail("case 4: marker still present after remove")
+
+    restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 4")
+    print("case 4 ok: add/remove marker + restore")
+
+
+def case_patch_merge(profile_id, snap):
+    section(
+        "Case 5 — profile_xml_patch_payload (MCX replace semantics)",
+        "MCX patch replaces mcx_preference_settings (unlike PayloadContent key-merge). "
+        + "Put full dict via patch, then confirm partial patch replaces; restore.",
+    )
+    # 5a — patch with complete settings map (Starlark-side merge).
+    full = copy_dict(snap["settings"])
+    full[MARKER_KEY] = MARKER_VAL + "-patch"
+    state = load_acs(profile_id, snap["domain"])
+    patched = profile_xml_patch_payload(state["xml"], identifier=snap["domain"], new_payload=full)
+    profile_put_xml(id=profile_id, xml_str=patched, auth=auth)
+    after = load_acs(profile_id, snap["domain"])
+    assert_settings_contain(after["settings"], [MARKER_KEY], "case 5a")
+    for k in snap["settings"]:
+        if k not in after["settings"]:
+            fail("case 5a: dropped original key %r" % k)
+
+    # 5b — partial patch replaces entire settings dict (documented MCX behaviour).
+    state = load_acs(profile_id, snap["domain"])
+    patched = profile_xml_patch_payload(state["xml"], identifier=snap["domain"], new_payload={MARKER_KEY: "partial-only"})
+    profile_put_xml(id=profile_id, xml_str=patched, auth=auth)
+    after = load_acs(profile_id, snap["domain"])
+    if after["settings"].get(MARKER_KEY) != "partial-only":
+        fail("case 5b: expected partial-only marker, got %r" % after["settings"])
+    for k in snap["settings"]:
+        if k == MARKER_KEY:
+            continue
+        if k in after["settings"]:
+            fail("case 5b: expected MCX replace to drop original key %r" % k)
+
+    restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 5")
+    print("case 5 ok: MCX full patch + partial replace + restore")
+
+
+def case_multi_key_one_put(profile_id, snap):
+    section(
+        "Case 6 — multi-key single PUT",
+        "Change several keys in one write (marker + tweak first key), restore.",
+    )
+    settings = copy_dict(snap["settings"])
+    settings[MARKER_KEY] = MARKER_VAL + "-multi"
+    keys = snap["settings"].keys()
+    if keys:
+        settings[keys[0]] = "%s-multi" % MARKER_VAL
+    put_mcx_settings_map(profile_id, snap["domain"], settings, "case 6")
+    after = load_acs(profile_id, snap["domain"])
+    assert_settings_contain(after["settings"], [MARKER_KEY], "case 6")
+    if after["settings"][MARKER_KEY] != settings[MARKER_KEY]:
+        fail("case 6: marker mismatch")
+    restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 6")
+    print("case 6 ok: multi-key put + restore")
+
+
+def case_apply_form_amp(profile_id, snap):
+    section(
+        "Case 7 — Apply-form &amp; ExampleURL",
+        "Add Jamf ACS Apply-form URL; expect success + retention; restore.",
+    )
+    settings = copy_dict(snap["settings"])
+    settings["ExampleURL"] = APPLY_FORM_URL
+    put_mcx_settings_map(profile_id, snap["domain"], settings, "case 7 apply-form")
+    after = load_acs(profile_id, snap["domain"])
+    assert_example_url_retained(after["settings"], "case 7", ["acs7", "buddy=1"])
+    if after["general_uuid"] != snap["general_uuid"]:
+        fail("case 7: uuid changed after Apply-form put")
+    restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 7")
+    print("case 7 ok: Apply-form retained + restore")
+
+
+def case_bare_amp_reject(profile_id, snap):
+    section(
+        "Case 8 — bare '&' via ACS",
+        "Literal '&' in a preference URL is written on the ACS path when a document is linked (Classic-only still rejects).",
+    )
+    state = load_acs(profile_id, snap["domain"])
+    settings = copy_dict(state["settings"])
+    settings["ExampleURL"] = BARE_AMP_URL
+    put_mcx_settings_map(profile_id, snap["domain"], settings, "case 8 bare-amp")
+    after = load_acs(profile_id, snap["domain"])
+    assert_example_url_retained(after["settings"], "case 8", ["acs7", "buddy=1"])
+    if after["general_uuid"] != snap["general_uuid"]:
+        fail("case 8: uuid changed after bare-'&' put")
+    restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 8")
+    print("case 8 ok: bare '&' retained via ACS + restore")
+
+
+def case_under_encoded_reject(profile_id, snap):
+    section(
+        "Case 9 — under-encoded outer payloads reject",
+        "Apply-form put once, under-encode outer XML, expect local reject, restore.",
+    )
+    settings = copy_dict(snap["settings"])
+    settings["ExampleURL"] = APPLY_FORM_URL
+    put_mcx_settings_map(profile_id, snap["domain"], settings, "case 9 seed apply-form")
+    state = load_acs(profile_id, snap["domain"])
+    under = None
+    pairs = [
+        ("acs7&amp;amp;amp;buddy", "acs7&amp;buddy"),
+        ("acs7&amp;amp;buddy", "acs7&amp;buddy"),
+    ]
+    for good, bad in pairs:
+        if good in state["xml"]:
+            under = state["xml"].replace(good, bad)
+            break
+    if under == None:
+        print("case 9 skip: could not locate Apply-form outer encoding to under-encode")
+        restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 9 skip")
+        return
+    def _put():
+        return profile_put_xml(id=profile_id, xml_str=under, auth=auth)
+    put = attempt(_put)
+    if put["ok"]:
+        restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 9 unexpected ok")
+        fail("case 9: under-encoded put returned ok")
+    err = put["error"]
+    if "409" in err or "<html>" in err.lower():
+        fail("case 9: expected local reject, got HTTP/HTML: %s" % err)
+    restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 9")
+    print("case 9 ok: under-encoded rejected:", err)
+
+
+def case_sequential_edits(profile_id, snap):
+    section(
+        "Case 10 — sequential edits without mid restore",
+        "Three successive puts on the same profile, then one restore to original.",
+    )
+    s1 = copy_dict(snap["settings"])
+    s1[MARKER_KEY] = "step-1"
+    put_mcx_settings_map(profile_id, snap["domain"], s1, "case 10 step1")
+    a1 = load_acs(profile_id, snap["domain"])
+    if a1["settings"].get(MARKER_KEY) != "step-1":
+        fail("case 10 step1 failed")
+
+    s2 = copy_dict(a1["settings"])
+    s2[MARKER_KEY] = "step-2"
+    s2["BuddyAcs7Step"] = "2"
+    put_mcx_settings_map(profile_id, snap["domain"], s2, "case 10 step2")
+    a2 = load_acs(profile_id, snap["domain"])
+    if a2["settings"].get(MARKER_KEY) != "step-2" or a2["settings"].get("BuddyAcs7Step") != "2":
+        fail("case 10 step2 failed: %r" % a2["settings"])
+
+    s3 = copy_dict(a2["settings"])
+    s3[MARKER_KEY] = "step-3"
+    put_mcx_settings_map(profile_id, snap["domain"], s3, "case 10 step3")
+    a3 = load_acs(profile_id, snap["domain"])
+    if a3["settings"].get(MARKER_KEY) != "step-3":
+        fail("case 10 step3 failed")
+    if a3["general_uuid"] != snap["general_uuid"]:
+        fail("case 10: uuid drifted across sequential edits")
+
+    restore_original(profile_id, snap["domain"], snap["mcx_xml"], "case 10")
+    print("case 10 ok: sequential edits + final restore")
+
+
+def case_clone_copy(profile_id, snap, created):
+    section(
+        "Case 11 — clone + copy same tenant",
+        "Clone/copy from ACS profile; verify domain settings appear on children; delete children.",
+    )
+    if TEST_SKIP_CLONE == "1":
+        print("case 11 skip: TEST_SKIP_CLONE=1")
+        return
+
+    clone_name = TEST_PREFIX + "clone"
+    cloned = profile_clone(id=profile_id, name=clone_name, auth=auth)
+    clone_id = cloned["id"]
+    created.append(clone_id)
+    cloned_snap = load_acs(clone_id, snap["domain"])
+    for k in snap["settings"]:
+        if k not in cloned_snap["settings"]:
+            fail("case 11 clone missing key %r (got %r)" % (k, cloned_snap["settings"].keys()))
+    if cloned_snap["general_uuid"] == snap["general_uuid"]:
+        fail("case 11 clone reused general uuid %s" % snap["general_uuid"])
+
+    # Mutate clone only (parent must stay at original).
+    cset = copy_dict(cloned_snap["settings"])
+    cset[MARKER_KEY] = "on-clone"
+    put_mcx_settings_map(clone_id, snap["domain"], cset, "case 11 mutate clone")
+    parent = load_acs(profile_id, snap["domain"])
+    if not settings_equal(parent["settings"], snap["settings"]):
+        fail("case 11: parent drifted while mutating clone")
+
+    copy_name = TEST_PREFIX + "copy"
+    copied = profile_copy(id=profile_id, name=copy_name, auth=auth)
+    copy_id = copied["id"]
+    created.append(copy_id)
+    copied_snap = load_acs(copy_id, snap["domain"])
+    for k in snap["settings"]:
+        if k not in copied_snap["settings"]:
+            fail("case 11 copy missing key %r" % k)
+
+    print("case 11 ok: clone_id=%d copy_id=%d" % (clone_id, copy_id))
+
+
+def case_redeploy(profile_id, snap):
+    section(
+        "Case 12 — redeploy",
+        "Optional profile_redeploy; skipped by default (may push to scoped devices).",
+    )
+    if TEST_SKIP_REDEPLOY == "1":
+        print("case 12 skip: TEST_SKIP_REDEPLOY=1")
+        return
+    profile_redeploy(id=profile_id, auth=auth)
+    after = load_acs(profile_id, snap["domain"])
+    if not settings_equal(after["settings"], snap["settings"]):
+        fail("case 12: settings changed after redeploy")
+    print("case 12 ok: redeploy")
+
+
+def try_profile_delete_pid(pid):
+    def _delete():
+        return profile_delete(id=pid, auth=auth)
+    return attempt(_delete)
+
+
+def cleanup_created(created):
+    section("Cleanup clones/copies", "Delete buddy-test-acs7-* profiles created this run.")
+    for pid in created:
+        res = try_profile_delete_pid(pid)
+        if not res["ok"]:
+            error("profile_delete %d: %s" % (pid, res["error"]))
+    created.clear()
+    def _list():
+        return profiles(filter=TEST_PREFIX)
+    res = attempt(_list)
+    if res["ok"]:
+        for p in res["value"]:
+            profile_delete(id=p["id"], auth=auth)
+
+
+def main(auth=None):
+    profile_id = TEST_ACS_PROFILE_ID
+    created = []
+    section(
+        "ACS profile %d suite" % profile_id,
+        "Same-tenant permutations on refactored ACS; restore original MCX after mutating cases.",
+    )
+
+    if TEST_ACS_PAYLOAD_UUID != "":
+        profile_acs_bind_uuid(id=profile_id, payload_uuid=TEST_ACS_PAYLOAD_UUID)
+        print("bound ACS payload UUID for classic id %d" % profile_id)
+
+    snap = load_acs(profile_id, TEST_ACS_DOMAIN)
+    print("snapshot: id=%d domain=%r keys=%r uuid=%s" % (
+        profile_id, snap["domain"], snap["settings"].keys(), snap["general_uuid"],
+    ))
+    if snap["general_uuid"] == "":
+        fail("could not parse general <uuid> from profile XML")
+    if len(snap["settings"]) == 0:
+        fail(
+            ("hydrated MCX settings empty for domain %r on profile %d. " +
+             "API tokens usually cannot scrape FIELD_EXTERNAL_CONFIGPROFILE_ID from legacy HTML. " +
+             "Set TEST_ACS_PAYLOAD_UUID in this script (or BUDDY_ACS_PAYLOAD_UUID_%d) to the " +
+             "ACS payload UUID from the Jamf ACS tab / browser form, then re-run.")
+            % (snap["domain"], profile_id, profile_id)
+        )
+
+    case_read_hydrate(snap)
+    case_idempotent_put(profile_id, snap)
+    case_change_existing_key(profile_id, snap)
+    case_add_and_remove_key(profile_id, snap)
+    case_patch_merge(profile_id, snap)
+    case_multi_key_one_put(profile_id, snap)
+    case_apply_form_amp(profile_id, snap)
+    case_bare_amp_reject(profile_id, snap)
+    case_under_encoded_reject(profile_id, snap)
+    case_sequential_edits(profile_id, snap)
+    case_clone_copy(profile_id, snap, created)
+    case_redeploy(profile_id, snap)
+
+    # Final restore + verify (covers any case that left residue).
+    restore_original(profile_id, snap["domain"], snap["mcx_xml"], "final")
+    final = load_acs(profile_id, snap["domain"])
+    if not settings_equal(final["settings"], snap["settings"]):
+        fail("final: settings != snapshot: %r vs %r" % (final["settings"], snap["settings"]))
+    if final["general_uuid"] != snap["general_uuid"]:
+        fail("final: uuid changed %s → %s" % (snap["general_uuid"], final["general_uuid"]))
+
+    cleanup_created(created)
+    print("")
+    print("ACS profile %d suite passed." % profile_id)

@@ -4,7 +4,61 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"buddy/internal/buddy"
+	"buddy/internal/buddy/secrets"
 )
+
+type mockSecretStore struct {
+	values map[string]string
+}
+
+func (m *mockSecretStore) key(credName string, kind secrets.Kind) string {
+	return credName + "/" + kind.String()
+}
+
+func (m *mockSecretStore) Get(credName string, kind secrets.Kind) (string, error) {
+	if v, ok := m.values[m.key(credName, kind)]; ok && v != "" {
+		return v, nil
+	}
+	return "", secrets.ErrNotFound
+}
+
+func (m *mockSecretStore) Set(credName string, kind secrets.Kind, value string) error {
+	if m.values == nil {
+		m.values = make(map[string]string)
+	}
+	m.values[m.key(credName, kind)] = value
+	return nil
+}
+
+func (m *mockSecretStore) Delete(credName string, kind secrets.Kind) error {
+	delete(m.values, m.key(credName, kind))
+	return nil
+}
+
+func (m *mockSecretStore) Has(credName string, kind secrets.Kind) (bool, error) {
+	v, ok := m.values[m.key(credName, kind)]
+	return ok && v != "", nil
+}
+
+func (m *mockSecretStore) List() ([]secrets.Entry, error) {
+	var out []secrets.Entry
+	for k := range m.values {
+		parts := strings.SplitN(k, "/", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		kind, err := secrets.ParseKind(parts[1])
+		if err != nil {
+			continue
+		}
+		out = append(out, secrets.Entry{AuthName: parts[0], Kind: kind})
+	}
+	return out, nil
+}
+
+func (m *mockSecretStore) Description() string { return "mock" }
 
 func TestParseInt_Valid(t *testing.T) {
 	got, err := parseInt("42", "id")
@@ -212,10 +266,20 @@ func TestExtractGlobalFlags(t *testing.T) {
 		t.Fatalf("rest = %v, want %v", rest, want)
 	}
 
+	argv = []string{"buddy", "auth", "token", "--raw", "--user=default"}
+	g, rest = extractGlobalFlags(argv)
+	if g.user != "default" {
+		t.Fatalf("user = %q, want default", g.user)
+	}
+	want = []string{"buddy", "auth", "token", "--raw"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
 	argv = []string{"buddy", "auth", "token", "--raw", "--cred=default"}
 	g, rest = extractGlobalFlags(argv)
-	if !g.usedCred || g.cred != "default" {
-		t.Fatalf("cred = %q usedCred=%v", g.cred, g.usedCred)
+	if !g.rejectCred {
+		t.Fatal("expected rejectCred for removed --cred")
 	}
 	want = []string{"buddy", "auth", "token", "--raw"}
 	if !reflect.DeepEqual(rest, want) {
@@ -226,6 +290,38 @@ func TestExtractGlobalFlags(t *testing.T) {
 	g, rest = extractGlobalFlags(argv)
 	if g.user != "dev" {
 		t.Fatalf("user = %q, want dev", g.user)
+	}
+
+	argv = []string{"buddy", "-e", "1+1", "--", "foo"}
+	g, rest = extractGlobalFlags(argv)
+	if g.evalSource != "1+1" || g.evalDup || g.evalMissing {
+		t.Fatalf("eval: source=%q dup=%v missing=%v", g.evalSource, g.evalDup, g.evalMissing)
+	}
+	want = []string{"buddy", "--", "foo"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "--eval=print(len(args))", "bar"}
+	g, rest = extractGlobalFlags(argv)
+	if g.evalSource != "print(len(args))" {
+		t.Fatalf("evalSource = %q", g.evalSource)
+	}
+	want = []string{"buddy", "bar"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "--eval", "x", "-e", "y"}
+	g, rest = extractGlobalFlags(argv)
+	if !g.evalDup || g.evalSource != "x" {
+		t.Fatalf("want dup with first source, got dup=%v source=%q", g.evalDup, g.evalSource)
+	}
+
+	argv = []string{"buddy", "-e"}
+	g, _ = extractGlobalFlags(argv)
+	if !g.evalMissing {
+		t.Fatal("expected evalMissing for bare -e")
 	}
 }
 
@@ -282,5 +378,123 @@ func TestStaticGroupSplitFlags(t *testing.T) {
 					tt.args, gotF, gotP, tt.wantFlags, tt.wantPos)
 			}
 		})
+	}
+}
+
+func TestParseCredSetTenantArgs(t *testing.T) {
+	tid := "e77c1408-10c8-4007-b177-abc9157fbcaa"
+	got, err := parseCredSetTenantArgs([]string{
+		"gw", "--region=us", "--tenant-id=" + tid,
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "gw" || got.Tenant.Region != "us" || got.Tenant.TenantID != tid {
+		t.Fatalf("%+v", got)
+	}
+	if err := got.Tenant.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParseCredSetAuthArgs(t *testing.T) {
+	got, err := parseCredSetAuthArgs([]string{
+		"ro", "--type=oauth", "--client-id=cid", "--tenants=sandbox,prod", "--access=readonly", "--surface=platform",
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "ro" || got.Auth.ClientID != "cid" || got.Auth.EffectiveAccess() != buddy.AccessReadonly {
+		t.Fatalf("%+v", got)
+	}
+	if got.Auth.Type != buddy.AuthTypePlatform {
+		t.Fatalf("oauth+surface=platform should fold to type platform, got %q", got.Auth.Type)
+	}
+	if len(got.Auth.Tenants) != 2 {
+		t.Fatalf("tenants=%v", got.Auth.Tenants)
+	}
+}
+
+func TestParseCredSetAuthArgs_RejectsExtraPositionals(t *testing.T) {
+	_, err := parseCredSetAuthArgs([]string{"a", "b", "--type=oauth", "--client-id=c", "--tenants=t"}, false)
+	if err == nil || !strings.Contains(err.Error(), "unexpected argument") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestSecretSelectionForAuthType(t *testing.T) {
+	wantPw, wantCs, err := secretSelectionForAuthType("basic", "c")
+	if err != nil || !wantPw || wantCs {
+		t.Fatalf("basic => pw=%v cs=%v err=%v", wantPw, wantCs, err)
+	}
+	wantPw, wantCs, err = secretSelectionForAuthType("platform", "c")
+	if err != nil || wantPw || !wantCs {
+		t.Fatalf("platform => pw=%v cs=%v err=%v", wantPw, wantCs, err)
+	}
+	if _, _, err = secretSelectionForAuthType("command", "c"); err == nil {
+		t.Fatal("command auth should have no stored secret")
+	}
+}
+
+func TestRunCredMigrate_MovesInlineSecret(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	mock := &mockSecretStore{values: map[string]string{}}
+	secrets.SetStore(mock)
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	cfg := &buddy.Config{
+		Tenant: buddy.TenantSelection{Default: "sandbox"},
+		Tenants: map[string]buddy.TenantConfig{
+			"sandbox": {URL: "https://example.jamfcloud.com"},
+		},
+		Auths: map[string]buddy.AuthEntry{
+			"sandbox": {
+				Type:         "oauth",
+				ClientID:     "cid",
+				ClientSecret: "inline-secret",
+				Tenants:      []string{"sandbox"},
+			},
+		},
+	}
+	if err := runCredMigrate(cfg, buddy.Opts{SkipConfirm: true}, nil); err != nil {
+		t.Fatalf("runCredMigrate: %v", err)
+	}
+	if got := cfg.Auths["sandbox"].ClientSecret; got != "" {
+		t.Fatalf("inline clientSecret not cleared: %q", got)
+	}
+	if v, err := mock.Get("sandbox", secrets.KindClientSecret); err != nil || v != "inline-secret" {
+		t.Fatalf("store client-secret = %q, err %v", v, err)
+	}
+}
+
+func TestRunCredEraseSecrets_WipesStore(t *testing.T) {
+	mock := &mockSecretStore{values: map[string]string{
+		"sandbox/password":      "pw",
+		"sandbox/client-secret": "cs",
+	}}
+	secrets.SetStore(mock)
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	if err := runCredEraseSecrets(buddy.Opts{SkipConfirm: true}); err != nil {
+		t.Fatalf("runCredEraseSecrets: %v", err)
+	}
+	left, err := mock.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 0 {
+		t.Fatalf("leftover %+v", left)
+	}
+}
+
+func TestParseCredSetTenant_GatewayRequiresTenantID(t *testing.T) {
+	got, err := parseCredSetTenantArgs([]string{"gw", "--region=us"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := got.Tenant.Validate(); err == nil {
+		t.Fatal("Validate should reject platform without tenantId")
+	} else if !strings.Contains(err.Error(), "tenantId") {
+		t.Fatalf("Validate error = %v", err)
 	}
 }

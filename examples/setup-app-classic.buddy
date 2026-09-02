@@ -1,0 +1,154 @@
+#!/usr/bin/env buddy
+# Example: Classic greenfield “new app” change batch (prefs + PPPC + cache/install).
+#
+# Usage:
+#   buddy examples/setup-app-classic.buddy              # plan only (default)
+#   buddy examples/setup-app-classic.buddy -- apply     # plan + apply (after approval)
+#   buddy -y examples/setup-app-classic.buddy -- apply  # apply without prompts
+#
+# Adjust name/version/package_pattern and FDA code requirement for your tenant.
+# Created profile/policy IDs appear only in Outcomes after apply.
+
+
+# Build prefs + PPPC profiles, cache/install policies, optional SS steps.
+# Returns a list of step dicts for plan_change / run_change. Does not write to Jamf.
+def setup_app_classic(
+        name,
+        version,
+        prefs_content,
+        pppc_services = None,
+        pppc_payload_dict = None,
+        package_pattern = "",
+        create_ss = False,
+        ss_display_name = "",
+        ss_script_id = 0,
+        scope_all = True,
+        scope_group_ids = None,
+        category = "",
+        prefs_profile_name = "",
+        pppc_profile_name = ""):
+    if prefs_content == None or len(prefs_content) == 0:
+        fail("setup_app_classic requires prefs_content (list of payload dicts)")
+
+    groups = scope_group_ids if scope_group_ids != None else []
+    title = name
+    if len(name) > 0:
+        title = name[0:1].upper() + name[1:]
+
+    prefs_name = prefs_profile_name if prefs_profile_name else (title + " Preferences")
+    pppc_name = pppc_profile_name if pppc_profile_name else (title + " PPPC")
+
+    steps = [
+        step_create_profile(
+            name = prefs_name,
+            content = prefs_content,
+            scope_all = scope_all,
+            scope_group_ids = groups,
+            category = category,
+            note = "Prefs / MCX configuration profile for " + name + ".",
+        ),
+    ]
+
+    pppc = pppc_payload_dict
+    if pppc == None:
+        if pppc_services == None:
+            fail("setup_app_classic requires pppc_services or pppc_payload_dict")
+        pppc = pppc_payload(services = pppc_services)
+
+    steps.append(step_create_profile(
+        name = pppc_name,
+        content = [pppc],
+        scope_all = scope_all,
+        scope_group_ids = groups,
+        category = category,
+        note = "PPPC (TCC) profile for " + name + ".",
+    ))
+
+    steps.append(step_create_package_policy(
+        name = name,
+        version = version,
+        action = "cache",
+        package_pattern = package_pattern,
+        scope_all = scope_all,
+        scope_group_ids = groups,
+        category = category,
+        note = "Versioned cache policy cache-" + name.lower() + "-" + version + ".",
+    ))
+    steps.append(step_create_package_policy(
+        name = name,
+        version = version,
+        action = "install",
+        package_pattern = package_pattern,
+        scope_all = scope_all,
+        scope_group_ids = groups,
+        category = category,
+        note = "Unversioned install trigger install-" + name.lower() + "-next.",
+    ))
+
+    install_trigger = "install-" + name.lower() + "-next"
+    if create_ss:
+        display = ss_display_name if ss_display_name else ("Install " + title)
+        steps.append(step_create_ss(
+            trigger = install_trigger,
+            display_name = display,
+            category = category,
+            script_id = ss_script_id,
+            note = "Self Service invokes " + install_trigger + " via script parameter4.",
+        ))
+    else:
+        steps.append(step_note(
+            note = "No Self Service policy created. Point SS at trigger " + install_trigger + " when ready.",
+        ))
+
+    steps.append(step_note(
+        note = "Created IDs appear in Outcomes after apply. Scope default is all computers unless scope_group_ids set.",
+    ))
+    return steps
+
+
+def main():
+    mode = "plan"
+    if len(args) > 0 and args[0] in ("apply", "run"):
+        mode = "apply"
+
+    name = "example"
+    version = "1.0.0"
+
+    prefs = prefs_payload(
+        domain = "com.example.app",
+        settings = {"ExampleKey": True},
+    )
+
+    fda = pppc_fda(
+        bundle_id = "com.example.app",
+        code_requirement = 'identifier "com.example.app" and anchor apple generic',
+        comment = "Full Disk Access for Example",
+    )
+
+    change = change_batch(
+        title = "Example app Classic greenfield setup",
+        summary = """Create prefs + PPPC profiles, cache and install policies for Example 1.0.0.
+Optional Self Service omitted; install trigger is install-example-next.""",
+        risk = "medium",
+        window = "sandbox / lab first",
+    )
+
+    steps = setup_app_classic(
+        name = name,
+        version = version,
+        prefs_content = [prefs],
+        pppc_services = {
+            "SystemPolicyAllFiles": [fda],
+        },
+        package_pattern = "*example*1.0.0*",
+        create_ss = False,
+        scope_all = True,
+    )
+
+    planned = plan_change(change = change, steps = steps)
+
+    if mode != "apply":
+        print("Plan only. Re-run with: buddy examples/setup-app-classic.buddy -- apply")
+        return
+
+    run_change(change = change, steps = steps, planned = planned)

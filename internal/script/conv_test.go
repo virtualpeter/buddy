@@ -371,6 +371,21 @@ func TestStarlarkToJSON_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestStarlarkToJSONPretty(t *testing.T) {
+	list := starlark.NewList([]starlark.Value{
+		starlark.MakeInt64(1),
+		starlark.NewList([]starlark.Value{starlark.MakeInt64(2)}),
+	})
+	got, err := StarlarkToJSONPretty(list)
+	if err != nil {
+		t.Fatalf("StarlarkToJSONPretty: %v", err)
+	}
+	want := "[\n  1,\n  [\n    2\n  ]\n]"
+	if got != want {
+		t.Errorf("StarlarkToJSONPretty:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestPlistDecodeToStarlark_Minimal(t *testing.T) {
 	plistStr := `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

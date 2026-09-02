@@ -41,7 +41,7 @@ func (c CredentialConfig) ResolveAuthWithSecrets(credName string) (ResolvedAuth,
 		}
 		pw, err := store.Get(credName, secrets.KindPassword)
 		if err != nil {
-			return ResolvedAuth{}, fmt.Errorf("password missing for credential %q — run 'buddy cred secret set %s' or set auth.password in config: %w", credName, credName, err)
+			return ResolvedAuth{}, fmt.Errorf("password missing for auth %q — run 'buddy cred set secret %s' (or 'buddy cred migrate %s' to move an inline secret): %w", credName, credName, credName, err)
 		}
 		resolved.Password = pw
 		return resolved, nil
@@ -55,7 +55,7 @@ func (c CredentialConfig) ResolveAuthWithSecrets(credName string) (ResolvedAuth,
 		}
 		secret, err := store.Get(credName, secrets.KindClientSecret)
 		if err != nil {
-			return ResolvedAuth{}, fmt.Errorf("client secret missing for credential %q — run 'buddy cred secret set %s' or set auth.clientSecret in config: %w", credName, credName, err)
+			return ResolvedAuth{}, fmt.Errorf("client secret missing for auth %q — run 'buddy cred set secret %s' (or 'buddy cred migrate %s' to move an inline secret): %w", credName, credName, credName, err)
 		}
 		resolved.ClientSecret = secret
 		return resolved, nil
@@ -100,4 +100,28 @@ func HasCredentialSecret(credName string, kind secrets.Kind) (bool, error) {
 // SecretStoreInfo returns the active secret backend name and description.
 func SecretStoreInfo() (kind, detail string, err error) {
 	return secrets.StoreInfo()
+}
+
+// SecretStoreDetails is the vault + DEK + recovery-passphrase backends for `cred store`.
+func SecretStoreDetails() (kind, vaultPath, masterKind, masterDetail, dekKind, dekDetail string, err error) {
+	kind, detail, err := secrets.StoreInfo()
+	if err != nil {
+		return "", "", "", "", "", "", err
+	}
+	if kind != "vault" {
+		return kind, detail, "", "", "", "", nil
+	}
+	vp, err := secrets.VaultPath()
+	if err != nil {
+		return kind, detail, "", "", "", "", err
+	}
+	m, err := secrets.DefaultMasterStore()
+	if err != nil {
+		return kind, vp, secrets.MasterKindName(), "", secrets.DEKKindName(), "", err
+	}
+	d, derr := secrets.DefaultDEKStore()
+	if derr != nil {
+		return kind, vp, secrets.MasterKindName(), m.Description(), secrets.DEKKindName(), "", derr
+	}
+	return kind, vp, secrets.MasterKindName(), m.Description(), secrets.DEKKindName(), d.Description(), nil
 }

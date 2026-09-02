@@ -14,30 +14,42 @@ import (
 // v3 plural / singular builtins
 // ---------------------------------------------------------------------------
 
-// policies(keywords, exclude_ids?, force_refresh?, ids?=False, cred?) → list of {id,name} or list of int
+// policies(keywords?, exclude_ids?, ids?=False, tenant?, surface?, auth?) → list of {id,name} or list of int
 func policiesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var keywordsVal starlark.Value
+		var keywordsVal starlark.Value = starlark.None
 		var excludeIDs *starlark.List
-		var cred starlark.String
-		var forceRefresh, idsOnly starlark.Bool
+		var idsOnly starlark.Bool
+		var sess sessionArgs
 		if err := starlark.UnpackArgs("policies", args, kwargs,
-			"keywords", &keywordsVal, "exclude_ids?", &excludeIDs, "force_refresh?", &forceRefresh, "ids?", &idsOnly, "cred?", &cred,
+			"keywords?", &keywordsVal, "exclude_ids?", &excludeIDs, "ids?", &idsOnly,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
 		}
-		kw, err := stringListFromStarlark(keywordsVal, "keywords")
-		if err != nil {
-			return nil, err
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		var kw []string
+		if keywordsVal != nil && keywordsVal != starlark.None {
+			var err error
+			kw, err = stringListFromStarlark(keywordsVal, "keywords")
+			if err != nil {
+				return nil, err
+			}
 		}
 		exclude, err := intListFromStarlark(excludeIDs, "exclude_ids")
 		if err != nil {
 			return nil, err
 		}
-		c := resolveCred(thread, credName, cred)
-		summaries, err := buddy.PolicyFindSummariesByKeywords(c, scriptOpts, kw, exclude, bool(forceRefresh), logger)
+		summaries, err := buddy.PolicyFindSummariesByKeywords(c, scriptOpts, kw, exclude, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		if bool(idsOnly) {
@@ -56,23 +68,31 @@ func policiesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 	}
 }
 
-// policy(id=?) | policy(trigger=?, force_refresh?=) → details dict
+// policy(id=?) | policy(trigger=?) → details dict
 func policyBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value = starlark.None
-		var trigger, cred starlark.String
-		var forceRefresh starlark.Bool
+		var trigger starlark.String
+		var sess sessionArgs
 		if err := starlark.UnpackArgs("policy", args, kwargs,
-			"id?", &idVal, "trigger?", &trigger, "force_refresh?", &forceRefresh, "cred?", &cred,
+			"id?", &idVal, "trigger?", &trigger,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		idSet := idVal != nil && idVal != starlark.None
 		keySet := trigger != ""
 		if err := xorIDOrKey("policy", idSet, keySet, "trigger"); err != nil {
 			return nil, err
 		}
-		c := resolveCred(thread, credName, cred)
 		var pid int
 		if idSet {
 			var err error
@@ -81,97 +101,129 @@ func policyBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 				return nil, err
 			}
 		} else {
-			id, err := buddy.PolicyFind(c, scriptOpts, string(trigger), bool(forceRefresh), logger)
+			id, err := buddy.PolicyFind(c, scriptOpts, string(trigger), logger)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			pid = id
 		}
 		d, err := buddy.PolicyGetDetails(c, pid, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(policyDetailsToStarlark(d)), nil
 	}
 }
 
-// policy_xml(id, cred?) → XML string
+// policy_xml(id, tenant?, surface?, auth?) → XML string
 func policyXMLBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value
-		var cred starlark.String
-		if err := starlark.UnpackArgs("policy_xml", args, kwargs, "id", &idVal, "cred?", &cred); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("policy_xml", args, kwargs, "id", &idVal,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		pid, err := starlarkIDInt(idVal, "id")
 		if err != nil {
 			return nil, err
 		}
-		xmlBytes, err := buddy.PolicyFetchXML(resolveCred(thread, credName, cred), pid)
+		xmlBytes, err := buddy.PolicyFetchXML(c, pid)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(string(xmlBytes))), nil
 	}
 }
 
-// policy_set(policy_id, enable?=, name?=, trigger?=, frequency?=, cred?)
+// policy_set(policy_id, enable?=, name?=, trigger?=, frequency?=, tenant?, surface?, auth?)
 func policySetBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var policyID starlark.Int
-		var enable *starlark.Bool
-		var name, trigger, frequency, cred starlark.String
+		var enable starlark.Value = starlark.None
+		var name, trigger, frequency starlark.String
+		var sess sessionArgs
 		if err := starlark.UnpackArgs("policy_set", args, kwargs,
-			"policy_id", &policyID,
-			"enable?", &enable, "name?", &name, "trigger?", &trigger, "frequency?", &frequency, "cred?", &cred,
+			"id", &policyID,
+			"enable?", &enable, "name?", &name, "trigger?", &trigger, "frequency?", &frequency,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
 		}
-		if enable == nil && name == "" && trigger == "" && frequency == "" {
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		if enable == starlark.None && name == "" && trigger == "" && frequency == "" {
 			return nil, fmt.Errorf("policy_set: pass at least one of enable=, name=, trigger=, frequency=")
 		}
 		pid, _ := policyID.Int64()
-		c := resolveCred(thread, credName, cred)
-		if enable != nil {
-			if err := buddy.PolicyEnable(c, scriptOpts, int(pid), bool(*enable), logger); err != nil {
-				return resultErr(err.Error()), nil
+		if enable != starlark.None {
+			b, ok := enable.(starlark.Bool)
+			if !ok {
+				return nil, fmt.Errorf("policy_set: enable must be a bool")
+			}
+			if err := buddy.PolicyEnable(c, scriptOpts, int(pid), bool(b), logger); err != nil {
+				return resultErr(err.Error())
 			}
 		}
 		if name != "" {
 			if err := buddy.PolicySetName(c, scriptOpts, int(pid), string(name), logger); err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 		}
 		if trigger != "" {
 			if err := buddy.PolicyTrigger(c, scriptOpts, int(pid), string(trigger), logger); err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 		}
 		if frequency != "" {
 			if err := buddy.PolicySetFrequency(c, scriptOpts, int(pid), string(frequency), logger); err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 		}
 		return resultOK(starlark.None), nil
 	}
 }
 
-// packages(...) — same as package_list
+// packages(...) — enumerate package summaries
 func packagesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var filter, credArg starlark.String
+		var filter starlark.String
 		page := starlark.Value(starlark.None)
 		var pageSize starlark.Int
-		if err := starlark.UnpackArgs("packages", args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize, "cred?", &credArg); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("packages", args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		opts, err := pageOptsFromArgs(page, pageSize)
 		if err != nil {
 			return nil, err
 		}
-		results, err := buddy.PackageSearch(resolveCred(thread, credName, credArg), string(filter), opts, logger)
+		results, err := buddy.PackageSearch(c, string(filter), opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		for _, p := range results {
@@ -185,25 +237,34 @@ func packagesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 	}
 }
 
-// package(id=?) | package(app=, version=, pattern?=) → full dict or {id,name}
+// package(id=?) | package(name=, version=, pattern?=) → full dict or {id,name}
 func packageBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value = starlark.None
-		var app, version, pattern, cred starlark.String
+		var name, version, pattern starlark.String
+		var sess sessionArgs
 		if err := starlark.UnpackArgs("package", args, kwargs,
-			"id?", &idVal, "app?", &app, "version?", &version, "pattern?", &pattern, "cred?", &cred,
+			"id?", &idVal, "name?", &name, "version?", &version, "pattern?", &pattern,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		idSet := idVal != nil && idVal != starlark.None
-		keySet := app != "" || version != ""
+		keySet := name != "" || version != ""
 		if idSet && keySet {
-			return nil, fmt.Errorf("package: pass either id= or app=/version=, not both")
+			return nil, fmt.Errorf("package: pass either id= or name=/version=, not both")
 		}
 		if !idSet && !keySet {
-			return nil, fmt.Errorf("package: require id= or app= and version=")
+			return nil, fmt.Errorf("package: require id= or name= and version=")
 		}
-		c := resolveCred(thread, credName, cred)
 		if idSet {
 			id, err := starlarkIDString(idVal, "id")
 			if err != nil {
@@ -211,35 +272,35 @@ func packageBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 			}
 			pkg, err := buddy.PackageFetchFull(c, id)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			b, mErr := json.Marshal(pkg)
 			if mErr != nil {
-				return resultErr(mErr.Error()), nil
+				return resultErr(mErr.Error())
 			}
 			val, err := JSONDecodeToStarlark(string(b))
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			return resultOK(val), nil
 		}
-		if app == "" || version == "" {
-			return nil, fmt.Errorf("package: app= and version= are both required when not using id=")
+		if name == "" || version == "" {
+			return nil, fmt.Errorf("package: name= and version= are both required when not using id=")
 		}
 		patternOverride := ""
 		if pattern != "" {
 			patternOverride = string(pattern)
 		}
-		id, name, err := buddy.PackageFindID(c, string(app), string(version), patternOverride, logger)
+		id, pkgName, err := buddy.PackageFindID(c, string(name), string(version), patternOverride, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if id == "" {
-			return resultErr(fmt.Sprintf("no package found for app %q version %q", string(app), string(version))), nil
+			return resultErr(fmt.Sprintf("no package found for name %q version %q", string(name), string(version)))
 		}
 		d := new(starlark.Dict)
 		_ = d.SetKey(starlark.String("id"), starlark.String(id))
-		_ = d.SetKey(starlark.String("name"), starlark.String(name))
+		_ = d.SetKey(starlark.String("name"), starlark.String(pkgName))
 		return resultOK(d), nil
 	}
 }
@@ -247,19 +308,29 @@ func packageBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 // scripts(...)
 func scriptsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var filter, cred starlark.String
+		var filter starlark.String
 		page := starlark.Value(starlark.None)
 		var pageSize starlark.Int
-		if err := starlark.UnpackArgs("scripts", args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("scripts", args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		opts, err := pageOptsFromArgs(page, pageSize)
 		if err != nil {
 			return nil, err
 		}
-		results, err := buddy.ScriptSearch(resolveCred(thread, credName, cred), string(filter), opts, logger)
+		results, err := buddy.ScriptSearch(c, string(filter), opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		for _, s := range results {
@@ -274,26 +345,39 @@ func scriptsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 	}
 }
 
-// script(id=?) | script(name=?) → full dict or id string
+// script(id=?) | script(name=?) → full Jamf JSON dict
 func scriptBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value = starlark.None
-		var name, cred starlark.String
-		if err := starlark.UnpackArgs("script", args, kwargs, "id?", &idVal, "name?", &name, "cred?", &cred); err != nil {
+		var name starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("script", args, kwargs, "id?", &idVal, "name?", &name,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		idSet := idVal != nil && idVal != starlark.None
 		keySet := name != ""
 		if err := xorIDOrKey("script", idSet, keySet, "name"); err != nil {
 			return nil, err
 		}
-		c := resolveCred(thread, credName, cred)
 		if keySet {
-			id, err := buddy.ScriptGetID(c, string(name), logger)
+			s, err := buddy.ScriptFetchByName(c, string(name), logger)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
-			return resultOK(starlark.String(id)), nil
+			val, err := scriptDetailValue(s)
+			if err != nil {
+				return resultErr(err.Error())
+			}
+			return resultOK(val), nil
 		}
 		id, err := starlarkIDString(idVal, "id")
 		if err != nil {
@@ -301,39 +385,70 @@ func scriptBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		s, err := buddy.ScriptFetchFull(c, id)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
-		b, mErr := json.Marshal(s)
-		if mErr != nil {
-			return resultErr(mErr.Error()), nil
-		}
-		val, err := JSONDecodeToStarlark(string(b))
+		val, err := scriptDetailValue(s)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
 }
 
-// computers(filter?, ids?=False, page?, page_size?, cred?)
+// computers(filter?, ids?=False, raw?=False, sort?, section?, page?, page_size?, tenant?, surface?, auth?)
 func computersBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var filter, cred starlark.String
+		var filter, sort starlark.String
 		page := starlark.Value(starlark.None)
+		section := starlark.Value(starlark.None)
 		var pageSize starlark.Int
-		var idsOnly starlark.Bool
+		var idsOnly, raw starlark.Bool
+		var sess sessionArgs
 		if err := starlark.UnpackArgs("computers", args, kwargs,
-			"filter?", &filter, "ids?", &idsOnly, "page?", &page, "page_size?", &pageSize, "cred?", &cred,
+			"filter?", &filter, "ids?", &idsOnly, "raw?", &raw, "sort?", &sort, "section?", &section,
+			"page?", &page, "page_size?", &pageSize,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
 		}
+		if err := computersIdsRawConflict(bool(idsOnly), bool(raw)); err != nil {
+			return nil, err
+		}
+		sections, err := parseComputerSectionArg(section)
+		if err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		opts, err := pageOptsFromArgs(page, pageSize)
 		if err != nil {
 			return nil, err
 		}
-		records, err := buddy.ComputerSearch(resolveCred(thread, credName, cred), string(filter), opts, logger)
+		q := buddy.ComputerListQuery{Filter: string(filter), Sort: string(sort), Sections: sections}
+		if bool(raw) {
+			rows, err := buddy.ComputerSearchRaw(c, q, opts, logger)
+			if err != nil {
+				return resultErr(err.Error())
+			}
+			body, err := json.Marshal(rows)
+			if err != nil {
+				return resultErr(err.Error())
+			}
+			val, err := JSONDecodeToStarlark(string(body))
+			if err != nil {
+				return resultErr(err.Error())
+			}
+			return resultOK(val), nil
+		}
+		records, err := buddy.ComputerSearch(c, q, opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		if bool(idsOnly) {
@@ -351,6 +466,11 @@ func computersBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 				_ = d.SetKey(starlark.String("managementId"), starlark.String(r.ManagementID))
 				_ = d.SetKey(starlark.String("macAddress"), starlark.String(r.MacAddress))
 				_ = d.SetKey(starlark.String("username"), starlark.String(r.Username))
+				_ = d.SetKey(starlark.String("lastContact"), starlark.String(r.LastContact))
+				_ = d.SetKey(starlark.String("lastCheckIn"), starlark.String(r.LastCheckIn))
+				_ = d.SetKey(starlark.String("reportDate"), starlark.String(r.ReportDate))
+				_ = d.SetKey(starlark.String("lastEnrolledDate"), starlark.String(r.LastEnrolledDate))
+				_ = d.SetKey(starlark.String("platform"), starlark.String(r.Platform))
 				_ = list.Append(d)
 			}
 		}
@@ -358,50 +478,370 @@ func computersBuiltin(credName string, logger *slog.Logger) func(*starlark.Threa
 	}
 }
 
-// computer(id, cred?)
+// computer(id, section?, tenant?, surface?, auth?) → full inventory JSON dict
+// section?: string or list of strings → ?section= (Jamf default GENERAL when omitted).
 func computerBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value
-		var cred starlark.String
-		if err := starlark.UnpackArgs("computer", args, kwargs, "id", &idVal, "cred?", &cred); err != nil {
+		section := starlark.Value(starlark.None)
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("computer", args, kwargs, "id", &idVal, "section?", &section,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		idStr, err := starlarkIDString(idVal, "id")
 		if err != nil {
 			return nil, err
 		}
-		rec, err := buddy.ComputerGetValue(resolveCred(thread, credName, cred), idStr, logger)
+		sections, err := parseComputerSectionArg(section)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return nil, err
 		}
-		d := new(starlark.Dict)
-		for k, v := range rec {
-			var sv starlark.Value
-			switch tv := v.(type) {
-			case int:
-				sv = starlark.MakeInt(tv)
-			case string:
-				sv = starlark.String(tv)
-			default:
-				sv = starlark.String(fmt.Sprint(v))
+		body, err := buddy.ComputerFetchInventory(c, idStr, sections)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		val, err := JSONDecodeToStarlark(string(body))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(val), nil
+	}
+}
+
+// computer_detail(id, tenant?, surface?, auth?) → full inventory (all sections) via computers-inventory-detail.
+func computerDetailBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("computer_detail", args, kwargs, "id", &idVal,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		idStr, err := starlarkIDString(idVal, "id")
+		if err != nil {
+			return nil, err
+		}
+		body, err := buddy.ComputerFetchDetail(c, idStr)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		val, err := JSONDecodeToStarlark(string(body))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(val), nil
+	}
+}
+
+// computer_history(id=?, name=?, serial=?, udid=?, subset?, tenant?, surface?, auth?) → dict
+func computerHistoryBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value = starlark.None
+		var name, serial, udid starlark.String
+		subset := starlark.Value(starlark.None)
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("computer_history", args, kwargs,
+			"id?", &idVal, "name?", &name, "serial?", &serial, "udid?", &udid, "subset?", &subset,
+			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth,
+		); err != nil {
+			return nil, err
+		}
+		ref, err := computerHistoryRefFromArgs("computer_history", idVal, name, serial, udid)
+		if err != nil {
+			return nil, err
+		}
+		subsets, err := parseHistorySubsetArg(subset)
+		if err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		h, err := buddy.ComputerHistoryGet(sessionPin, ref, subsets, logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return jsonResult(h.AsMap(), nil)
+	}
+}
+
+// computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, since?, until?, tenant?, surface?, auth?) → list
+func computerPolicyLogsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value = starlark.None
+		var name, serial, udid starlark.String
+		policyIDVal := starlark.Value(starlark.None)
+		statusVal := starlark.Value(starlark.None)
+		sinceVal := starlark.Value(starlark.None)
+		untilVal := starlark.Value(starlark.None)
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("computer_policy_logs", args, kwargs,
+			"id?", &idVal, "name?", &name, "serial?", &serial, "udid?", &udid,
+			"policy_id?", &policyIDVal, "status?", &statusVal, "since?", &sinceVal, "until?", &untilVal,
+			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth,
+		); err != nil {
+			return nil, err
+		}
+		ref, err := computerHistoryRefFromArgs("computer_policy_logs", idVal, name, serial, udid)
+		if err != nil {
+			return nil, err
+		}
+		policyID, err := optionalStarlarkIDInt(policyIDVal, "policy_id")
+		if err != nil {
+			return nil, err
+		}
+		status, err := optionalStarlarkString(statusVal, "status")
+		if err != nil {
+			return nil, err
+		}
+		since, err := optionalStarlarkString(sinceVal, "since")
+		if err != nil {
+			return nil, err
+		}
+		until, err := optionalStarlarkString(untilVal, "until")
+		if err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		logs, err := buddy.ComputerPolicyLogs(sessionPin, ref, buddy.PolicyLogFilter{
+			PolicyID: policyID,
+			Status:   status,
+			Since:    since,
+			Until:    until,
+		}, logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return jsonResult(logs, nil)
+	}
+}
+
+// policy_logs(id, computer_id?, computer_ids?, filter?, last_contact?, since?, until?, status?, skip?, limit?, tenant?, surface?, auth?) → list
+func policyLogsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value
+		computerIDVal := starlark.Value(starlark.None)
+		computerIDsVal := starlark.Value(starlark.None)
+		var filter, lastContact starlark.String
+		statusVal := starlark.Value(starlark.None)
+		sinceVal := starlark.Value(starlark.None)
+		untilVal := starlark.Value(starlark.None)
+		skipVal := starlark.Value(starlark.None)
+		limitVal := starlark.Value(starlark.None)
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("policy_logs", args, kwargs,
+			"id", &idVal, "computer_id?", &computerIDVal, "computer_ids?", &computerIDsVal,
+			"filter?", &filter, "last_contact?", &lastContact,
+			"since?", &sinceVal, "until?", &untilVal, "status?", &statusVal,
+			"skip?", &skipVal, "limit?", &limitVal,
+			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth,
+		); err != nil {
+			return nil, err
+		}
+		policyID, err := starlarkIDInt(idVal, "id")
+		if err != nil {
+			return nil, err
+		}
+		var computerID string
+		if computerIDVal != nil && computerIDVal != starlark.None {
+			computerID, err = starlarkIDString(computerIDVal, "computer_id")
+			if err != nil {
+				return nil, err
 			}
-			_ = d.SetKey(starlark.String(k), sv)
 		}
-		return resultOK(d), nil
+		var computerIDs []string
+		if computerIDsVal != nil && computerIDsVal != starlark.None {
+			computerIDs, err = idListFromStarlark(computerIDsVal, "computer_ids")
+			if err != nil {
+				return nil, err
+			}
+		}
+		status, err := optionalStarlarkString(statusVal, "status")
+		if err != nil {
+			return nil, err
+		}
+		since, err := optionalStarlarkString(sinceVal, "since")
+		if err != nil {
+			return nil, err
+		}
+		until, err := optionalStarlarkString(untilVal, "until")
+		if err != nil {
+			return nil, err
+		}
+		skip, err := optionalStarlarkInt(skipVal, "skip")
+		if err != nil {
+			return nil, err
+		}
+		limit, err := optionalStarlarkInt(limitVal, "limit")
+		if err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		logs, err := buddy.PolicyLogs(sessionPin, buddy.PolicyLogsQuery{
+			PolicyID:    policyID,
+			ComputerID:  computerID,
+			ComputerIDs: computerIDs,
+			Filter:      string(filter),
+			LastContact: string(lastContact),
+			Status:      status,
+			Since:       since,
+			Until:       until,
+			Skip:        skip,
+			Limit:       limit,
+		}, logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return jsonResult(logs, nil)
+	}
+}
+
+func computerHistoryRefFromArgs(fn string, idVal starlark.Value, name, serial, udid starlark.String) (buddy.ComputerHistoryRef, error) {
+	idSet := idVal != nil && idVal != starlark.None
+	n := 0
+	ref := buddy.ComputerHistoryRef{}
+	if idSet {
+		n++
+		id, err := starlarkIDString(idVal, "id")
+		if err != nil {
+			return ref, err
+		}
+		ref.ID = id
+	}
+	if string(name) != "" {
+		n++
+		ref.Name = string(name)
+	}
+	if string(serial) != "" {
+		n++
+		ref.Serial = string(serial)
+	}
+	if string(udid) != "" {
+		n++
+		ref.UDID = string(udid)
+	}
+	if n != 1 {
+		return ref, fmt.Errorf("%s: pass exactly one of id=, name=, serial=, or udid=", fn)
+	}
+	return ref, nil
+}
+
+func parseHistorySubsetArg(v starlark.Value) ([]string, error) {
+	if v == nil || v == starlark.None {
+		return nil, nil
+	}
+	return stringListFromStarlark(v, "subset")
+}
+
+func optionalStarlarkIDInt(v starlark.Value, label string) (*int, error) {
+	if v == nil || v == starlark.None {
+		return nil, nil
+	}
+	n, err := starlarkIDInt(v, label)
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
+func optionalStarlarkString(v starlark.Value, label string) (string, error) {
+	if v == nil || v == starlark.None {
+		return "", nil
+	}
+	s, ok := v.(starlark.String)
+	if !ok {
+		return "", fmt.Errorf("%s must be str or None, got %s", label, v.Type())
+	}
+	return string(s), nil
+}
+
+func optionalStarlarkInt(v starlark.Value, label string) (int, error) {
+	if v == nil || v == starlark.None {
+		return 0, nil
+	}
+	return starlarkIDInt(v, label)
+}
+
+// computersIdsRawConflict reports an error when ids=True and raw=True are both set.
+func computersIdsRawConflict(ids, raw bool) error {
+	if ids && raw {
+		return fmt.Errorf("computers: ids and raw are mutually exclusive")
+	}
+	return nil
+}
+
+// parseComputerSectionArg accepts None, a string ("GENERAL" or "GENERAL,HARDWARE"), or a list of strings.
+func parseComputerSectionArg(v starlark.Value) ([]string, error) {
+	if v == nil || v == starlark.None {
+		return nil, nil
+	}
+	switch t := v.(type) {
+	case starlark.String:
+		return buddy.NormalizeComputerSections([]string{string(t)}), nil
+	case *starlark.List:
+		var parts []string
+		for i := 0; i < t.Len(); i++ {
+			item := t.Index(i)
+			s, ok := item.(starlark.String)
+			if !ok {
+				return nil, fmt.Errorf("section list entries must be strings, got %s", item.Type())
+			}
+			parts = append(parts, string(s))
+		}
+		return buddy.NormalizeComputerSections(parts), nil
+	default:
+		return nil, fmt.Errorf("section must be a string or list of strings, got %s", v.Type())
 	}
 }
 
 // mdm_commands(...)
 func mdmCommandsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var filter, sort, cred starlark.String
+		var filter, sort starlark.String
 		page := starlark.Value(starlark.None)
 		var pageSize, limit starlark.Int
+		var sess sessionArgs
 		if err := starlark.UnpackArgs("mdm_commands", args, kwargs,
-			"filter", &filter, "sort?", &sort, "page?", &page, "page_size?", &pageSize, "limit?", &limit, "cred?", &cred,
+			"filter", &filter, "sort?", &sort, "page?", &page, "page_size?", &pageSize, "limit?", &limit,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
 		); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		opts, err := pageOptsFromArgs(page, pageSize)
 		if err != nil {
 			return nil, err
@@ -411,9 +851,9 @@ func mdmCommandsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 			sortStr = "dateSent:asc"
 		}
 		lim, _ := limit.Int64()
-		records, err := buddy.MdmCommandFind(resolveCred(thread, credName, cred), string(filter), sortStr, opts, int(lim), logger)
+		records, err := buddy.MdmCommandFind(c, string(filter), sortStr, opts, int(lim), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := starlark.NewList(nil)
 		for _, r := range records {
@@ -431,16 +871,26 @@ func mdmCommandsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 	}
 }
 
-// profiles(filter?)
+// profiles(filter?, tenant?, surface?, auth?)
 func profilesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var filter starlark.String
-		if err := starlark.UnpackArgs("profiles", args, kwargs, "filter?", &filter); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("profiles", args, kwargs, "filter?", &filter,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
-		records, err := buddy.ProfileSearch(getCred(thread, credName), string(filter), logger)
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		records, err := buddy.ProfileSearch(c, string(filter), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		list := new(starlark.List)
 		for _, r := range records {
@@ -457,23 +907,32 @@ func profilesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread
 func profileBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value = starlark.None
-		var name, cred starlark.String
-		if err := starlark.UnpackArgs("profile", args, kwargs, "id?", &idVal, "name?", &name, "cred?", &cred); err != nil {
+		var name starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("profile", args, kwargs, "id?", &idVal, "name?", &name,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		idSet := idVal != nil && idVal != starlark.None
 		keySet := name != ""
 		if err := xorIDOrKey("profile", idSet, keySet, "name"); err != nil {
 			return nil, err
 		}
-		c := resolveCred(thread, credName, cred)
 		if keySet {
 			id, profileName, err := buddy.ProfileFindID(c, string(name), logger)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			if id == 0 {
-				return resultErr(fmt.Sprintf("no profile found for name %q", string(name))), nil
+				return resultErr(fmt.Sprintf("no profile found for name %q", string(name)))
 			}
 			d := new(starlark.Dict)
 			_ = d.SetKey(starlark.String("id"), starlark.MakeInt(id))
@@ -486,27 +945,36 @@ func profileBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		}
 		xmlBytes, err := buddy.ProfileFetchXML(c, pid)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(string(xmlBytes))), nil
 	}
 }
 
-// profile_xml(id, cred?)
+// profile_xml(id, tenant?, surface?, auth?)
 func profileXMLBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value
-		var cred starlark.String
-		if err := starlark.UnpackArgs("profile_xml", args, kwargs, "id", &idVal, "cred?", &cred); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("profile_xml", args, kwargs, "id", &idVal,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		pid, err := starlarkIDInt(idVal, "id")
 		if err != nil {
 			return nil, err
 		}
-		xmlBytes, err := buddy.ProfileFetchXML(resolveCred(thread, credName, cred), pid)
+		xmlBytes, err := buddy.ProfileFetchXML(c, pid)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(string(xmlBytes))), nil
 	}
@@ -525,24 +993,33 @@ func staticGroupsBuiltin(credName string, logger *slog.Logger) func(*starlark.Th
 func smartGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value = starlark.None
-		var name, cred starlark.String
-		if err := starlark.UnpackArgs("smart_group", args, kwargs, "id?", &idVal, "name?", &name, "cred?", &cred); err != nil {
+		var name starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("smart_group", args, kwargs, "id?", &idVal, "name?", &name,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		idSet := idVal != nil && idVal != starlark.None
 		keySet := name != ""
 		if err := xorIDOrKey("smart_group", idSet, keySet, "name"); err != nil {
 			return nil, err
 		}
-		c := resolveCred(thread, credName, cred)
 		var groupID string
 		if keySet {
 			id, _, err := buddy.GroupFindID(c, string(name), logger)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			if id == "" {
-				return resultErr(fmt.Sprintf("no smart group found for name %q", string(name))), nil
+				return resultErr(fmt.Sprintf("no smart group found for name %q", string(name)))
 			}
 			groupID = id
 		} else {
@@ -554,31 +1031,55 @@ func smartGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thre
 		}
 		body, err := buddy.GroupFetchSmartRaw(c, groupID)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(body))
 		if err != nil {
-			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err)), nil
+			return resultErr(fmt.Sprintf("decode smart group JSON: %v", err))
 		}
+		// v3 GET /smart-groups/{id} omits id in the body; inject so value matches list summaries.
+		val = starlarkDictSetIDIfMissing(val, groupID)
 		return resultOK(val), nil
 	}
+}
+
+// starlarkDictSetIDIfMissing adds string "id" when val is a dict without that key.
+func starlarkDictSetIDIfMissing(val starlark.Value, id string) starlark.Value {
+	d, ok := val.(*starlark.Dict)
+	if !ok {
+		return val
+	}
+	if _, found, _ := d.Get(starlark.String("id")); found {
+		return val
+	}
+	_ = d.SetKey(starlark.String("id"), starlark.String(id))
+	return d
 }
 
 // static_group(id) → {id, name, description}
 func staticGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value
-		var cred starlark.String
-		if err := starlark.UnpackArgs("static_group", args, kwargs, "id", &idVal, "cred?", &cred); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("static_group", args, kwargs, "id", &idVal,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		wantID, err := starlarkIDString(idVal, "id")
 		if err != nil {
 			return nil, err
 		}
-		groups, err := buddy.GroupSearchStatic(resolveCred(thread, credName, cred), "", buddy.PageOpts{Page: buddy.PageAll}, logger)
+		groups, err := buddy.GroupSearchStatic(c, "", buddy.PageOpts{Page: buddy.PageAll}, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		for _, g := range groups {
 			if g.ID == wantID {
@@ -589,36 +1090,46 @@ func staticGroupBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 				return resultOK(d), nil
 			}
 		}
-		return resultErr(fmt.Sprintf("no static group found for id %q", wantID)), nil
+		return resultErr(fmt.Sprintf("no static group found for id %q", wantID))
 	}
 }
 
-// roles(full?=False, page?, page_size?, cred?)
+// roles(filter?, full?=False, page?, page_size?, tenant?, surface?, auth?)
 func rolesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var cred starlark.String
+		var filter starlark.String
 		page := starlark.Value(starlark.None)
 		var pageSize starlark.Int
 		var full starlark.Bool
-		if err := starlark.UnpackArgs("roles", args, kwargs, "full?", &full, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("roles", args, kwargs, "filter?", &filter, "full?", &full, "page?", &page, "page_size?", &pageSize,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		opts, err := pageOptsFromArgs(page, pageSize)
 		if err != nil {
 			return nil, err
 		}
-		roles, err := buddy.RoleListValues(resolveCred(thread, credName, cred), opts, logger)
+		roles, err := buddy.RoleListValues(c, string(filter), opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		if bool(full) {
 			b, err := json.Marshal(roles)
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			val, err := JSONDecodeToStarlark(string(b))
 			if err != nil {
-				return resultErr(err.Error()), nil
+				return resultErr(err.Error())
 			}
 			return resultOK(val), nil
 		}
@@ -633,108 +1144,139 @@ func rolesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *
 	}
 }
 
-// role(id, cred?)
+// role(id, tenant?, surface?, auth?)
 func roleBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value
-		var cred starlark.String
-		if err := starlark.UnpackArgs("role", args, kwargs, "id", &idVal, "cred?", &cred); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("role", args, kwargs, "id", &idVal,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		roleID, err := starlarkIDString(idVal, "id")
 		if err != nil {
 			return nil, err
 		}
-		role, err := buddy.RoleFetch(resolveCred(thread, credName, cred), roleID, logger)
+		role, err := buddy.RoleFetch(c, roleID, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, err := json.Marshal(role)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
 }
 
-// role_privileges — alias of role_privileges_list under shorter name
-func rolePrivilegesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	inner := rolePrivilegesList(credName, logger)
-	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		return inner(thread, b, args, kwargs)
-	}
-}
 
-// clients(page?, page_size?, cred?)
+// clients(filter?, page?, page_size?, tenant?, surface?, auth?)
 func clientsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var cred starlark.String
+		var filter starlark.String
 		page := starlark.Value(starlark.None)
 		var pageSize starlark.Int
-		if err := starlark.UnpackArgs("clients", args, kwargs, "page?", &page, "page_size?", &pageSize, "cred?", &cred); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("clients", args, kwargs, "filter?", &filter, "page?", &page, "page_size?", &pageSize,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		opts, err := pageOptsFromArgs(page, pageSize)
 		if err != nil {
 			return nil, err
 		}
-		clients, err := buddy.ClientListValues(resolveCred(thread, credName, cred), opts, logger)
+		clients, err := buddy.ClientListValues(c, string(filter), opts, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, err := json.Marshal(clients)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
 }
 
-// client(id, cred?)
+// client(id, tenant?, surface?, auth?)
 func clientBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value
-		var cred starlark.String
-		if err := starlark.UnpackArgs("client", args, kwargs, "id", &idVal, "cred?", &cred); err != nil {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("client", args, kwargs, "id", &idVal,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
 		clientID, err := starlarkIDString(idVal, "id")
 		if err != nil {
 			return nil, err
 		}
-		client, err := buddy.ClientFetch(resolveCred(thread, credName, cred), clientID, logger)
+		client, err := buddy.ClientFetch(c, clientID, logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		b, err := json.Marshal(client)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		val, err := JSONDecodeToStarlark(string(b))
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
 	}
 }
 
-func smartGroupGetVersionNamed(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+func smartGroupVersionNamed(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var groupID, cred starlark.String
-		if err := starlark.UnpackArgs("smart_group_get_version", args, kwargs, "group_id", &groupID, "cred?", &cred); err != nil {
+		var groupID starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("smart_group_version", args, kwargs, "id", &groupID,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
-		version, err := buddy.GroupGetVersionValue(resolveCred(thread, credName, cred), string(groupID), logger)
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		version, err := buddy.GroupGetVersionValue(c, string(groupID), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.String(version)), nil
 	}
@@ -742,14 +1284,336 @@ func smartGroupGetVersionNamed(credName string, logger *slog.Logger) func(*starl
 
 func smartGroupSetVersionNamed(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var groupID, version, cred starlark.String
-		if err := starlark.UnpackArgs("smart_group_set_version", args, kwargs, "group_id", &groupID, "version", &version, "cred?", &cred); err != nil {
+		var groupID, version starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("smart_group_set_version", args, kwargs, "id", &groupID, "version", &version,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
-		err := buddy.GroupVersion(resolveCred(thread, credName, cred), scriptOpts, string(groupID), string(version), logger)
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		err := buddy.GroupVersion(c, scriptOpts, string(groupID), string(version), logger)
 		if err != nil {
-			return resultErr(err.Error()), nil
+			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
+	}
+}
+
+// blueprints(search?, page?, page_size?, tenant?, surface?, auth?) → list of summary dicts
+func blueprintsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var search starlark.String
+		page := starlark.Value(starlark.None)
+		var pageSize starlark.Int
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("blueprints", args, kwargs, "search?", &search, "page?", &page, "page_size?", &pageSize,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		items, err := buddy.BlueprintListValues(c, buddy.BlueprintListOpts{
+			Search: string(search),
+			Page:   opts,
+		}, logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		b, err := json.Marshal(items)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(val), nil
+	}
+}
+
+// blueprint(id=, tenant?, surface?, auth?) → full dict
+func blueprintBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var id starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("blueprint", args, kwargs, "id", &id,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		out, err := buddy.BlueprintGetValue(c, string(id), logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		b, err := json.Marshal(out)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(val), nil
+	}
+}
+
+func blueprintCreateBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var body starlark.Value
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("blueprint_create", args, kwargs, "body", &body,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		jsonStr, err := StarlarkToJSON(body)
+		if err != nil {
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err))
+		}
+		out, err := buddy.BlueprintCreateValue(c, scriptOpts, []byte(jsonStr), logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		if out == nil {
+			return resultErr("blueprint_create: cancelled")
+		}
+		b, err := json.Marshal(out)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(val), nil
+	}
+}
+
+func blueprintSetBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var blueprintID starlark.String
+		var body starlark.Value
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("blueprint_set", args, kwargs, "id", &blueprintID, "body", &body,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		jsonStr, err := StarlarkToJSON(body)
+		if err != nil {
+			return resultErr(fmt.Sprintf("encode body as JSON: %v", err))
+		}
+		if err := buddy.BlueprintSetValue(c, string(blueprintID), scriptOpts, []byte(jsonStr), logger); err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(starlark.None), nil
+	}
+}
+
+func blueprintDeleteBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var blueprintID starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("blueprint_delete", args, kwargs, "id", &blueprintID,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		if err := buddy.BlueprintDeleteValue(c, string(blueprintID), scriptOpts, logger); err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(starlark.None), nil
+	}
+}
+
+func blueprintDeployBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var blueprintID starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("blueprint_deploy", args, kwargs, "id", &blueprintID,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		if err := buddy.BlueprintDeploy(c, string(blueprintID), scriptOpts, logger); err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(starlark.None), nil
+	}
+}
+
+func blueprintUndeployBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var blueprintID starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("blueprint_undeploy", args, kwargs, "id", &blueprintID,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		if err := buddy.BlueprintUndeploy(c, string(blueprintID), scriptOpts, logger); err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(starlark.None), nil
+	}
+}
+
+func blueprintStatusBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var blueprintID starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("blueprint_status", args, kwargs, "id", &blueprintID,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		out, err := buddy.BlueprintStatusValue(c, string(blueprintID), logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		b, err := json.Marshal(out)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(val), nil
+	}
+}
+
+func blueprintComponentsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		page := starlark.Value(starlark.None)
+		var pageSize starlark.Int
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("blueprint_components", args, kwargs, "page?", &page, "page_size?", &pageSize,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		opts, err := pageOptsFromArgs(page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		items, err := buddy.BlueprintComponentsValues(c, opts, logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		b, err := json.Marshal(items)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(val), nil
+	}
+}
+
+func blueprintComponentBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var id starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("blueprint_component", args, kwargs, "id", &id,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		c := sessionPin
+		out, err := buddy.BlueprintComponentValue(c, string(id), logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		b, err := json.Marshal(out)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(val), nil
 	}
 }

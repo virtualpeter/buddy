@@ -1,25 +1,18 @@
 package main
 
-import "os"
+import (
+	"os"
 
-var knownCommands = map[string]struct{}{
-	"help":     {},
-	"auth":     {},
-	"cred":     {},
-	"config":   {}, // deprecated alias for cred
-	"policy":   {},
-	"group":    {},
-	"profile":  {},
-	"package":  {},
-	"computer": {},
-	"role":     {},
-	"client":   {},
-	"script":   {},
-	"mdm":      {},
-	"setup":    {},
-	"serve":    {},
-	"mcp":      {},
-}
+	"buddy/internal/clispec"
+)
+
+var knownCommands = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(clispec.DispatchNames()))
+	for _, n := range clispec.DispatchNames() {
+		m[n] = struct{}{}
+	}
+	return m
+}()
 
 func isKnownCommand(name string) bool {
 	_, ok := knownCommands[name]

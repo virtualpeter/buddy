@@ -3,6 +3,7 @@ package script
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.starlark.net/starlark"
@@ -22,33 +23,24 @@ func TestFileReadWriteRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok, _, _ := wval.(*starlark.Dict).Get(starlark.String("ok"))
-	if ok != starlark.True {
-		t.Fatalf("file_write: %v", wval)
+	if wval != starlark.None {
+		t.Fatalf("file_write want None, got %v", wval)
 	}
 
 	rval, err := starlark.Call(th, readFn, starlark.Tuple{starlark.String(p)}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rd := rval.(*starlark.Dict)
-	ok, _, _ = rd.Get(starlark.String("ok"))
-	if ok != starlark.True {
-		t.Fatalf("file_read: %v", rval)
-	}
-	v, _, _ := rd.Get(starlark.String("value"))
-	if string(v.(starlark.String)) != "hello 世界" {
-		t.Fatalf("got %v", v)
+	if string(rval.(starlark.String)) != "hello 世界" {
+		t.Fatalf("got %v", rval)
 	}
 
 	bval, err := starlark.Call(th, readBFn, starlark.Tuple{starlark.String(p)}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bd := bval.(*starlark.Dict)
-	v2, _, _ := bd.Get(starlark.String("value"))
-	if string(v2.(starlark.Bytes)) != "hello 世界" {
-		t.Fatalf("bytes: got %q", v2)
+	if string(bval.(starlark.Bytes)) != "hello 世界" {
+		t.Fatalf("bytes: got %q", bval)
 	}
 }
 
@@ -62,14 +54,12 @@ func TestFileReadRejectsNonUTF8(t *testing.T) {
 	dict := makeBuiltins("", nil, false)
 	readFn := dict["file_read"].(*starlark.Builtin)
 	th := &starlark.Thread{Name: "t"}
-	rval, err := starlark.Call(th, readFn, starlark.Tuple{starlark.String(p)}, nil)
-	if err != nil {
-		t.Fatal(err)
+	_, err := starlark.Call(th, readFn, starlark.Tuple{starlark.String(p)}, nil)
+	if err == nil {
+		t.Fatal("expected error for non-UTF-8")
 	}
-	rd := rval.(*starlark.Dict)
-	ok, _, _ := rd.Get(starlark.String("ok"))
-	if ok != starlark.False {
-		t.Fatalf("expected ok false, got %v", rval)
+	if !strings.Contains(err.Error(), "utf-8") && !strings.Contains(err.Error(), "UTF-8") && !strings.Contains(strings.ToLower(err.Error()), "utf") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -85,9 +75,8 @@ func TestFileWriteBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok, _, _ := wval.(*starlark.Dict).Get(starlark.String("ok"))
-	if ok != starlark.True {
-		t.Fatalf("file_write: %v", wval)
+	if wval != starlark.None {
+		t.Fatalf("file_write want None, got %v", wval)
 	}
 	got, err := os.ReadFile(p)
 	if err != nil {

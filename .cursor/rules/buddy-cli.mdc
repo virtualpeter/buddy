@@ -29,5 +29,5 @@ When adding or changing CLI commands or help in `cmd/buddy/help.go`, follow thes
 
 ## Flags
 
-- Document long form as `--flag=<value>` or `--flag` (boolean). Short form when present: `-f, --force-refresh`.
+- Document long form as `--flag=<value>` or `--flag` (boolean). Short form when present: `-f, --flag`.
 - Global flags are defined once in root help; other help strings only reference `[global-flags]`.

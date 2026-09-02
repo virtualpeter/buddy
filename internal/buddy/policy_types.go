@@ -1,15 +1,13 @@
 package buddy
 
 import (
-	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
-	"io"
-	"mime/multipart"
-	"net/http"
-	"os"
-	"path"
+	"log/slog"
+	"net/url"
+	"strconv"
+	"strings"
 )
 
 // Local policy types (replacing jamfpro SDK types for Classic API XML).
@@ -28,14 +26,14 @@ type responsePoliciesList struct {
 
 // resourcePolicy is the full policy XML from GET /JSSResource/policies/id/{id}.
 type resourcePolicy struct {
-	XMLName xml.Name `xml:"policy"`
+	XMLName              xml.Name                         `xml:"policy"`
 	General              policySubsetGeneral              `xml:"general"`
 	Scope                policySubsetScope                `xml:"scope,omitempty"`
 	SelfService          policySubsetSelfService          `xml:"self_service,omitempty"`
 	PackageConfiguration policySubsetPackageConfiguration `xml:"package_configuration"`
-	Scripts              []policySubsetScript `xml:"scripts>script"`
-	Maintenance    policySubsetMaintenance    `xml:"maintenance"`
-	FilesProcesses policySubsetFilesProcesses `xml:"files_processes,omitempty"`
+	Scripts              []policySubsetScript             `xml:"scripts>script"`
+	Maintenance          policySubsetMaintenance          `xml:"maintenance"`
+	FilesProcesses       policySubsetFilesProcesses       `xml:"files_processes,omitempty"`
 }
 
 type policySubsetGeneral struct {
@@ -62,14 +60,14 @@ type policySubsetGeneral struct {
 }
 
 type policySubsetScope struct {
-	AllComputers   bool                      `xml:"all_computers"`
-	AllJSSUsers    bool                      `xml:"all_jss_users"`
-	Computers      *[]policySubsetComputer  `xml:"computers>computer"`
-	ComputerGroups *[]policySubsetComputerGroup `xml:"computer_groups>computer_group"`
-	JSSUsers       *[]policySubsetJSSUser   `xml:"jss_users>user"`
-	JSSUserGroups  *[]policySubsetJSSUserGroup `xml:"jss_user_groups>user_group"`
-	Buildings      *[]policySubsetBuilding  `xml:"buildings>building"`
-	Departments    *[]policySubsetDepartment `xml:"departments>department"`
+	AllComputers   bool                          `xml:"all_computers"`
+	AllJSSUsers    bool                          `xml:"all_jss_users"`
+	Computers      *[]policySubsetComputer       `xml:"computers>computer"`
+	ComputerGroups *[]policySubsetComputerGroup  `xml:"computer_groups>computer_group"`
+	JSSUsers       *[]policySubsetJSSUser        `xml:"jss_users>user"`
+	JSSUserGroups  *[]policySubsetJSSUserGroup   `xml:"jss_user_groups>user_group"`
+	Buildings      *[]policySubsetBuilding       `xml:"buildings>building"`
+	Departments    *[]policySubsetDepartment     `xml:"departments>department"`
 	Limitations    *policySubsetScopeLimitations `xml:"limitations"`
 	Exclusions     *policySubsetScopeExclusions  `xml:"exclusions"`
 }
@@ -113,16 +111,16 @@ type policySubsetScopeLimitations struct {
 }
 
 type policySubsetScopeExclusions struct {
-	Computers      *[]policySubsetComputer      `xml:"computers>computer"`
-	ComputerGroups *[]policySubsetComputerGroup `xml:"computer_groups>computer_group"`
-	Users          *[]policySubsetUser          `xml:"users>user"`
-	UserGroups     *[]policySubsetUserGroup     `xml:"user_groups>user_group"`
-	Buildings      *[]policySubsetBuilding      `xml:"buildings>building"`
-	Departments    *[]policySubsetDepartment    `xml:"departments>department"`
+	Computers       *[]policySubsetComputer       `xml:"computers>computer"`
+	ComputerGroups  *[]policySubsetComputerGroup  `xml:"computer_groups>computer_group"`
+	Users           *[]policySubsetUser           `xml:"users>user"`
+	UserGroups      *[]policySubsetUserGroup      `xml:"user_groups>user_group"`
+	Buildings       *[]policySubsetBuilding       `xml:"buildings>building"`
+	Departments     *[]policySubsetDepartment     `xml:"departments>department"`
 	NetworkSegments *[]policySubsetNetworkSegment `xml:"network_segments>network_segment"`
-	JSSUsers       *[]policySubsetJSSUser       `xml:"jss_users>user"`
-	JSSUserGroups  *[]policySubsetJSSUserGroup  `xml:"jss_user_groups>user_group"`
-	IBeacons       *[]policySubsetIBeacon       `xml:"ibeacons>ibeacon"`
+	JSSUsers        *[]policySubsetJSSUser        `xml:"jss_users>user"`
+	JSSUserGroups   *[]policySubsetJSSUserGroup   `xml:"jss_user_groups>user_group"`
+	IBeacons        *[]policySubsetIBeacon        `xml:"ibeacons>ibeacon"`
 }
 
 type policySubsetUser struct {
@@ -209,8 +207,42 @@ func policyGetByID(credName string, policyID int) (*resourcePolicy, error) {
 	return &p, nil
 }
 
-// policyFetchList fetches the policy list and returns id/name pairs.
+const uriPoliciesV1 = "/api/v1/policies"
+
+// policyFetchList fetches the policy id/name list. Prefers undocumented Pro
+// GET /api/v1/policies (paginated; instance-only — not on the Platform gateway
+// and not gated by features.classic_instance_only); falls back to Classic
+// GET /JSSResource/policies.
 func policyFetchList(credName string) ([]policyListItem, error) {
+	return policyFetchListHybrid(credName, nil)
+}
+
+// policyFetchListHybrid tries Pro v1 then Classic. logger may be nil.
+func policyFetchListHybrid(credName string, logger *slog.Logger) ([]policyListItem, error) {
+	v1, err := policyFetchListV1(credName)
+	if err == nil && len(v1) > 0 {
+		if logger != nil {
+			logger.Debug("policy list source", "source", "v1", "count", len(v1))
+		}
+		return v1, nil
+	}
+	if err != nil && logger != nil {
+		logger.Debug("policy list v1 failed; falling back to classic", "error", err.Error())
+	}
+	classic, cerr := policyFetchListClassic(credName)
+	if cerr != nil {
+		if err != nil {
+			return nil, fmt.Errorf("policy list v1: %w; classic: %v", err, cerr)
+		}
+		return nil, cerr
+	}
+	if logger != nil {
+		logger.Debug("policy list source", "source", "classic", "count", len(classic))
+	}
+	return classic, nil
+}
+
+func policyFetchListClassic(credName string) ([]policyListItem, error) {
 	body, err := jamfGETWithAccept(credName, uriPolicies, "application/xml")
 	if err != nil {
 		return nil, err
@@ -226,75 +258,83 @@ func policyFetchList(credName string) ([]policyListItem, error) {
 	return result, nil
 }
 
-// categoryGetByName fetches categories and returns the ID for the given name.
-func categoryGetByName(credName, name string) (string, error) {
-	body, err := jamfGET(credName, "/api/v1/categories?page-size=2000")
-	if err != nil {
-		return "", err
-	}
-	var resp struct {
-		TotalCount int `json:"totalCount"`
-		Results    []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", fmt.Errorf("parse categories: %w", err)
-	}
-	for _, c := range resp.Results {
-		if c.Name == name {
-			return c.ID, nil
+func policyFetchListV1(credName string) ([]policyListItem, error) {
+	var all []policyListItem
+	err := fetchJamfPaged(credName, uriPoliciesV1, url.Values{}, PageOpts{Page: PageAll}, func(resultsJSON []byte, _ int) (int, error) {
+		page, err := parseV1PolicyListResults(resultsJSON)
+		if err != nil {
+			return 0, err
 		}
+		all = append(all, page...)
+		return len(page), nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return "", fmt.Errorf("category %q not found", name)
+	return all, nil
 }
 
-// iconUpload uploads an icon file and returns the new icon ID.
-func iconUpload(credName, filePath string) (int, error) {
-	f, err := os.Open(filePath)
-	if err != nil {
-		return 0, fmt.Errorf("open icon file: %w", err)
+// parseV1PolicyListResults parses a JSON array of Pro v1 policy list rows.
+// IDs may be JSON numbers or strings.
+func parseV1PolicyListResults(resultsJSON []byte) ([]policyListItem, error) {
+	var raw []map[string]interface{}
+	if err := json.Unmarshal(resultsJSON, &raw); err != nil {
+		return nil, fmt.Errorf("parse v1 policy list: %w", err)
 	}
-	defer f.Close()
+	out := make([]policyListItem, 0, len(raw))
+	for _, m := range raw {
+		id, ok := policyListIDFromAny(m["id"])
+		if !ok || id <= 0 {
+			continue
+		}
+		name, _ := m["name"].(string)
+		item := policyListItem{ID: id, Name: name}
+		if cat, ok := m["categoryId"].(string); ok {
+			item.CategoryID = cat
+		} else if catNum, ok := m["categoryId"].(float64); ok {
+			item.CategoryID = strconv.FormatInt(int64(catNum), 10)
+		}
+		if ef, ok := m["executionFrequency"].(string); ok {
+			item.ExecutionFrequency = ef
+		}
+		if tm, ok := m["triggerManual"].(string); ok {
+			s := tm
+			item.TriggerManual = &s
+		}
+		if b, ok := m["enabled"].(bool); ok {
+			item.Enabled = &b
+		}
+		if b, ok := m["triggerCheckin"].(bool); ok {
+			item.TriggerCheckin = &b
+		}
+		if b, ok := m["updateInventory"].(bool); ok {
+			item.UpdateInventory = &b
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
 
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
-	part, err := w.CreateFormFile("file", path.Base(filePath))
-	if err != nil {
-		return 0, fmt.Errorf("create form file: %w", err)
+func policyListIDFromAny(v interface{}) (int, bool) {
+	switch t := v.(type) {
+	case float64:
+		return int(t), true
+	case json.Number:
+		n, err := t.Int64()
+		return int(n), err == nil
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return 0, false
+		}
+		n, err := strconv.Atoi(s)
+		return n, err == nil
+	default:
+		return 0, false
 	}
-	if _, err := io.Copy(part, f); err != nil {
-		return 0, fmt.Errorf("write file to form: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return 0, fmt.Errorf("close multipart: %w", err)
-	}
+}
 
-	iconBaseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return 0, err
-	}
-	url := iconBaseURL + "/api/v1/icon"
-	req, err := http.NewRequest(http.MethodPost, url, &buf)
-	if err != nil {
-		return 0, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return 0, fmt.Errorf("icon upload status %d: %s", resp.StatusCode, string(body))
-	}
-	var result struct {
-		ID int `json:"id"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return 0, fmt.Errorf("parse icon response: %w", err)
-	}
-	return result.ID, nil
+// categoryGetByName fetches categories and returns the ID for the given name.
+func categoryGetByName(credName, name string) (string, error) {
+	return CategoryFindIDByExactName(credName, name)
 }

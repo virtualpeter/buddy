@@ -2,7 +2,9 @@ package secrets
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -75,4 +77,48 @@ func (p *PassStore) Has(credName string, kind Kind) (bool, error) {
 		return false, nil
 	}
 	return true, nil
+}
+
+func (p *PassStore) List() ([]Entry, error) {
+	root, err := passStoreDir()
+	if err != nil {
+		return nil, err
+	}
+	base := filepath.Join(root, passPrefix)
+	var out []Entry
+	_ = filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".gpg") {
+			return nil
+		}
+		rel, err := filepath.Rel(base, path)
+		if err != nil {
+			return nil
+		}
+		rel = strings.TrimSuffix(rel, ".gpg")
+		parts := strings.Split(rel, string(filepath.Separator))
+		if len(parts) != 2 {
+			return nil
+		}
+		kind, err := ParseKind(parts[1])
+		if err != nil {
+			return nil
+		}
+		out = append(out, Entry{AuthName: parts[0], Kind: kind})
+		return nil
+	})
+	return out, nil
+}
+
+func passStoreDir() (string, error) {
+	if d := os.Getenv("PASSWORD_STORE_DIR"); d != "" {
+		return d, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".password-store"), nil
 }

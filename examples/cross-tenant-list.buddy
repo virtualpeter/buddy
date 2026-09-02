@@ -1,0 +1,41 @@
+# Cross-tenant list: same builtin, tenant= per call (process default is still used when omitted).
+#   buddy examples/cross-tenant-list.buddy -- sandbox prod
+# Optional third arg is a name substring filter.
+
+def summarize(rows, n=5):
+    out = []
+    for r in rows[:n]:
+        out.append({"id": r["id"], "name": r["name"]})
+    return out
+
+def list_on(tenant_name, filt):
+    def _call():
+        if filt != "":
+            return profiles(filter=filt, tenant=tenant_name)
+        return profiles(tenant=tenant_name)
+    r = attempt(_call)
+    if not r["ok"]:
+        print("%s: FAIL %s" % (tenant_name, r["error"]))
+        return {"tenant": tenant_name, "ok": False, "error": r["error"]}
+    rows = r["value"]
+    print("%s: %d profiles (process tenant was %s)" % (tenant_name, len(rows), tenant))
+    for row in summarize(rows):
+        print("  %s  %s" % (row["id"], row["name"]))
+    return {"tenant": tenant_name, "ok": True, "count": len(rows), "sample": summarize(rows)}
+
+def main():
+    names = []
+    for a in args:
+        names.append(str(a))
+    filt = ""
+    if len(names) >= 3:
+        filt = names[2]
+        names = names[:2]
+    if len(names) < 2:
+        print("usage: buddy examples/cross-tenant-list.buddy -- <tenant-a> <tenant-b> [filter]")
+        return None
+    print("default session tenant=%s auth=%s" % (tenant, auth))
+    results = []
+    for t in names:
+        results.append(list_on(t, filt))
+    return results

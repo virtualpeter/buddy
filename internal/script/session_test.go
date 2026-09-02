@@ -29,6 +29,26 @@ func TestSessionEvalPrintAndExpr(t *testing.T) {
 	}
 }
 
+func TestSessionEvalTrailingExprWithStdoutStderr(t *testing.T) {
+	s, err := NewSession("default", buddy.Opts{SkipConfirm: true}, slog.Default(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := s.Eval("cell", "print(\"line1\")\nprint(\"line2\")\nerror(\"warn\")\n1 + 1")
+	if r.Error != "" {
+		t.Fatal(r.Error)
+	}
+	if !strings.Contains(r.Stdout, "line1") || !strings.Contains(r.Stdout, "line2") {
+		t.Fatalf("stdout=%q", r.Stdout)
+	}
+	if !strings.Contains(r.Stderr, "warn") {
+		t.Fatalf("stderr=%q", r.Stderr)
+	}
+	if r.Result != "2" {
+		t.Fatalf("result=%q want 2", r.Result)
+	}
+}
+
 func TestSessionPersistence(t *testing.T) {
 	s, err := NewSession("default", buddy.Opts{SkipConfirm: true}, slog.Default(), false)
 	if err != nil {

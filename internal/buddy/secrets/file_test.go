@@ -72,12 +72,23 @@ func TestDefaultStoreFileOverride(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("BUDDY_SECRET_STORE", "file")
+	t.Setenv(EnvVaultPassphrase, "test-pass")
+	SetStore(nil)
+	SetMasterStore(nil)
+	SetDEKStore(nil)
 
 	store, err := DefaultStore()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := store.(*FileStore); !ok {
-		t.Fatalf("expected FileStore, got %T", store)
+	if _, ok := store.(*VaultStore); !ok {
+		t.Fatalf("expected VaultStore, got %T", store)
+	}
+	kind, _, err := StoreInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kind != "vault" {
+		t.Fatalf("kind = %q", kind)
 	}
 }

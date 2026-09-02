@@ -9,7 +9,19 @@ import (
 // (e.g. nesting plist/JSON/XML inside another XML element).
 // Escapes &, <, and >. Does not escape quotes (not required for element content).
 func XMLEscape(s string) string {
-	return xmlEncodePayload(s)
+	return xmlEmbedPayloadsPlist(s)
+}
+
+// xmlEmbedPayloadsPlist entity-encodes a payloads plist XML string for embedding
+// inside a Jamf profile's <payloads> element.
+//
+// Jamf Classic profiles nest a full plist XML document inside <payloads>. Inner
+// plist strings use standard XML entities (&amp; &lt; &gt;). Those bytes must be
+// encoded again for the outer profile document, so a literal & in a URL becomes
+// &amp; in the inner plist and &amp;amp; in the outer <payloads> blob.
+// A single &amp; at the outer level (under-encoded) commonly yields Jamf 409.
+func xmlEmbedPayloadsPlist(innerPlistXML string) string {
+	return xmlEncodePayload(innerPlistXML)
 }
 
 // XMLUnescape reverses XML/HTML character entity references (&amp; &lt; &gt; &quot;

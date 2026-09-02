@@ -2,6 +2,7 @@ package buddy
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -22,18 +23,58 @@ func TestNormalizeAssignmentIDs_EmptyIsNonNilSlice(t *testing.T) {
 	}
 }
 
-func TestParseGroupCreateResult(t *testing.T) {
-	got, err := parseGroupCreateResult([]byte(`{"id":"42","href":"https://example/api/v2/computer-groups/smart-groups/42"}`))
+func TestParseSmartGroupMembership(t *testing.T) {
+	got, err := parseSmartGroupMembership([]byte(`{"members":[1,2,3]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != "42" {
-		t.Fatalf("id = %q", got.ID)
+	if len(got) != 3 {
+		t.Fatalf("len = %d", len(got))
 	}
-	if got.Href == "" {
-		t.Fatal("expected href")
+	if got[0].ID != "1" || got[1].ID != "2" || got[2].ID != "3" {
+		t.Fatalf("ids = %#v", got)
 	}
-	if _, err := parseGroupCreateResult([]byte(`{"href":"/x"}`)); err == nil {
-		t.Fatal("expected error for missing id")
+	if got[0].Name != "" || got[0].Serial != "" {
+		t.Fatalf("expected empty name/serial, got %#v", got[0])
+	}
+
+	empty, err := parseSmartGroupMembership([]byte(`{"members":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty == nil || len(empty) != 0 {
+		t.Fatalf("empty members: %#v", empty)
+	}
+
+	missing, err := parseSmartGroupMembership([]byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missing == nil || len(missing) != 0 {
+		t.Fatalf("missing members: %#v", missing)
+	}
+
+	skipZero, err := parseSmartGroupMembership([]byte(`{"members":[0,-1,5]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skipZero) != 1 || skipZero[0].ID != "5" {
+		t.Fatalf("skip non-positive: %#v", skipZero)
+	}
+
+	if _, err := parseSmartGroupMembership([]byte(`not-json`)); err == nil {
+		t.Fatal("expected parse error")
 	}
 }
+
+func TestSmartGroupSetCriteriaRejectsNonArray(t *testing.T) {
+	err := SmartGroupSetCriteria("unused", Opts{SkipConfirm: true}, "1", []byte(`{"not":"array"}`), nil)
+	if err == nil || !strings.Contains(err.Error(), "JSON array") {
+		t.Fatalf("expected JSON array error, got %v", err)
+	}
+	err = SmartGroupSetCriteria("unused", Opts{SkipConfirm: true}, "1", []byte(`  `), nil)
+	if err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("expected empty error, got %v", err)
+	}
+}
+

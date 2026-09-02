@@ -3,8 +3,10 @@ package script
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"strings"
 
 	"buddy/internal/buddy"
 
@@ -57,12 +59,102 @@ func Run(credName string, opts buddy.Opts, scriptPath string, args []string, log
 	if err != nil {
 		return handleExitError(err)
 	}
-	mainFn := globals["main"]
-	if mainFn != nil {
-		_, err = starlark.Call(thread, mainFn, nil, []starlark.Tuple{
-			{starlark.String("cred"), starlark.String(credName)},
-		})
+	if globals["main"] != nil {
+		if _, err := callScriptMain(thread, globals["main"], credName); err != nil {
+			return handleExitError(fmt.Errorf("main: %w", err))
+		}
+	}
+	return nil
+}
+
+// ParseEvalArgs returns script args after an optional leading "--".
+func ParseEvalArgs(args []string) []string {
+	if len(args) > 0 && args[0] == "--" {
+		return args[1:]
+	}
+	return args
+}
+
+// callScriptMain invokes main like the CLI file runner. Passes auth= when
+// main declares an auth parameter or **kwargs (most scripts use def main():).
+func callScriptMain(thread *starlark.Thread, mainFn starlark.Value, authName string) (starlark.Value, error) {
+	var kwargs []starlark.Tuple
+	if fn, ok := mainFn.(*starlark.Function); ok {
+		if fn.HasKwargs() || functionHasParam(fn, "auth") {
+			kwargs = []starlark.Tuple{{starlark.String("auth"), starlark.String(authName)}}
+		}
+	}
+	return starlark.Call(thread, mainFn, nil, kwargs)
+}
+
+func functionHasParam(fn *starlark.Function, name string) bool {
+	n := fn.NumParams()
+	if fn.HasVarargs() {
+		n--
+	}
+	if fn.HasKwargs() {
+		n--
+	}
+	for i := 0; i < n; i++ {
+		pname, _ := fn.Param(i)
+		if pname == name {
+			return true
+		}
+	}
+	return false
+}
+
+// RunSource executes a Starlark snippet (e.g. buddy -e / --eval).
+// Filename for diagnostics is "<eval>". Top-level if/for are allowed.
+// If the last statement is an expression, its value is printed to stdout via
+// FormatDisplayValue (JSON-friendly). If main is defined, it is called afterward
+// (same convention as file scripts).
+func RunSource(credName string, opts buddy.Opts, source string, args []string, logger *slog.Logger, trace bool) error {
+	thread, globals, err := newThread(credName, opts, logger, trace, args)
+	if err != nil {
+		return err
+	}
+
+	fileOpts := &syntax.FileOptions{
+		Set:             true,
+		TopLevelControl: true,
+		GlobalReassign:  true,
+	}
+	const filename = "<eval>"
+	source = stripTrailingNoise(strings.TrimSpace(source))
+	f, err := fileOpts.Parse(filename, source, 0)
+	if err != nil {
+		return err
+	}
+
+	lastExpr := peelLastExpr(f)
+
+	if len(f.Stmts) > 0 {
+		if err := starlark.ExecREPLChunk(f, thread, globals); err != nil {
+			return handleExitError(err)
+		}
+	}
+
+	if lastExpr != nil {
+		// Track stdout from the last expression (unwrap/print) so we do not
+		// double-print when also emitting FormatDisplayValue for bare values.
+		cw := &countingWriter{w: os.Stdout}
+		thread.SetLocal(localStdout, cw)
+		val, err := starlark.EvalExprOptions(fileOpts, thread, lastExpr, globals)
+		thread.SetLocal(localStdout, nil)
 		if err != nil {
+			return handleExitError(err)
+		}
+		if val != nil && val != starlark.None {
+			globals["_"] = val
+			if cw.n == 0 {
+				fmt.Fprintln(os.Stdout, FormatDisplayValue(val))
+			}
+		}
+	}
+
+	if globals["main"] != nil {
+		if _, err := callScriptMain(thread, globals["main"], credName); err != nil {
 			return handleExitError(fmt.Errorf("main: %w", err))
 		}
 	}
@@ -85,6 +177,7 @@ func REPL(credName string, opts buddy.Opts, logger *slog.Logger, trace bool) err
 
 func newThread(credName string, opts buddy.Opts, logger *slog.Logger, trace bool, scriptArgs []string) (*starlark.Thread, starlark.StringDict, error) {
 	runnerOpts = opts
+	scriptOpts = buddy.Opts{SkipConfirm: opts.SkipConfirm, Verbose: opts.Verbose, Progress: opts.Progress, Trace: opts.Trace}
 
 	reModule, err := re.LoadModule()
 	if err != nil {
@@ -92,7 +185,9 @@ func newThread(credName string, opts buddy.Opts, logger *slog.Logger, trace bool
 	}
 
 	predeclared := makeBuiltins(credName, logger, trace)
-	predeclared["cred"] = starlark.String(credName)
+	tenant, _ := buddy.ActiveSelection()
+	predeclared["tenant"] = starlark.String(tenant)
+	predeclared["auth"] = starlark.String(credName)
 	predeclared["args"] = listFromStrings(scriptArgs)
 	for k, v := range reModule {
 		predeclared[k] = v
@@ -100,9 +195,10 @@ func newThread(credName string, opts buddy.Opts, logger *slog.Logger, trace bool
 
 	thread := &starlark.Thread{
 		Name: "buddy",
-		Load: loader(reModule),
+		Load: stdlibLoader(reModule, predeclared),
 	}
-	thread.SetLocal("cred", credName)
+	thread.SetLocal(localAuth, credName)
+	thread.SetLocal(localTenant, tenant)
 
 	thread.Print = func(t *starlark.Thread, msg string) {
 		if trace {
@@ -123,19 +219,22 @@ func handleExitError(err error) error {
 	return err
 }
 
-func loader(reModule starlark.StringDict) func(thread *starlark.Thread, module string) (starlark.StringDict, error) {
-	return func(thread *starlark.Thread, module string) (starlark.StringDict, error) {
-		if module == "re" {
-			return reModule, nil
-		}
-		return nil, fmt.Errorf("unknown module: %s", module)
-	}
-}
-
 func listFromStrings(ss []string) *starlark.List {
 	elems := make([]starlark.Value, len(ss))
 	for i, s := range ss {
 		elems[i] = starlark.String(s)
 	}
 	return starlark.NewList(elems)
+}
+
+// countingWriter wraps a writer and counts bytes written.
+type countingWriter struct {
+	w io.Writer
+	n int
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += n
+	return n, err
 }

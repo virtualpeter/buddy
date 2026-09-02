@@ -1,13 +1,13 @@
 package buddy
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
+	"net/url"
 )
+
+const uriAPIRoles = "/api/v1/api-roles"
 
 type ApiRole struct {
 	ID          string   `json:"id"`
@@ -29,9 +29,10 @@ type ApiRolePrivileges struct {
 	Privileges []string `json:"privileges"`
 }
 
-// RoleList fetches and prints all API roles.
-func RoleList(credName string, logger *slog.Logger) error {
-	roles, err := RoleListValues(credName, PageOpts{Page: PageAll}, logger)
+// RoleList fetches and prints API roles matching the optional filter.
+// Bare term → displayName=="*term*"; RSQL expression → pass-through.
+func RoleList(credName, filter string, logger *slog.Logger) error {
+	roles, err := RoleListValues(credName, filter, PageOpts{Page: PageAll}, logger)
 	if err != nil {
 		return err
 	}
@@ -43,9 +44,18 @@ func RoleList(credName string, logger *slog.Logger) error {
 
 // RoleListValues fetches API roles and returns them (for script use).
 // When opts.Page is PageAll, all pages are fetched.
-func RoleListValues(credName string, opts PageOpts, logger *slog.Logger) ([]ApiRole, error) {
+// Filter: bare term → displayName=="*term*"; RSQL → pass-through.
+func RoleListValues(credName, filter string, opts PageOpts, logger *slog.Logger) ([]ApiRole, error) {
+	normalized, err := NormalizeListFilter(filter, FilterSpecRoles)
+	if err != nil {
+		return nil, err
+	}
+	extra := url.Values{}
+	if normalized != "" {
+		extra.Set("filter", normalized)
+	}
 	var all []ApiRole
-	err := fetchJamfPaged(credName, "/api/v1/api-roles", nil, opts, func(resultsJSON []byte, _ int) (int, error) {
+	err = fetchJamfPaged(credName, uriAPIRoles, extra, opts, func(resultsJSON []byte, _ int) (int, error) {
 		var page []ApiRole
 		if err := json.Unmarshal(resultsJSON, &page); err != nil {
 			return 0, fmt.Errorf("parse response: %w", err)
@@ -61,28 +71,9 @@ func RoleListValues(credName string, opts PageOpts, logger *slog.Logger) ([]ApiR
 
 // RoleGet fetches and prints a single API role by ID.
 func RoleGet(credName, id string, logger *slog.Logger) error {
-	baseURL, err := GetBaseURL(credName)
+	role, err := RoleFetch(credName, id, logger)
 	if err != nil {
 		return err
-	}
-	url := baseURL + "/api/v1/api-roles/" + id
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
-		return fmt.Errorf("get role %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("get role %s status %d: %s", id, resp.StatusCode, string(body))
-	}
-	var role ApiRole
-	if err := json.Unmarshal(body, &role); err != nil {
-		return fmt.Errorf("parse response: %w", err)
 	}
 	out, _ := json.MarshalIndent(role, "", "  ")
 	fmt.Println(string(out))
@@ -91,24 +82,9 @@ func RoleGet(credName, id string, logger *slog.Logger) error {
 
 // RoleFetch fetches a single API role by ID and returns it (for script/component use).
 func RoleFetch(credName, id string, logger *slog.Logger) (*ApiRole, error) {
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return nil, err
-	}
-	url := baseURL + "/api/v1/api-roles/" + id
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGET(credName, uriAPIRoles+"/"+id)
 	if err != nil {
 		return nil, fmt.Errorf("get role %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get role %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	var role ApiRole
 	if err := json.Unmarshal(body, &role); err != nil {
@@ -146,25 +122,9 @@ func RoleCreateWithID(credName string, opts Opts, displayName string, privileges
 			return nil, nil
 		}
 	}
-	createBase, err := GetBaseURL(credName)
-	if err != nil {
-		return nil, err
-	}
-	url := createBase + "/api/v1/api-roles"
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfPOST(credName, uriAPIRoles, data, "application/json")
 	if err != nil {
 		return nil, fmt.Errorf("create role: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("create role status %d: %s", resp.StatusCode, string(body))
 	}
 	var role ApiRole
 	if err := json.Unmarshal(body, &role); err != nil {
@@ -202,25 +162,9 @@ func RoleUpdateWithResult(credName, id string, opts Opts, displayName string, pr
 			return nil, nil
 		}
 	}
-	updateBase, err := GetBaseURL(credName)
-	if err != nil {
-		return nil, err
-	}
-	url := updateBase + "/api/v1/api-roles/" + id
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfPUT(credName, uriAPIRoles+"/"+id, data, "application/json")
 	if err != nil {
 		return nil, fmt.Errorf("update role %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("update role %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	var role ApiRole
 	if err := json.Unmarshal(body, &role); err != nil {
@@ -236,23 +180,8 @@ func RoleDelete(credName, id string, opts Opts, logger *slog.Logger) error {
 			return nil
 		}
 	}
-	deleteBase, err := GetBaseURL(credName)
-	if err != nil {
-		return err
-	}
-	url := deleteBase + "/api/v1/api-roles/" + id
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	resp, err := PerformRequest(nil, req, credName)
-	if err != nil {
+	if err := jamfDELETE(credName, uriAPIRoles+"/"+id); err != nil {
 		return fmt.Errorf("delete role %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete role %s status %d: %s", id, resp.StatusCode, string(body))
 	}
 	fmt.Printf("Deleted API role (ID %s)\n", id)
 	return nil
@@ -272,24 +201,9 @@ func RolePrivileges(credName string, logger *slog.Logger) error {
 
 // RolePrivilegesList fetches and returns all available API role privilege strings.
 func RolePrivilegesList(credName string, logger *slog.Logger) ([]string, error) {
-	baseURL, err := GetBaseURL(credName)
-	if err != nil {
-		return nil, err
-	}
-	url := baseURL + "/api/v1/api-role-privileges"
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := PerformRequest(nil, req, credName)
+	body, err := jamfGET(credName, "/api/v1/api-role-privileges")
 	if err != nil {
 		return nil, fmt.Errorf("list privileges: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list privileges status %d: %s", resp.StatusCode, string(body))
 	}
 	var result ApiRolePrivileges
 	if err := json.Unmarshal(body, &result); err != nil {

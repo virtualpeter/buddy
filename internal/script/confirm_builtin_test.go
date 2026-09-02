@@ -42,3 +42,25 @@ func TestConfirmBuiltin_SkipConfirmNoArgs(t *testing.T) {
 		t.Fatalf("want True, got %v", v)
 	}
 }
+
+func TestConfirmBuiltin_SkipConfirmWithStringKwargs(t *testing.T) {
+	old := runnerOpts
+	t.Cleanup(func() { runnerOpts = old })
+	runnerOpts = buddy.Opts{SkipConfirm: true}
+
+	dict := makeBuiltins("", slog.Default(), false)
+	fn := dict["confirm"].(*starlark.Builtin)
+	thread := &starlark.Thread{Name: "test"}
+	v, err := starlark.Call(thread, fn, nil, []starlark.Tuple{
+		{starlark.String("msg"), starlark.String("Wipe?")},
+		{starlark.String("yes"), starlark.String("confirm")},
+		{starlark.String("no"), starlark.String("abort")},
+		{starlark.String("default"), starlark.String("confirm")},
+	})
+	if err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	if v != starlark.True {
+		t.Fatalf("want True, got %v", v)
+	}
+}

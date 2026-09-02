@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
+	"strings"
 )
 
 // FileStore stores secrets as JSON files under the buddy secrets directory.
@@ -60,36 +60,11 @@ func (f *FileStore) writeFile(credName string, sf *secretFile) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create secrets directory: %w", err)
-	}
 	data, err := json.Marshal(sf)
 	if err != nil {
 		return fmt.Errorf("marshal secrets file: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, credName+".*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp secrets file: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write temp secrets file: %w", err)
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return fmt.Errorf("chmod temp secrets file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp secrets file: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("replace secrets file: %w", err)
-	}
-	return os.Chmod(path, 0o600)
+	return writeFileAtomic0600(path, data)
 }
 
 func (f *FileStore) Get(credName string, kind Kind) (string, error) {
@@ -154,6 +129,41 @@ func (f *FileStore) Has(credName string, kind Kind) (bool, error) {
 		return false, err
 	}
 	return ok && val != "", nil
+}
+
+func (f *FileStore) List() ([]Entry, error) {
+	dir, err := SecretsDir()
+	if err != nil {
+		return nil, err
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list secrets directory: %w", err)
+	}
+	var out []Entry
+	for _, e := range ents {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		authName := strings.TrimSuffix(e.Name(), ".json")
+		if authName == "" {
+			continue
+		}
+		sf, err := f.readFile(authName)
+		if err != nil {
+			return nil, err
+		}
+		if sf.Password != "" {
+			out = append(out, Entry{AuthName: authName, Kind: KindPassword})
+		}
+		if sf.ClientSecret != "" {
+			out = append(out, Entry{AuthName: authName, Kind: KindClientSecret})
+		}
+	}
+	return out, nil
 }
 
 func valueFromSecretFile(sf *secretFile, kind Kind) (string, bool, error) {

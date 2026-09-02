@@ -3,6 +3,8 @@ package mcp
 import (
 	"encoding/json"
 	"testing"
+
+	"buddy/internal/buddy"
 )
 
 func TestToolResultAlwaysObject(t *testing.T) {
@@ -48,7 +50,7 @@ func TestSummarizeAuth(t *testing.T) {
 		},
 		"sites": []interface{}{map[string]interface{}{"id": "-1", "name": "NONE"}},
 	}
-	s := summarizeAuth(info)
+	s := buddy.CompactAuthInfo(info)
 	if s["username"] != "buddy-cli" {
 		t.Fatalf("%v", s)
 	}

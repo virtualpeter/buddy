@@ -16,6 +16,10 @@ func TestDirectAuthOptsUsesDirectAuth(t *testing.T) {
 	if !withURL.UsesDirectAuth() {
 		t.Fatal("url should trigger direct auth")
 	}
+	withRegion := DirectAuthOpts{Region: "us"}
+	if !withRegion.UsesDirectAuth() {
+		t.Fatal("region should trigger direct auth")
+	}
 }
 
 func TestValidateDirectAuth(t *testing.T) {
@@ -51,5 +55,31 @@ func TestLoadOAuth2CredsFile(t *testing.T) {
 	}
 	if creds.ClientID != "abc" || creds.ClientSecret != "xyz" {
 		t.Fatalf("got %+v", creds)
+	}
+}
+
+func TestCompactAuthInfo(t *testing.T) {
+	info := map[string]interface{}{
+		"authenticationType": "CLIENT_CREDENTIALS",
+		"account": map[string]interface{}{
+			"username":     "buddy-cli",
+			"accessLevel":  "FullAccess",
+			"privilegeSet": "CUSTOM",
+			"privilegesBySite": map[string]interface{}{
+				"-1": []interface{}{"Read Computers", "Update Policies"},
+			},
+		},
+		"sites": []interface{}{map[string]interface{}{"id": "-1", "name": "NONE"}},
+	}
+	s := CompactAuthInfo(info)
+	if s["username"] != "buddy-cli" || s["privilegeCount"] != 2 {
+		t.Fatalf("%v", s)
+	}
+	privs, ok := s["privileges"].([]string)
+	if !ok || len(privs) != 2 || privs[0] != "Read Computers" {
+		t.Fatalf("privileges=%v", s["privileges"])
+	}
+	if _, ok := s["account"]; ok {
+		t.Fatal("compact form should not include full account")
 	}
 }

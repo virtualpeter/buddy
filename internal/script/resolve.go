@@ -7,15 +7,6 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// resolveCred returns credName, optionally overridden by kwargs-style string.
-func resolveCred(thread *starlark.Thread, defaultCred string, cred starlark.String) string {
-	c := defaultCred
-	if cred != "" {
-		c = string(cred)
-	}
-	return getCred(thread, c)
-}
-
 // starlarkIDString accepts int or str Starlark value as an ID string.
 func starlarkIDString(v starlark.Value, label string) (string, error) {
 	switch x := v.(type) {
@@ -58,6 +49,29 @@ func starlarkIDInt(v starlark.Value, label string) (int, error) {
 func boolFromStarlark(v starlark.Value) bool {
 	b, ok := v.(starlark.Bool)
 	return ok && bool(b)
+}
+
+// idListFromStarlark accepts a single int/str ID or a list of those.
+func idListFromStarlark(v starlark.Value, label string) ([]string, error) {
+	if v == nil || v == starlark.None {
+		return nil, fmt.Errorf("%s is required", label)
+	}
+	if list, ok := v.(*starlark.List); ok {
+		out := make([]string, 0, list.Len())
+		for i := 0; i < list.Len(); i++ {
+			id, err := starlarkIDString(list.Index(i), label)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, id)
+		}
+		return out, nil
+	}
+	id, err := starlarkIDString(v, label)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be int, str, or list of those, got %s", label, v.Type())
+	}
+	return []string{id}, nil
 }
 
 func stringListFromStarlark(v starlark.Value, label string) ([]string, error) {

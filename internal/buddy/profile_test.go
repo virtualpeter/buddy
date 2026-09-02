@@ -110,12 +110,22 @@ func TestPlistReplacePayloadByDomain(t *testing.T) {
 func TestReplacePayloadsContent(t *testing.T) {
 	profileXML := []byte(`<root><payloads>old</payloads></root>`)
 	newContent := "new & <plist/>"
-	got := replacePayloadsContent(profileXML, newContent)
+	got, err := replacePayloadsContent(profileXML, newContent)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Contains(got, []byte("new")) {
 		t.Errorf("expected new content, got %s", got)
 	}
 	if !bytes.Contains(got, []byte("&lt;")) {
 		t.Errorf("expected entity-encoded angle brackets, got %s", got)
+	}
+}
+
+func TestReplacePayloadsContent_Missing(t *testing.T) {
+	_, err := replacePayloadsContent([]byte(`<root></root>`), "x")
+	if err == nil {
+		t.Fatal("expected error when <payloads> missing")
 	}
 }
 
@@ -287,7 +297,7 @@ func TestPatchProfilePayload_PayloadContent(t *testing.T) {
 	profileXML := []byte(`<?xml version="1.0"?>
 <os_x_configuration_profile>
   <general>
-    <payloads>&lt;plist version="1.0"&gt;&lt;dict&gt;&lt;key&gt;PayloadContent&lt;/key&gt;&lt;array&gt;&lt;dict&gt;&lt;key&gt;PayloadIdentifier&lt;/key&gt;&lt;string&gt;com.example.test&lt;/string&gt;&lt;key&gt;Value&lt;/key&gt;&lt;string&gt;before&lt;/string&gt;&lt;/dict&gt;&lt;/array&gt;&lt;/dict&gt;&lt;/plist&gt;</payloads>
+    <payloads>&lt;plist version="1.0"&gt;&lt;dict&gt;&lt;key&gt;PayloadContent&lt;/key&gt;&lt;array&gt;&lt;dict&gt;&lt;key&gt;PayloadIdentifier&lt;/key&gt;&lt;string&gt;com.example.test&lt;/string&gt;&lt;key&gt;PayloadUUID&lt;/key&gt;&lt;string&gt;keep-me&lt;/string&gt;&lt;key&gt;Value&lt;/key&gt;&lt;string&gt;before&lt;/string&gt;&lt;/dict&gt;&lt;/array&gt;&lt;/dict&gt;&lt;/plist&gt;</payloads>
   </general>
 </os_x_configuration_profile>`)
 	newDict := `<dict><key>PayloadIdentifier</key><string>com.example.test</string><key>Value</key><string>after</string></dict>`
@@ -304,5 +314,169 @@ func TestPatchProfilePayload_PayloadContent(t *testing.T) {
 	}
 	if strings.Contains(payloads, "before") {
 		t.Fatalf("expected before replaced, got %s", payloads)
+	}
+	if !strings.Contains(payloads, "keep-me") {
+		t.Fatalf("expected PayloadUUID preserved by merge, got %s", payloads)
+	}
+}
+
+func TestPatchProfilePayload_MCX(t *testing.T) {
+	// Entity-encoded payloads with MCX preference domain com.example.prefs
+	inner := `<?xml version="1.0"?><plist version="1.0"><dict>
+<key>com.example.prefs</key>
+<dict>
+<key>mcx_preference_settings</key>
+<dict><key>OldKey</key><string>old</string></dict>
+</dict>
+</dict></plist>`
+	escaped := xmlEncodePayload(inner)
+	profileXML := []byte(`<?xml version="1.0"?><os_x_configuration_profile><general><payloads>` + escaped + `</payloads></general></os_x_configuration_profile>`)
+	newSettings := `<dict><key>NewKey</key><string>new</string></dict>`
+	updated, err := PatchProfilePayload(profileXML, "com.example.prefs", newSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloads, err := extractPayloadsFromProfileXML(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := getMCXDict(payloads, "com.example.prefs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "NewKey") || !strings.Contains(got, "new") {
+		t.Fatalf("MCX settings not updated: %s", got)
+	}
+	if strings.Contains(got, "OldKey") {
+		t.Fatalf("old MCX settings still present: %s", got)
+	}
+}
+
+func TestGetMCXDict(t *testing.T) {
+	plist := `<?xml version="1.0"?><plist version="1.0"><dict>
+<key>com.example.prefs</key>
+<dict>
+<key>mcx_preference_settings</key>
+<dict><key>A</key><string>1</string></dict>
+</dict>
+</dict></plist>`
+	got, err := GetMCXDict(plist, "com.example.prefs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "<dict>") || !strings.Contains(got, "A") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func jamfApplePayloadPlist(identifier, payloadType, uuid, extraKey, extraVal string) string {
+	return `<?xml version="1.0"?><plist version="1.0"><dict><key>PayloadContent</key><array>
+  <dict>
+    <key>PayloadIdentifier</key><string>` + identifier + `</string>
+    <key>PayloadType</key><string>` + payloadType + `</string>
+    <key>PayloadUUID</key><string>` + uuid + `</string>
+    <key>` + extraKey + `</key><string>` + extraVal + `</string>
+  </dict>
+</array></dict></plist>`
+}
+
+func TestMatchPayloadContent_TypeUnique(t *testing.T) {
+	plistRaw := jamfApplePayloadPlist("330C2054-B496-494F-9EC1-846B04E789B6", "com.apple.mobiledevice.passwordpolicy", "330C2054-B496-494F-9EC1-846B04E789B6", "maxPINAgeInDays", "159")
+	out, err := plistGetPayloadByDomain(plistRaw, "com.apple.mobiledevice.passwordpolicy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("330C2054-B496-494F-9EC1-846B04E789B6")) {
+		t.Fatalf("expected identifier preserved, got %s", out)
+	}
+}
+
+func TestMatchPayloadContent_UUIDUnique(t *testing.T) {
+	plistRaw := jamfApplePayloadPlist("id-1", "com.apple.foo", "uuid-1", "Value", "x")
+	out, err := plistGetPayloadByDomain(plistRaw, "uuid-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("id-1")) {
+		t.Fatalf("got %s", out)
+	}
+}
+
+func TestMatchPayloadContent_TypeAmbiguous(t *testing.T) {
+	plistRaw := `<?xml version="1.0"?><plist version="1.0"><dict><key>PayloadContent</key><array>
+  <dict><key>PayloadIdentifier</key><string>a</string><key>PayloadType</key><string>com.dup</string></dict>
+  <dict><key>PayloadIdentifier</key><string>b</string><key>PayloadType</key><string>com.dup</string></dict>
+</array></dict></plist>`
+	_, err := plistGetPayloadByDomain(plistRaw, "com.dup")
+	if err == nil {
+		t.Fatal("expected ambiguous type error")
+	}
+	if !strings.Contains(err.Error(), "not unique") {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "identifier=") {
+		t.Fatalf("err should list rows: %v", err)
+	}
+}
+
+func TestMergePayload_TypeSelectorDoesNotRewriteIdentifier(t *testing.T) {
+	plistRaw := jamfApplePayloadPlist("keep-id", "com.apple.foo", "keep-uuid", "Value", "before")
+	updated, err := plistMergePayloadByDomain(plistRaw, "com.apple.foo", map[string]interface{}{
+		"PayloadIdentifier": "com.apple.foo",
+		"Value":             "after",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(updated, "after") {
+		t.Fatalf("expected merge, got %s", updated)
+	}
+	if !strings.Contains(updated, "keep-id") {
+		t.Fatalf("expected canonical Identifier kept, got %s", updated)
+	}
+	out, err := plistGetPayloadByDomain(updated, "keep-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(out, []byte("before")) {
+		t.Fatalf("old value still present: %s", out)
+	}
+}
+
+func TestPatchProfilePayload_MissListsPayloadContentNotMCX(t *testing.T) {
+	inner := jamfApplePayloadPlist("keep-id", "com.apple.foo", "keep-uuid", "Value", "before")
+	escaped := xmlEncodePayload(inner)
+	profileXML := []byte(`<?xml version="1.0"?><os_x_configuration_profile><general><payloads>` + escaped + `</payloads></general></os_x_configuration_profile>`)
+	_, err := PatchProfilePayload(profileXML, "com.apple.missing", `<dict><key>Value</key><string>x</string></dict>`)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), "domain not found in payloads plist") {
+		t.Fatalf("MCX fallback leaked: %v", err)
+	}
+	if !strings.Contains(err.Error(), "PayloadContent") && !strings.Contains(err.Error(), "identifier=") {
+		t.Fatalf("expected PayloadContent listing, got %v", err)
+	}
+}
+
+func TestGetMCXDict_PayloadContentOnly(t *testing.T) {
+	plistRaw := jamfApplePayloadPlist("keep-id", "com.apple.MCX", "keep-uuid", "Value", "x")
+	_, err := GetMCXDict(plistRaw, "com.apple.MCX")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "payloads_list_identifiers") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPlistPayloadContentRows(t *testing.T) {
+	plistRaw := jamfApplePayloadPlist("id-1", "com.apple.foo", "uuid-1", "Value", "x")
+	rows, err := PlistPayloadContentRows(plistRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Identifier != "id-1" || rows[0].Type != "com.apple.foo" || rows[0].UUID != "uuid-1" {
+		t.Fatalf("rows = %+v", rows)
 	}
 }

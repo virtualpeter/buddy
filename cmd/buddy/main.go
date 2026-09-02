@@ -2,21 +2,19 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/signal"
 	"strconv"
 	"strings"
+	"time"
 
 	"buddy/internal/buddy"
+	"buddy/internal/clispec"
 	"buddy/internal/help"
-	buddymcp "buddy/internal/mcp"
 	"buddy/internal/script"
-	"buddy/internal/serve"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=..."
@@ -29,22 +27,34 @@ type globalCLI struct {
 	verbose     bool
 	trace       bool
 	scriptTrace bool
-	user        string
-	cred        string
-	usedCred    bool
+	tenant      string // --tenant: default tenant for auto auth pick
+	user        string // --user / --auth: pin a specific auth
+	rejectCred  bool   // --cred seen (removed in v4)
+	evalSource  string // -e / --eval snippet
+	evalDup     bool   // second -e/--eval seen
+	evalMissing bool   // -e/--eval without a following argument
 }
 
 func main() {
 	globals, filtered := extractGlobalFlags(os.Args)
 	os.Args = filtered
 
-	if globals.usedCred {
-		fmt.Fprintln(os.Stderr, "note: '--cred' is deprecated; use '--user'")
+	if globals.rejectCred {
+		fmt.Fprintln(os.Stderr, "buddy: --cred was removed; use --user (or --auth)")
+		os.Exit(2)
 	}
 
-	if globals.showVersion {
+	if globals.showVersion || (len(os.Args) > 1 && os.Args[1] == "version") {
 		fmt.Println(Version)
 		os.Exit(0)
+	}
+	if globals.evalDup {
+		fmt.Fprintln(os.Stderr, "buddy: only one -e / --eval is allowed")
+		os.Exit(2)
+	}
+	if globals.evalMissing {
+		fmt.Fprintln(os.Stderr, "buddy: -e / --eval requires a buddyscript snippet")
+		os.Exit(2)
 	}
 
 	opts := buddy.Opts{
@@ -59,19 +69,68 @@ func main() {
 		os.Exit(1)
 	}
 	buddy.SetActiveConfig(cfg)
-	credName := cfg.Cred
-	if globals.user != "" {
-		credName = globals.user
-	} else if globals.cred != "" {
-		credName = globals.cred
-	}
 
 	args := os.Args[1:]
+	channel := buddy.ChannelCLI
+	if len(args) > 0 {
+		switch args[0] {
+		case clispec.CmdMCP:
+			channel = buddy.ChannelMCP
+		case clispec.CmdServe:
+			// Notebook/IDE set channel per session; keep cli for process --tenant default.
+			channel = buddy.ChannelCLI
+		}
+	}
+	buddy.SetActiveChannel(channel)
+
+	tenantName := cfg.DefaultTenant(channel)
+	if globals.tenant != "" {
+		tenantName = globals.tenant
+	}
+	authPin := ""
+	if globals.user != "" {
+		authPin = globals.user
+	}
+	if globals.tenant != "" && authPin != "" {
+		if auth, err := cfg.ResolveAuth(authPin); err == nil && !auth.LinkedTo(tenantName) {
+			fmt.Fprintf(os.Stderr, "buddy: auth %q is not linked to tenant %q (linked: %s)\n",
+				authPin, tenantName, strings.Join(auth.Tenants, ", "))
+			os.Exit(2)
+		}
+	}
+	buddy.SetActiveSelection(tenantName, authPin)
+	// credName is the auth pin passed into commands (empty → auto-pick for tenant).
+	credName := authPin
 
 	buddy.InitLogger()
 	buddy.SetVerbose(globals.verbose || globals.trace)
 	buddy.SetHTTPTrace(globals.trace)
 	logger := buddy.GetLogger()
+
+	if buddy.ConfigNeedsSetup(cfg) && buddy.StdinIsTerminal() && shouldOfferFirstTimeSetup(args) {
+		if _, err := buddy.RunFirstTimeSetup(cfg, opts, logger); err != nil {
+			logger.Error("First-time setup failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		buddy.SetActiveConfig(cfg)
+		tenantName = cfg.DefaultTenant(channel)
+		if globals.tenant != "" {
+			tenantName = globals.tenant
+		}
+		buddy.SetActiveSelection(tenantName, authPin)
+		credName = authPin
+	}
+
+	if globals.evalSource != "" {
+		scriptArgs := script.ParseEvalArgs(args)
+		if err := script.RunSource(credName, opts, globals.evalSource, scriptArgs, logger, globals.scriptTrace); err != nil {
+			logger.Error("Eval failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if len(args) < 1 {
 		if err := script.REPL(credName, opts, logger, globals.scriptTrace); err != nil {
@@ -88,134 +147,137 @@ func main() {
 		if posTrace {
 			trace = true
 		}
-		if err := script.Run(credName, opts, scriptPath, scriptArgs, logger, trace); err != nil {
-			logger.Error("Script failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
+		exitOnErr(logger, "Script failed", script.Run(credName, opts, scriptPath, scriptArgs, logger, trace))
 		return
 	}
 
 	switch args[0] {
-	case "help":
+	case clispec.CmdHelp:
 		if len(args) > 1 {
 			printCommandHelp(args[1:])
 		} else {
 			printUsage()
 		}
 		os.Exit(0)
-	case "auth":
-		if err := runAuth(credName, opts, args[1:], logger); err != nil {
-			logger.Error("Auth command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "cred":
-		if err := runCred(cfg, opts, args[1:], logger); err != nil {
-			logger.Error("Cred command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "config":
-		fmt.Fprintln(os.Stderr, "note: 'config' is deprecated; use 'cred'")
-		if err := runCred(cfg, opts, args[1:], logger); err != nil {
-			logger.Error("Cred command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "policy":
-		if err := runPolicy(credName, opts, args[1:], buddy.GetLogger()); err != nil {
-			logger.Error("Policy command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "group":
-		if err := runGroup(credName, opts, args[1:], buddy.GetLogger()); err != nil {
-			logger.Error("Group command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "profile":
-		if err := runProfile(credName, opts, args[1:], buddy.GetLogger()); err != nil {
-			logger.Error("Profile command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "package":
-		if err := runPackage(credName, opts, args[1:], buddy.GetLogger()); err != nil {
-			logger.Error("Package command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "computer":
-		if err := runComputer(credName, opts, args[1:], buddy.GetLogger()); err != nil {
-			logger.Error("Computer command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "role":
-		if err := runRole(credName, opts, args[1:], buddy.GetLogger()); err != nil {
-			logger.Error("Role command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "client":
-		if err := runClient(credName, opts, args[1:], buddy.GetLogger()); err != nil {
-			logger.Error("Client command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "script":
-		if err := runJamfScript(credName, opts, args[1:], buddy.GetLogger()); err != nil {
-			logger.Error("Script command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "mdm":
-		if err := runMdm(credName, opts, args[1:], buddy.GetLogger()); err != nil {
-			logger.Error("MDM command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "setup":
-		if err := runSetup(cfg, opts, credName, args[1:], logger); err != nil {
-			logger.Error("Setup command failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "serve":
-		if err := runServe(credName, opts, args[1:], logger); err != nil {
-			logger.Error("Serve failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-	case "mcp":
-		if len(args) > 1 && args[1] == "help" {
-			fmt.Print(helpMCP)
-			return
-		}
-		if err := buddymcp.Run(credName, opts, logger, Version); err != nil {
-			logger.Error("MCP failed", "error", err)
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
+	case clispec.CmdVersion:
+		// Also handled before config load; keep for completeness if dispatch is reached.
+		fmt.Println(Version)
+		os.Exit(0)
+	case clispec.CmdAuth:
+		exitOnErr(logger, "Auth command failed", runAuth(credName, opts, args[1:], logger))
+	case clispec.CmdCred:
+		exitOnErr(logger, "Cred command failed", runCred(cfg, opts, args[1:], logger))
+	case clispec.CmdPolicy:
+		exitOnErr(logger, "Policy command failed", runPolicy(credName, opts, args[1:], logger))
+	case clispec.CmdCategory:
+		exitOnErr(logger, "Category command failed", runCategory(credName, opts, args[1:], logger))
+	case clispec.CmdMacApp:
+		exitOnErr(logger, "Macapp command failed", runMacApp(credName, opts, args[1:], logger))
+	case clispec.CmdApp:
+		exitOnErr(logger, "App command failed", runApp(credName, opts, args[1:], logger))
+	case clispec.CmdGroup:
+		exitOnErr(logger, "Group command failed", runGroup(credName, opts, args[1:], logger))
+	case clispec.CmdProfile:
+		exitOnErr(logger, "Profile command failed", runProfile(credName, opts, args[1:], logger))
+	case clispec.CmdPackage:
+		exitOnErr(logger, "Package command failed", runPackage(credName, opts, args[1:], logger))
+	case clispec.CmdIcon:
+		exitOnErr(logger, "Icon command failed", runIcon(credName, opts, args[1:], logger))
+	case clispec.CmdComputer:
+		exitOnErr(logger, "Computer command failed", runComputer(credName, opts, args[1:], logger))
+	case clispec.CmdRole:
+		exitOnErr(logger, "Role command failed", runRole(credName, opts, args[1:], logger))
+	case clispec.CmdClient:
+		exitOnErr(logger, "Client command failed", runClient(credName, opts, args[1:], logger))
+	case clispec.CmdScript:
+		exitOnErr(logger, "Script command failed", runJamfScript(credName, opts, args[1:], logger))
+	case clispec.CmdMdm:
+		exitOnErr(logger, "MDM command failed", runMdm(credName, opts, args[1:], logger))
+	case clispec.CmdMobile:
+		exitOnErr(logger, "Mobile-device command failed", runMobileDevice(credName, opts, args[1:], logger))
+	case clispec.CmdMobileGroup:
+		exitOnErr(logger, "Mobile-group command failed", runMobileGroup(credName, opts, args[1:], logger))
+	case clispec.CmdMobileProf:
+		exitOnErr(logger, "Mobile-profile command failed", runMobileProfile(credName, opts, args[1:], logger))
+	case clispec.CmdBlueprint:
+		exitOnErr(logger, "Blueprint command failed", runBlueprint(credName, opts, args[1:], logger))
+	case clispec.CmdDevice:
+		exitOnErr(logger, "Device command failed", runDevice(credName, opts, args[1:], logger))
+	case clispec.CmdDeviceGroup:
+		exitOnErr(logger, "Device-group command failed", runDeviceGroup(credName, opts, args[1:], logger))
+	case clispec.CmdDDM:
+		exitOnErr(logger, "DDM command failed", runDDM(credName, opts, args[1:], logger))
+	case clispec.CmdBenchmark:
+		exitOnErr(logger, "Benchmark command failed", runBenchmark(credName, opts, args[1:], logger))
+	case clispec.CmdSetup:
+		exitOnErr(logger, "Setup command failed", runSetup(cfg, opts, credName, args[1:], logger))
+	case clispec.CmdServe:
+		exitOnErr(logger, "Serve failed", runServe(credName, opts, args[1:], logger))
+	case clispec.CmdMCP:
+		exitOnErr(logger, "MCP failed", runMCP(credName, opts, args[1:], logger))
+	case clispec.CmdLSP:
+		exitOnErr(logger, "LSP failed", runLSP(args[1:], logger))
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %q\n", args[0])
-		printUsage()
+		fmt.Fprintf(os.Stderr, "%s", clispec.T(clispec.MsgUnknownCommand, args[0]))
+		if s := suggestTopLevelCommand(args[0]); s != "" {
+			fmt.Fprint(os.Stderr, clispec.T(clispec.MsgDidYouMean, s))
+		}
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, clispec.T(clispec.MsgRunHelpList))
 		os.Exit(1)
 	}
 }
 
+// shouldOfferFirstTimeSetup is false for meta / setup / local-UI commands that
+// must work without tenants (or that implement their own unconfigured mode).
+func shouldOfferFirstTimeSetup(args []string) bool {
+	if len(args) == 0 {
+		return true // REPL
+	}
+	cmd := args[0]
+	if !isKnownCommand(cmd) && isScriptPath(cmd) {
+		return true
+	}
+	switch cmd {
+	case clispec.CmdHelp, clispec.CmdVersion:
+		return false
+	case clispec.CmdSetup, clispec.CmdCred, clispec.CmdAuth:
+		return false
+	case clispec.CmdServe, clispec.CmdLSP:
+		return false
+	case clispec.CmdMCP:
+		return false // MCP registers zero tools when unconfigured
+	default:
+		return true
+	}
+}
+
 func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpPolicy)
 		return nil
 	}
 	mode := args[0]
 	rest := args[1:]
 
+	// list is valid with no further arguments; handle it before the sub-help fallthrough.
+	if mode == "list" {
+		if len(rest) > 0 && rest[0] == clispec.SubHelp {
+			fmt.Print(helpPolicyList)
+			return nil
+		}
+		return runPolicyList(credName, opts, rest, log)
+	}
+	if mode == clispec.SubLogs {
+		if len(rest) > 0 && rest[0] == clispec.SubHelp {
+			fmt.Print(helpPolicyLogs)
+			return nil
+		}
+		return runPolicyLogs(credName, rest, log)
+	}
+
 	// "buddy policy <mode> help" — print subcommand help
-	if len(rest) == 0 || rest[0] == "help" {
+	if len(rest) == 0 || rest[0] == clispec.SubHelp {
 		fmt.Print(policySubHelp(mode))
 		return nil
 	}
@@ -224,15 +286,13 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 	args = rest[1:]
 
 	switch mode {
-	case "get":
+	case clispec.SubGet:
 		return runPolicyGet(credName, opts, rest, log)
-	case "set":
+	case clispec.SubSet:
 		return runPolicySet(credName, opts, subcommand, args, log)
-	case "clone":
-		return runPolicyClone(credName, opts, append([]string{subcommand}, args...), log)
-	case "create":
+	case clispec.SubCreate:
 		return runPolicyCreate(credName, opts, subcommand, args, log)
-	case "delete":
+	case clispec.SubDelete:
 		idStrs := append([]string{subcommand}, args...)
 		var policyIDs []int
 		for _, s := range idStrs {
@@ -243,24 +303,34 @@ func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger
 			policyIDs = append(policyIDs, id)
 		}
 		return buddy.PolicyDelete(credName, opts, policyIDs, log)
-	case "find":
-		return runPolicyFind(credName, opts, append([]string{subcommand}, args...), log)
 	default:
-		return fmt.Errorf("policy requires 'get', 'set', 'clone', 'create', 'delete', or 'find', got %q", mode)
+		cands := []string{clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubCreate, clispec.SubDelete, "logs"}
+		msg := fmt.Sprintf("unknown policy subcommand: %q", mode)
+		msg += formatDidYouMean(suggestClosest(mode, cands))
+		msg += fmt.Sprintf(" (use: %s)", strings.Join(cands, ", "))
+		return fmt.Errorf("%s", msg)
 	}
 }
 
-func runPolicyFind(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) > 0 && args[0] == "help" {
-		fmt.Print(helpPolicyFind)
-		return nil
-	}
+func runPolicyList(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
 	var excludeIDs []int
 	var keywords []string
-	forceRefresh := false
-	for _, a := range args {
-		if strings.HasPrefix(a, "--exclude-ids=") {
-			val := strings.TrimPrefix(a, "--exclude-ids=")
+	idsOnly := false
+	asJSON := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if val, next, matched, err := takeFlagValue(args, i, clispec.FlagFilter); matched {
+			if err != nil {
+				return err
+			}
+			keywords = append(keywords, strings.Fields(val)...)
+			i = next - 1
+			continue
+		}
+		if val, next, matched, err := takeFlagValue(args, i, clispec.FlagExcludeIDs); matched {
+			if err != nil {
+				return err
+			}
 			for _, s := range strings.Split(val, ",") {
 				s = strings.TrimSpace(s)
 				if s == "" {
@@ -272,93 +342,156 @@ func runPolicyFind(credName string, opts buddy.Opts, args []string, log *slog.Lo
 				}
 				excludeIDs = append(excludeIDs, id)
 			}
-		} else if a == "-f" || a == "--force-refresh" {
-			forceRefresh = true
-		} else {
-			keywords = append(keywords, a)
+			i = next - 1
+			continue
+		}
+		switch {
+		case a == clispec.Flag(clispec.FlagIDs):
+			idsOnly = true
+		case a == clispec.Flag(clispec.FlagJSON):
+			asJSON = true
+		default:
+			return fmt.Errorf("unexpected argument %q; use %s (run '%s' for usage)", a, clispec.FlagEq(clispec.FlagFilter, "keyword"), clispec.UsageHelp(clispec.CmdPolicy, clispec.SubList))
 		}
 	}
-	if len(keywords) < 1 {
-		return fmt.Errorf("at least one keyword required; run 'buddy policy find help' for usage")
-	}
-	ids, err := buddy.PolicyFindByKeywords(credName, opts, keywords, excludeIDs, forceRefresh, log)
+	summaries, err := buddy.PolicyFindSummariesByKeywords(credName, opts, keywords, excludeIDs, log)
 	if err != nil {
 		return err
 	}
-	for _, id := range ids {
-		fmt.Println(id)
+	if idsOnly {
+		for _, s := range summaries {
+			fmt.Println(s.ID)
+		}
+		return nil
+	}
+	if asJSON {
+		return printJSON(summaries)
+	}
+	fmt.Printf("%-8s  %s\n", "ID", "Name")
+	fmt.Printf("%-8s  %s\n", "--------", "----------------------------------------")
+	for _, s := range summaries {
+		fmt.Printf("%-8d  %s\n", s.ID, s.Name)
 	}
 	return nil
 }
 
+func runPolicyLogs(credName string, args []string, log *slog.Logger) error {
+	fs := flag.NewFlagSet("policy logs", flag.ContinueOnError)
+	computer := fs.String("computer", "", "computer id")
+	computerIDs := fs.String(clispec.FlagComputerIds, "", "comma-separated computer ids (caller-built candidate set)")
+	filter := fs.String(clispec.FlagFilter, "", "computers() filter (bare term or RSQL); v4 inventory bound, not log date")
+	lastContact := fs.String("last-contact", "", "ISO datetime; computers with general.lastContact>=value (inventory, not logs since)")
+	since := fs.String(clispec.FlagSince, "", "keep log rows with date_completed_epoch >= value (ISO or epoch)")
+	until := fs.String(clispec.FlagUntil, "", "keep log rows with date_completed_epoch <= value (ISO or epoch)")
+	status := fs.String("status", "", "filter by log status (case-insensitive exact)")
+	skip := fs.Int("skip", 0, "computers to skip after the candidate list is built")
+	limit := fs.Int(clispec.FlagLimit, 0, "max computers to scan; with no other source uses Classic computers/subset/basic")
+	asJSON := fs.Bool(clispec.FlagJSON, false, "Print flattened logs as JSON")
+	flagArgs, positionals := staticGroupSplitFlags(args)
+	if err := fs.Parse(flagArgs); err != nil {
+		return err
+	}
+	if len(positionals) < 1 {
+		return missingArg("policy-id", clispec.UsageHelp(clispec.CmdPolicy))
+	}
+	policyID, err := parseInt(positionals[0], "policy-id")
+	if err != nil {
+		return err
+	}
+	ids := parseCommaSeparatedIDs(*computerIDs)
+	return buddy.PolicyLogsPrint(credName, buddy.PolicyLogsQuery{
+		PolicyID:    policyID,
+		ComputerID:  *computer,
+		ComputerIDs: ids,
+		Filter:      *filter,
+		LastContact: *lastContact,
+		Status:      *status,
+		Since:       *since,
+		Until:       *until,
+		Skip:        *skip,
+		Limit:       *limit,
+	}, *asJSON, log)
+}
+
 func runPolicyGet(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) > 0 && args[0] == "help" {
+	if len(args) > 0 && args[0] == clispec.SubHelp {
 		fmt.Print(helpPolicyGet)
 		return nil
 	}
-	var trigger string
-	forceRefresh := false
-	var pos []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "-f" || a == "--force-refresh":
-			forceRefresh = true
-		case a == "--trigger":
-			if i+1 >= len(args) {
-				return fmt.Errorf("missing value for --trigger")
-			}
-			trigger = args[i+1]
-			i++
-		case strings.HasPrefix(a, "--trigger="):
-			trigger = strings.TrimPrefix(a, "--trigger=")
-		default:
-			pos = append(pos, a)
+	for _, a := range args {
+		if a == clispec.Flag(clispec.FlagTrigger) || strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagTrigger)) {
+			return fmt.Errorf("buddy policy get %s was removed; use 'buddy policy get id <trigger>'", clispec.Flag(clispec.FlagTrigger))
 		}
 	}
-	trigger = strings.TrimSpace(trigger)
-
-	if trigger != "" {
-		if len(pos) > 0 {
-			return fmt.Errorf("unexpected arguments with --trigger: %v", pos)
+	if len(args) < 1 {
+		return fmt.Errorf("missing arguments: use <policy-id>, or 'id <trigger>', 'enable <policy-id>', or 'xml <policy-id>'; run '%s'", clispec.UsageHelp(clispec.CmdPolicy, clispec.SubGet))
+	}
+	switch args[0] {
+	case "id":
+		if len(args) < 2 {
+			return missingArg("trigger", clispec.UsageHelp(clispec.CmdPolicy, clispec.SubGet))
 		}
-		id, err := buddy.PolicyFind(credName, opts, trigger, forceRefresh, log)
+		trigger := strings.TrimSpace(args[1])
+		if trigger == "" {
+			return missingArg("trigger", clispec.UsageHelp(clispec.CmdPolicy, clispec.SubGet))
+		}
+		if len(args) > 2 {
+			return fmt.Errorf("unexpected arguments after trigger: %v", args[2:])
+		}
+		id, err := buddy.PolicyFind(credName, opts, trigger, log)
 		if err != nil {
 			return err
 		}
 		fmt.Println(id)
 		return nil
-	}
-
-	if len(pos) < 1 {
-		return fmt.Errorf("missing arguments: use --trigger <name>, or 'enable <policy-id>', or 'xml <policy-id>'; run 'buddy policy get help'")
-	}
-	switch pos[0] {
 	case "xml":
-		if len(pos) < 2 {
-			return fmt.Errorf("missing policy-id; run 'buddy policy get help' for usage")
+		if len(args) < 2 {
+			return missingArg("policy-id", clispec.UsageHelp(clispec.CmdPolicy, clispec.SubGet))
 		}
-		policyID, err := parseInt(pos[1], "policy-id")
+		policyID, err := parseInt(args[1], "policy-id")
 		if err != nil {
 			return err
 		}
 		return buddy.PolicyGetXML(credName, policyID, os.Stdout, log)
 	case "enable":
-		if len(pos) < 2 {
-			return fmt.Errorf("missing policy-id; run 'buddy policy get help' for usage")
+		if len(args) < 2 {
+			return missingArg("policy-id", clispec.UsageHelp(clispec.CmdPolicy, clispec.SubGet))
 		}
-		policyID, err := parseInt(pos[1], "policy-id")
+		policyID, err := parseInt(args[1], "policy-id")
 		if err != nil {
 			return err
 		}
 		return buddy.PolicyGetEnable(credName, opts, policyID, log)
 	default:
-		return fmt.Errorf("unknown policy get arguments: %v (use --trigger, or enable, or xml)", args)
+		policyID, err := parseInt(args[0], "policy-id")
+		if err != nil {
+			return fmt.Errorf("unknown policy get arguments: %v (use <policy-id>, id, enable, or xml)", args)
+		}
+		if len(args) > 1 {
+			return fmt.Errorf("unexpected arguments after policy-id: %v", args[1:])
+		}
+		d, err := buddy.PolicyGetDetails(credName, policyID, log)
+		if err != nil {
+			return err
+		}
+		b, err := json.MarshalIndent(buddy.PolicyDetailsMap(d), "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
 	}
 }
 
+func policySetRequireID(args []string, min int, hint string) (int, error) {
+	if len(args) < min {
+		return 0, missingArg(hint, clispec.UsageHelp(clispec.CmdPolicy, clispec.SubSet))
+	}
+	return parseInt(args[0], "policy-id")
+}
+
 func runPolicySet(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {
-	if subcommand == "help" {
+	if subcommand == clispec.SubHelp {
 		fmt.Print(helpPolicySet)
 		return nil
 	}
@@ -370,213 +503,177 @@ func runPolicySet(credName string, opts buddy.Opts, subcommand string, args []st
 		}
 		return buddy.PolicySSUpdate(credName, opts, policyID, ssOpts, log)
 
-	case "enable":
-		if len(args) < 1 {
-			return fmt.Errorf("missing policy-id; run 'buddy policy set help' for usage")
-		}
-		policyID, err := parseInt(args[0], "policy-id")
+	case "enable", "disable":
+		policyID, err := policySetRequireID(args, 1, "policy-id")
 		if err != nil {
 			return err
 		}
-		return buddy.PolicyEnable(credName, opts, policyID, true, log)
-
-	case "disable":
-		if len(args) < 1 {
-			return fmt.Errorf("missing policy-id; run 'buddy policy set help' for usage")
-		}
-		policyID, err := parseInt(args[0], "policy-id")
-		if err != nil {
-			return err
-		}
-		return buddy.PolicyEnable(credName, opts, policyID, false, log)
+		return buddy.PolicyEnable(credName, opts, policyID, subcommand == "enable", log)
 
 	case "trigger":
-		if len(args) < 2 {
-			return fmt.Errorf("missing policy-id or trigger; run 'buddy policy set help' for usage")
-		}
-		policyID, err := parseInt(args[0], "policy-id")
+		policyID, err := policySetRequireID(args, 2, "policy-id or trigger")
 		if err != nil {
 			return err
 		}
-		newTrigger := strings.TrimSpace(args[1])
-		return buddy.PolicyTrigger(credName, opts, policyID, newTrigger, log)
+		return buddy.PolicyTrigger(credName, opts, policyID, strings.TrimSpace(args[1]), log)
 
 	case "install":
 		paramIndices, filtered, err := parseParamArgs(args)
 		if err != nil {
 			return err
 		}
-		args = filtered
-		if len(args) < 2 {
-			return fmt.Errorf("missing policy-id or version; run 'buddy policy set help' for usage")
-		}
-		policyID, err := parseInt(args[0], "policy-id")
+		policyID, err := policySetRequireID(filtered, 2, "policy-id or version")
 		if err != nil {
 			return err
 		}
-		newVersion := strings.TrimSpace(args[1])
-		return buddy.PolicyInstall(credName, opts, policyID, newVersion, paramIndices, log)
+		return buddy.PolicyInstall(credName, opts, policyID, strings.TrimSpace(filtered[1]), paramIndices, log)
 
 	case "xml":
-		if len(args) < 1 {
-			return fmt.Errorf("missing policy-id; run 'buddy policy set help' for usage")
-		}
-		policyID, err := parseInt(args[0], "policy-id")
+		policyID, err := policySetRequireID(args, 1, "policy-id")
 		if err != nil {
 			return err
 		}
 		return buddy.PolicySetXML(credName, opts, policyID, os.Stdin, log)
 
 	case "scope":
-		var groupIDsFlag string
-		var filtered []string
-		for _, a := range args {
-			if strings.HasPrefix(a, "--group-ids=") {
-				groupIDsFlag = strings.TrimPrefix(a, "--group-ids=")
-			} else {
-				filtered = append(filtered, a)
-			}
-		}
-		args = filtered
-		if len(args) < 2 {
-			return fmt.Errorf("missing policy-id or scope; run 'buddy policy set help' for usage")
-		}
-		policyID, err := parseInt(args[0], "policy-id")
-		if err != nil {
-			return err
-		}
-		// "all" sets scope to All Computers
-		if len(args) == 2 && strings.ToLower(strings.TrimSpace(args[1])) == "all" {
-			return buddy.PolicyScopeAll(credName, opts, policyID, log)
-		}
-		var groupIDs []int
-		if groupIDsFlag != "" {
-			for _, s := range strings.Split(groupIDsFlag, ",") {
-				s = strings.TrimSpace(s)
-				id, err := parseInt(s, "group-id")
-				if err != nil {
-					return err
-				}
-				groupIDs = append(groupIDs, id)
-			}
-		}
-		for _, a := range args[1:] {
-			id, err := parseInt(a, "group-id")
-			if err != nil {
-				return err
-			}
-			groupIDs = append(groupIDs, id)
-		}
-		if len(groupIDs) == 0 {
-			return fmt.Errorf("at least one computer group ID required (positional or --group-ids=1,2,3)")
-		}
-		return buddy.PolicyScope(credName, opts, policyID, groupIDs, log)
+		return policySetScope(credName, opts, args, log)
 
 	case "name":
-		if len(args) < 2 {
-			return fmt.Errorf("missing policy-id or name; run 'buddy policy set help' for usage")
-		}
-		policyID, err := parseInt(args[0], "policy-id")
+		policyID, err := policySetRequireID(args, 2, "policy-id or name")
 		if err != nil {
 			return err
 		}
-		newName := strings.TrimSpace(strings.Join(args[1:], " "))
-		return buddy.PolicySetName(credName, opts, policyID, newName, log)
+		return buddy.PolicySetName(credName, opts, policyID, strings.TrimSpace(strings.Join(args[1:], " ")), log)
 
 	case "frequency":
-		if len(args) < 2 {
-			return fmt.Errorf("missing policy-id or frequency; run 'buddy policy set help' for usage")
-		}
-		policyID, err := parseInt(args[0], "policy-id")
+		policyID, err := policySetRequireID(args, 2, "policy-id or frequency")
 		if err != nil {
 			return err
 		}
 		frequency := strings.TrimSpace(strings.Join(args[1:], " "))
 		if frequency == "" {
-			return fmt.Errorf("missing frequency; run 'buddy policy set help' for usage")
+			return missingArg("frequency", clispec.UsageHelp(clispec.CmdPolicy, clispec.SubSet))
 		}
 		return buddy.PolicySetFrequency(credName, opts, policyID, frequency, log)
 
 	case "icon":
-		if len(args) < 2 {
-			return fmt.Errorf("missing policy-id or image-file; run 'buddy policy set help' for usage")
-		}
-		policyID, err := parseInt(args[0], "policy-id")
+		policyID, err := policySetRequireID(args, 2, "policy-id or image-file")
 		if err != nil {
 			return err
 		}
-		filePath := args[1]
-		return buddy.PolicySetIcon(credName, opts, policyID, filePath, log)
+		return buddy.PolicySetIcon(credName, opts, policyID, args[1], log)
 
 	case "package":
-		var triggerFlag, packageFlag string
-		var filtered []string
-		for _, a := range args {
-			if strings.HasPrefix(a, "--trigger=") {
-				triggerFlag = strings.TrimPrefix(a, "--trigger=")
-			} else if strings.HasPrefix(a, "--package=") {
-				packageFlag = strings.TrimPrefix(a, "--package=")
-			} else {
-				filtered = append(filtered, a)
-			}
+		return policySetPackage(credName, opts, args, log)
+
+	default:
+		return errUnknownSubcommand("policy set", subcommand, []string{
+			"ss", "scope", "enable", "disable", "trigger", "install", "name", "frequency", "icon", "package", "xml",
+		})
+	}
+}
+
+func policySetScope(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	var groupIDsFlag string
+	var filtered []string
+	for _, a := range args {
+		if strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagGroupIDs)) {
+			groupIDsFlag = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagGroupIDs))
+		} else {
+			filtered = append(filtered, a)
 		}
-		args = filtered
-		if len(args) < 2 {
-			return fmt.Errorf("missing app or version; run 'buddy policy set help' for usage")
-		}
-		appName := strings.ToLower(strings.TrimSpace(args[0]))
-		newVersion := strings.TrimSpace(args[1])
-		policyIDOverride := 0
-		if len(args) >= 3 {
-			var err error
-			policyIDOverride, err = parseInt(args[2], "policy-id")
+	}
+	policyID, err := policySetRequireID(filtered, 2, "policy-id or scope")
+	if err != nil {
+		return err
+	}
+	if len(filtered) == 2 && strings.ToLower(strings.TrimSpace(filtered[1])) == "all" {
+		return buddy.PolicyScopeAll(credName, opts, policyID, log)
+	}
+	var groupIDs []int
+	if groupIDsFlag != "" {
+		for _, s := range strings.Split(groupIDsFlag, ",") {
+			s = strings.TrimSpace(s)
+			id, err := parseInt(s, "group-id")
 			if err != nil {
 				return err
 			}
+			groupIDs = append(groupIDs, id)
 		}
-		if opts.Verbose && triggerFlag != "" {
-			fmt.Fprintf(os.Stderr, "Using --trigger=%s to resolve policy\n", triggerFlag)
-		}
-		return buddy.PolicyPackage(credName, opts, appName, newVersion, policyIDOverride, triggerFlag, packageFlag, log)
-
-	default:
-		return fmt.Errorf("unknown policy set subcommand: %q (use: ss, scope, enable, disable, trigger, install, name, frequency, icon, package, xml)", subcommand)
 	}
+	for _, a := range filtered[1:] {
+		id, err := parseInt(a, "group-id")
+		if err != nil {
+			return err
+		}
+		groupIDs = append(groupIDs, id)
+	}
+	if len(groupIDs) == 0 {
+		return fmt.Errorf("at least one computer group ID required (positional or %s)", clispec.FlagEq(clispec.FlagGroupIDs, "1,2,3"))
+	}
+	return buddy.PolicyScope(credName, opts, policyID, groupIDs, log)
 }
 
-func runPolicyClone(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) > 0 && args[0] == "help" {
-		fmt.Print(helpPolicyClone)
-		return nil
-	}
-	var packageFlag string
-	var cloneFiltered []string
+func policySetPackage(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	var triggerFlag, packageFlag, nameFlag string
+	var disableSource, keepSource bool
+	var filtered []string
 	for _, a := range args {
-		if strings.HasPrefix(a, "--package=") {
+		switch {
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagTrigger)):
+			triggerFlag = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagTrigger))
+		case strings.HasPrefix(a, "--package="):
 			packageFlag = strings.TrimPrefix(a, "--package=")
-		} else {
-			cloneFiltered = append(cloneFiltered, a)
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagName)):
+			nameFlag = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagName))
+		case a == "--disable-source":
+			disableSource = true
+		case a == "--keep-source":
+			keepSource = true
+		default:
+			filtered = append(filtered, a)
 		}
 	}
-	args = cloneFiltered
-	paramIndices, filtered, err := parseParamArgs(args)
+	disableMode, err := parseDisableSourceFlags(disableSource, keepSource)
 	if err != nil {
 		return err
 	}
-	args = filtered
-	if len(args) < 2 {
-		return fmt.Errorf("missing policy-id or version; run 'buddy policy clone help' for usage")
+	policyID := 0
+	var version string
+	if triggerFlag != "" {
+		if len(filtered) < 1 {
+			return missingArg("version", clispec.UsageHelp(clispec.CmdPolicy, clispec.SubSet))
+		}
+		version = strings.TrimSpace(filtered[0])
+		if opts.Verbose {
+			fmt.Fprintf(os.Stderr, "Using %s%s to resolve policy\n", clispec.FlagPrefix(clispec.FlagTrigger), triggerFlag)
+		}
+	} else {
+		policyID, err = policySetRequireID(filtered, 2, "policy-id or version (or pass "+clispec.FlagEq(clispec.FlagTrigger, "trigger")+" and <version>)")
+		if err != nil {
+			return err
+		}
+		version = strings.TrimSpace(filtered[1])
 	}
-	policyID, err := parseInt(args[0], "policy-id")
-	if err != nil {
-		return err
+	name := strings.ToLower(strings.TrimSpace(nameFlag))
+	return buddy.PolicyPackage(credName, opts, name, version, policyID, triggerFlag, packageFlag, disableMode, log)
+}
+
+func parseDisableSourceFlags(disableSource, keepSource bool) (buddy.DisableSourceMode, error) {
+	if disableSource && keepSource {
+		return buddy.DisableSourceAuto, fmt.Errorf("--disable-source and --keep-source are mutually exclusive")
 	}
-	newVersion := strings.TrimSpace(args[1])
-	return buddy.PolicyClone(credName, opts, policyID, "", "", newVersion, packageFlag, paramIndices, log)
+	if disableSource {
+		return buddy.DisableSourceForce, nil
+	}
+	if keepSource {
+		return buddy.DisableSourceKeep, nil
+	}
+	return buddy.DisableSourceAuto, nil
 }
 
 func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {
-	if subcommand == "help" {
+	if subcommand == clispec.SubHelp {
 		fmt.Print(helpPolicyCreate)
 		return nil
 	}
@@ -589,8 +686,8 @@ func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args [
 				pkgActionFlag = strings.TrimPrefix(a, "--action=")
 			} else if strings.HasPrefix(a, "--scope=") {
 				scopeFlag = strings.TrimPrefix(a, "--scope=")
-			} else if strings.HasPrefix(a, "--category=") {
-				categoryFlag = strings.TrimPrefix(a, "--category=")
+			} else if strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagCategory)) {
+				categoryFlag = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagCategory))
 			} else if strings.HasPrefix(a, "--package=") {
 				packageFlag = strings.TrimPrefix(a, "--package=")
 			} else {
@@ -599,9 +696,9 @@ func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args [
 		}
 		args = filtered
 		if len(args) < 2 {
-			return fmt.Errorf("missing app or version; run 'buddy policy create help' for usage")
+			return missingArg("name or version", clispec.UsageHelp(clispec.CmdPolicy, clispec.SubCreate))
 		}
-		appName := strings.ToLower(strings.TrimSpace(args[0]))
+		name := strings.ToLower(strings.TrimSpace(args[0]))
 		version := strings.TrimSpace(args[1])
 		pkgAction := "install"
 		if pkgActionFlag != "" {
@@ -629,36 +726,524 @@ func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args [
 				}
 			}
 		}
-		return buddy.PolicyCreatePackage(credName, opts, appName, version, pkgAction, scopeAll, scopeGroupIDs, categoryFlag, packageFlag, log)
+		_, err := buddy.PolicyCreatePackage(credName, opts, name, version, pkgAction, scopeAll, scopeGroupIDs, categoryFlag, packageFlag, log)
+		return err
 	case "ss":
 		var categoryFlag string
+		scriptID := 0
 		var filtered []string
 		for _, a := range args {
-			if strings.HasPrefix(a, "--category=") {
-				categoryFlag = strings.TrimPrefix(a, "--category=")
-			} else {
+			switch {
+			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagCategory)):
+				categoryFlag = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagCategory))
+			case strings.HasPrefix(a, "--script-id="):
+				id, err := parseInt(strings.TrimPrefix(a, "--script-id="), "script-id")
+				if err != nil {
+					return err
+				}
+				scriptID = id
+			default:
 				filtered = append(filtered, a)
 			}
 		}
 		args = filtered
 		if len(args) < 2 {
-			return fmt.Errorf("missing trigger or display-name; run 'buddy policy create help' for usage")
+			return missingArg("trigger or display-name", clispec.UsageHelp(clispec.CmdPolicy, clispec.SubCreate))
 		}
 		trigger := strings.TrimSpace(args[0])
 		displayName := strings.TrimSpace(strings.Join(args[1:], " "))
 		if displayName == "" {
-			return fmt.Errorf("missing display-name; run 'buddy policy create help' for usage")
+			return missingArg("display-name", clispec.UsageHelp(clispec.CmdPolicy, clispec.SubCreate))
 		}
-		// Default to all-computers scope and legacy script ID 51 for CLI.
-		_, err := buddy.PolicyCreateSS(credName, opts, trigger, displayName, categoryFlag, 0, 51, log)
+		_, err := buddy.PolicyCreateSS(credName, opts, trigger, displayName, categoryFlag, 0, scriptID, log)
 		return err
 	default:
-		return fmt.Errorf("unknown policy create subcommand: %q (use: package, ss)", subcommand)
+		return errUnknownSubcommand("policy create", subcommand, []string{"package", "ss"})
+	}
+}
+
+func runIcon(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
+		fmt.Print(helpIcon)
+		return nil
+	}
+	subcommand := args[0]
+	args = args[1:]
+
+	switch subcommand {
+	case clispec.SubList:
+		var filter string
+		var refresh, dropCache bool
+		fs := flag.NewFlagSet("icon list", flag.ContinueOnError)
+		fs.StringVar(&filter, clispec.FlagFilter, "", "substring match on name or id")
+		fs.BoolVar(&refresh, clispec.FlagRefresh, false, "probe 20 ids past max (skips cached ids)")
+		fs.BoolVar(&dropCache, clispec.FlagDropCache, false, "delete the catalog cache and walk from id 1")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		res, err := buddy.IconList(credName, buddy.IconListOpts{Filter: filter, Refresh: refresh, DropCache: dropCache, Progress: true}, log)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%-8s  %-40s  %s\n", "ID", "Name", "URL")
+		fmt.Printf("%-8s  %-40s  %s\n", "--------", "----------------------------------------", "----------------------------------------")
+		for _, icon := range res.Icons {
+			fmt.Printf("%-8d  %-40s  %s\n", icon.ID, icon.Name, icon.URL)
+		}
+		return nil
+	case clispec.SubGet:
+		if len(args) < 1 {
+			return missingArg("icon-id", clispec.UsageHelp(clispec.CmdIcon))
+		}
+		id, err := strconv.Atoi(args[0])
+		if err != nil || id <= 0 {
+			return fmt.Errorf("icon-id must be a positive integer")
+		}
+		icon, err := buddy.IconGet(credName, id)
+		if err != nil {
+			return err
+		}
+		return printJSON(icon)
+	case clispec.SubUpload:
+		if len(args) < 1 {
+			return missingArg("file", clispec.UsageHelp(clispec.CmdIcon))
+		}
+		filePath := args[0]
+		if !opts.SkipConfirm {
+			if !buddy.ConfirmPrompt(fmt.Sprintf("\nUpload icon %q?", filePath), log) {
+				return nil
+			}
+		}
+		icon, err := buddy.IconUpload(credName, filePath)
+		if err != nil {
+			return err
+		}
+		return printJSON(icon)
+	case clispec.SubCheck:
+		if len(args) < 1 {
+			return missingArg("file", clispec.UsageHelp(clispec.CmdIcon))
+		}
+		iconID := 0
+		if len(args) >= 2 {
+			var err error
+			iconID, err = strconv.Atoi(args[1])
+			if err != nil || iconID <= 0 {
+				return fmt.Errorf("icon-id must be a positive integer")
+			}
+		}
+		res, err := buddy.IconCheckFile(credName, args[0], iconID)
+		if err != nil {
+			return err
+		}
+		return printJSON(res)
+	case clispec.SubDownload:
+		if len(args) < 1 {
+			return missingArg("icon-id", clispec.UsageHelp(clispec.CmdIcon))
+		}
+		id, err := strconv.Atoi(args[0])
+		if err != nil || id <= 0 {
+			return fmt.Errorf("icon-id must be a positive integer")
+		}
+		rec, err := buddy.IconGet(credName, id)
+		if err != nil {
+			return err
+		}
+		data, err := buddy.IconFetch(credName, rec)
+		if err != nil {
+			return err
+		}
+		outPath := ""
+		if len(args) >= 2 {
+			outPath = args[1]
+		} else {
+			outPath = iconDownloadFileName(rec, id)
+		}
+		if err := os.WriteFile(outPath, data, 0o644); err != nil {
+			return fmt.Errorf("write icon file: %w", err)
+		}
+		fmt.Printf("Wrote icon ID %d to %s (%d bytes)\n", id, outPath, len(data))
+		return nil
+	default:
+		return errUnknownSubcommand("icon", subcommand, []string{
+			clispec.SubList, clispec.SubGet, clispec.SubUpload, clispec.SubCheck, clispec.SubDownload,
+		})
+	}
+}
+
+func printJSON(v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(b))
+	return nil
+}
+
+func iconDownloadFileName(rec buddy.Icon, id int) string {
+	name := strings.TrimSpace(rec.Name)
+	name = strings.ReplaceAll(name, "\\", "/")
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	if name == "" || name == "." || name == ".." {
+		return fmt.Sprintf("icon-%d.png", id)
+	}
+	return name
+}
+
+func runCategory(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
+		fmt.Print(helpCategory)
+		return nil
+	}
+	subcommand := args[0]
+	args = args[1:]
+
+	switch subcommand {
+	case clispec.SubList:
+		var filter string
+		fs := flag.NewFlagSet("category list", flag.ContinueOnError)
+		fs.StringVar(&filter, clispec.FlagFilter, "", "name substring or RSQL filter")
+		asJSON := fs.Bool(clispec.FlagJSON, false, "Print matching rows as JSON")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		cats, err := buddy.CategorySearch(credName, filter, buddy.PageOpts{Page: buddy.PageAll}, log)
+		if err != nil {
+			return err
+		}
+		if *asJSON {
+			b, err := json.MarshalIndent(cats, "", "  ")
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(b))
+			return nil
+		}
+		fmt.Printf("%-8s  %-8s  %s\n", "ID", "Priority", "Name")
+		fmt.Printf("%-8s  %-8s  %s\n", "--------", "--------", "----------------------------------------")
+		for _, c := range cats {
+			fmt.Printf("%-8s  %-8d  %s\n", c.ID, c.Priority, c.Name)
+		}
+		return nil
+	case clispec.SubGet:
+		if len(args) < 1 {
+			return missingArg("category-id", clispec.UsageHelp(clispec.CmdCategory))
+		}
+		c, err := buddy.CategoryFetch(credName, args[0])
+		if err != nil {
+			return err
+		}
+		b, err := json.MarshalIndent(c, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	case clispec.SubCreate:
+		var priority int
+		fs := flag.NewFlagSet("category create", flag.ContinueOnError)
+		fs.IntVar(&priority, "priority", 9, "category priority (Jamf default 9)")
+		flagArgs, positionals := staticGroupSplitFlags(args)
+		if err := fs.Parse(flagArgs); err != nil {
+			return err
+		}
+		if len(positionals) < 1 {
+			return missingArg("<name>", clispec.UsageHelp(clispec.CmdCategory))
+		}
+		name := strings.TrimSpace(strings.Join(positionals, " "))
+		_, err := buddy.CategoryPost(credName, opts, buddy.CategoryDetail{Name: name, Priority: priority}, log)
+		return err
+	case clispec.SubDelete:
+		if len(args) < 1 {
+			return missingArg("category-id", clispec.UsageHelp(clispec.CmdCategory))
+		}
+		return buddy.CategoryDelete(credName, opts, args[0], log)
+	default:
+		return errUnknownSubcommand("category", subcommand, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubDelete})
+	}
+}
+
+func runMacApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
+		fmt.Print(helpMacApp)
+		return nil
+	}
+	subcommand := args[0]
+	args = args[1:]
+
+	switch subcommand {
+	case clispec.SubList:
+		var filter string
+		fs := flag.NewFlagSet("macapp list", flag.ContinueOnError)
+		fs.StringVar(&filter, clispec.FlagFilter, "", "substring matched against name, version, or bundle_id")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		apps, err := buddy.MacAppSearch(credName, filter, log)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%-8s  %-40s  %-16s  %s\n", "ID", "Name", "Version", "Bundle ID")
+		fmt.Printf("%-8s  %-40s  %-16s  %s\n", "--------", "----------------------------------------", "----------------", "--------------------------------")
+		for _, a := range apps {
+			fmt.Printf("%-8d  %-40s  %-16s  %s\n", a.ID, truncatePad(a.Name, 40), truncatePad(a.Version, 16), a.BundleID)
+		}
+		return nil
+	case clispec.SubGet:
+		if len(args) < 1 {
+			return missingArg("macapp-id", clispec.UsageHelp(clispec.CmdMacApp))
+		}
+		d, err := buddy.MacAppFetch(credName, args[0])
+		if err != nil {
+			return err
+		}
+		b, err := json.MarshalIndent(d, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	case clispec.SubCreate:
+		var name, version, bundleID, url, category string
+		var free bool
+		fs := flag.NewFlagSet("macapp create", flag.ContinueOnError)
+		fs.StringVar(&name, clispec.FlagName, "", "display name (required)")
+		fs.StringVar(&version, "version", "", "version string (required)")
+		fs.StringVar(&bundleID, "bundle-id", "", "bundle identifier (required)")
+		fs.StringVar(&url, "url", "", "App Store URL (required)")
+		fs.BoolVar(&free, "free", false, "mark as free App Store app")
+		fs.StringVar(&category, clispec.FlagCategory, "", "category name (exact)")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		_, err := buddy.MacAppCreate(credName, opts, buddy.MacAppCreateSpec{
+			Name:     name,
+			Version:  version,
+			BundleID: bundleID,
+			URL:      url,
+			IsFree:   free,
+			Category: category,
+		}, log)
+		return err
+	case clispec.SubDelete:
+		if len(args) < 1 {
+			return missingArg("macapp-id", clispec.UsageHelp(clispec.CmdMacApp))
+		}
+		var ids []int
+		for _, s := range args {
+			id, err := parseInt(s, "macapp-id")
+			if err != nil {
+				return err
+			}
+			ids = append(ids, id)
+		}
+		return buddy.MacAppDelete(credName, opts, ids, log)
+	default:
+		return errUnknownSubcommand("macapp", subcommand, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubDelete})
+	}
+}
+
+func truncatePad(s string, width int) string {
+	if len(s) <= width {
+		return s
+	}
+	if width <= 3 {
+		return s[:width]
+	}
+	return s[:width-3] + "..."
+}
+
+func printAppScanSource(res buddy.AppScanResult) {
+	fmt.Println(buddy.FormatPolicyCacheLine(res.Cache))
+	if res.Source == "cache" {
+		if res.Cache.Stale {
+			fmt.Println("  Pass --refresh to rebuild, or: buddy app cache refresh")
+		}
+		return
+	}
+	fmt.Println("  Scanned live policy list. Faster next time: buddy app scan --refresh")
+}
+
+func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
+		fmt.Print(helpApp)
+		return nil
+	}
+	subcommand := args[0]
+	args = args[1:]
+
+	switch subcommand {
+	case clispec.SubList:
+		var filter string
+		fs := flag.NewFlagSet("app list", flag.ContinueOnError)
+		fs.StringVar(&filter, clispec.FlagFilter, "", "substring matched against name, kind, version, trigger, or package")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		buddy.PrintPolicyCacheLine(credName)
+		apps, err := buddy.AppListImported(buddy.DefaultAppsDir(), filter)
+		if err != nil {
+			return err
+		}
+		if len(apps) == 0 {
+			fmt.Println("No imported apps (apps/index.json empty or missing).")
+			fmt.Println("Onboard with: buddy app cache refresh && buddy app scan && buddy app import <name>")
+			return nil
+		}
+		fmt.Printf("%-24s  %-8s  %-12s  %-8s  %-8s  %-8s  %-8s  %s\n",
+			"Name", "Kind", "Version", "SS", "Install", "Cache", "Uninst", "Trigger")
+		fmt.Printf("%-24s  %-8s  %-12s  %-8s  %-8s  %-8s  %-8s  %s\n",
+			"------------------------", "--------", "------------", "--------", "--------", "--------", "--------", "----------------")
+		idx, _ := buddy.LoadAppIndex(buddy.DefaultAppsDir())
+		for _, a := range apps {
+			inst, cache, uninst := a.InstallPolicyID, a.CachePolicyID, 0
+			if idx != nil {
+				if e, ok := idx.Apps[a.Name]; ok {
+					if len(e.UninstallPolicyIDs) > 0 {
+						uninst = e.UninstallPolicyIDs[0]
+					}
+					if len(e.InstallPolicyIDs) > 0 {
+						inst = e.InstallPolicyIDs[0]
+					}
+					if len(e.CachePolicyIDs) > 0 {
+						cache = e.CachePolicyIDs[0]
+					}
+				}
+			}
+			fmt.Printf("%-24s  %-8s  %-12s  %-8d  %-8d  %-8d  %-8d  %s\n",
+				truncatePad(a.Name, 24), truncatePad(string(a.Kind), 8), truncatePad(a.Version, 12),
+				a.SSPolicyID, inst, cache, uninst, a.InstallTrigger)
+		}
+		return nil
+	case "scan":
+		var filter string
+		var refresh bool
+		fs := flag.NewFlagSet("app scan", flag.ContinueOnError)
+		fs.StringVar(&filter, clispec.FlagFilter, "", "substring matched against name, kind, version, trigger, or package")
+		fs.BoolVar(&refresh, "refresh", false, "rebuild the policy cache, then scan it")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		res, err := buddy.AppScan(credName, buddy.AppScanOpts{Filter: filter, Refresh: refresh}, log)
+		if err != nil {
+			return err
+		}
+		printAppScanSource(res)
+		fmt.Printf("%-30s  %-8s  %-12s  %-8s  %-24s  %s\n", "Name", "Kind", "Version", "SS ID", "Install trigger", "Package")
+		fmt.Printf("%-30s  %-8s  %-12s  %-8s  %-24s  %s\n", "------------------------------", "--------", "------------", "--------", "------------------------", "--------------------------------")
+		for _, a := range res.Apps {
+			fmt.Printf("%-30s  %-8s  %-12s  %-8d  %-24s  %s\n",
+				truncatePad(a.Name, 30), truncatePad(string(a.Kind), 8), truncatePad(a.Version, 12),
+				a.SSPolicyID, truncatePad(a.InstallTrigger, 24), a.PackageName)
+		}
+		fmt.Println("\nHeuristic scan only — import with: buddy app import <name>")
+		return nil
+	case clispec.SubGet:
+		if len(args) < 1 {
+			return missingArg("app name", clispec.UsageHelp(clispec.CmdApp))
+		}
+		buddy.PrintPolicyCacheLine(credName)
+		d, err := buddy.AppGet(credName, args[0], log)
+		if err != nil {
+			return err
+		}
+		b, err := json.MarshalIndent(d, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	case "upgrade":
+		if len(args) < 1 {
+			return missingArg("app name", clispec.UsageHelp(clispec.CmdApp))
+		}
+		name := args[0]
+		var version, packagePattern string
+		fs := flag.NewFlagSet("app upgrade", flag.ContinueOnError)
+		fs.StringVar(&version, "version", "", "target version (required)")
+		fs.StringVar(&packagePattern, "package-pattern", "", "optional package name glob")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if strings.TrimSpace(version) == "" {
+			return fmt.Errorf("--version is required; run '%s' for usage", clispec.UsageHelp(clispec.CmdApp))
+		}
+		buddy.PrintPolicyCacheLine(credName)
+		return buddy.AppUpgrade(credName, opts, name, version, packagePattern, log)
+	case "import":
+		var name string
+		rest := args
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			name = rest[0]
+			rest = rest[1:]
+		}
+		var output, installCSV, cacheCSV, uninstallCSV, packagePattern, installTrig, cacheTrig, uninstallTrig, kind, version string
+		var ssID int
+		fs := flag.NewFlagSet("app import", flag.ContinueOnError)
+		fs.StringVar(&output, "output", "", "output .buddy path (default apps/<slug>.buddy)")
+		fs.StringVar(&output, "o", "", "shorthand for --output")
+		fs.IntVar(&ssID, "ss", 0, "Self Service policy ID (non-interactive)")
+		fs.StringVar(&installCSV, "install", "", "comma-separated install policy IDs")
+		fs.StringVar(&cacheCSV, "cache", "", "comma-separated cache policy IDs")
+		fs.StringVar(&uninstallCSV, "uninstall", "", "comma-separated uninstall policy IDs")
+		fs.StringVar(&packagePattern, "package-pattern", "", "package name glob")
+		fs.StringVar(&installTrig, "install-trigger", "", "install trigger")
+		fs.StringVar(&cacheTrig, "cache-trigger", "", "cache trigger")
+		fs.StringVar(&uninstallTrig, "uninstall-trigger", "", "uninstall trigger")
+		fs.StringVar(&kind, "kind", "", "single|install|cache")
+		fs.StringVar(&version, "version", "", "current version")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		installIDs, err := buddy.ParseIntCSVList(installCSV)
+		if err != nil {
+			return err
+		}
+		cacheIDs, err := buddy.ParseIntCSVList(cacheCSV)
+		if err != nil {
+			return err
+		}
+		uninstallIDs, err := buddy.ParseIntCSVList(uninstallCSV)
+		if err != nil {
+			return err
+		}
+		_, err = buddy.AppImport(credName, opts, buddy.AppImportOpts{
+			Name:               name,
+			Output:             output,
+			SSPolicyID:         ssID,
+			InstallPolicyIDs:   installIDs,
+			CachePolicyIDs:     cacheIDs,
+			UninstallPolicyIDs: uninstallIDs,
+			PackagePattern:     packagePattern,
+			InstallTrigger:     installTrig,
+			CacheTrigger:       cacheTrig,
+			UninstallTrigger:   uninstallTrig,
+			Kind:               kind,
+			Version:            version,
+		}, log)
+		return err
+	case "cache":
+		if len(args) == 0 || args[0] == clispec.SubHelp {
+			fmt.Println("Usage: buddy [global-flags] app cache <status|refresh>")
+			return nil
+		}
+		switch args[0] {
+		case "status":
+			return buddy.PrintPolicyCacheStatus(credName)
+		case "refresh":
+			buddy.PrintPolicyCacheLine(credName)
+			return buddy.PolicyCacheRefresh(credName, log)
+		default:
+			return errUnknownSubcommand("app cache", args[0], []string{"status", "refresh"})
+		}
+	default:
+		return errUnknownSubcommand("app", subcommand, []string{clispec.SubList, "scan", clispec.SubGet, "import", "cache", "upgrade"})
 	}
 }
 
 func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpGroup)
 		return nil
 	}
@@ -666,49 +1251,95 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 	args = args[1:]
 
 	switch mode {
-	case "list":
+	case clispec.SubList:
 		if len(args) == 0 {
-			return fmt.Errorf("usage: buddy group list smart|static [--filter=<rsql>]")
+			return fmt.Errorf("usage: buddy group list smart|static [%s]", clispec.FlagEq(clispec.FlagFilter, "rsql"))
 		}
 		groupType := args[0]
 		filter := ""
 		fs := flag.NewFlagSet("group list "+groupType, flag.ContinueOnError)
-		fs.StringVar(&filter, "filter", "", "name filter (plain substring or RSQL)")
+		fs.StringVar(&filter, clispec.FlagFilter, "", "name filter (plain substring or RSQL)")
+		asJSON := fs.Bool(clispec.FlagJSON, false, "Print matching rows as JSON")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		switch groupType {
 		case "smart":
-			return buddy.GroupListSmart(credName, filter, log)
+			return buddy.GroupListSmart(credName, filter, *asJSON, log)
 		case "static":
-			return buddy.GroupListStatic(credName, filter, log)
+			return buddy.GroupListStatic(credName, filter, *asJSON, log)
 		default:
-			return fmt.Errorf("group list requires 'smart' or 'static', got %q", groupType)
+			return errUnknownSubcommand("group list", groupType, []string{"smart", "static"})
 		}
-	case "get":
-		if len(args) < 2 || args[0] != "version" {
-			return fmt.Errorf("missing 'version' or group-id; run 'buddy group help' for usage")
-		}
-		groupID := strings.TrimSpace(args[1])
-		return buddy.GroupGetVersion(credName, opts, groupID, log)
-	case "set":
-		if len(args) < 3 || args[0] != "version" {
-			return fmt.Errorf("missing 'version', group-id, or version value; run 'buddy group help' for usage")
-		}
-		groupID := strings.TrimSpace(args[1])
-		newVersion := strings.TrimSpace(args[2])
-		return buddy.GroupVersion(credName, opts, groupID, newVersion, log)
-	case "delete":
+	case clispec.SubGet:
 		if len(args) < 1 {
-			return fmt.Errorf("missing group-id; run 'buddy group help' for usage")
+			return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
+		}
+		return buddy.GroupGet(credName, strings.TrimSpace(args[0]), log)
+	case clispec.SubDelete:
+		if len(args) < 1 {
+			return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
 		}
 		groupID := strings.TrimSpace(args[0])
 		return buddy.GroupDelete(credName, opts, groupID, log)
-	case "create":
+	case clispec.SubCreate:
 		return runGroupCreate(credName, opts, args, log)
+	case "smart":
+		if len(args) == 0 {
+			return fmt.Errorf("usage: buddy group smart <members|criteria|set-criteria|version|set-version> ...; run '%s' for usage", clispec.UsageHelp(clispec.CmdGroup))
+		}
+		sub := args[0]
+		args = args[1:]
+		switch sub {
+		case "members":
+			var filter string
+			fs := flag.NewFlagSet("group smart members", flag.ContinueOnError)
+			fs.StringVar(&filter, clispec.FlagFilter, "", "client-side substring filter on id, name, or serial")
+			flagArgs, positionals := staticGroupSplitFlags(args)
+			if err := fs.Parse(flagArgs); err != nil {
+				return err
+			}
+			if len(positionals) < 1 {
+				return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
+			}
+			groupID := strings.TrimSpace(positionals[0])
+			return buddy.GroupSmartListMembers(credName, groupID, filter, log)
+		case "criteria":
+			if len(args) < 1 {
+				return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
+			}
+			return buddy.GroupSmartPrintCriteria(credName, strings.TrimSpace(args[0]), log)
+		case "set-criteria":
+			if len(args) < 1 {
+				return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
+			}
+			groupID := strings.TrimSpace(args[0])
+			body, rest, err := readJSONFileArg(args[1:])
+			if err != nil {
+				return err
+			}
+			if len(rest) > 0 {
+				return fmt.Errorf("unexpected argument %q; usage: buddy group smart set-criteria <group-id> [%s|-]", rest[0], clispec.FlagEq(clispec.FlagFile, "json"))
+			}
+			return buddy.GroupSmartSetCriteria(credName, opts, groupID, body, log)
+		case "version":
+			if len(args) < 1 {
+				return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
+			}
+			return buddy.GroupGetVersion(credName, opts, strings.TrimSpace(args[0]), log)
+		case "set-version":
+			if len(args) < 2 {
+				return missingArg("group-id or version", clispec.UsageHelp(clispec.CmdGroup))
+			}
+			groupID := strings.TrimSpace(args[0])
+			newVersion := strings.TrimSpace(args[1])
+			return buddy.GroupVersion(credName, opts, groupID, newVersion, log)
+		default:
+			return errUnknownSubcommand("group smart", sub, []string{"members", "criteria", "set-criteria", "version", "set-version"})
+		}
 	case "static":
 		if len(args) == 0 {
-			return fmt.Errorf("usage: buddy group static <members|add|remove> ...; run 'buddy group help' for usage")
+			return fmt.Errorf("usage: buddy group static <members|add|remove|set> ...; run '%s' for usage", clispec.UsageHelp(clispec.CmdGroup))
 		}
 		sub := args[0]
 		args = args[1:]
@@ -716,63 +1347,52 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 		case "members":
 			var filter string
 			fs := flag.NewFlagSet("group static members", flag.ContinueOnError)
-			fs.StringVar(&filter, "filter", "", "client-side substring filter on id, name, or serial")
+			fs.StringVar(&filter, clispec.FlagFilter, "", "client-side substring filter on id, name, or serial")
 			flagArgs, positionals := staticGroupSplitFlags(args)
 			if err := fs.Parse(flagArgs); err != nil {
 				return err
 			}
 			if len(positionals) < 1 {
-				return fmt.Errorf("missing <group-id>; run 'buddy group help' for usage")
+				return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
 			}
 			groupID := strings.TrimSpace(positionals[0])
 			return buddy.GroupStaticListMembers(credName, groupID, filter, log)
-		case "add":
+		case "add", "remove", clispec.SubSet:
 			var computerIDsFlag string
-			fs := flag.NewFlagSet("group static add", flag.ContinueOnError)
-			fs.StringVar(&computerIDsFlag, "computer-ids", "", "comma-separated computer IDs")
+			fs := flag.NewFlagSet("group static "+sub, flag.ContinueOnError)
+			fs.StringVar(&computerIDsFlag, clispec.FlagComputerIds, "", "comma-separated computer IDs")
 			flagArgs, positionals := staticGroupSplitFlags(args)
 			if err := fs.Parse(flagArgs); err != nil {
 				return err
 			}
 			if len(positionals) < 1 {
-				return fmt.Errorf("missing <group-id>; run 'buddy group help' for usage")
+				return missingArg("group-id", clispec.UsageHelp(clispec.CmdGroup))
 			}
-			if computerIDsFlag == "" {
-				return fmt.Errorf("buddy group static add requires --computer-ids=<id>[,<id>...]")
+			seenIDs := false
+			for _, a := range args {
+				if a == clispec.Flag(clispec.FlagComputerIds) || strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagComputerIds)) {
+					seenIDs = true
+					break
+				}
 			}
-			groupID := strings.TrimSpace(positionals[0])
-			ids := parseCommaSeparatedIDs(computerIDsFlag)
-			if len(ids) == 0 {
-				return fmt.Errorf("no computer IDs in --computer-ids")
-			}
-			changed, err := buddy.StaticGroupAddComputers(credName, opts, groupID, ids, log)
-			if err != nil {
-				return err
-			}
-			if changed {
-				fmt.Printf("Updated static group %s.\n", groupID)
-			}
-			return nil
-		case "remove":
-			var computerIDsFlag string
-			fs := flag.NewFlagSet("group static remove", flag.ContinueOnError)
-			fs.StringVar(&computerIDsFlag, "computer-ids", "", "comma-separated computer IDs")
-			flagArgs, positionals := staticGroupSplitFlags(args)
-			if err := fs.Parse(flagArgs); err != nil {
-				return err
-			}
-			if len(positionals) < 1 {
-				return fmt.Errorf("missing <group-id>; run 'buddy group help' for usage")
-			}
-			if computerIDsFlag == "" {
-				return fmt.Errorf("buddy group static remove requires --computer-ids=<id>[,<id>...]")
+			if !seenIDs {
+				return fmt.Errorf("buddy group static %s requires %s", sub, clispec.FlagEq(clispec.FlagComputerIds, "computer-id"))
 			}
 			groupID := strings.TrimSpace(positionals[0])
 			ids := parseCommaSeparatedIDs(computerIDsFlag)
-			if len(ids) == 0 {
-				return fmt.Errorf("no computer IDs in --computer-ids")
+			if sub != clispec.SubSet && len(ids) == 0 {
+				return fmt.Errorf("no computer IDs in %s", clispec.Flag(clispec.FlagComputerIds))
 			}
-			changed, err := buddy.StaticGroupRemoveComputers(credName, opts, groupID, ids, log)
+			var changed bool
+			var err error
+			switch sub {
+			case "add":
+				changed, err = buddy.StaticGroupAddComputers(credName, opts, groupID, ids, log)
+			case "remove":
+				changed, err = buddy.StaticGroupRemoveComputers(credName, opts, groupID, ids, log)
+			default:
+				changed, err = buddy.StaticGroupSetComputers(credName, opts, groupID, ids, log)
+			}
 			if err != nil {
 				return err
 			}
@@ -781,115 +1401,37 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 			}
 			return nil
 		default:
-			return fmt.Errorf("unknown group static subcommand %q (use: members, add, remove)", sub)
+			return errUnknownSubcommand("group static", sub, []string{"members", clispec.SubAdd, "remove", clispec.SubSet})
 		}
 	default:
-		return fmt.Errorf("group requires 'list', 'get', 'set', 'create', 'delete', or 'static', got %q", mode)
+		cands := []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubDelete, "smart", "static"}
+		msg := fmt.Sprintf("unknown group subcommand: %q", mode)
+		msg += formatDidYouMean(suggestClosest(mode, cands))
+		msg += fmt.Sprintf(" (use: %s)", strings.Join(cands, ", "))
+		return fmt.Errorf("%s", msg)
 	}
 }
 
 func runGroupCreate(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: buddy group create smart|static ...; run 'buddy group help' for usage")
+		return fmt.Errorf("usage: buddy group create smart|static ...; run '%s' for usage", clispec.UsageHelp(clispec.CmdGroup))
 	}
 	kind := args[0]
 	args = args[1:]
 	switch kind {
 	case "smart":
-		var description, filePath string
-		fs := flag.NewFlagSet("group create smart", flag.ContinueOnError)
-		fs.StringVar(&description, "description", "", "optional group description")
-		fs.StringVar(&filePath, "file", "", "JSON file: full body, or criteria array")
-		flagArgs, positionals := staticGroupSplitFlags(args)
-		if err := fs.Parse(flagArgs); err != nil {
-			return err
-		}
-		if filePath != "" && len(positionals) == 0 {
-			// Full body from file (must include name).
-			data, err := os.ReadFile(filePath)
-			if err != nil {
-				return fmt.Errorf("read --file: %w", err)
-			}
-			created, err := buddy.GroupCreateSmart(credName, opts, data, log)
-			if err != nil {
-				return err
-			}
-			if created == nil {
-				return nil
-			}
-			fmt.Printf("Created smart group (ID %s)\n", created.ID)
-			return nil
-		}
-		if len(positionals) < 1 {
-			return fmt.Errorf("missing <name>; run 'buddy group help' for usage")
-		}
-		name := strings.TrimSpace(positionals[0])
-		var criteriaJSON []byte
-		if filePath != "" {
-			data, err := os.ReadFile(filePath)
-			if err != nil {
-				return fmt.Errorf("read --file: %w", err)
-			}
-			trimmed := bytes.TrimSpace(data)
-			if len(trimmed) > 0 && trimmed[0] == '{' {
-				// Full body with name override from positional if body lacks name.
-				var raw map[string]json.RawMessage
-				if err := json.Unmarshal(data, &raw); err != nil {
-					return fmt.Errorf("parse --file: %w", err)
-				}
-				if _, ok := raw["name"]; !ok {
-					nameJSON, err := json.Marshal(name)
-					if err != nil {
-						return err
-					}
-					raw["name"] = nameJSON
-				}
-				if description != "" {
-					descJSON, err := json.Marshal(description)
-					if err != nil {
-						return err
-					}
-					raw["description"] = descJSON
-				}
-				if _, ok := raw["id"]; !ok {
-					raw["id"] = json.RawMessage("-1")
-				}
-				payload, err := json.Marshal(raw)
-				if err != nil {
-					return err
-				}
-				created, err := buddy.GroupCreateSmart(credName, opts, payload, log)
-				if err != nil {
-					return err
-				}
-				if created == nil {
-					return nil
-				}
-				fmt.Printf("Created smart group %q (ID %s)\n", name, created.ID)
-				return nil
-			}
-			criteriaJSON = data
-		}
-		created, err := buddy.GroupCreateSmartNamed(credName, opts, name, description, criteriaJSON, log)
-		if err != nil {
-			return err
-		}
-		if created == nil {
-			return nil
-		}
-		fmt.Printf("Created smart group %q (ID %s)\n", name, created.ID)
-		return nil
+		return runGroupCreateSmart(credName, opts, args, log)
 	case "static":
 		var description, computerIDsFlag string
 		fs := flag.NewFlagSet("group create static", flag.ContinueOnError)
 		fs.StringVar(&description, "description", "", "optional group description")
-		fs.StringVar(&computerIDsFlag, "computer-ids", "", "comma-separated computer IDs (optional)")
+		fs.StringVar(&computerIDsFlag, clispec.FlagComputerIds, "", "comma-separated computer IDs (optional)")
 		flagArgs, positionals := staticGroupSplitFlags(args)
 		if err := fs.Parse(flagArgs); err != nil {
 			return err
 		}
 		if len(positionals) < 1 {
-			return fmt.Errorf("missing <name>; run 'buddy group help' for usage")
+			return missingArg("<name>", clispec.UsageHelp(clispec.CmdGroup))
 		}
 		name := strings.TrimSpace(positionals[0])
 		var ids []string
@@ -909,8 +1451,134 @@ func runGroupCreate(credName string, opts buddy.Opts, args []string, log *slog.L
 		fmt.Printf("Created static group %q (ID %s)\n", name, created.ID)
 		return nil
 	default:
-		return fmt.Errorf("group create requires 'smart' or 'static', got %q", kind)
+		return errUnknownSubcommand("group create", kind, []string{"smart", "static"})
 	}
+}
+
+func runGroupCreateSmart(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	var description, filePath string
+	fs := flag.NewFlagSet("group create smart", flag.ContinueOnError)
+	fs.StringVar(&description, "description", "", "optional group description")
+	fs.StringVar(&filePath, clispec.FlagFile, "", "JSON file: full body, or criteria array")
+	flagArgs, positionals := staticGroupSplitFlags(args)
+	if err := fs.Parse(flagArgs); err != nil {
+		return err
+	}
+	if filePath != "" && len(positionals) == 0 {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", clispec.Flag(clispec.FlagFile), err)
+		}
+		created, err := buddy.GroupCreateSmart(credName, opts, data, log)
+		if err != nil {
+			return err
+		}
+		return printCreatedSmartGroup(created, "")
+	}
+	if len(positionals) < 1 {
+		return missingArg("<name>", clispec.UsageHelp(clispec.CmdGroup))
+	}
+	name := strings.TrimSpace(positionals[0])
+	payload, criteriaJSON, err := parseSmartGroupCreateFile(filePath, name, description)
+	if err != nil {
+		return err
+	}
+	if payload != nil {
+		created, err := buddy.GroupCreateSmart(credName, opts, payload, log)
+		if err != nil {
+			return err
+		}
+		return printCreatedSmartGroup(created, name)
+	}
+	created, err := buddy.GroupCreateSmartNamed(credName, opts, name, description, criteriaJSON, log)
+	if err != nil {
+		return err
+	}
+	return printCreatedSmartGroup(created, name)
+}
+
+func parseSmartGroupCreateFile(filePath, name, description string) (fullBody, criteriaJSON []byte, err error) {
+	if filePath == "" {
+		return nil, nil, nil
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read %s: %w", clispec.Flag(clispec.FlagFile), err)
+	}
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, data, nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, nil, fmt.Errorf("parse %s: %w", clispec.Flag(clispec.FlagFile), err)
+	}
+	if _, ok := raw["name"]; !ok {
+		nameJSON, err := json.Marshal(name)
+		if err != nil {
+			return nil, nil, err
+		}
+		raw["name"] = nameJSON
+	}
+	if description != "" {
+		descJSON, err := json.Marshal(description)
+		if err != nil {
+			return nil, nil, err
+		}
+		raw["description"] = descJSON
+	}
+	if _, ok := raw["id"]; !ok {
+		raw["id"] = json.RawMessage("-1")
+	}
+	payload, err := json.Marshal(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	return payload, nil, nil
+}
+
+func printCreatedSmartGroup(created *buddy.GroupCreateResult, name string) error {
+	if created == nil {
+		return nil
+	}
+	if name == "" {
+		fmt.Printf("Created smart group (ID %s)\n", created.ID)
+		return nil
+	}
+	fmt.Printf("Created smart group %q (ID %s)\n", name, created.ID)
+	return nil
+}
+
+func parseComputerIDs(args []string) ([]int, []string, error) {
+	var ids []int
+	var rest []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "--") {
+			rest = append(rest, a)
+			continue
+		}
+		id, err := parseInt(a, "computer-id")
+		if err != nil {
+			return nil, nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rest, nil
+}
+
+func requireComputerIDs(args []string) ([]int, []string, error) {
+	if len(args) < 1 {
+		return nil, nil, missingArg("computer-id", clispec.UsageHelp(clispec.CmdComputer))
+	}
+	return parseComputerIDs(args)
+}
+
+func runComputerIDs(args []string, fn func([]int) error) error {
+	ids, _, err := requireComputerIDs(args)
+	if err != nil {
+		return err
+	}
+	return fn(ids)
 }
 
 func parseInt(s, name string) (int, error) {
@@ -958,7 +1626,7 @@ func staticGroupSplitFlags(args []string) (flagArgs []string, positional []strin
 	return flagArgs, positional
 }
 
-// parseParamArgs extracts --param=4,5,6 or --param 4,5,6 (and --params alias) from args.
+// parseParamArgs extracts --param=4,5,6 or --param 4,5,6 from args.
 // Returns paramIndices, remaining args, and error.
 func parseParamArgs(args []string) ([]int, []string, error) {
 	paramIndices := []int{4, 5, 6}
@@ -966,19 +1634,14 @@ func parseParamArgs(args []string) ([]int, []string, error) {
 	i := 0
 	for i < len(args) {
 		a := args[i]
-		if strings.HasPrefix(a, "--param=") || strings.HasPrefix(a, "--params=") {
-			val := a
-			if strings.HasPrefix(a, "--param=") {
-				val = strings.TrimPrefix(a, "--param=")
-			} else {
-				val = strings.TrimPrefix(a, "--params=")
-			}
+		if strings.HasPrefix(a, "--param=") {
+			val := strings.TrimPrefix(a, "--param=")
 			var err error
 			paramIndices, err = parseParamVal(val)
 			if err != nil {
 				return nil, nil, err
 			}
-		} else if a == "--param" || a == "--params" {
+		} else if a == "--param" {
 			i++
 			if i >= len(args) {
 				return nil, nil, fmt.Errorf("%s requires a value (e.g. %s=4,5,6)", a, a)
@@ -1020,8 +1683,8 @@ func parsePolicySSArgs(args []string) (buddy.PolicySSOpts, int, error) {
 
 	for _, a := range args {
 		switch {
-		case strings.HasPrefix(a, "--group-ids="):
-			groupIDsFlag = strings.TrimPrefix(a, "--group-ids=")
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagGroupIDs)):
+			groupIDsFlag = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagGroupIDs))
 		case strings.HasPrefix(a, "--display-name="):
 			v := strings.TrimPrefix(a, "--display-name=")
 			ssOpts.DisplayName = &v
@@ -1069,7 +1732,7 @@ func parsePolicySSArgs(args []string) (buddy.PolicySSOpts, int, error) {
 	}
 
 	if len(positional) < 1 {
-		return ssOpts, 0, fmt.Errorf("missing policy-id; run 'buddy policy set help' for usage")
+		return ssOpts, 0, missingArg("policy-id", clispec.UsageHelp(clispec.CmdPolicy, clispec.SubSet))
 	}
 	policyID, err := parseInt(positional[0], "policy-id")
 	if err != nil {
@@ -1085,14 +1748,14 @@ func parsePolicySSArgs(args []string) (buddy.PolicySSOpts, int, error) {
 		ssOpts.SelfService != nil || len(ssOpts.GroupIDs) > 0
 
 	if ssOpts.Version == "" && !hasFlags {
-		return ssOpts, 0, fmt.Errorf("missing version or flags; run 'buddy policy set help' for usage")
+		return ssOpts, 0, missingArg("version or flags", clispec.UsageHelp(clispec.CmdPolicy, clispec.SubSet))
 	}
 
 	return ssOpts, policyID, nil
 }
 
 func runProfile(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpProfile)
 		return nil
 	}
@@ -1100,16 +1763,16 @@ func runProfile(credName string, opts buddy.Opts, args []string, log *slog.Logge
 	rest := args[1:]
 
 	// "buddy profile <mode> help"
-	if len(rest) > 0 && rest[0] == "help" {
+	if len(rest) > 0 && rest[0] == clispec.SubHelp {
 		fmt.Print(helpProfile)
 		return nil
 	}
 	args = rest
 
 	switch mode {
-	case "clone":
+	case clispec.SubClone:
 		if len(args) < 2 {
-			return fmt.Errorf("missing profile-id or name; run 'buddy profile help' for usage")
+			return missingArg("profile-id or name", clispec.UsageHelp(clispec.CmdProfile))
 		}
 		profileID, err := parseInt(args[0], "profile-id")
 		if err != nil {
@@ -1117,54 +1780,76 @@ func runProfile(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		}
 		name := strings.TrimSpace(strings.Join(args[1:], " "))
 		if name == "" {
-			return fmt.Errorf("missing name; run 'buddy profile help' for usage")
+			return missingArg("name", clispec.UsageHelp(clispec.CmdProfile))
 		}
-		return buddy.ProfileClone(credName, opts, profileID, name, log)
-	case "list":
-		var filter string
-		var filtered []string
-		for _, a := range args {
-			if strings.HasPrefix(a, "--filter=") {
-				filter = strings.TrimPrefix(a, "--filter=")
-			} else {
-				filtered = append(filtered, a)
-			}
+		_, err = buddy.ProfileClone(credName, opts, profileID, name, log)
+		return err
+	case clispec.SubList:
+		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
+		if err != nil {
+			return err
 		}
-		_ = filtered
-		return buddy.ProfileList(credName, filter, log)
+		asJSON, rest := extractBareFlag(rest, clispec.FlagJSON)
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdProfile))
+		}
+		return buddy.ProfileList(credName, filter, asJSON, log)
+	case clispec.SubCreate:
+		name, rest, err := extractStringFlag(args, clispec.FlagName)
+		if err != nil {
+			return err
+		}
+		body, leftover, err := readXMLFileArg(rest)
+		if err != nil {
+			return err
+		}
+		if len(leftover) > 0 {
+			return fmt.Errorf("unexpected argument %q; usage: buddy profile create [--name=<name>] [--file=<xml>|-]", leftover[0])
+		}
+		_, err = buddy.ProfilePostXML(credName, opts, body, name, log)
+		return err
+	case clispec.SubDelete:
+		if len(args) < 1 {
+			return missingArg("profile-id", clispec.UsageHelp(clispec.CmdProfile))
+		}
+		profileID, err := parseInt(args[0], "profile-id")
+		if err != nil {
+			return err
+		}
+		return buddy.ProfileDelete(credName, opts, profileID, log)
 	case "redeploy":
 		if len(args) < 1 {
-			return fmt.Errorf("missing profile-id; run 'buddy profile help' for usage")
+			return missingArg("profile-id", clispec.UsageHelp(clispec.CmdProfile))
 		}
 		profileID, err := parseInt(args[0], "profile-id")
 		if err != nil {
 			return err
 		}
 		return buddy.ProfileRedeploy(credName, opts, profileID, log)
-	case "get":
+	case clispec.SubGet:
 		if len(args) < 1 {
-			return fmt.Errorf("missing subcommand; run 'buddy profile help' for usage")
+			return missingArg("subcommand", clispec.UsageHelp(clispec.CmdProfile))
 		}
 		return runProfileGet(credName, opts, args[0], args[1:], log)
-	case "set":
+	case clispec.SubSet:
 		if len(args) < 1 {
-			return fmt.Errorf("missing subcommand; run 'buddy profile help' for usage")
+			return missingArg("subcommand", clispec.UsageHelp(clispec.CmdProfile))
 		}
 		return runProfileSet(credName, opts, args[0], args[1:], log)
 	default:
-		return fmt.Errorf("profile requires 'list', 'get', 'set', 'clone', or 'redeploy', got %q", mode)
+		return errUnknownSubcommand("profile", mode, []string{clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubCreate, clispec.SubDelete, clispec.SubClone, "redeploy"})
 	}
 }
 
 func runProfileGet(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {
-	if subcommand == "help" {
+	if subcommand == clispec.SubHelp {
 		fmt.Print(helpProfile)
 		return nil
 	}
 	switch subcommand {
 	case "xml":
 		if len(args) < 1 {
-			return fmt.Errorf("missing profile-id; run 'buddy profile help' for usage")
+			return missingArg("profile-id", clispec.UsageHelp(clispec.CmdProfile))
 		}
 		profileID, err := parseInt(args[0], "profile-id")
 		if err != nil {
@@ -1173,7 +1858,7 @@ func runProfileGet(credName string, opts buddy.Opts, subcommand string, args []s
 		return buddy.ProfileGetXML(credName, profileID, os.Stdout, log)
 	case "payloads":
 		if len(args) < 1 {
-			return fmt.Errorf("missing profile-id; run 'buddy profile help' for usage")
+			return missingArg("profile-id", clispec.UsageHelp(clispec.CmdProfile))
 		}
 		profileID, err := parseInt(args[0], "profile-id")
 		if err != nil {
@@ -1182,37 +1867,38 @@ func runProfileGet(credName string, opts buddy.Opts, subcommand string, args []s
 		return buddy.ProfileGetPayloads(credName, profileID, os.Stdout, log)
 	case "payload":
 		if len(args) < 2 {
-			return fmt.Errorf("missing profile-id or domain; run 'buddy profile help' for usage")
+			return missingArg("profile-id or identifier", clispec.UsageHelp(clispec.CmdProfile))
 		}
 		profileID, err := parseInt(args[0], "profile-id")
 		if err != nil {
 			return err
 		}
-		domain := strings.TrimSpace(args[1])
-		return buddy.ProfileGetPayloadByDomain(credName, profileID, domain, os.Stdout, log)
+		identifier := strings.TrimSpace(args[1])
+		return buddy.ProfileGetPayloadByDomain(credName, profileID, identifier, os.Stdout, log)
 	case "list-payloads":
 		if len(args) < 1 {
-			return fmt.Errorf("missing profile-id; run 'buddy profile help' for usage")
+			return missingArg("profile-id", clispec.UsageHelp(clispec.CmdProfile))
 		}
 		profileID, err := parseInt(args[0], "profile-id")
 		if err != nil {
 			return err
 		}
-		domains, err := buddy.ProfileListPayloads(credName, profileID, log)
+		rows, err := buddy.ProfileListPayloads(credName, profileID, log)
 		if err != nil {
 			return err
 		}
-		for _, d := range domains {
-			fmt.Println(d)
+		fmt.Printf("%-36s  %-40s  %s\n", "IDENTIFIER", "TYPE", "UUID")
+		for _, r := range rows {
+			fmt.Printf("%-36s  %-40s  %s\n", r.Identifier, r.Type, r.UUID)
 		}
 		return nil
 	default:
-		return fmt.Errorf("unknown profile get subcommand: %q (use: xml, payloads, payload, list-payloads)", subcommand)
+		return errUnknownSubcommand("profile get", subcommand, []string{"xml", "payloads", "payload", "list-payloads"})
 	}
 }
 
 func runProfileSet(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {
-	if subcommand == "help" {
+	if subcommand == clispec.SubHelp {
 		fmt.Print(helpProfile)
 		return nil
 	}
@@ -1231,7 +1917,7 @@ func runProfileSet(credName string, opts buddy.Opts, subcommand string, args []s
 	switch subcommand {
 	case "xml":
 		if len(args) < 1 {
-			return fmt.Errorf("missing profile-id; run 'buddy profile help' for usage")
+			return missingArg("profile-id", clispec.UsageHelp(clispec.CmdProfile))
 		}
 		profileID, err := parseInt(args[0], "profile-id")
 		if err != nil {
@@ -1240,22 +1926,22 @@ func runProfileSet(credName string, opts buddy.Opts, subcommand string, args []s
 		return buddy.ProfileSetXML(credName, opts, profileID, os.Stdin, redeploy, log)
 	case "payload":
 		if len(args) < 3 {
-			return fmt.Errorf("missing profile-id, domain, or dict-file; run 'buddy profile help' for usage")
+			return missingArg("profile-id, identifier, or dict-file", clispec.UsageHelp(clispec.CmdProfile))
 		}
 		profileID, err := parseInt(args[0], "profile-id")
 		if err != nil {
 			return err
 		}
-		domain := strings.TrimSpace(args[1])
+		identifier := strings.TrimSpace(args[1])
 		dictFile := args[2]
-		return buddy.ProfileSetPayload(credName, opts, profileID, domain, dictFile, redeploy, log)
+		return buddy.ProfileSetPayload(credName, opts, profileID, identifier, dictFile, redeploy, log)
 	default:
-		return fmt.Errorf("unknown profile set subcommand: %q (use: xml, payload)", subcommand)
+		return errUnknownSubcommand("profile set", subcommand, []string{"xml", "payload"})
 	}
 }
 
 func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpPackage)
 		return nil
 	}
@@ -1263,111 +1949,263 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 	args = args[1:]
 
 	switch subcommand {
-	case "upload":
+	case clispec.SubUpload:
 		if len(args) < 1 {
-			return fmt.Errorf("missing file argument; run 'buddy package help' for usage")
+			return missingArg("file argument", clispec.UsageHelp(clispec.CmdPackage))
 		}
-		filePath, nameOverride, categoryID, priority, err := parsePackageUploadArgs(args)
+		filePath, attrs, upOpts, err := parsePackageUploadArgs(args)
 		if err != nil {
 			return err
 		}
-		return buddy.PackageUpload(credName, opts, filePath, nameOverride, categoryID, priority, log)
-	case "list":
-		var filter string
-		var filtered []string
-		for _, a := range args {
-			if strings.HasPrefix(a, "--filter=") {
-				filter = strings.TrimPrefix(a, "--filter=")
-			} else {
-				filtered = append(filtered, a)
-			}
+		return buddy.PackageUpload(credName, opts, filePath, attrs, upOpts, log)
+	case clispec.SubList:
+		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
+		if err != nil {
+			return err
 		}
-		_ = filtered
-		return buddy.PackageList(credName, filter, log)
-	case "get":
+		sortSpec, rest, err := extractStringFlag(rest, clispec.FlagSort)
+		if err != nil {
+			return err
+		}
+		sortOrder, err := parsePackageListSort(sortSpec)
+		if err != nil {
+			return err
+		}
+		asJSON, rest := extractBareFlag(rest, clispec.FlagJSON)
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdPackage))
+		}
+		return buddy.PackageList(credName, filter, sortOrder, asJSON, log)
+	case clispec.SubGet:
 		if len(args) < 1 {
-			return fmt.Errorf("missing package-id; run 'buddy package help' for usage")
+			return missingArg("package-id", clispec.UsageHelp(clispec.CmdPackage))
 		}
 		return buddy.PackageGet(credName, args[0], log)
-	case "delete":
+	case "download":
 		if len(args) < 1 {
-			return fmt.Errorf("missing package-id; run 'buddy package help' for usage")
+			return missingArg("package-id", clispec.UsageHelp(clispec.CmdPackage))
+		}
+		outfile := ""
+		if len(args) >= 2 {
+			outfile = args[1]
+		}
+		return buddy.PackageDownload(credName, args[0], outfile, log)
+	case clispec.SubDelete:
+		if len(args) < 1 {
+			return missingArg("package-id", clispec.UsageHelp(clispec.CmdPackage))
 		}
 		return buddy.PackageDelete(credName, opts, args, log)
-	case "set":
-		if len(args) < 2 {
-			return fmt.Errorf("missing property or package-id; run 'buddy package help' for usage")
+	case clispec.SubSet:
+		if len(args) < 1 {
+			return missingArg("package-id or property", clispec.UsageHelp(clispec.CmdPackage))
 		}
 		return runPackageSet(credName, opts, args, log)
 	case "history":
 		if len(args) < 1 {
-			return fmt.Errorf("missing package-id; run 'buddy package help' for usage")
+			return missingArg("package-id", clispec.UsageHelp(clispec.CmdPackage))
 		}
 		return buddy.PackageHistory(credName, args[0], 20, log)
+	case "scan":
+		classSpec, rest, err := extractStringFlag(args, "class")
+		if err != nil {
+			return err
+		}
+		filter, _, err := extractStringFlag(rest, "filter")
+		if err != nil {
+			return err
+		}
+		return buddy.PackageScanPrint(credName, filter, classSpec, log)
 	default:
-		return fmt.Errorf("unknown package subcommand: %q (use: list, get, delete, set, history, upload)", subcommand)
+		return errUnknownSubcommand("package", subcommand, []string{clispec.SubList, clispec.SubGet, "download", clispec.SubDelete, clispec.SubSet, "history", clispec.SubUpload, "scan"})
 	}
 }
 
-func parsePackageUploadArgs(args []string) (filePath, nameOverride, categoryID string, priority int, err error) {
-	priority = 10
-	categoryID = "-1"
-	var positional []string
+// parsePackageListSort maps --sort= values to an order string for PackageList.
+// "" means no sort. "version" defaults to desc (latest first).
+func parsePackageListSort(spec string) (order string, err error) {
+	spec = strings.TrimSpace(strings.ToLower(spec))
+	if spec == "" {
+		return "", nil
+	}
+	switch spec {
+	case "version", "version:desc":
+		return "desc", nil
+	case "version:asc":
+		return "asc", nil
+	default:
+		return "", fmt.Errorf("invalid --sort=%s (use version, version:asc, or version:desc)", spec)
+	}
+}
+
+func parsePackageUploadArgs(args []string) (filePath string, attrs buddy.PackageAttrs, upOpts buddy.PackageUploadOptions, err error) {
+	filtered := make([]string, 0, len(args))
 	for _, a := range args {
-		if strings.HasPrefix(a, "--name=") {
-			nameOverride = strings.TrimSpace(strings.TrimPrefix(a, "--name="))
-		} else if strings.HasPrefix(a, "--category=") {
-			categoryID = strings.TrimSpace(strings.TrimPrefix(a, "--category="))
-		} else if strings.HasPrefix(a, "--priority=") {
-			v := strings.TrimSpace(strings.TrimPrefix(a, "--priority="))
-			priority, err = parseInt(v, "priority")
-			if err != nil {
-				return "", "", "", 0, err
+		switch {
+		case a == "--force":
+			upOpts.Force = true
+		case a == "--wait-ready":
+			upOpts.WaitReady = true
+		case strings.HasPrefix(a, "--wait-ready="):
+			upOpts.WaitReady = true
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--wait-ready="))
+			if v == "" || strings.EqualFold(v, "true") {
+				break
 			}
-		} else {
-			positional = append(positional, a)
+			if strings.EqualFold(v, "false") {
+				upOpts.WaitReady = false
+				break
+			}
+			sec, e := strconv.Atoi(v)
+			if e != nil || sec < 0 {
+				return "", buddy.PackageAttrs{}, buddy.PackageUploadOptions{}, fmt.Errorf("--wait-ready= expects true/false or seconds >= 0, got %q", v)
+			}
+			upOpts.WaitReadyTimeout = time.Duration(sec) * time.Second
+		case strings.HasPrefix(a, "--wait-ready-timeout="):
+			upOpts.WaitReady = true
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--wait-ready-timeout="))
+			sec, e := strconv.Atoi(v)
+			if e != nil || sec < 0 {
+				return "", buddy.PackageAttrs{}, buddy.PackageUploadOptions{}, fmt.Errorf("--wait-ready-timeout= expects seconds >= 0, got %q", v)
+			}
+			upOpts.WaitReadyTimeout = time.Duration(sec) * time.Second
+		default:
+			filtered = append(filtered, a)
 		}
 	}
+	attrs, positional, err := parsePackageAttrFlags(filtered)
+	if err != nil {
+		return "", buddy.PackageAttrs{}, buddy.PackageUploadOptions{}, err
+	}
 	if len(positional) < 1 {
-		return "", "", "", 0, fmt.Errorf("missing file argument; run 'buddy package help' for usage")
+		return "", buddy.PackageAttrs{}, buddy.PackageUploadOptions{}, missingArg("file argument", clispec.UsageHelp(clispec.CmdPackage))
+	}
+	if len(positional) > 1 {
+		return "", buddy.PackageAttrs{}, buddy.PackageUploadOptions{}, fmt.Errorf("unexpected arguments after file: %v", positional[1:])
 	}
 	filePath = strings.TrimSpace(positional[0])
 	if filePath == "" {
-		return "", "", "", 0, fmt.Errorf("missing file argument; run 'buddy package help' for usage")
+		return "", buddy.PackageAttrs{}, buddy.PackageUploadOptions{}, missingArg("file argument", clispec.UsageHelp(clispec.CmdPackage))
 	}
-	return filePath, nameOverride, categoryID, priority, nil
+	return filePath, attrs, upOpts, nil
+}
+
+// parsePackageAttrFlags parses shared upload/set metadata flags.
+func parsePackageAttrFlags(args []string) (attrs buddy.PackageAttrs, positional []string, err error) {
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagName)):
+			v := strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagName)))
+			attrs.Name = &v
+		case strings.HasPrefix(a, "--notes="):
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--notes="))
+			attrs.Notes = &v
+		case strings.HasPrefix(a, "--info="):
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--info="))
+			attrs.Info = &v
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagCategory)):
+			v := strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagCategory)))
+			attrs.CategoryID = &v
+		case strings.HasPrefix(a, "--priority="):
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--priority="))
+			n, e := parseInt(v, "priority")
+			if e != nil {
+				return buddy.PackageAttrs{}, nil, e
+			}
+			attrs.Priority = &n
+		case strings.HasPrefix(a, "--reboot="):
+			v := strings.TrimSpace(strings.TrimPrefix(a, "--reboot="))
+			b, e := parsePackageBoolFlag(v, "reboot")
+			if e != nil {
+				return buddy.PackageAttrs{}, nil, e
+			}
+			attrs.Reboot = &b
+		case strings.HasPrefix(a, "--"):
+			return buddy.PackageAttrs{}, nil, fmt.Errorf("unknown flag %s (use %s, --notes=, --info=, %s, --priority=, --reboot=)", a, clispec.FlagPrefix(clispec.FlagName), clispec.FlagPrefix(clispec.FlagCategory))
+		default:
+			positional = append(positional, a)
+		}
+	}
+	if err := attrs.Validate(); err != nil {
+		return buddy.PackageAttrs{}, nil, err
+	}
+	return attrs, positional, nil
+}
+
+func parsePackageBoolFlag(value, name string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "yes", "1":
+		return true, nil
+	case "false", "no", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be true or false, got %q", name, value)
+	}
+}
+
+func runComputerHistory(credName string, args []string, log *slog.Logger) error {
+	fs := flag.NewFlagSet("computer history", flag.ContinueOnError)
+	subset := fs.String("subset", "PolicyLogs", "Classic history subset (default PolicyLogs); omit path segment with --subset=")
+	asJSON := fs.Bool(clispec.FlagJSON, false, "Print parsed history dict as JSON")
+	flagArgs, positionals := staticGroupSplitFlags(args)
+	if err := fs.Parse(flagArgs); err != nil {
+		return err
+	}
+	if len(positionals) < 1 {
+		return missingArg("computer-id", clispec.UsageHelp(clispec.CmdComputer))
+	}
+	var subsets []string
+	if *subset != "" {
+		subsets = []string{*subset}
+	}
+	return buddy.ComputerHistoryPrint(credName, buddy.ComputerHistoryRef{ID: positionals[0]}, subsets, *asJSON, log)
+}
+
+func runComputerLogs(credName string, args []string, log *slog.Logger) error {
+	fs := flag.NewFlagSet("computer logs", flag.ContinueOnError)
+	policy := fs.String("policy", "", "filter by policy id")
+	status := fs.String("status", "", "filter by log status (case-insensitive exact)")
+	since := fs.String(clispec.FlagSince, "", "keep log rows with date_completed_epoch >= value (ISO or epoch)")
+	until := fs.String(clispec.FlagUntil, "", "keep log rows with date_completed_epoch <= value (ISO or epoch)")
+	asJSON := fs.Bool(clispec.FlagJSON, false, "Print flattened logs as JSON")
+	flagArgs, positionals := staticGroupSplitFlags(args)
+	if err := fs.Parse(flagArgs); err != nil {
+		return err
+	}
+	if len(positionals) < 1 {
+		return missingArg("computer-id", clispec.UsageHelp(clispec.CmdComputer))
+	}
+	var policyID *int
+	if strings.TrimSpace(*policy) != "" {
+		n, err := parseInt(*policy, "policy-id")
+		if err != nil {
+			return err
+		}
+		policyID = &n
+	}
+	return buddy.ComputerPolicyLogsPrint(credName, buddy.ComputerHistoryRef{ID: positionals[0]}, buddy.PolicyLogFilter{
+		PolicyID: policyID,
+		Status:   *status,
+		Since:    *since,
+		Until:    *until,
+	}, *asJSON, log)
 }
 
 func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpComputer)
 		return nil
 	}
 	subcommand := args[0]
 	args = args[1:]
 
-	parseComputerIDs := func(args []string) ([]int, []string, error) {
-		var ids []int
-		var rest []string
-		for _, a := range args {
-			if strings.HasPrefix(a, "--") {
-				rest = append(rest, a)
-				continue
-			}
-			id, err := parseInt(a, "computer-id")
-			if err != nil {
-				return nil, nil, err
-			}
-			ids = append(ids, id)
-		}
-		return ids, rest, nil
-	}
-
 	switch subcommand {
-	case "find":
-		fs := flag.NewFlagSet("computer find", flag.ContinueOnError)
-		filter := fs.String("filter", "", "RSQL filter expression")
+	case clispec.SubList:
+		fs := flag.NewFlagSet("computer list", flag.ContinueOnError)
+		filter := fs.String(clispec.FlagFilter, "", "RSQL filter expression")
+		sort := fs.String(clispec.FlagSort, "", "Jamf sort= (e.g. general.lastContact:desc)")
+		sectionFlag := fs.String("section", "", "inventory section(s), comma-separated; omit for Jamf GENERAL default")
 		mgmtID := fs.String("management-id", "", "Look up computer by MDM management UUID (clientManagementId)")
+		asJSON := fs.Bool(clispec.FlagJSON, false, "Print Jamf results[] as JSON")
 		if err := fs.Parse(args); err != nil {
 			return err
 		}
@@ -1380,44 +2218,54 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 				f = mgmtFilter
 			}
 		}
-		return buddy.ComputerSearchPrint(credName, f, log)
-	case "get":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
+		var sections []string
+		if *sectionFlag != "" {
+			sections = []string{*sectionFlag}
 		}
-		return buddy.ComputerGet(credName, args[0], log)
+		q := buddy.ComputerListQuery{Filter: f, Sort: *sort, Sections: sections}
+		return buddy.ComputerSearchPrint(credName, q, *asJSON, log)
+	case clispec.SubGet:
+		if len(args) < 1 {
+			return missingArg("computer-id", clispec.UsageHelp(clispec.CmdComputer))
+		}
+		fs := flag.NewFlagSet("computer get", flag.ContinueOnError)
+		var sectionFlag string
+		fs.StringVar(&sectionFlag, "section", "", "inventory section(s), comma-separated (e.g. GENERAL,HARDWARE); omit for Jamf GENERAL default")
+		flagArgs, positionals := staticGroupSplitFlags(args)
+		if err := fs.Parse(flagArgs); err != nil {
+			return err
+		}
+		if len(positionals) < 1 {
+			return missingArg("computer-id", clispec.UsageHelp(clispec.CmdComputer))
+		}
+		var sections []string
+		if sectionFlag != "" {
+			sections = []string{sectionFlag}
+		}
+		return buddy.ComputerGet(credName, positionals[0], sections, log)
+	case "detail":
+		if len(args) < 1 {
+			return missingArg("computer-id", clispec.UsageHelp(clispec.CmdComputer))
+		}
+		return buddy.ComputerDetail(credName, args[0], log)
+	case "history":
+		return runComputerHistory(credName, args, log)
+	case "logs":
+		return runComputerLogs(credName, args, log)
 	case "reboot":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
-		}
-		computerIDs, _, err := parseComputerIDs(args)
-		if err != nil {
-			return err
-		}
-		return buddy.ComputerReboot(credName, opts, computerIDs, log)
+		return runComputerIDs(args, func(ids []int) error {
+			return buddy.ComputerReboot(credName, opts, ids, log)
+		})
 	case "redeploy":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
-		}
-		computerIDs, _, err := parseComputerIDs(args)
-		if err != nil {
-			return err
-		}
-		return buddy.ComputerRedeploy(credName, opts, computerIDs, log)
+		return runComputerIDs(args, func(ids []int) error {
+			return buddy.ComputerRedeploy(credName, opts, ids, log)
+		})
 	case "shutdown":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
-		}
-		computerIDs, _, err := parseComputerIDs(args)
-		if err != nil {
-			return err
-		}
-		return buddy.ComputerShutdown(credName, opts, computerIDs, log)
+		return runComputerIDs(args, func(ids []int) error {
+			return buddy.ComputerShutdown(credName, opts, ids, log)
+		})
 	case "lock":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
-		}
-		computerIDs, rest, err := parseComputerIDs(args)
+		computerIDs, rest, err := requireComputerIDs(args)
 		if err != nil {
 			return err
 		}
@@ -1433,19 +2281,11 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 		}
 		return buddy.ComputerLock(credName, opts, computerIDs, message, phone, pin, log)
 	case "logout":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
-		}
-		computerIDs, _, err := parseComputerIDs(args)
-		if err != nil {
-			return err
-		}
-		return buddy.ComputerLogOut(credName, opts, computerIDs, log)
+		return runComputerIDs(args, func(ids []int) error {
+			return buddy.ComputerLogOut(credName, opts, ids, log)
+		})
 	case "erase":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
-		}
-		computerIDs, rest, err := parseComputerIDs(args)
+		computerIDs, rest, err := requireComputerIDs(args)
 		if err != nil {
 			return err
 		}
@@ -1459,10 +2299,7 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 		}
 		return buddy.ComputerErase(credName, opts, computerIDs, pin, obliteration, false, false, log)
 	case "device-info":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
-		}
-		computerIDs, rest, err := parseComputerIDs(args)
+		computerIDs, rest, err := requireComputerIDs(args)
 		if err != nil {
 			return err
 		}
@@ -1479,28 +2316,15 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 		}
 		return buddy.ComputerDeviceInfo(credName, opts, computerIDs, queries, log)
 	case "device-location":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
-		}
-		computerIDs, _, err := parseComputerIDs(args)
-		if err != nil {
-			return err
-		}
-		return buddy.ComputerDeviceLocation(credName, opts, computerIDs, log)
+		return runComputerIDs(args, func(ids []int) error {
+			return buddy.ComputerDeviceLocation(credName, opts, ids, log)
+		})
 	case "security-info":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
-		}
-		computerIDs, _, err := parseComputerIDs(args)
-		if err != nil {
-			return err
-		}
-		return buddy.ComputerSecurityInfo(credName, opts, computerIDs, log)
+		return runComputerIDs(args, func(ids []int) error {
+			return buddy.ComputerSecurityInfo(credName, opts, ids, log)
+		})
 	case "installed-apps":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
-		}
-		computerIDs, rest, err := parseComputerIDs(args)
+		computerIDs, rest, err := requireComputerIDs(args)
 		if err != nil {
 			return err
 		}
@@ -1517,10 +2341,7 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 		}
 		return buddy.ComputerInstalledApps(credName, opts, computerIDs, identifiers, log)
 	case "managed-apps":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
-		}
-		computerIDs, rest, err := parseComputerIDs(args)
+		computerIDs, rest, err := requireComputerIDs(args)
 		if err != nil {
 			return err
 		}
@@ -1537,60 +2358,30 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 		}
 		return buddy.ComputerManagedApps(credName, opts, computerIDs, identifiers, log)
 	case "certificates":
-		if len(args) < 1 {
-			return fmt.Errorf("missing computer-id; run 'buddy computer help' for usage")
-		}
-		computerIDs, _, err := parseComputerIDs(args)
-		if err != nil {
-			return err
-		}
-		return buddy.ComputerCertificates(credName, opts, computerIDs, log)
+		return runComputerIDs(args, func(ids []int) error {
+			return buddy.ComputerCertificates(credName, opts, ids, log)
+		})
 	default:
-		return fmt.Errorf("unknown computer subcommand: %q (use: find, get, reboot, redeploy, shutdown, lock, logout, erase, device-info, device-location, security-info, installed-apps, managed-apps, certificates)", subcommand)
+		return errUnknownSubcommand("computer", subcommand, []string{
+			clispec.SubList, clispec.SubGet, "detail", "history", "logs", "reboot", "redeploy", "shutdown", "lock", "logout", "erase",
+			"device-info", "device-location", "security-info", "installed-apps", "managed-apps", "certificates",
+		})
 	}
 }
 
 func runPackageSet(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	property := args[0]
-	if len(args) < 3 {
-		return fmt.Errorf("missing package-id or value for 'set %s'; run 'buddy package help' for usage", property)
+	attrs, positional, err := parsePackageAttrFlags(args)
+	if err != nil {
+		return err
 	}
-	packageID := strings.TrimSpace(args[1])
-	value := strings.TrimSpace(args[2])
-
-	switch property {
-	case "name":
-		return buddy.PackageSetName(credName, packageID, opts, value, log)
-	case "notes":
-		return buddy.PackageSetNotes(credName, packageID, opts, value, log)
-	case "info":
-		return buddy.PackageSetInfo(credName, packageID, opts, value, log)
-	case "priority":
-		n, err := parseInt(value, "priority")
-		if err != nil {
-			return err
-		}
-		return buddy.PackageSetPriority(credName, packageID, opts, n, log)
-	case "category":
-		return buddy.PackageSetCategory(credName, packageID, opts, value, log)
-	case "reboot":
-		var b bool
-		switch strings.ToLower(value) {
-		case "true", "yes", "1":
-			b = true
-		case "false", "no", "0":
-			b = false
-		default:
-			return fmt.Errorf("reboot value must be true or false, got %q", value)
-		}
-		return buddy.PackageSetReboot(credName, packageID, opts, b, log)
-	default:
-		return fmt.Errorf("unknown package set property: %q (use: name, notes, info, priority, category, reboot)", property)
+	if len(positional) != 1 {
+		return fmt.Errorf("usage: buddy package set <package-id> [%s] [--notes=] [--info=] [%s] [--priority=] [--reboot=true|false]", clispec.FlagPrefix(clispec.FlagName), clispec.FlagPrefix(clispec.FlagCategory))
 	}
+	return buddy.PackageSetAttrs(credName, strings.TrimSpace(positional[0]), opts, attrs, log)
 }
 
 func runRole(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpRole)
 		return nil
 	}
@@ -1598,16 +2389,24 @@ func runRole(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 	args = args[1:]
 
 	switch subcommand {
-	case "list":
-		return buddy.RoleList(credName, log)
-	case "get":
+	case clispec.SubList:
+		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
+		if err != nil {
+			return err
+		}
+		_, rest = extractBareFlag(rest, clispec.FlagJSON) // RoleList is always JSON
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdRole))
+		}
+		return buddy.RoleList(credName, filter, log)
+	case clispec.SubGet:
 		if len(args) < 1 {
-			return fmt.Errorf("missing role-id; run 'buddy role help' for usage")
+			return missingArg("role-id", clispec.UsageHelp(clispec.CmdRole))
 		}
 		return buddy.RoleGet(credName, args[0], log)
-	case "create":
+	case clispec.SubCreate:
 		if len(args) < 1 {
-			return fmt.Errorf("missing displayName; run 'buddy role help' for usage")
+			return missingArg("displayName", clispec.UsageHelp(clispec.CmdRole))
 		}
 		displayName := args[0]
 		privileges := args[1:]
@@ -1615,9 +2414,9 @@ func runRole(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 			privileges = []string{}
 		}
 		return buddy.RoleCreate(credName, opts, displayName, privileges, log)
-	case "update":
+	case clispec.SubUpdate:
 		if len(args) < 2 {
-			return fmt.Errorf("missing role-id or displayName; run 'buddy role help' for usage")
+			return missingArg("role-id or displayName", clispec.UsageHelp(clispec.CmdRole))
 		}
 		roleID := args[0]
 		displayName := args[1]
@@ -1626,20 +2425,20 @@ func runRole(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 			privileges = []string{}
 		}
 		return buddy.RoleUpdate(credName, roleID, opts, displayName, privileges, log)
-	case "delete":
+	case clispec.SubDelete:
 		if len(args) < 1 {
-			return fmt.Errorf("missing role-id; run 'buddy role help' for usage")
+			return missingArg("role-id", clispec.UsageHelp(clispec.CmdRole))
 		}
 		return buddy.RoleDelete(credName, args[0], opts, log)
 	case "privileges":
 		return buddy.RolePrivileges(credName, log)
 	default:
-		return fmt.Errorf("unknown role subcommand: %q (use: list, get, create, update, delete, privileges)", subcommand)
+		return errUnknownSubcommand("role", subcommand, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubUpdate, clispec.SubDelete, "privileges"})
 	}
 }
 
 func runClient(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpClient)
 		return nil
 	}
@@ -1647,16 +2446,24 @@ func runClient(credName string, opts buddy.Opts, args []string, log *slog.Logger
 	args = args[1:]
 
 	switch subcommand {
-	case "list":
-		return buddy.ClientList(credName, log)
-	case "get":
+	case clispec.SubList:
+		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
+		if err != nil {
+			return err
+		}
+		_, rest = extractBareFlag(rest, clispec.FlagJSON) // ClientList is always JSON
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdClient))
+		}
+		return buddy.ClientList(credName, filter, log)
+	case clispec.SubGet:
 		if len(args) < 1 {
-			return fmt.Errorf("missing client-id; run 'buddy client help' for usage")
+			return missingArg("client-id", clispec.UsageHelp(clispec.CmdClient))
 		}
 		return buddy.ClientGet(credName, args[0], log)
-	case "create":
+	case clispec.SubCreate:
 		if len(args) < 1 {
-			return fmt.Errorf("missing displayName; run 'buddy client help' for usage")
+			return missingArg("displayName", clispec.UsageHelp(clispec.CmdClient))
 		}
 		displayName := args[0]
 		scopes := args[1:]
@@ -1664,9 +2471,9 @@ func runClient(credName string, opts buddy.Opts, args []string, log *slog.Logger
 			scopes = []string{}
 		}
 		return buddy.ClientCreate(credName, opts, displayName, scopes, log)
-	case "update":
+	case clispec.SubUpdate:
 		if len(args) < 2 {
-			return fmt.Errorf("missing client-id or displayName; run 'buddy client help' for usage")
+			return missingArg("client-id or displayName", clispec.UsageHelp(clispec.CmdClient))
 		}
 		clientID := args[0]
 		displayName := args[1]
@@ -1675,23 +2482,23 @@ func runClient(credName string, opts buddy.Opts, args []string, log *slog.Logger
 			scopes = []string{}
 		}
 		return buddy.ClientUpdate(credName, clientID, opts, displayName, scopes, log)
-	case "delete":
+	case clispec.SubDelete:
 		if len(args) < 1 {
-			return fmt.Errorf("missing client-id; run 'buddy client help' for usage")
+			return missingArg("client-id", clispec.UsageHelp(clispec.CmdClient))
 		}
 		return buddy.ClientDelete(credName, args[0], opts, log)
 	case "credentials":
 		if len(args) < 1 {
-			return fmt.Errorf("missing client-id; run 'buddy client help' for usage")
+			return missingArg("client-id", clispec.UsageHelp(clispec.CmdClient))
 		}
 		return buddy.ClientCredentials(credName, args[0], opts, log)
-	case "set":
+	case clispec.SubSet:
 		if len(args) < 3 {
-			return fmt.Errorf("missing property, client-id, or value; run 'buddy client help' for usage")
+			return missingArg("property, client-id, or value", clispec.UsageHelp(clispec.CmdClient))
 		}
 		return runClientSet(credName, opts, args, log)
 	default:
-		return fmt.Errorf("unknown client subcommand: %q (use: list, get, create, update, delete, credentials, set)", subcommand)
+		return errUnknownSubcommand("client", subcommand, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubUpdate, clispec.SubDelete, "credentials", clispec.SubSet})
 	}
 }
 
@@ -1712,49 +2519,51 @@ func runClientSet(credName string, opts buddy.Opts, args []string, log *slog.Log
 }
 
 func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpScript)
 		return nil
 	}
 	subcommand := args[0]
 	rest := args[1:]
 
-	// "buddy script get help" / "buddy script set help"
-	if (subcommand == "get" || subcommand == "set") && (len(rest) == 0 || rest[0] == "help") {
+	// clispec.UsageHelp(clispec.CmdScript, clispec.SubGet) / clispec.UsageHelp(clispec.CmdScript, clispec.SubSet)
+	if (subcommand == clispec.SubGet || subcommand == clispec.SubSet) && (len(rest) == 0 || rest[0] == clispec.SubHelp) {
 		fmt.Print(scriptSubHelp(subcommand))
 		return nil
 	}
 	args = rest
 
 	switch subcommand {
-	case "list":
-		var filter string
-		for _, a := range args {
-			if strings.HasPrefix(a, "--filter=") {
-				filter = strings.TrimPrefix(a, "--filter=")
-			}
+	case clispec.SubList:
+		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
+		if err != nil {
+			return err
 		}
-		return buddy.ScriptList(credName, filter, log)
+		asJSON, rest := extractBareFlag(rest, clispec.FlagJSON)
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdScript))
+		}
+		return buddy.ScriptList(credName, filter, asJSON, log)
 
-	case "get":
+	case clispec.SubGet:
 		if len(args) < 1 {
-			return fmt.Errorf("missing script-id; run 'buddy script get help' for usage")
+			return missingArg("script-id", clispec.UsageHelp(clispec.CmdScript, clispec.SubGet))
 		}
 		return runJamfScriptGet(credName, opts, args[0], args[1:], log)
 
 	case "history":
 		if len(args) < 1 {
-			return fmt.Errorf("missing script-id; run 'buddy script help' for usage")
+			return missingArg("script-id", clispec.UsageHelp(clispec.CmdScript))
 		}
 		return buddy.ScriptHistory(credName, args[0], 20, log)
 
-	case "create":
+	case clispec.SubCreate:
 		var category, priority, info, notes string
 		var positional []string
 		for _, a := range args {
 			switch {
-			case strings.HasPrefix(a, "--category="):
-				category = strings.TrimPrefix(a, "--category=")
+			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagCategory)):
+				category = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagCategory))
 			case strings.HasPrefix(a, "--priority="):
 				priority = strings.TrimPrefix(a, "--priority=")
 			case strings.HasPrefix(a, "--info="):
@@ -1766,13 +2575,13 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 			}
 		}
 		if len(positional) < 2 {
-			return fmt.Errorf("missing name or file; run 'buddy script help' for usage")
+			return missingArg("name or file", clispec.UsageHelp(clispec.CmdScript))
 		}
 		return buddy.ScriptCreate(credName, opts, positional[0], positional[1], category, priority, info, notes, log)
 
 	case "download":
 		if len(args) < 1 {
-			return fmt.Errorf("missing script-id; run 'buddy script help' for usage")
+			return missingArg("script-id", clispec.UsageHelp(clispec.CmdScript))
 		}
 		outfile := ""
 		if len(args) >= 2 {
@@ -1780,18 +2589,18 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 		}
 		return buddy.ScriptDownload(credName, args[0], outfile, log)
 
-	case "upload", "update":
+	case "upload":
 		var nameFlag string
 		var positional []string
 		for _, a := range args {
-			if strings.HasPrefix(a, "--name=") {
-				nameFlag = strings.TrimPrefix(a, "--name=")
+			if strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagName)) {
+				nameFlag = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagName))
 			} else {
 				positional = append(positional, a)
 			}
 		}
 		if len(positional) < 2 {
-			return fmt.Errorf("missing script-id or file; run 'buddy script help' for usage")
+			return missingArg("script-id or file", clispec.UsageHelp(clispec.CmdScript))
 		}
 		if err := buddy.ScriptUpdate(credName, opts, positional[0], positional[1], log); err != nil {
 			return err
@@ -1801,37 +2610,37 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 		}
 		return nil
 
-	case "delete":
+	case clispec.SubDelete:
 		if len(args) < 1 {
-			return fmt.Errorf("missing script-id; run 'buddy script help' for usage")
+			return missingArg("script-id", clispec.UsageHelp(clispec.CmdScript))
 		}
 		return buddy.ScriptDelete(credName, opts, args, log)
 
-	case "set":
+	case clispec.SubSet:
 		if len(args) < 3 {
-			return fmt.Errorf("missing property, script-id, or value; run 'buddy script set help' for usage")
+			return missingArg("property, script-id, or value", clispec.UsageHelp(clispec.CmdScript, clispec.SubSet))
 		}
 		return runJamfScriptSet(credName, opts, args, log)
 
 	default:
-		return fmt.Errorf("unknown script subcommand: %q (use: list, get, history, create, upload, update, download, delete, set)", subcommand)
+		return errUnknownSubcommand("script", subcommand, []string{clispec.SubList, clispec.SubGet, "history", clispec.SubCreate, clispec.SubUpload, clispec.SubUpdate, "download", clispec.SubDelete, clispec.SubSet})
 	}
 }
 
 func runJamfScriptGet(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {
-	if subcommand == "help" {
+	if subcommand == clispec.SubHelp {
 		fmt.Print(helpScriptGet)
 		return nil
 	}
 	switch subcommand {
 	case "contents":
 		if len(args) < 1 {
-			return fmt.Errorf("missing script-id; run 'buddy script get help' for usage")
+			return missingArg("script-id", clispec.UsageHelp(clispec.CmdScript, clispec.SubGet))
 		}
 		return buddy.ScriptGetContents(credName, args[0], log)
 	case "id":
 		if len(args) < 1 {
-			return fmt.Errorf("missing name; run 'buddy script get help' for usage")
+			return missingArg("name", clispec.UsageHelp(clispec.CmdScript, clispec.SubGet))
 		}
 		id, err := buddy.ScriptGetID(credName, args[0], log)
 		if err != nil {
@@ -1846,7 +2655,7 @@ func runJamfScriptGet(credName string, opts buddy.Opts, subcommand string, args 
 }
 
 func runJamfScriptSet(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) > 0 && args[0] == "help" {
+	if len(args) > 0 && args[0] == clispec.SubHelp {
 		fmt.Print(helpScriptSet)
 		return nil
 	}
@@ -1880,31 +2689,62 @@ func extractGlobalFlags(argv []string) (globalCLI, []string) {
 	for i := 1; i < len(argv); i++ {
 		a := argv[i]
 		switch {
-		case a == "--version":
+		case a == clispec.Flag(clispec.FlagVersion):
 			g.showVersion = true
-		case a == "-y":
+		case a == clispec.Short(clispec.ShortSkipConfirm):
 			g.skipConfirm = true
-		case a == "-v", a == "--verbose":
+		case a == clispec.Short(clispec.ShortVerbose), a == clispec.Flag(clispec.FlagVerbose):
 			g.verbose = true
-		case a == "-t", a == "--trace":
+		case a == clispec.Short(clispec.ShortTrace), a == clispec.Flag(clispec.FlagTrace):
 			g.trace = true
-		case a == "--script-trace":
+		case a == clispec.Flag(clispec.FlagScriptTrace):
 			g.scriptTrace = true
-		case strings.HasPrefix(a, "--user="):
-			g.user = strings.TrimPrefix(a, "--user=")
-		case a == "--user":
+		case a == clispec.Short(clispec.ShortEval), a == clispec.Flag(clispec.FlagEval):
+			if g.evalSource != "" {
+				g.evalDup = true
+			}
+			if i+1 >= len(argv) {
+				g.evalMissing = true
+			} else {
+				i++
+				if g.evalSource == "" {
+					g.evalSource = argv[i]
+				}
+			}
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagEval)):
+			if g.evalSource != "" {
+				g.evalDup = true
+			} else {
+				g.evalSource = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagEval))
+				if g.evalSource == "" {
+					g.evalMissing = true
+				}
+			}
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagTenant)):
+			g.tenant = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagTenant))
+		case a == clispec.Flag(clispec.FlagTenant):
+			if i+1 < len(argv) {
+				i++
+				g.tenant = argv[i]
+			}
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagUser)):
+			g.user = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagUser))
+		case a == clispec.Flag(clispec.FlagUser):
 			if i+1 < len(argv) {
 				i++
 				g.user = argv[i]
 			}
-		case strings.HasPrefix(a, "--cred="):
-			g.cred = strings.TrimPrefix(a, "--cred=")
-			g.usedCred = true
-		case a == "--cred":
-			g.usedCred = true
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)):
+			g.user = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagAuth))
+		case a == clispec.Flag(clispec.FlagAuth):
 			if i+1 < len(argv) {
 				i++
-				g.cred = argv[i]
+				g.user = argv[i]
+			}
+		case a == "--cred", strings.HasPrefix(a, "--cred="):
+			g.rejectCred = true
+			if a == "--cred" && i+1 < len(argv) && !strings.HasPrefix(argv[i+1], "-") {
+				i++ // consume value so it is not treated as a command
 			}
 		default:
 			out = append(out, a)
@@ -1917,35 +2757,173 @@ func printUsage() {
 	fmt.Fprint(os.Stderr, help.Root)
 }
 
+func runBlueprint(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
+		fmt.Print(helpBlueprint)
+		return nil
+	}
+	subcommand := args[0]
+	args = args[1:]
+
+	switch subcommand {
+	case clispec.SubList:
+		listOpts := buddy.BlueprintListOpts{Page: buddy.PageOpts{Page: buddy.PageAll}}
+		for _, a := range args {
+			switch {
+			case strings.HasPrefix(a, "--search="):
+				listOpts.Search = strings.TrimPrefix(a, "--search=")
+			case strings.HasPrefix(a, "--sort="):
+				listOpts.Sort = strings.TrimPrefix(a, "--sort=")
+			default:
+				return fmt.Errorf("unknown list flag %q; run '%s'", a, clispec.UsageHelp(clispec.CmdBlueprint))
+			}
+		}
+		return buddy.BlueprintList(credName, listOpts, log)
+	case clispec.SubGet:
+		if len(args) < 1 {
+			return missingArgHint("blueprint-id", clispec.UsageHelp(clispec.CmdBlueprint))
+		}
+		return buddy.BlueprintGet(credName, args[0], log)
+	case clispec.SubCreate:
+		file := ""
+		for _, a := range args {
+			switch {
+			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagFile)):
+				file = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagFile))
+			case a == "-":
+				file = "-"
+			default:
+				return fmt.Errorf("unknown create arg %q; use %s or - for stdin", a, clispec.FlagEq(clispec.FlagFile, "path"))
+			}
+		}
+		if file == "" {
+			file = "-"
+		}
+		body, err := buddy.ReadJSONBodyFile(file)
+		if err != nil {
+			return err
+		}
+		return buddy.BlueprintCreate(credName, opts, body, log)
+	case clispec.SubSet:
+		if len(args) < 1 {
+			return missingArgHint("blueprint-id", clispec.UsageHelp(clispec.CmdBlueprint))
+		}
+		blueprintID := args[0]
+		file := "-"
+		for _, a := range args[1:] {
+			switch {
+			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagFile)):
+				file = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagFile))
+			case a == "-":
+				file = "-"
+			default:
+				return fmt.Errorf("unknown set arg %q; use %s or - for stdin", a, clispec.FlagEq(clispec.FlagFile, "path"))
+			}
+		}
+		body, err := buddy.ReadJSONBodyFile(file)
+		if err != nil {
+			return err
+		}
+		return buddy.BlueprintSet(credName, blueprintID, opts, body, log)
+	case clispec.SubDelete:
+		if len(args) < 1 {
+			return missingArgHint("blueprint-id", clispec.UsageHelp(clispec.CmdBlueprint))
+		}
+		return buddy.BlueprintDelete(credName, args[0], opts, log)
+	case "deploy":
+		if len(args) < 1 {
+			return missingArgHint("blueprint-id", clispec.UsageHelp(clispec.CmdBlueprint))
+		}
+		return buddy.BlueprintDeploy(credName, args[0], opts, log)
+	case "undeploy":
+		if len(args) < 1 {
+			return missingArgHint("blueprint-id", clispec.UsageHelp(clispec.CmdBlueprint))
+		}
+		return buddy.BlueprintUndeploy(credName, args[0], opts, log)
+	case "status":
+		if len(args) < 1 {
+			return missingArgHint("blueprint-id", clispec.UsageHelp(clispec.CmdBlueprint))
+		}
+		return buddy.BlueprintStatus(credName, args[0], log)
+	case "components":
+		identifier := ""
+		if len(args) >= 1 {
+			identifier = args[0]
+		}
+		return buddy.BlueprintComponents(credName, identifier, log)
+	default:
+		return errUnknownSubcommand("blueprint", subcommand, []string{
+			clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubSet, clispec.SubDelete, "deploy", "undeploy", "status", "components",
+		})
+	}
+}
+
 func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpAuth)
 		return nil
 	}
 	switch args[0] {
-	case "test":
+	case clispec.SubTest:
+		all := false
+		for _, a := range args[1:] {
+			switch a {
+			case "--all":
+				all = true
+			case clispec.SubHelp:
+				fmt.Print(helpAuth)
+				return nil
+			default:
+				return fmt.Errorf("unknown argument %q; usage: buddy auth test [--all]", a)
+			}
+		}
+		if all {
+			cfg := buddy.GetActiveConfig()
+			results, err := buddy.AuthTestAll(cfg, log)
+			if len(results) == 0 {
+				return fmt.Errorf("no covering auths to test — run 'buddy cred status'")
+			}
+			buddy.PrintAuthTestAll(results)
+			return err
+		}
 		return buddy.AuthTest(credName, log)
+	case clispec.SubCaps:
+		all := false
+		for _, a := range args[1:] {
+			switch a {
+			case "--all":
+				all = true
+			case clispec.SubHelp:
+				fmt.Print(helpAuth)
+				return nil
+			default:
+				return fmt.Errorf("unknown argument %q; usage: buddy auth caps [--all]", a)
+			}
+		}
+		return buddy.PrintAuthCaps(buddy.GetActiveConfig(), credName, all)
 	case "token":
-		if len(args) > 1 && args[1] == "help" {
+		if len(args) > 1 && args[1] == clispec.SubHelp {
 			fmt.Print(helpAuth)
 			return nil
 		}
 		return runAuthToken(credName, args[1:], log)
 	case "refresh":
-		if len(args) > 1 && args[1] == "help" {
+		if len(args) > 1 && args[1] == clispec.SubHelp {
 			fmt.Print(helpAuth)
 			return nil
 		}
 		return runAuthRefresh(credName, args[1:], log)
 	default:
-		return fmt.Errorf("unknown auth subcommand: %q; run 'buddy auth help' for usage", args[0])
+		return errUnknownSubcommand("auth", args[0], []string{"token", "refresh", clispec.SubTest, clispec.SubCaps, clispec.SubHelp})
 	}
 }
 
 func runAuthToken(credName string, args []string, log *slog.Logger) error {
 	fs := flag.NewFlagSet("auth token", flag.ContinueOnError)
 	raw := fs.Bool("raw", false, "Print bearer token only (no \"Bearer \" prefix)")
-	baseURL := fs.String("url", "", "Jamf Pro base URL (direct auth, no config credential)")
+	baseURL := fs.String("url", "", "Jamf Pro or Platform API Gateway base URL (direct auth)")
+	region := fs.String("region", "", "Platform API Gateway region (direct auth; builds URL when --url omitted)")
+	tenantID := fs.String("tenant-id", "", "Platform API Gateway tenant id (direct auth)")
 	username := fs.String("username", "", "Username for basic auth")
 	password := fs.String("password", "", "Password for basic auth")
 	clientID := fs.String("client-id", "", "OAuth2 client ID")
@@ -1958,6 +2936,8 @@ func runAuthToken(credName string, args []string, log *slog.Logger) error {
 
 	direct := buddy.DirectAuthOpts{
 		BaseURL:         *baseURL,
+		Region:          *region,
+		TenantID:        *tenantID,
 		Username:        *username,
 		Password:        *password,
 		ClientID:        *clientID,
@@ -1986,7 +2966,7 @@ func runAuthRefresh(credName string, args []string, log *slog.Logger) error {
 		tokenValue = strings.TrimSpace(fs.Arg(0))
 	}
 	if tokenValue == "" {
-		return fmt.Errorf("token is required; run 'buddy auth refresh help' for usage")
+		return fmt.Errorf("token is required; run '%s' for usage", clispec.UsageHelp(clispec.CmdAuth, "refresh"))
 	}
 
 	urlValue := strings.TrimSpace(*baseURL)
@@ -2006,372 +2986,72 @@ func runAuthRefresh(credName string, args []string, log *slog.Logger) error {
 	return nil
 }
 
-func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, _ *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
-		fmt.Print(helpCred)
-		return nil
-	}
-	switch args[0] {
-	case "list":
-		return runConfigList(cfg)
-	case "get":
-		if len(args) < 2 {
-			return fmt.Errorf("missing credential name; run 'buddy cred help' for usage")
-		}
-		return runConfigGet(cfg, args[1])
-	case "add":
-		return runConfigAdd(cfg, opts, args[1:])
-	case "delete":
-		if len(args) < 2 {
-			return fmt.Errorf("missing credential name; run 'buddy cred help' for usage")
-		}
-		return runConfigDelete(cfg, opts, args[1])
-	case "default":
-		if len(args) < 2 {
-			fmt.Println(cfg.Cred)
-			return nil
-		}
-		return runConfigSetDefault(cfg, args[1])
-	case "secret":
-		return runConfigSecret(cfg, args[1:])
-	default:
-		return fmt.Errorf("unknown cred subcommand: %q; run 'buddy cred help' for usage", args[0])
-	}
-}
-
-func runConfigList(cfg *buddy.Config) error {
-	if len(cfg.Credentials) == 0 {
-		fmt.Println("No credentials configured. Use 'buddy cred add' to add one.")
-		return nil
-	}
-	fmt.Printf("%-20s  %-45s  %s\n", "NAME", "URL", "TYPE")
-	fmt.Printf("%-20s  %-45s  %s\n", "--------------------", "---------------------------------------------", "-------")
-	for name, cred := range cfg.Credentials {
-		marker := ""
-		if name == cfg.Cred {
-			marker = " *"
-		}
-		fmt.Printf("%-20s  %-45s  %s%s\n", name, cred.URL, cred.Auth.Type, marker)
-	}
-	fmt.Printf("\n* = default credential\n")
-	return nil
-}
-
-func runConfigGet(cfg *buddy.Config, name string) error {
-	cred, err := cfg.ResolveCredential(name)
-	if err != nil {
-		return err
-	}
-	isDefault := "no"
-	if name == cfg.Cred {
-		isDefault = "yes"
-	}
-	fmt.Printf("name:     %s\n", name)
-	fmt.Printf("url:      %s\n", cred.URL)
-	fmt.Printf("type:     %s\n", cred.Auth.Type)
-	switch cred.Auth.Type {
-	case "command":
-		fmt.Printf("command:  %s\n", cred.Auth.RunCommand)
-	case "basic":
-		fmt.Printf("username: %s\n", cred.Auth.Username)
-		if cred.Auth.Password != "" {
-			fmt.Printf("password: %s (inline in config)\n", redact(cred.Auth.Password))
-		} else if ok, _ := buddy.HasCredentialSecret(name, buddy.SecretKindPassword); ok {
-			fmt.Printf("password: (platform store)\n")
-		} else {
-			fmt.Printf("password: (not set)\n")
-		}
-	case "oauth":
-		fmt.Printf("clientId:     %s\n", cred.Auth.ClientID)
-		if cred.Auth.ClientSecret != "" {
-			fmt.Printf("clientSecret: %s (inline in config)\n", redact(cred.Auth.ClientSecret))
-		} else if ok, _ := buddy.HasCredentialSecret(name, buddy.SecretKindClientSecret); ok {
-			fmt.Printf("clientSecret: (platform store)\n")
-		} else {
-			fmt.Printf("clientSecret: (not set)\n")
-		}
-	}
-	fmt.Printf("default:  %s\n", isDefault)
-	return nil
-}
-
-// redact masks a secret string, showing only the first 4 characters.
-func redact(s string) string {
-	if len(s) <= 4 {
-		return strings.Repeat("*", len(s))
-	}
-	return s[:4] + strings.Repeat("*", len(s)-4)
-}
-
-func runConfigAdd(cfg *buddy.Config, opts buddy.Opts, args []string) error {
-	// Parse positional: name url, then flags
-	var positional []string
-	authType := ""
-	runCommand := ""
-	username := ""
-	password := ""
-	clientID := ""
-	clientSecret := ""
-	skipConfirm := opts.SkipConfirm
-
-	for _, a := range args {
-		switch {
-		case strings.HasPrefix(a, "--type="):
-			authType = strings.TrimPrefix(a, "--type=")
-		case strings.HasPrefix(a, "--run="):
-			runCommand = strings.TrimPrefix(a, "--run=")
-		case strings.HasPrefix(a, "--username="):
-			username = strings.TrimPrefix(a, "--username=")
-		case strings.HasPrefix(a, "--password="):
-			password = strings.TrimPrefix(a, "--password=")
-		case strings.HasPrefix(a, "--client-id="):
-			clientID = strings.TrimPrefix(a, "--client-id=")
-		case strings.HasPrefix(a, "--client-secret="):
-			clientSecret = strings.TrimPrefix(a, "--client-secret=")
-		case a == "-y":
-			skipConfirm = true
-		default:
-			positional = append(positional, a)
-		}
-	}
-	if len(positional) < 2 {
-		return fmt.Errorf("usage: buddy cred add <name> <url> --type=<type> [flags]; run 'buddy cred help' for details")
-	}
-	credName := positional[0]
-	credURL := positional[1]
-
-	if authType == "" {
-		return fmt.Errorf("--type is required (command, basic, or oauth); run 'buddy cred help' for details")
-	}
-
-	auth := buddy.AuthConfig{Type: authType}
-	switch authType {
-	case "command":
-		if runCommand == "" {
-			return fmt.Errorf("--run is required for auth type 'command'")
-		}
-		auth.RunCommand = runCommand
-	case "basic":
-		if username == "" {
-			return fmt.Errorf("--username is required for auth type 'basic'")
-		}
-		auth.Username = username
-		auth.Password = password
-	case "oauth":
-		if clientID == "" {
-			return fmt.Errorf("--client-id is required for auth type 'oauth'")
-		}
-		auth.ClientID = clientID
-		auth.ClientSecret = clientSecret
-	default:
-		return fmt.Errorf("unknown auth type %q (supported: command, basic, oauth)", authType)
-	}
-
-	_, existing := cfg.Credentials[credName]
-	if existing && !skipConfirm {
-		fmt.Printf("Credential %q already exists. Overwrite? [y/N] ", credName)
-		var response string
-		fmt.Scanln(&response)
-		if strings.ToLower(strings.TrimSpace(response)) != "y" {
-			fmt.Println("Aborted.")
-			return nil
-		}
-	}
-
-	if cfg.Credentials == nil {
-		cfg.Credentials = make(map[string]buddy.CredentialConfig)
-	}
-	cfg.Credentials[credName] = buddy.CredentialConfig{URL: credURL, Auth: auth}
-
-	if err := buddy.SaveConfig(cfg); err != nil {
-		return fmt.Errorf("save config: %w", err)
-	}
-	if existing {
-		fmt.Printf("Updated credential %q\n", credName)
-	} else {
-		fmt.Printf("Added credential %q\n", credName)
-	}
-	if authType == "basic" && password == "" {
-		fmt.Fprintf(os.Stderr, "Note: no password in config — store one with: buddy cred secret set %s --password\n", credName)
-	}
-	if authType == "oauth" && clientSecret == "" {
-		fmt.Fprintf(os.Stderr, "Note: no client secret in config — store one with: buddy cred secret set %s --client-secret\n", credName)
-	}
-	return nil
-}
-
-func runConfigDelete(cfg *buddy.Config, opts buddy.Opts, name string) error {
-	if _, ok := cfg.Credentials[name]; !ok {
-		return fmt.Errorf("credential %q not found", name)
-	}
-	if !opts.SkipConfirm {
-		fmt.Printf("Delete credential %q? [y/N] ", name)
-		var response string
-		fmt.Scanln(&response)
-		if strings.ToLower(strings.TrimSpace(response)) != "y" {
-			fmt.Println("Aborted.")
-			return nil
-		}
-	}
-	delete(cfg.Credentials, name)
-	if cfg.Cred == name {
-		cfg.Cred = buddy.DefaultCred
-		fmt.Printf("Note: default credential was %q; reset to %q\n", name, buddy.DefaultCred)
-	}
-	if err := buddy.SaveConfig(cfg); err != nil {
-		return fmt.Errorf("save config: %w", err)
-	}
-	fmt.Printf("Deleted credential %q\n", name)
-	return nil
-}
-
-func runConfigSetDefault(cfg *buddy.Config, name string) error {
-	if _, ok := cfg.Credentials[name]; !ok {
-		return fmt.Errorf("credential %q not found; run 'buddy cred list' to see available credentials", name)
-	}
-	cfg.Cred = name
-	if err := buddy.SaveConfig(cfg); err != nil {
-		return fmt.Errorf("save config: %w", err)
-	}
-	fmt.Printf("Default credential set to %q\n", name)
-	return nil
-}
-
-func runConfigSecret(cfg *buddy.Config, args []string) error {
-	if len(args) == 0 || args[0] == "help" {
-		fmt.Print(helpCredSecret)
-		return nil
-	}
-	switch args[0] {
-	case "set":
-		if len(args) < 2 {
-			return fmt.Errorf("missing credential name; run 'buddy cred secret help' for usage")
-		}
-		return runConfigSecretSet(cfg, args[1], args[2:])
-	case "get":
-		if len(args) < 2 {
-			return fmt.Errorf("missing credential name; run 'buddy cred secret help' for usage")
-		}
-		return buddy.PrintCredentialSecretStatus(cfg, args[1], os.Stdout)
-	case "delete":
-		if len(args) < 2 {
-			return fmt.Errorf("missing credential name; run 'buddy cred secret help' for usage")
-		}
-		return runConfigSecretDelete(args[1], args[2:])
-	case "path":
-		return runConfigSecretPath()
-	default:
-		return fmt.Errorf("unknown cred secret subcommand: %q; run 'buddy cred secret help' for usage", args[0])
-	}
-}
-
-func runConfigSecretSet(cfg *buddy.Config, credName string, args []string) error {
-	if _, err := cfg.ResolveCredential(credName); err != nil {
-		return err
-	}
-	var password, clientSecret string
-	wantPassword := false
-	wantClientSecret := false
-	secretFromStdin := false
-	for _, a := range args {
-		switch {
-		case a == "--secret-from-stdin":
-			secretFromStdin = true
-		case strings.HasPrefix(a, "--password="):
-			wantPassword = true
-			password = strings.TrimPrefix(a, "--password=")
-		case a == "--password":
-			wantPassword = true
-		case strings.HasPrefix(a, "--client-secret="):
-			wantClientSecret = true
-			clientSecret = strings.TrimPrefix(a, "--client-secret=")
-		case a == "--client-secret":
-			wantClientSecret = true
-		default:
-			return fmt.Errorf("unknown flag %q; run 'buddy cred secret help' for usage", a)
-		}
-	}
-	if !wantPassword && !wantClientSecret {
-		wantPassword = true
-		wantClientSecret = true
-	}
-	if secretFromStdin {
-		val, err := buddy.ReadSecretFromStdin()
-		if err != nil {
-			return err
-		}
-		if wantPassword && password == "" {
-			password = val
-		}
-		if wantClientSecret && clientSecret == "" {
-			clientSecret = val
-		}
-	}
-	if wantPassword && password == "" {
-		var err error
-		password, err = buddy.PromptSecretLine("Password")
-		if err != nil {
-			return err
-		}
-	}
-	if wantClientSecret && clientSecret == "" {
-		var err error
-		clientSecret, err = buddy.PromptSecretLine("Client secret")
-		if err != nil {
-			return err
-		}
-	}
-	if err := buddy.SetCredentialSecrets(credName, password, clientSecret); err != nil {
-		return err
-	}
-	fmt.Printf("Stored secret(s) for credential %q\n", credName)
-	return nil
-}
-
-func runConfigSecretDelete(credName string, args []string) error {
-	deletePassword := false
-	deleteClientSecret := false
-	for _, a := range args {
-		switch a {
-		case "--password":
-			deletePassword = true
-		case "--client-secret":
-			deleteClientSecret = true
-		default:
-			return fmt.Errorf("unknown flag %q; run 'buddy cred secret help' for usage", a)
-		}
-	}
-	if !deletePassword && !deleteClientSecret {
-		deletePassword = true
-		deleteClientSecret = true
-	}
-	if err := buddy.DeleteCredentialSecrets(credName, deletePassword, deleteClientSecret); err != nil {
-		return err
-	}
-	fmt.Printf("Deleted secret(s) for credential %q from platform store\n", credName)
-	return nil
-}
-
-func runConfigSecretPath() error {
-	kind, detail, err := buddy.SecretStoreInfo()
-	if err != nil {
-		return err
-	}
-	fmt.Printf("store: %s\n", kind)
-	fmt.Printf("path:  %s\n", detail)
-	return nil
-}
-
 func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpSetup)
 		return nil
 	}
 	subcommand := args[0]
 	args = args[1:]
 	switch subcommand {
+	case "basic-setup":
+		bopts := buddy.BasicSetupOpts{SkipConfirm: opts.SkipConfirm}
+		for _, a := range args {
+			switch {
+			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagTenant)):
+				bopts.TenantName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagTenant)))
+			case strings.HasPrefix(a, "--url="):
+				bopts.URL = strings.TrimSpace(strings.TrimPrefix(a, "--url="))
+			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagName)), strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)), strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagUser)):
+				// --user here means the new auth name (not API pin); setup is bootstrapping.
+				if strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagName)) {
+					bopts.AuthName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagName)))
+				} else if strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)) {
+					bopts.AuthName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)))
+				} else {
+					bopts.AuthName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagUser)))
+				}
+			case strings.HasPrefix(a, "--username="):
+				bopts.Username = strings.TrimSpace(strings.TrimPrefix(a, "--username="))
+			case strings.HasPrefix(a, "--password="):
+				bopts.Password = strings.TrimPrefix(a, "--password=")
+			case a == clispec.Short(clispec.ShortSkipConfirm):
+				bopts.SkipConfirm = true
+			}
+		}
+		fmt.Println("buddy setup basic-setup")
+		fmt.Println()
+		fmt.Println("This configures your first Jamf Pro *instance* tenant and a basic")
+		fmt.Println("(username/password) auth in ~/.config/buddy/config.yaml.")
+		fmt.Println("The password is stored in the encrypted vault (secrets.enc),")
+		fmt.Println("not inline in config. type=oauth (instance; not Platform gateway).")
+		fmt.Println()
+		fmt.Println("Afterward you can auth test with basic, and optionally create a Jamf")
+		fmt.Println("API role/client and store instance oauth (buddy setup write-script /")
+		fmt.Println("store-oauth).")
+		fmt.Println()
+		res, err := buddy.SetupBasic(cfg, bopts)
+		if err != nil {
+			return err
+		}
+		if res == nil {
+			return nil
+		}
+		fmt.Printf("Configured tenant %q (%s) and basic auth %q (user %s, type=basic).\n",
+			res.TenantName, res.URL, res.AuthName, res.Username)
+		fmt.Printf("Password stored in the vault. Default tenant is %q.\n", cfg.Tenant.Default)
+		fmt.Println()
+		fmt.Println("Try:")
+		fmt.Printf("  buddy --user %s auth test\n", res.AuthName)
+		fmt.Println()
+		fmt.Println("Optional — create a Jamf Pro instance API role/client and store oauth:")
+		fmt.Println("  buddy setup write-script")
+		fmt.Printf("  buddy setup_buddy_role.buddy -y   # uses auth %q\n", res.AuthName)
+		fmt.Println("  buddy setup store-oauth")
+		fmt.Println("  buddy --user <oauth-auth> auth test")
+		return nil
 	case "write-script":
-		path := "setup_buddy_role.star"
+		path := "setup_buddy_role.buddy"
 		if len(args) > 0 {
 			path = args[0]
 		}
@@ -2379,78 +3059,105 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 			return fmt.Errorf("write setup script: %w", err)
 		}
 		fmt.Printf("Wrote %s\n", path)
-		fmt.Println("Run with: buddy", path, "-y")
+		fmt.Printf("Run with: ./%s -y   (or: buddy %s -y)\n", path, path)
 		return nil
-	case "configure-oauth":
-		credNameForAPI := credName
+	case "store-oauth":
+		apiAuth := credName
 		clientDisplayName := "buddy-cli"
-		newCredName := "buddy-oauth"
+		var authName, tenantName string
 		configureOpts := opts
-		usedSetupCred := false
 		for _, a := range args {
 			switch {
-			case strings.HasPrefix(a, "--user="):
-				credNameForAPI = strings.TrimPrefix(a, "--user=")
-			case strings.HasPrefix(a, "--cred="):
-				credNameForAPI = strings.TrimPrefix(a, "--cred=")
-				usedSetupCred = true
+			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagUser)):
+				apiAuth = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagUser))
 			case strings.HasPrefix(a, "--client-name="):
 				clientDisplayName = strings.TrimPrefix(a, "--client-name=")
-			case strings.HasPrefix(a, "--name="):
-				newCredName = strings.TrimPrefix(a, "--name=")
-			case a == "-y":
+			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagName)):
+				authName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagName)))
+			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)):
+				authName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)))
+			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagTenant)):
+				tenantName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagTenant)))
+			case a == clispec.Short(clispec.ShortSkipConfirm):
 				configureOpts.SkipConfirm = true
 			}
 		}
-		if usedSetupCred {
-			fmt.Fprintln(os.Stderr, "note: '--cred' is deprecated; use '--user'")
-		}
-		finalCredName, err := buddy.SetupConfigureOAuth(cfg, credNameForAPI, clientDisplayName, newCredName, configureOpts, log)
+		res, err := buddy.SetupStoreOAuth(cfg, buddy.StoreOAuthOpts{
+			APIAuth:           apiAuth,
+			ClientDisplayName: clientDisplayName,
+			AuthName:          authName,
+			TenantName:        tenantName,
+			Opts:              configureOpts,
+		}, log)
 		if err != nil {
 			return err
 		}
-		if finalCredName == "" {
+		if res == nil {
 			return nil // user declined
 		}
-		if finalCredName == newCredName {
-			fmt.Printf("Added credential %q. Use: buddy --user %s ...\n", finalCredName, finalCredName)
+		if res.Updated {
+			fmt.Printf("Updated instance oauth auth %q on tenant %q (type=oauth; secret in platform store). Use: buddy --user %s ...\n",
+				res.AuthName, res.TenantName, res.AuthName)
 		} else {
-			fmt.Printf("Added credential %q (name %q in use). Use: buddy --user %s ...\n", finalCredName, newCredName, finalCredName)
+			fmt.Printf("Created instance oauth auth %q on tenant %q (type=oauth; secret in platform store). Use: buddy --user %s ...\n",
+				res.AuthName, res.TenantName, res.AuthName)
 		}
 		return nil
-	default:
-		return fmt.Errorf("unknown setup subcommand: %q (use: write-script, configure-oauth)", subcommand)
-	}
-}
-
-func runServe(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) > 0 && args[0] == "help" {
-		fmt.Print(helpServe)
+	case "secrets":
+		fmt.Println("buddy setup secrets")
+		fmt.Println()
+		fmt.Println("Creates a missing auth for any tenant that has none, then stores")
+		fmt.Println("missing passwords / OAuth client secrets in the vault.")
+		fmt.Println("MDM profiles can include client IDs or secrets; this command fills gaps.")
+		fmt.Println()
+		res, err := buddy.SetupSecrets(cfg, buddy.SetupSecretsOpts{SkipConfirm: opts.SkipConfirm})
+		if res != nil {
+			for _, name := range res.CreatedAuths {
+				fmt.Printf("Created auth %q\n", name)
+			}
+			for _, name := range res.UpdatedAuths {
+				fmt.Printf("Updated auth %q\n", name)
+			}
+			for _, s := range res.StoredSecrets {
+				fmt.Printf("Stored %s\n", s)
+			}
+		}
+		if err != nil {
+			return err
+		}
+		if res != nil && len(res.CreatedAuths) == 0 && len(res.StoredSecrets) == 0 && len(res.UpdatedAuths) == 0 {
+			fmt.Println("All tenants have an auth and required secrets are stored.")
+		}
+		fmt.Println()
+		fmt.Println("Try: buddy auth test")
 		return nil
+	case "managed-plist":
+		path := ""
+		if len(args) > 0 {
+			path = args[0]
+		}
+		data, err := buddy.MarshalManagedPlist(cfg)
+		if err != nil {
+			return fmt.Errorf("managed plist: %w", err)
+		}
+		if path == "" {
+			_, err := os.Stdout.Write(data)
+			return err
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("Wrote %s\n", path)
+		fmt.Printf("Upload as Jamf Application & Custom Settings for domain %s\n", buddy.ManagedPrefsDomain)
+		fmt.Println("Auths omitted (per-user); tenants and channel policy are included.")
+		return nil
+	default:
+		return errUnknownSubcommand("setup", subcommand, []string{"basic-setup", "write-script", "store-oauth", "secrets", "managed-plist"})
 	}
-	var addr, docsRoot string
-	var open bool
-	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	fs.StringVar(&addr, "addr", "127.0.0.1:8742", "Listen address (localhost only)")
-	fs.StringVar(&docsRoot, "docs-root", "", "Path to docs/ directory")
-	fs.BoolVar(&open, "open", false, "Open docs in the default browser")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	return serve.Run(ctx, serve.Options{
-		Addr:     addr,
-		DocsRoot: docsRoot,
-		Open:     open,
-		CredName: credName,
-		Opts:     opts,
-		Logger:   log,
-	})
 }
 
 func runMdm(credName string, _ buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == "help" {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpMdm)
 		return nil
 	}
@@ -2458,21 +3165,22 @@ func runMdm(credName string, _ buddy.Opts, args []string, log *slog.Logger) erro
 	args = args[1:]
 
 	switch subcommand {
-	case "find":
+	case clispec.SubList:
 		var filter, sort string
 		var pageSize, limit int
 		var count bool
-		fs := flag.NewFlagSet("mdm find", flag.ContinueOnError)
-		fs.StringVar(&filter, "filter", "", "RSQL filter (required; at least one field)")
-		fs.StringVar(&sort, "sort", "dateSent:asc", "Sort expression (e.g. dateSent:desc)")
-		fs.IntVar(&pageSize, "page-size", 200, "Records per API request; pagination iterates until all results are fetched")
-		fs.IntVar(&limit, "limit", 0, "Maximum total records to return (0 = no limit)")
+		fs := flag.NewFlagSet("mdm list", flag.ContinueOnError)
+		fs.StringVar(&filter, clispec.FlagFilter, "", "RSQL filter (required; at least one field)")
+		fs.StringVar(&sort, clispec.FlagSort, "dateSent:asc", "Sort expression (e.g. dateSent:desc)")
+		fs.IntVar(&pageSize, clispec.FlagPageSize, 200, "Records per API request; pagination iterates until all results are fetched")
+		fs.IntVar(&limit, clispec.FlagLimit, 0, "Maximum total records to return (0 = no limit)")
 		fs.BoolVar(&count, "count", false, "Print only the total count of matching records (single API call)")
+		asJSON := fs.Bool(clispec.FlagJSON, false, "Print matching rows as JSON")
 		if err := fs.Parse(args); err != nil {
 			return err
 		}
 		if filter == "" {
-			return fmt.Errorf("--filter is required; run 'buddy mdm help' for usage")
+			return fmt.Errorf("%s is required; run '%s' for usage", clispec.Flag(clispec.FlagFilter), clispec.UsageHelp(clispec.CmdMdm))
 		}
 		pageOpts := buddy.PageOpts{Page: buddy.PageAll, PageSize: pageSize}
 		if count {
@@ -2483,8 +3191,8 @@ func runMdm(credName string, _ buddy.Opts, args []string, log *slog.Logger) erro
 			fmt.Printf("%d\n", len(records))
 			return nil
 		}
-		return buddy.MdmCommandFindPrint(credName, filter, sort, pageOpts, limit, log)
+		return buddy.MdmCommandFindPrint(credName, filter, sort, pageOpts, limit, *asJSON, log)
 	default:
-		return fmt.Errorf("unknown mdm subcommand: %q (use: find); run 'buddy mdm help' for usage", subcommand)
+		return errUnknownSubcommand("mdm", subcommand, []string{clispec.SubList})
 	}
 }

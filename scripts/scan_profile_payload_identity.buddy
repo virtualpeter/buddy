@@ -1,0 +1,602 @@
+#!/usr/bin/env buddy
+#
+# Read-only audit: interpret every macOS configuration profile's payloads and
+# check that payload-identity builtins behave as documented.
+#
+# For each profile this script:
+#   1) Loads the Classic envelope with profile_xml (hydrate included)
+#   2) Extracts the payloads plist and lists {identifier, type, uuid}
+#   3) Gets each PayloadContent dict by Identifier, unique Type, and unique UUID
+#   4) Classifies identity (Jamf Apple: Identifier==UUID; custom: reverse-DNS Identifier)
+#   5) Calls payloads_get_mcx_dict only for ManagedClient / flat preference domains
+#   6) Offline-patches locally (never PUTs) to confirm Type/UUID selectors do not
+#      rewrite PayloadIdentifier, then round-trips payloads_replace_payload
+#
+# Does NOT mutate Jamf (no profile_put_xml / profile_set_payload).
+#
+# Run:
+#   buddy -y scripts/scan_profile_payload_identity.buddy
+#   buddy -y -v scripts/scan_profile_payload_identity.buddy
+#
+# Knobs:
+#   NAME_FILTER   — substring match on profile name ("" = all)
+#   MAX_PROFILES  — stop after N profiles (0 = all)
+#   REPORT_PATH   — markdown report path ("" = stdout summary only)
+#   VERBOSE_ROW   — "1" print every profile, not only failures
+
+NAME_FILTER = ""
+MAX_PROFILES = 0
+REPORT_PATH = "profile-payload-identity-report.md"
+VERBOSE_ROW = "1"
+
+MANAGED_CLIENT = "com.apple.ManagedClient.preferences"
+PROBE_KEY = "__BuddyScanProbe"
+
+
+def section(title, why):
+    print("")
+    print("=== " + title + " ===")
+    if why != "":
+        print(why)
+
+
+def ok_call(fn):
+    res = attempt(fn)
+    if res["ok"]:
+        return res["value"], ""
+    err = res["error"]
+    if type(err) != "string":
+        err = str(err)
+    return None, err
+
+
+def looks_reverse_dns(s):
+    if type(s) != "string" or s == "" or uuid_is(s):
+        return False
+    return "." in s
+
+
+def count_field(rows, field):
+    counts = {}
+    for r in rows:
+        k = r.get(field, "")
+        if k == "":
+            continue
+        counts[k] = counts.get(k, 0) + 1
+    return counts
+
+
+def unique_values(counts):
+    out = {}
+    for k in counts:
+        if counts[k] == 1:
+            out[k] = True
+    return out
+
+
+def classify_row(row):
+    ident = row.get("identifier", "")
+    ptype = row.get("type", "")
+    uuid = row.get("uuid", "")
+    if ident != "" and ident == uuid:
+        return "id_eq_uuid"
+    if ident != "" and ident == ptype:
+        return "id_eq_type"
+    if looks_reverse_dns(ident):
+        return "custom_id"
+    if ident == "" and ptype != "":
+        return "type_only"
+    return "other"
+
+
+def classify_profile_identity(rows):
+    if rows == None or len(rows) == 0:
+        return "empty_payloads"
+    kinds = {}
+    for r in rows:
+        k = classify_row(r)
+        kinds[k] = kinds.get(k, 0) + 1
+    if len(kinds) == 1:
+        for k in kinds:
+            return k
+    if "id_eq_uuid" in kinds and len(kinds) == 1:
+        return "id_eq_uuid"
+    return "mixed"
+
+
+def mcx_domains_from_decoded(root):
+    """Preference-domain keys from ManagedClient nested dicts and flat MCX."""
+    out = []
+    seen = {}
+    if type(root) != "dict":
+        return out
+    content = root.get("PayloadContent", [])
+    if type(content) == "list":
+        for item in content:
+            if type(item) != "dict":
+                continue
+            if item.get("PayloadType", "") != MANAGED_CLIENT:
+                continue
+            nested = item.get("PayloadContent", {})
+            if type(nested) != "dict":
+                continue
+            for domain in nested:
+                if domain not in seen:
+                    seen[domain] = True
+                    out.append(domain)
+    for k in root:
+        if k in ["PayloadContent", "PayloadUUID", "PayloadType", "PayloadVersion", "PayloadIdentifier", "PayloadDisplayName"]:
+            continue
+        v = root[k]
+        if type(v) == "dict" and "mcx_preference_settings" in v:
+            if k not in seen:
+                seen[k] = True
+                out.append(k)
+    return out
+
+
+def check(checks, name, ok, detail):
+    checks.append({"name": name, "ok": ok, "detail": detail})
+    return ok
+
+
+def fmt_rows(rows):
+    parts = []
+    for r in rows:
+        parts.append("identifier=%s type=%s uuid=%s" % (
+            r.get("identifier", ""),
+            r.get("type", ""),
+            r.get("uuid", ""),
+        ))
+    if len(parts) == 0:
+        return "(none)"
+    return "; ".join(parts)
+
+
+def decode_plist(plist):
+    def _decode():
+        return plist_decode(plist)
+    return ok_call(_decode)
+
+
+def get_payload(plist, selector):
+    def _get():
+        return payloads_get_payload(plist, identifier=selector)
+    return ok_call(_get)
+
+
+def patch_payload(xml, selector):
+    def _patch():
+        return profile_xml_patch_payload(xml, identifier=selector, new_payload={PROBE_KEY: "ok"})
+    return ok_call(_patch)
+
+
+def replace_payload(plist, selector, decoded):
+    def _repl():
+        return payloads_replace_payload(plist, identifier=selector, new_payload=decoded)
+    return ok_call(_repl)
+
+
+def get_mcx(plist, domain):
+    def _mcx():
+        return payloads_get_mcx_dict(plist, domain=domain)
+    return ok_call(_mcx)
+
+
+def extract_payloads(xml):
+    def _extract():
+        return profile_xml_extract_payloads(xml)
+    return ok_call(_extract)
+
+
+def scan_profile(profile_id, name):
+    row = {
+        "id": profile_id,
+        "name": name,
+        "identity": "",
+        "n_payloads": 0,
+        "types": [],
+        "mcx_domains": [],
+        "rows": [],
+        "checks": [],
+        "ok": True,
+        "note": "",
+    }
+    checks = row["checks"]
+
+    def _xml():
+        return profile_xml(id=profile_id)
+    xml, err = ok_call(_xml)
+    if err != "":
+        check(checks, "profile_xml", False, err)
+        row["ok"] = False
+        row["note"] = "profile_xml failed"
+        return row
+    check(checks, "profile_xml", True, "Classic envelope %d bytes" % len(xml))
+
+    plist, err = extract_payloads(xml)
+    if err != "":
+        check(checks, "extract_payloads", False, err)
+        row["ok"] = False
+        row["note"] = "extract failed"
+        return row
+    check(checks, "extract_payloads", True, "%d bytes" % len(plist))
+
+    def _list():
+        return payloads_list_identifiers(plist)
+    listed, err = ok_call(_list)
+    if err != "":
+        check(checks, "list_identifiers", False, err)
+        row["ok"] = False
+        row["note"] = "list failed"
+        return row
+    if listed == None:
+        listed = []
+    if type(listed) != "list":
+        check(checks, "list_identifiers", False, "want list, got %s" % type(listed))
+        row["ok"] = False
+        return row
+    shape_ok = True
+    shape_detail = "0 rows"
+    if len(listed) > 0:
+        first = listed[0]
+        if type(first) != "dict":
+            shape_ok = False
+            shape_detail = "want dict rows, got %s (legacy string list?)" % type(first)
+        elif "identifier" not in first or "type" not in first or "uuid" not in first:
+            shape_ok = False
+            shape_detail = "missing identifier/type/uuid keys: %s" % str(first.keys())
+        else:
+            shape_detail = "%d dict rows" % len(listed)
+    if not check(checks, "list_row_shape", shape_ok, shape_detail):
+        row["ok"] = False
+        row["note"] = shape_detail
+        return row
+
+    row["rows"] = listed
+    row["n_payloads"] = len(listed)
+    type_counts = count_field(listed, "type")
+    uuid_counts = count_field(listed, "uuid")
+    type_unique = unique_values(type_counts)
+    uuid_unique = unique_values(uuid_counts)
+    types = []
+    for t in type_counts:
+        types.append(t)
+    row["types"] = types
+    row["identity"] = classify_profile_identity(listed)
+
+    def _uuids():
+        return payloads_collect_uuids(plist)
+    collected, uerr = ok_call(_uuids)
+    if uerr != "":
+        check(checks, "collect_uuids", False, uerr)
+        row["ok"] = False
+    else:
+        if collected == None:
+            collected = []
+        missing = []
+        for r in listed:
+            u = r.get("uuid", "")
+            if u == "":
+                continue
+            found = False
+            for c in collected:
+                if c == u:
+                    found = True
+            if not found:
+                missing.append(u)
+        check(checks, "collect_uuids", len(missing) == 0, "collected %d; missing %s" % (len(collected), missing if len(missing) else "-"))
+        if len(missing) > 0:
+            row["ok"] = False
+
+    root, derr = decode_plist(plist)
+    if derr != "":
+        check(checks, "plist_decode", False, derr)
+        row["ok"] = False
+        root = {}
+    else:
+        check(checks, "plist_decode", True, "ok")
+    mcx_domains = mcx_domains_from_decoded(root)
+    row["mcx_domains"] = mcx_domains
+
+    for r in listed:
+        ident = r.get("identifier", "")
+        ptype = r.get("type", "")
+        uuid = r.get("uuid", "")
+        label = ident if ident != "" else ptype
+
+        if ident != "":
+            frag, gerr = get_payload(plist, ident)
+            if gerr != "":
+                check(checks, "get_by_identifier:%s" % ident, False, gerr)
+                row["ok"] = False
+            else:
+                decoded, gerr2 = decode_plist(frag)
+                got_id = ""
+                if type(decoded) == "dict":
+                    got_id = decoded.get("PayloadIdentifier", "")
+                ok_id = got_id == ident or ident == ""
+                check(checks, "get_by_identifier:%s" % ident, ok_id, "PayloadIdentifier=%s" % got_id)
+                if not ok_id:
+                    row["ok"] = False
+
+        if ptype != "" and ptype in type_unique:
+            frag, gerr = get_payload(plist, ptype)
+            if gerr != "":
+                check(checks, "get_by_type:%s" % ptype, False, gerr)
+                row["ok"] = False
+            else:
+                check(checks, "get_by_type:%s" % ptype, True, "unique Type hit")
+
+        if uuid != "" and uuid in uuid_unique and uuid != ident:
+            frag, gerr = get_payload(plist, uuid)
+            if gerr != "":
+                check(checks, "get_by_uuid:%s" % uuid, False, gerr)
+                row["ok"] = False
+            else:
+                check(checks, "get_by_uuid:%s" % uuid, True, "unique UUID hit")
+
+        if ptype == MANAGED_CLIENT:
+            continue
+        if ident == "" and ptype == "":
+            continue
+
+        selector = ptype if (ptype != "" and ptype in type_unique) else ident
+        if selector == "":
+            continue
+
+        patched, perr = patch_payload(xml, selector)
+        if perr != "":
+            check(checks, "offline_patch:%s" % label, False, perr)
+            row["ok"] = False
+            continue
+
+        pplist, perr = extract_payloads(patched)
+        if perr != "":
+            check(checks, "offline_patch:%s" % label, False, "extract after patch: " + perr)
+            row["ok"] = False
+            continue
+
+        get_sel = ident if ident != "" else selector
+        pfrag, perr = get_payload(pplist, get_sel)
+        if perr != "":
+            check(checks, "offline_patch:%s" % label, False, "get after patch: " + perr)
+            row["ok"] = False
+            continue
+        pdecoded, perr = decode_plist(pfrag)
+        if perr != "":
+            check(checks, "offline_patch:%s" % label, False, "decode after patch: " + perr)
+            row["ok"] = False
+            continue
+        got_id = pdecoded.get("PayloadIdentifier", "") if type(pdecoded) == "dict" else ""
+        probe = pdecoded.get(PROBE_KEY, "") if type(pdecoded) == "dict" else ""
+        rewritten = ident != "" and got_id != ident
+        merged = probe == "ok"
+        if rewritten:
+            check(checks, "offline_patch:%s" % label, False, "rewrote PayloadIdentifier %r → %r (selector was %r)" % (ident, got_id, selector))
+            row["ok"] = False
+        elif not merged:
+            check(checks, "offline_patch:%s" % label, False, "sentinel not merged")
+            row["ok"] = False
+        else:
+            check(checks, "offline_patch:%s" % label, True, "selector=%s Identifier kept" % selector)
+
+        if ident != "":
+            orig_frag, oerr = get_payload(plist, ident)
+            if oerr == "":
+                orig, _ = decode_plist(orig_frag)
+                if type(orig) == "dict":
+                    _, rerr = replace_payload(plist, ident, orig)
+                    if rerr != "":
+                        check(checks, "replace_roundtrip:%s" % ident, False, rerr)
+                        row["ok"] = False
+                    else:
+                        check(checks, "replace_roundtrip:%s" % ident, True, "same dict replaced")
+
+    if len(mcx_domains) > 0:
+        d0 = mcx_domains[0]
+        mcx_xml, merr = get_mcx(plist, d0)
+        if merr != "":
+            check(checks, "get_mcx_dict:%s" % d0, False, merr)
+            row["ok"] = False
+        else:
+            n = len(mcx_xml) if type(mcx_xml) == "string" else 0
+            check(checks, "get_mcx_dict:%s" % d0, True, "%d bytes" % n)
+    elif len(listed) > 0:
+        probe_domain = listed[0].get("type", "")
+        if probe_domain == "":
+            probe_domain = listed[0].get("identifier", "")
+        if probe_domain != "":
+            _, merr = get_mcx(plist, probe_domain)
+            helpful = merr != "" and ("payloads_list_identifiers" in merr or "PayloadContent" in merr)
+            if merr == "":
+                check(checks, "mcx_negative", False, "get_mcx_dict(%r) succeeded on PayloadContent-only plist" % probe_domain)
+                row["ok"] = False
+            elif helpful:
+                check(checks, "mcx_negative", True, "pointed at list/get_payload")
+            else:
+                check(checks, "mcx_negative", False, "unhelpful error: %s" % merr)
+                row["ok"] = False
+
+    failed = []
+    for c in checks:
+        if not c["ok"]:
+            failed.append(c["name"])
+    if len(failed) > 0:
+        row["note"] = "failed: " + ",".join(failed)
+    elif row["note"] == "":
+        row["note"] = "all checks ok"
+    return row
+
+
+def print_row(row):
+    status = "ok" if row["ok"] else "FAIL"
+    print(
+        "%s\tid=%s\t%r\tidentity=%s\tn=%d\ttypes=%s\tmcx=%s\t%s"
+        % (
+            status,
+            row["id"],
+            row["name"],
+            row["identity"],
+            row["n_payloads"],
+            ",".join(row["types"]) if len(row["types"]) > 0 else "-",
+            ",".join(row["mcx_domains"]) if len(row["mcx_domains"]) > 0 else "-",
+            row["note"],
+        )
+    )
+
+
+def markdown_report(items_n, rows, identity_counts, check_totals):
+    lines = []
+    lines.append("# Profile payload identity report")
+    lines.append("")
+    lines.append("Read-only scan of macOS configuration profiles using buddy payload builtins.")
+    lines.append("Offline patch/replace are local only; nothing was PUT back to Jamf.")
+    lines.append("")
+    lines.append("## Summary")
+    lines.append("")
+    lines.append("- Profiles listed: %d" % items_n)
+    lines.append("- Profiles scanned: %d" % len(rows))
+    n_ok = 0
+    n_fail = 0
+    for r in rows:
+        if r["ok"]:
+            n_ok = n_ok + 1
+        else:
+            n_fail = n_fail + 1
+    lines.append("- All checks passed: %d" % n_ok)
+    lines.append("- Profiles with failures: %d" % n_fail)
+    lines.append("- Builtin checks: %d passed, %d failed" % (check_totals["pass"], check_totals["fail"]))
+    lines.append("")
+    lines.append("### Identity mix")
+    lines.append("")
+    lines.append("| Class | Count | Meaning |")
+    lines.append("|-------|------:|---------|")
+    meaning = {
+        "id_eq_uuid": "Jamf Apple-style: PayloadIdentifier == PayloadUUID; Type is reverse-DNS",
+        "id_eq_type": "Identifier == Type (often custom reverse-DNS payloads)",
+        "custom_id": "Reverse-DNS Identifier distinct from Type/UUID",
+        "mixed": "Rows in this profile use more than one identity pattern",
+        "empty_payloads": "No PayloadContent array (MCX-only or empty)",
+        "type_only": "Type present, Identifier empty",
+        "other": "Unclassified",
+    }
+    for k in ["id_eq_uuid", "id_eq_type", "custom_id", "mixed", "empty_payloads", "type_only", "other"]:
+        n = identity_counts.get(k, 0)
+        if n == 0:
+            continue
+        lines.append("| `%s` | %d | %s |" % (k, n, meaning.get(k, "")))
+    lines.append("")
+    lines.append("## Per profile")
+    lines.append("")
+    for r in rows:
+        status = "ok" if r["ok"] else "FAIL"
+        lines.append("### %s — id %s — %s" % (status, r["id"], r["name"]))
+        lines.append("")
+        lines.append("- Identity class: `%s`" % r["identity"])
+        lines.append("- PayloadContent rows: %d" % r["n_payloads"])
+        if len(r["types"]) > 0:
+            lines.append("- PayloadType values: %s" % ", ".join(["`%s`" % t for t in r["types"]]))
+        if len(r["mcx_domains"]) > 0:
+            lines.append("- MCX preference domains: %s" % ", ".join(["`%s`" % d for d in r["mcx_domains"]]))
+        if len(r["rows"]) > 0:
+            lines.append("- Rows: `%s`" % fmt_rows(r["rows"]))
+        lines.append("")
+        lines.append("| Check | Result | Detail |")
+        lines.append("|-------|--------|--------|")
+        for c in r["checks"]:
+            mark = "pass" if c["ok"] else "FAIL"
+            detail = c["detail"]
+            if type(detail) != "string":
+                detail = str(detail)
+            detail = detail.replace("|", "/")
+            if len(detail) > 240:
+                detail = detail[:240] + "…"
+            lines.append("| `%s` | %s | %s |" % (c["name"], mark, detail))
+        lines.append("")
+    lines.append("## How to read failures")
+    lines.append("")
+    lines.append("- `list_row_shape`: `payloads_list_identifiers` must return `{identifier, type, uuid}` dicts, not strings.")
+    lines.append("- `get_by_type` / `get_by_uuid`: unique Type or UUID must resolve; ambiguous Type must not silently hit MCX.")
+    lines.append("- `offline_patch`: merge via Type/UUID must keep canonical PayloadIdentifier (never PUT).")
+    lines.append("- `mcx_negative`: `payloads_get_mcx_dict` on PayloadContent-only plists must point at list/get_payload.")
+    lines.append("- `get_mcx_dict`: only for ManagedClient / flat `mcx_preference_settings` preference domains.")
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def main(auth=None):
+    section(
+        "Profile payload identity scan",
+        "Read-only. Interprets PayloadContent + MCX and exercises identifier= builtins.",
+    )
+
+    items = profiles(filter=NAME_FILTER)
+    print("listed %d profile(s)%s" % (
+        len(items),
+        (" matching filter %r" % NAME_FILTER) if NAME_FILTER != "" else "",
+    ))
+
+    identity_counts = {}
+    check_totals = {"pass": 0, "fail": 0}
+    scanned = []
+    failures = []
+
+    n = 0
+    for item in items:
+        pid = item["id"] if type(item) == "dict" else item
+        name = item["name"] if type(item) == "dict" and "name" in item else ""
+        n = n + 1
+        if MAX_PROFILES > 0 and n > MAX_PROFILES:
+            print("stopped at MAX_PROFILES=%d" % MAX_PROFILES)
+            break
+
+        row = scan_profile(pid, name)
+        scanned.append(row)
+        identity_counts[row["identity"]] = identity_counts.get(row["identity"], 0) + 1
+        for c in row["checks"]:
+            if c["ok"]:
+                check_totals["pass"] = check_totals["pass"] + 1
+            else:
+                check_totals["fail"] = check_totals["fail"] + 1
+        if not row["ok"]:
+            failures.append(row)
+        if VERBOSE_ROW == "1" or not row["ok"]:
+            print_row(row)
+
+    section("Summary", "FAIL rows mean a payload builtin did not match the identity contract.")
+    print("  scanned: %d" % len(scanned))
+    print("  profiles_ok: %d" % (len(scanned) - len(failures)))
+    print("  profiles_fail: %d" % len(failures))
+    print("  checks_pass: %d" % check_totals["pass"])
+    print("  checks_fail: %d" % check_totals["fail"])
+    for k in ["id_eq_uuid", "id_eq_type", "custom_id", "mixed", "empty_payloads", "type_only", "other"]:
+        if identity_counts.get(k, 0) > 0:
+            print("  identity_%s: %d" % (k, identity_counts[k]))
+
+    if len(failures) > 0:
+        section("Failures", "")
+        for row in failures:
+            print("  id=%s  %r  %s" % (row["id"], row["name"], row["note"]))
+            for c in row["checks"]:
+                if not c["ok"]:
+                    print("    - %s: %s" % (c["name"], c["detail"]))
+
+    if REPORT_PATH != "":
+        md = markdown_report(len(items), scanned, identity_counts, check_totals)
+        file_write(REPORT_PATH, md)
+        print("")
+        print("Wrote %s" % REPORT_PATH)
+
+    print("")
+    if len(failures) == 0:
+        print("Done. All scanned profiles passed payload-identity checks.")
+    else:
+        print("Done. %d profile(s) had builtin failures — see report." % len(failures))
+    return {
+        "scanned": len(scanned),
+        "fail": len(failures),
+        "checks_pass": check_totals["pass"],
+        "checks_fail": check_totals["fail"],
+        "report": REPORT_PATH,
+    }

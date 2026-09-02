@@ -1,0 +1,138 @@
+package script
+
+import (
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"buddy/internal/buddy"
+
+	"go.starlark.net/starlark"
+)
+
+func TestEncodeJamfBody(t *testing.T) {
+	d := new(starlark.Dict)
+	_ = d.SetKey(starlark.String("a"), starlark.MakeInt(1))
+	b, ct, err := encodeJamfBody(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ct != "application/json" || string(b) != `{"a":1}` {
+		t.Fatalf("got %q ct %q", b, ct)
+	}
+	b, ct, err = encodeJamfBody(starlark.String("<policy/>"))
+	if err != nil || ct != "" || string(b) != "<policy/>" {
+		t.Fatalf("str body: %q %q %v", b, ct, err)
+	}
+}
+
+func TestJamfGetBuiltin(t *testing.T) {
+	buddy.InitLogger()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/packages" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"totalCount":1,"results":[{"id":"9"}]}`)
+	}))
+	defer srv.Close()
+
+	buddy.SetActiveConfig(buddy.ConfigFromCredentialMap("t", map[string]buddy.CredentialConfig{
+		"t": {
+			URL: srv.URL,
+			Auth: buddy.AuthConfig{
+				Type:       "command",
+				RunCommand: "printf tok",
+			},
+		},
+	}))
+	t.Cleanup(func() { buddy.SetActiveConfig(nil) })
+
+	thread, predeclared, err := newThread("t", buddy.Opts{}, slog.Default(), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := `
+r = jamf_get("/api/v1/packages")
+status = r["status"]
+body = r["body"]
+`
+	globals, err := starlark.ExecFile(thread, "jamf_get_test.buddy", src, predeclared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if globals["status"] != starlark.MakeInt(200) {
+		t.Fatalf("status=%v", globals["status"])
+	}
+	body, ok := globals["body"].(*starlark.Dict)
+	if !ok {
+		t.Fatalf("body type %T", globals["body"])
+	}
+	total, found, _ := body.Get(starlark.String("totalCount"))
+	if !found || total != starlark.MakeInt(1) {
+		t.Fatalf("body=%v", body)
+	}
+}
+
+func TestJamfGetClassicDefaultAccept(t *testing.T) {
+	buddy.InitLogger()
+	var accept string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		accept = r.Header.Get("Accept")
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = io.WriteString(w, `<policies><size>0</size></policies>`)
+	}))
+	defer srv.Close()
+
+	buddy.SetActiveConfig(buddy.ConfigFromCredentialMap("t", map[string]buddy.CredentialConfig{
+		"t": {
+			URL:  srv.URL,
+			Auth: buddy.AuthConfig{Type: "command", RunCommand: "printf tok"},
+		},
+	}))
+	t.Cleanup(func() { buddy.SetActiveConfig(nil) })
+
+	thread, predeclared, err := newThread("t", buddy.Opts{}, slog.Default(), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = starlark.ExecFile(thread, "classic.buddy", `
+r = jamf_get("/JSSResource/policies")
+`, predeclared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accept != "application/xml" {
+		t.Fatalf("Accept=%q", accept)
+	}
+}
+
+func TestJamfURLBuiltin(t *testing.T) {
+	buddy.InitLogger()
+	buddy.SetActiveConfig(buddy.ConfigFromCredentialMap("t", map[string]buddy.CredentialConfig{
+		"t": {
+			URL:  "https://example.jamfcloud.com",
+			Auth: buddy.AuthConfig{Type: "command", RunCommand: "printf tok"},
+		},
+	}))
+	t.Cleanup(func() { buddy.SetActiveConfig(nil) })
+
+	thread, predeclared, err := newThread("t", buddy.Opts{}, slog.Default(), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	globals, err := starlark.ExecFile(thread, "jamf_url_test.buddy", `
+u = jamf_url("/JSSResource/policies/id/1")
+`, predeclared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := starlark.AsString(globals["u"])
+	want := "https://example.jamfcloud.com/JSSResource/policies/id/1"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}

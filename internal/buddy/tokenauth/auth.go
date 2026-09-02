@@ -15,12 +15,15 @@ import (
 
 // Authenticator handles authentication for Jamf Pro API
 type Authenticator struct {
+	name         string // credential name, used only for diagnostics
 	baseURL      string
 	username     string
 	password     string
 	tokenCommand []string
 	clientId     string
 	clientSecret string
+	platform     bool   // Platform API Gateway OAuth
+	cacheKey     string // when set, persist token+expiry under ~/.config/buddy/tokens/
 	token        string
 	tokenExpiry  time.Time
 	httpClient   *http.Client
@@ -29,13 +32,19 @@ type Authenticator struct {
 
 // Config holds authentication configuration
 type Config struct {
+	// Name is the credential name, used only to make auth errors actionable.
+	Name         string
 	BaseURL      string
 	Username     string
 	Password     string
 	TokenCommand []string
 	ClientId     string
 	ClientSecret string
-	Logger       *slog.Logger
+	// Platform enables Platform API Gateway OAuth (token at /auth/token, no keep-alive).
+	Platform bool
+	// CacheKey enables on-disk token cache (typically the credential name). Empty disables disk cache.
+	CacheKey string
+	Logger   *slog.Logger
 }
 
 // TokenResponse represents the standard token response from Jamf Pro
@@ -49,6 +58,7 @@ type OAuth2TokenResponse struct {
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
 	ExpiresIn   int    `json:"expires_in"` // Expires in seconds
+	Scope       string `json:"scope,omitempty"`
 }
 
 // NewAuthenticator creates a new Authenticator with the given configuration
@@ -59,12 +69,15 @@ func NewAuthenticator(cfg Config) *Authenticator {
 		cfg.Logger = slog.Default()
 	}
 	return &Authenticator{
+		name:         cfg.Name,
 		baseURL:      cfg.BaseURL,
 		username:     cfg.Username,
 		password:     cfg.Password,
 		tokenCommand: cfg.TokenCommand,
 		clientId:     cfg.ClientId,
 		clientSecret: cfg.ClientSecret,
+		platform:     cfg.Platform,
+		cacheKey:     cfg.CacheKey,
 		httpClient:   httpClient,
 		logger:       cfg.Logger,
 	}
@@ -102,11 +115,73 @@ func (a *Authenticator) GetToken() (string, error) {
 	return a.token, nil
 }
 
+// ForceRenew discards any cached token (memory and disk) and obtains a new one.
+func (a *Authenticator) ForceRenew() error {
+	a.clearMemoryToken()
+	a.InvalidateDiskCache()
+	return a.ensureValidToken()
+}
+
+// TokenExpiry returns the current in-memory token expiry, or zero if none is held.
+func (a *Authenticator) TokenExpiry() time.Time {
+	return a.tokenExpiry
+}
+
+// setToken stores token+expiry in memory and persists to disk when CacheKey is set.
+func (a *Authenticator) setToken(token string, expiry time.Time) {
+	a.token = token
+	a.tokenExpiry = expiry
+	if a.cacheKey == "" || token == "" || len(a.tokenCommand) > 0 {
+		return
+	}
+	if err := saveDiskToken(a.cacheKey, a.baseURL, token, expiry); err != nil {
+		a.debugf("token disk cache save failed: %v", err)
+	} else {
+		a.debugf("saved token to disk cache key=%q (expires %v)", a.cacheKey, expiry)
+	}
+}
+
+// InvalidateDiskCache removes the on-disk token for this authenticator's CacheKey.
+func (a *Authenticator) InvalidateDiskCache() {
+	if a.cacheKey == "" {
+		return
+	}
+	removeDiskToken(a.cacheKey)
+}
+
+func (a *Authenticator) loadFromDiskIfValid() bool {
+	if a.cacheKey == "" || len(a.tokenCommand) > 0 {
+		return false
+	}
+	tok, exp, ok := loadDiskToken(a.cacheKey, a.baseURL, clockSkewWindow)
+	if !ok {
+		return false
+	}
+	a.token = tok
+	a.tokenExpiry = exp
+	a.debugf("loaded token from disk cache key=%q (expires %v)", a.cacheKey, exp)
+	return true
+}
+
+func (a *Authenticator) clearMemoryToken() {
+	a.token = ""
+	a.tokenExpiry = time.Time{}
+}
+
+func (a *Authenticator) memoryTokenUsable() bool {
+	return a.token != "" && tokenUsable(a.tokenExpiry, clockSkewWindow)
+}
+
 // ensureValidToken ensures we have a valid token, refreshing if necessary
 func (a *Authenticator) ensureValidToken() error {
-	// If using external token command, get token from that
+	// If using external token command, get token from that (no disk cache)
 	if len(a.tokenCommand) > 0 {
 		return a.ensureTokenCommand()
+	}
+
+	// Hydrate from disk before deciding to hit Jamf
+	if a.token == "" {
+		_ = a.loadFromDiskIfValid()
 	}
 
 	// If using OAuth2 client credentials, handle that flow
@@ -120,84 +195,39 @@ func (a *Authenticator) ensureValidToken() error {
 
 // ensureTokenCommand ensures a valid token for token command authentication
 func (a *Authenticator) ensureTokenCommand() error {
-	if a.token != "" && time.Now().Before(a.tokenExpiry) {
+	if a.memoryTokenUsable() {
 		return nil
 	}
 	return a.getTokenFromCommand()
 }
 
-// ensureOAuth2Token ensures a valid OAuth2 token
+// ensureOAuth2Token ensures a valid OAuth2 token.
+// Reuses the token until expiry (minus clock skew); refresh is reactive on 401
+// or when the token is already unusable. No proactive client-credentials re-auth.
 func (a *Authenticator) ensureOAuth2Token() error {
-	now := time.Now()
-	a.debugf("OAuth2 token check: token exists=%v, expiry=%v, now=%v", a.token != "", a.tokenExpiry, now)
-
-	// If we have no token, get a new one
-	if a.token == "" {
-		a.debugf("OAuth2 token is empty, requesting new token")
-		return a.getTokenFromOAuth2()
+	if a.memoryTokenUsable() {
+		return nil
 	}
-
-	// If token is still valid, check if we should proactively refresh it
-	if now.Before(a.tokenExpiry) {
-		return a.handleOAuth2TokenRefresh(now)
+	if a.token != "" {
+		a.debugf("OAuth2 token expired or within skew window; requesting new token")
+		a.InvalidateDiskCache()
+		a.clearMemoryToken()
 	}
-
-	// Token has expired, get a new one
-	timeSinceExpiry := now.Sub(a.tokenExpiry)
-	a.debugf("OAuth2 token has expired (%d seconds ago), requesting new token", int(timeSinceExpiry.Seconds()))
 	return a.getTokenFromOAuth2()
 }
 
-// handleOAuth2TokenRefresh handles OAuth2 token refresh logic when token is still valid
-func (a *Authenticator) handleOAuth2TokenRefresh(now time.Time) error {
-	timeUntilExpiry := a.tokenExpiry.Sub(now)
-	secondsRemaining := int(timeUntilExpiry.Seconds())
-	a.debugf("OAuth2 token is valid, expires in %d seconds", secondsRemaining)
-
-	if timeUntilExpiry > 3*time.Minute {
-		// Token is still good for more than 3 minutes, no need to refresh
-		a.debugf("OAuth2 token is valid for more than 3 minutes (%d seconds remaining), reusing existing token", secondsRemaining)
-		return nil
-	}
-
-	// Token expires soon, try keep-alive first
-	a.debugf("OAuth2 token expires soon (%d seconds), attempting keep-alive", secondsRemaining)
-	keepAliveErr := a.refreshTokenWithKeepAlive()
-	if keepAliveErr == nil {
-		a.debugf("OAuth2 token keep-alive successful")
-		return nil
-	}
-
-	// Keep-alive failed, but token is still valid - continue using it
-	// We'll try keep-alive again on the next call, or get a new token when it actually expires
-	a.verbosef("Keep-alive failed for OAuth2 token, but token is still valid (expires in %d seconds). Will retry keep-alive on next call: %v", secondsRemaining, keepAliveErr)
-	return nil
-}
-
-// ensureBasicAuthToken ensures a valid token for username/password authentication
+// ensureBasicAuthToken ensures a valid token for username/password authentication.
+// Reuses until expiry (minus skew); keep-alive is only used from RefreshToken (401 / auth refresh).
 func (a *Authenticator) ensureBasicAuthToken() error {
-	// If we have no token, get a new one
-	if a.token == "" {
-		return a.getTokenFromCredentials()
+	if a.memoryTokenUsable() {
+		return nil
 	}
-
-	// If token is still valid, check if we should proactively refresh it
-	now := time.Now()
-	if now.Before(a.tokenExpiry) {
-		// Check if token expires within 3 minutes - if so, proactively refresh it
-		timeUntilExpiry := a.tokenExpiry.Sub(now)
-		if timeUntilExpiry > 3*time.Minute {
-			// Token is still good for more than 3 minutes, no need to refresh
-			return nil
-		}
-		// Token expires soon, proactively refresh it using keep-alive
-		return a.refreshTokenWithKeepAlive()
+	if a.token != "" {
+		a.InvalidateDiskCache()
+		a.clearMemoryToken()
 	}
-
-	// Token has expired, get a new one
 	return a.getTokenFromCredentials()
 }
-
 // getTokenFromCommand obtains a token by executing an external command
 func (a *Authenticator) getTokenFromCommand() error {
 	if len(a.tokenCommand) == 0 {
@@ -228,6 +258,24 @@ func (a *Authenticator) getTokenFromCommand() error {
 }
 
 // getTokenFromCredentials obtains a token using username/password basic auth
+// authEndpointError builds an actionable error for a 400/401/403 returned by a
+// token endpoint, which almost always means the stored secret is wrong, revoked,
+// or expired rather than a transient failure. The raw body is logged at debug.
+func (a *Authenticator) authEndpointError(status int, secretKind string, body []byte) error {
+	a.debugf("token endpoint returned %d: %s", status, string(body))
+	who := ""
+	action := "verify the stored credentials and the integration/user in Jamf"
+	if a.name != "" {
+		who = fmt.Sprintf(" for credential %q", a.name)
+		action = fmt.Sprintf("re-store it with 'buddy cred set secret %s' and verify the integration/user in Jamf", a.name)
+	}
+	return fmt.Errorf("authentication failed at the token endpoint (status %d)%s: the %s is likely wrong, revoked, or expired — %s", status, who, secretKind, action)
+}
+
+func isAuthRejection(status int) bool {
+	return status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusBadRequest
+}
+
 func (a *Authenticator) getTokenFromCredentials() error {
 	url := fmt.Sprintf("%s/api/v1/auth/token", a.baseURL)
 	a.verbosef("Requesting authentication token from %s", url)
@@ -246,6 +294,9 @@ func (a *Authenticator) getTokenFromCredentials() error {
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
+		if isAuthRejection(resp.StatusCode) {
+			return a.authEndpointError(resp.StatusCode, "password", body)
+		}
 		a.debugf("Token request failed with status %d: %s", resp.StatusCode, string(body))
 		return fmt.Errorf("token request failed with status %d: %s", resp.StatusCode, string(body))
 	}
@@ -255,9 +306,7 @@ func (a *Authenticator) getTokenFromCredentials() error {
 		return fmt.Errorf("failed to decode token response: %w", err)
 	}
 
-	a.token = tokenResp.Token
-	// Set expiry to 18 minutes to refresh before the 20-minute expiry
-	a.tokenExpiry = time.Now().Add(18 * time.Minute)
+	a.setToken(tokenResp.Token, time.Now().Add(18*time.Minute))
 	a.verbosef("Token obtained successfully, expires at %v", a.tokenExpiry)
 
 	return nil
@@ -265,6 +314,9 @@ func (a *Authenticator) getTokenFromCredentials() error {
 
 // getTokenFromOAuth2 obtains a bearer token using OAuth2 client credentials flow
 func (a *Authenticator) getTokenFromOAuth2() error {
+	if a.platform {
+		return a.getTokenFromPlatformOAuth2()
+	}
 	tokenURL := fmt.Sprintf("%s/api/oauth/token", a.baseURL)
 	a.verbosef("Requesting OAuth2 token from %s", tokenURL)
 
@@ -289,10 +341,63 @@ func (a *Authenticator) getTokenFromOAuth2() error {
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
+		if isAuthRejection(resp.StatusCode) {
+			return a.authEndpointError(resp.StatusCode, "client secret", body)
+		}
 		a.debugf("OAuth2 token request failed with status %d: %s", resp.StatusCode, string(body))
 		return fmt.Errorf("OAuth2 token request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
+	return a.applyOAuth2TokenResponse(body)
+}
+
+// getTokenFromPlatformOAuth2 requests a token from the Platform API Gateway.
+// Primary endpoint is /auth/token (jamf-cli / jamfplatform-go-sdk); falls back to /oauth2/token on 404.
+func (a *Authenticator) getTokenFromPlatformOAuth2() error {
+	formData := url.Values{}
+	formData.Set("grant_type", "client_credentials")
+	formData.Set("client_id", a.clientId)
+	formData.Set("client_secret", a.clientSecret)
+	encoded := formData.Encode()
+
+	tryURL := func(tokenURL string) (body []byte, status int, err error) {
+		a.verbosef("Requesting Platform OAuth2 token from %s", tokenURL)
+		req, err := http.NewRequest("POST", tokenURL, strings.NewReader(encoded))
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to create Platform OAuth2 token request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to request Platform OAuth2 token: %w", err)
+		}
+		defer resp.Body.Close()
+		body, _ = io.ReadAll(resp.Body)
+		return body, resp.StatusCode, nil
+	}
+
+	base := strings.TrimRight(a.baseURL, "/")
+	body, status, err := tryURL(base + "/auth/token")
+	if err != nil {
+		return err
+	}
+	if status == http.StatusNotFound {
+		body, status, err = tryURL(base + "/oauth2/token")
+		if err != nil {
+			return err
+		}
+	}
+	if status != http.StatusOK {
+		if isAuthRejection(status) {
+			return a.authEndpointError(status, "client secret", body)
+		}
+		a.debugf("Platform OAuth2 token request failed with status %d: %s", status, string(body))
+		return fmt.Errorf("Platform OAuth2 token request failed with status %d: %s", status, string(body))
+	}
+	return a.applyOAuth2TokenResponse(body)
+}
+
+func (a *Authenticator) applyOAuth2TokenResponse(body []byte) error {
 	var oauthResp OAuth2TokenResponse
 	if err := json.Unmarshal(body, &oauthResp); err != nil {
 		return fmt.Errorf("failed to decode OAuth2 token response: %w", err)
@@ -303,18 +408,18 @@ func (a *Authenticator) getTokenFromOAuth2() error {
 	}
 
 	a.debugJSON("OAuth2 token response", oauthResp)
-	a.token = oauthResp.AccessToken
 
-	// Calculate expiry from expires_in (typically 1800 seconds = 30 minutes)
+	// Calculate expiry from expires_in (typically 1800 seconds = 30 minutes; Platform ~900)
 	expiresIn := time.Duration(oauthResp.ExpiresIn) * time.Second
 	if expiresIn == 0 {
-		// Default to 30 minutes if not specified
-		expiresIn = 30 * time.Minute
+		// Default to 30 minutes if not specified; Platform tokens are often 900s
+		if a.platform {
+			expiresIn = 15 * time.Minute
+		} else {
+			expiresIn = 30 * time.Minute
+		}
 	}
-	// Set tokenExpiry to the actual token expiry time (not the refresh trigger time)
-	// This ensures the token is considered valid until it actually expires
-	a.tokenExpiry = time.Now().Add(expiresIn)
-	// Log the actual token lifetime
+	a.setToken(oauthResp.AccessToken, time.Now().Add(expiresIn))
 	actualLifetimeSeconds := int(expiresIn.Seconds())
 	a.verbosef("OAuth2 token obtained successfully, expires in %d seconds", actualLifetimeSeconds)
 	a.debugf("OAuth2 token expiry set to: %v (current time: %v)", a.tokenExpiry, time.Now())
@@ -356,7 +461,7 @@ func (a *Authenticator) refreshTokenWithKeepAlive() error {
 		return fmt.Errorf("cannot refresh token: no token available")
 	}
 
-	a.verbosef("Proactively refreshing authentication token using keep-alive")
+	a.verbosef("Refreshing authentication token using keep-alive")
 	url := fmt.Sprintf("%s/api/v1/auth/keep-alive", a.baseURL)
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
@@ -383,26 +488,26 @@ func (a *Authenticator) refreshTokenWithKeepAlive() error {
 	}
 
 	a.debugJSON("Token refresh response", tokenResp)
-	a.token = tokenResp.Token
-	a.tokenExpiry = time.Now().Add(18 * time.Minute)
+	a.setToken(tokenResp.Token, time.Now().Add(18*time.Minute))
 	a.verbosef("Token refreshed successfully, expires at %v", a.tokenExpiry)
 
 	return nil
 }
 
-// RefreshToken handles token refresh reactively (on 401) or proactively (before expiry)
+// RefreshToken handles token refresh reactively (on HTTP 401) or via buddy auth refresh.
 func (a *Authenticator) RefreshToken() error {
 	a.verbosef("Refreshing authentication token")
 	// If using external token command, just get a new token from the command
 	if len(a.tokenCommand) > 0 {
 		// Clear current token to force refresh
-		a.token = ""
+		a.clearMemoryToken()
 		return a.getTokenFromCommand()
 	}
 
 	// If using OAuth2, get a new token (OAuth2 client credentials doesn't support keep-alive)
 	if a.clientId != "" && a.clientSecret != "" {
-		a.token = ""
+		a.clearMemoryToken()
+		a.InvalidateDiskCache()
 		return a.getTokenFromOAuth2()
 	}
 
@@ -418,6 +523,8 @@ func (a *Authenticator) RefreshToken() error {
 	}
 
 	// No token or keep-alive failed, get a new token
+	a.clearMemoryToken()
+	a.InvalidateDiskCache()
 	return a.getTokenFromCredentials()
 }
 

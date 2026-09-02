@@ -69,44 +69,60 @@ func SetVerbose(verbose bool) {
 	}
 }
 
-// resolveURL returns the base URL for the named credential.
-// Panics if activeConfig has not been set via SetActiveConfig.
+// resolveURL returns the base URL for the named auth pin (or active session).
 func resolveURL(credName string) (string, error) {
-	if activeConfig == nil {
-		return "", fmt.Errorf("internal error: config not loaded (SetActiveConfig not called)")
-	}
-	cred, err := activeConfig.ResolveCredential(credName)
-	if err != nil {
-		return "", err
-	}
-	if cred.URL == "" {
-		return "", fmt.Errorf("credential %q has no URL configured", credName)
-	}
-	// Normalize: no trailing slash so path concatenation never produces "//".
-	return strings.TrimRight(cred.URL, "/"), nil
+	return resolveURLOp(credName, OpAny)
 }
 
-// resolveAuthHeader returns the Authorization header value for the named credential.
-// For command and oauth types this is "Bearer <token>".
-// For basic type this is "Basic <base64(user:pass)>".
-func resolveAuthHeader(credName string) (string, error) {
-	if activeConfig == nil {
-		return "", fmt.Errorf("internal error: config not loaded (SetActiveConfig not called)")
-	}
-	cred, err := activeConfig.ResolveCredential(credName)
+func resolveURLOp(credName string, op OpClass) (string, error) {
+	sess, err := ResolveSessionForCred(credName, op)
 	if err != nil {
 		return "", err
 	}
+	base := sess.Credential.EffectiveBaseURL()
+	if base == "" {
+		return "", fmt.Errorf("tenant %q / auth %q has no URL or region configured", sess.TenantName, sess.AuthName)
+	}
+	return base, nil
+}
+
+// resolveAuthHeader returns the Authorization header for the named auth pin (or active session).
+func resolveAuthHeader(credName string) (string, error) {
+	return resolveAuthHeaderOp(credName, OpAny)
+}
+
+func resolveAuthHeaderOp(credName string, op OpClass) (string, error) {
+	sess, err := ResolveSessionForCred(credName, op)
+	if err != nil {
+		return "", err
+	}
+	cred := sess.Credential
+	cacheName := sessionCacheName(sess)
 	switch cred.Auth.Type {
 	case "command":
-		return resolveCommandToken(credName, cred.Auth)
+		return resolveCommandToken(sess.AuthName, cred.Auth)
 	case "basic", "oauth":
-		return resolveCachedBearerToken(credName, cred)
+		return resolveCachedBearerToken(cacheName, sess.AuthName, cred)
 	case "":
-		return "", fmt.Errorf("credential %q has no auth type configured (use 'buddy cred get %s' to inspect)", credName, credName)
+		return "", fmt.Errorf("auth %q has no type configured (use 'buddy cred get auth %s' to inspect)", sess.AuthName, sess.AuthName)
 	default:
-		return "", fmt.Errorf("credential %q has unknown auth type %q (supported: command, basic, oauth)", credName, cred.Auth.Type)
+		return "", fmt.Errorf("auth %q has unknown type %q (supported: command, basic, oauth)", sess.AuthName, cred.Auth.Type)
 	}
+}
+
+func sessionCacheName(sess *Session) string {
+	if sess == nil {
+		return ""
+	}
+	name := sess.AuthName + "@" + sess.TenantName
+	if sess.Surface == SurfacePlatform {
+		tid := sess.Credential.EffectiveTenantID()
+		if tid != "" {
+			return name + "@platform:" + tid
+		}
+		return name + "@platform"
+	}
+	return name
 }
 
 // resolveCommandToken runs the configured command and returns the trimmed stdout
@@ -140,20 +156,36 @@ func init() {
 	credAuthCache.byCred = make(map[string]*tokenauth.Authenticator)
 }
 
-func cachedAuthenticator(credName string, cred CredentialConfig) (*tokenauth.Authenticator, error) {
+// cachedAuthenticator builds or returns a cached Authenticator.
+// cacheName is the process-cache key (auth@tenant, or auth@tenant@platform:{id} on platform);
+// secretName is the secret-store key (auth name).
+func cachedAuthenticator(cacheName, secretName string, cred CredentialConfig) (*tokenauth.Authenticator, error) {
 	credAuthCache.mu.Lock()
 	defer credAuthCache.mu.Unlock()
-	if a, ok := credAuthCache.byCred[credName]; ok {
+	if a, ok := credAuthCache.byCred[cacheName]; ok {
 		return a, nil
 	}
-	resolved, err := cred.ResolveAuthWithSecrets(credName)
+	if err := cred.Validate(); err != nil {
+		return nil, fmt.Errorf("auth %q: %w", secretName, err)
+	}
+	resolved, err := cred.ResolveAuthWithSecrets(secretName)
 	if err != nil {
 		return nil, err
 	}
-	baseURL := strings.TrimRight(cred.URL, "/")
+	baseURL := cred.EffectiveBaseURL()
+	if baseURL == "" {
+		return nil, fmt.Errorf("auth %q has no URL or region configured", secretName)
+	}
+	diskKey := cacheName
+	if cred.IsPlatform() && !strings.Contains(cacheName, "@platform:") {
+		diskKey = cacheName + "@platform:" + cred.EffectiveTenantID()
+	}
 	cfg := tokenauth.Config{
-		BaseURL: baseURL,
-		Logger:  GetLogger(),
+		Name:     secretName,
+		BaseURL:  baseURL,
+		CacheKey: diskKey,
+		Platform: cred.UsesPlatformAuth(),
+		Logger:   GetLogger(),
 	}
 	switch resolved.Type {
 	case "basic":
@@ -166,12 +198,12 @@ func cachedAuthenticator(credName string, cred CredentialConfig) (*tokenauth.Aut
 		return nil, fmt.Errorf("internal: cachedAuthenticator for auth type %q", resolved.Type)
 	}
 	a := tokenauth.NewAuthenticator(cfg)
-	credAuthCache.byCred[credName] = a
+	credAuthCache.byCred[cacheName] = a
 	return a, nil
 }
 
-func resolveCachedBearerToken(credName string, cred CredentialConfig) (string, error) {
-	a, err := cachedAuthenticator(credName, cred)
+func resolveCachedBearerToken(cacheName, secretName string, cred CredentialConfig) (string, error) {
+	a, err := cachedAuthenticator(cacheName, secretName, cred)
 	if err != nil {
 		return "", err
 	}
@@ -195,12 +227,114 @@ func resolveRawToken(credName string) (string, error) {
 }
 
 // PerformRequest makes an authenticated HTTP request using the credential resolved from credName.
+// Auth/surface are chosen from the request path (same rules as JamfRequest).
 func PerformRequest(_ interface{}, req *http.Request, credName string) (*http.Response, error) {
-	authHeader, err := resolveAuthHeader(credName)
+	path := ""
+	method := http.MethodGet
+	if req != nil {
+		if req.URL != nil {
+			path = req.URL.Path
+		}
+		if req.Method != "" {
+			method = req.Method
+		}
+	}
+	return PerformRequestOp(req, credName, opClassForPath(method, path))
+}
+
+// PerformRequestOp is like PerformRequest with an operation class for auth picking.
+// On HTTP 401, refreshes the token once (OAuth: client credentials; basic: keep-alive or re-auth) and retries.
+func PerformRequestOp(req *http.Request, credName string, op OpClass) (*http.Response, error) {
+	bodyBytes, err := bufferRequestBody(req)
+	if err != nil {
+		return nil, err
+	}
+	if req != nil && req.URL != nil {
+		if ResourceClassPreference() == "" {
+			restoreClass := setResourceClass(resourceClassForPath(req.URL.Path))
+			defer restoreClass()
+		}
+	}
+
+	authHeader, err := resolveAuthHeaderOp(credName, op)
 	if err != nil {
 		return nil, fmt.Errorf("get auth for %q: %w", credName, err)
 	}
 	req.Header.Set("Authorization", authHeader)
+	resp, err := performHTTP(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		return resp, nil
+	}
+
+	sess, sessErr := ResolveSessionForCred(credName, op)
+	if sessErr != nil {
+		return resp, nil
+	}
+	a, authErr := cachedAuthenticator(sessionCacheName(sess), sess.AuthName, sess.Credential)
+	if authErr != nil {
+		return resp, nil
+	}
+	// Basic: if keep-alive probe still succeeds, this is privilege-denied — do not retry.
+	if a.ProbeTokenStillValid() {
+		return resp, nil
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	if err := a.RefreshToken(); err != nil {
+		invalidateCapsForSession(sess)
+		return nil, fmt.Errorf("refresh token after 401: %w", err)
+	}
+	authHeader, err = resolveAuthHeaderOp(credName, op)
+	if err != nil {
+		return nil, fmt.Errorf("get auth for %q after refresh: %w", credName, err)
+	}
+	req.Header.Set("Authorization", authHeader)
+	restoreRequestBody(req, bodyBytes)
+	return performHTTP(req)
+}
+
+func bufferRequestBody(req *http.Request) ([]byte, error) {
+	if req == nil || req.Body == nil {
+		return nil, nil
+	}
+	bodyBytes, err := io.ReadAll(req.Body)
+	req.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read request body: %w", err)
+	}
+	restoreRequestBody(req, bodyBytes)
+	return bodyBytes, nil
+}
+
+func restoreRequestBody(req *http.Request, bodyBytes []byte) {
+	if req == nil {
+		return
+	}
+	if bodyBytes == nil {
+		req.Body = nil
+		return
+	}
+	req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	req.ContentLength = int64(len(bodyBytes))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}
+}
+
+// PerformRequestNoAuth makes an HTTP request without an Authorization header.
+// Use it for endpoints served publicly by the Jamf host (e.g. the Pro/Classic
+// schema documents) so callers only need the base URL — schema discovery then
+// works even when a credential has no stored secret.
+func PerformRequestNoAuth(req *http.Request) (*http.Response, error) {
+	return performHTTP(req)
+}
+
+// performHTTP executes req (honoring the HTTP trace toggle) without touching auth.
+func performHTTP(req *http.Request) (*http.Response, error) {
 	logger.Debug("API request", "method", req.Method, "url", req.URL.String())
 
 	if !httpTrace.Load() {
@@ -214,6 +348,7 @@ func PerformRequest(_ interface{}, req *http.Request, credName string) (*http.Re
 
 	var reqBody []byte
 	if req.Body != nil {
+		var err error
 		reqBody, err = io.ReadAll(req.Body)
 		if err != nil {
 			return nil, fmt.Errorf("read request body for trace: %w", err)
@@ -292,6 +427,25 @@ func writeHTTPTrace(req *http.Request, reqBody []byte, resp *http.Response, resp
 	fmt.Fprint(os.Stderr, b.String())
 }
 
+func readHTTPBody(resp *http.Response) ([]byte, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, nil
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	return body, nil
+}
+
+func httpErrorBody(resp *http.Response) string {
+	body, err := readHTTPBody(resp)
+	if err != nil {
+		return fmt.Sprintf("<%v>", err)
+	}
+	return string(body)
+}
+
 // jamfGET performs a GET request to the Jamf API and returns the response body.
 func jamfGET(credName, path string) ([]byte, error) {
 	return jamfGETWithAccept(credName, path, "application/json, application/xml")
@@ -299,11 +453,11 @@ func jamfGET(credName, path string) ([]byte, error) {
 
 // jamfGETWithAccept performs a GET request with a specific Accept header.
 func jamfGETWithAccept(credName, path, accept string) ([]byte, error) {
-	baseURL, err := resolveURL(credName)
+	endpoint, err := ResolveEndpoint(credName, path)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodGet, baseURL+path, nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -324,36 +478,47 @@ func jamfGETWithAccept(credName, path, accept string) ([]byte, error) {
 }
 
 // jamfPUT performs a PUT request with the given body and content type.
-func jamfPUT(credName, path string, body []byte, contentType string) error {
-	baseURL, err := resolveURL(credName)
+func jamfPUT(credName, path string, body []byte, contentType string) ([]byte, error) {
+	endpoint, err := ResolveEndpoint(credName, path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPut, baseURL+path, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Accept", contentType)
 	resp, err := PerformRequest(nil, req, credName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("%s %s status %d: %s", http.MethodPut, path, resp.StatusCode, string(respBody))
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
 	}
-	return nil
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("%s %s status %d: %s", http.MethodPut, path, resp.StatusCode, string(respBody))
+	}
+	return respBody, nil
+}
+
+// jamfErrorHasStatus reports whether err is a jamfGET/PUT/POST/PATCH/DELETE status error.
+func jamfErrorHasStatus(err error, status int) bool {
+	if err == nil || status < 100 {
+		return false
+	}
+	return strings.Contains(err.Error(), fmt.Sprintf(" status %d:", status))
 }
 
 // jamfPOST performs a POST request with the given body and content type.
 func jamfPOST(credName, path string, body []byte, contentType string) ([]byte, error) {
-	baseURL, err := resolveURL(credName)
+	endpoint, err := ResolveEndpoint(credName, path)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, baseURL+path, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -374,13 +539,40 @@ func jamfPOST(credName, path string, body []byte, contentType string) ([]byte, e
 	return respBody, nil
 }
 
+// jamfPATCH performs a PATCH request with the given body and content type.
+func jamfPATCH(credName, path string, body []byte, contentType string) ([]byte, error) {
+	endpoint, err := ResolveEndpoint(credName, path)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPatch, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Accept", "application/json, application/xml")
+	resp, err := PerformRequest(nil, req, credName)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("%s %s status %d: %s", http.MethodPatch, path, resp.StatusCode, string(respBody))
+	}
+	return respBody, nil
+}
+
 // jamfDELETE performs a DELETE request.
 func jamfDELETE(credName, path string) error {
-	baseURL, err := resolveURL(credName)
+	endpoint, err := ResolveEndpoint(credName, path)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodDelete, baseURL+path, nil)
+	req, err := http.NewRequest(http.MethodDelete, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

@@ -5,11 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
+	"strings"
 
 	"buddy/internal/buddy"
-	"buddy/internal/help"
+	"buddy/internal/docpages"
 	"buddy/internal/script"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -24,6 +23,14 @@ type ToolResult struct {
 	Count *int   `json:"count,omitempty"` // set for list-valued tools
 }
 
+// withMCPOpts forces SkipConfirm. MCP has no interactive stdin / AnswerConfirm
+// path (unlike the IDE); without this, Classic mutates such as
+// profile_put_xml block forever on the session confirm bridge and hosts time out.
+func withMCPOpts(opts buddy.Opts) buddy.Opts {
+	opts.SkipConfirm = true
+	return opts
+}
+
 // Run starts the MCP stdio server until the client disconnects.
 func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) error {
 	if logger == nil {
@@ -32,169 +39,145 @@ func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) 
 	if version == "" {
 		version = "dev"
 	}
-	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "buddy", Version: version}, nil)
-	registerTools(server, credName, opts, logger)
-	registerDocResources(server)
+	opts = withMCPOpts(opts)
+	instructions := ServerInstructions
+	unconfigured := buddy.ConfigNeedsSetup(buddy.GetActiveConfig())
+	if unconfigured {
+		instructions = ServerInstructionsUnconfigured
+		logger.Info("buddy mcp: no tenants configured — registering zero tools")
+	}
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "buddy", Version: version}, &mcpsdk.ServerOptions{
+		Instructions: instructions,
+	})
+	if !unconfigured {
+		registerTools(server, credName, opts, logger, version)
+		registerDocResources(server)
+	}
 	return server.Run(context.Background(), &mcpsdk.StdioTransport{})
 }
 
-func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logger *slog.Logger) {
-	type credIn struct {
-		Cred string `json:"cred,omitempty" jsonschema:"credential name override"`
-	}
-	resolve := func(in credIn) string {
-		if in.Cred != "" {
-			return in.Cred
+func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logger *slog.Logger, version string) {
+	resolve := func(in sessionIn) string {
+		if in.Auth != "" {
+			return in.Auth
+		}
+		if in.Tenant != "" {
+			return ""
 		}
 		return credName
 	}
-
-	type authIn struct {
-		Cred    string `json:"cred,omitempty" jsonschema:"credential name override"`
-		Verbose bool   `json:"verbose,omitempty" jsonschema:"if true, include full privilege list (large)"`
+	sessFrom := func(tenant, surface, auth string) sessionIn {
+		return sessionIn{Tenant: tenant, Surface: surface, Auth: auth}
 	}
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "auth_test",
-		Description: "Test Jamf authentication (GET /api/v1/auth). Default value is a compact summary; set verbose=true for the full account/privileges payload.",
-	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in authIn) (*mcpsdk.CallToolResult, any, error) {
-		info, err := buddy.AuthTestValue(resolve(credIn{Cred: in.Cred}), logger)
-		if err != nil {
-			return toolErr(err)
-		}
-		if in.Verbose {
-			return toolOK(info, nil)
-		}
-		return toolOK(summarizeAuth(info), nil)
-	})
-
-	type filterIn struct {
-		Filter   string `json:"filter,omitempty" jsonschema:"name substring or RSQL filter"`
-		Page     *int   `json:"page,omitempty" jsonschema:"0-based page; omit to fetch all pages"`
-		PageSize int    `json:"page_size,omitempty" jsonschema:"page size (default 200)"`
-		Cred     string `json:"cred,omitempty" jsonschema:"credential name override"`
-	}
-	pageOpts := func(in filterIn) buddy.PageOpts {
-		o := buddy.PageOpts{Page: buddy.PageAll, PageSize: in.PageSize}
-		if in.Page != nil {
-			o.Page = *in.Page
-		}
-		return o
-	}
-	credFromFilter := func(in filterIn) string {
-		return resolve(credIn{Cred: in.Cred})
+	// applySession sets overrides for the duration of the current tool call.
+	// Use: defer applySession(sessFrom(in.Tenant, in.Surface, in.Auth))()
+	applySession := func(in sessionIn) (func(), error) {
+		return buddy.BeginSessionOverrides(in.overrides())
 	}
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "smart_groups",
-		Description: "List Jamf smart computer groups. Returns {ok, value: [{id,name,description},...], count}. Omit page to fetch all pages.",
-	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
-		groups, err := buddy.GroupSearchSmart(credFromFilter(in), in.Filter, pageOpts(in), logger)
-		if err != nil {
-			return toolErr(err)
-		}
-		n := len(groups)
-		return toolOK(groups, &n)
+		Name:        "get_instructions",
+		Description: descGetInstructions,
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
+		return toolOK(AgentPlaybook, nil)
 	})
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "static_groups",
-		Description: "List Jamf static computer groups. Returns {ok, value: [{id,name,description},...], count}. Omit page to fetch all pages.",
-	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
-		groups, err := buddy.GroupSearchStatic(credFromFilter(in), in.Filter, pageOpts(in), logger)
-		if err != nil {
-			return toolErr(err)
-		}
-		n := len(groups)
-		return toolOK(groups, &n)
+		Name:        "buddy_info",
+		Description: descBuddyInfo,
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
+		sel := buddy.SessionSelectionFor(buddy.ChannelMCP, "", credName)
+		return toolOK(sel.InfoMap(version), nil)
 	})
 
-	type computersIn struct {
-		Filter   string `json:"filter,omitempty" jsonschema:"name substring or RSQL filter"`
-		IDs      bool   `json:"ids,omitempty" jsonschema:"if true, return list of int IDs instead of summary dicts"`
-		Page     *int   `json:"page,omitempty" jsonschema:"0-based page; omit to fetch all pages"`
-		PageSize int    `json:"page_size,omitempty" jsonschema:"page size (default 200)"`
-		Cred     string `json:"cred,omitempty" jsonschema:"credential name override"`
+	type docsIn struct {
+		Action string `json:"action,omitempty" jsonschema:"list (default) or get"`
+		Query  string `json:"query,omitempty" jsonschema:"for list: case-insensitive fuzzy match on id/title/section/keywords; splits on _ - / spaces (e.g. smart_groups, smart groups, policy)"`
+		ID     string `json:"id,omitempty" jsonschema:"for get: page id (e.g. docs/policies, builtins, docs/apps) or buddy://docs/… URI"`
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "computers",
-		Description: "List computers via inventory search. Returns {ok, value: [{id,name,serial,...},...], count}, or IDs if ids=true. Omit page to fetch all pages.",
-	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in computersIn) (*mcpsdk.CallToolResult, any, error) {
-		o := buddy.PageOpts{Page: buddy.PageAll, PageSize: in.PageSize}
-		if in.Page != nil {
-			o.Page = *in.Page
-		}
-		recs, err := buddy.ComputerSearch(resolve(credIn{Cred: in.Cred}), in.Filter, o, logger)
+		Name:        "docs",
+		Description: descDocs,
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in docsIn) (*mcpsdk.CallToolResult, any, error) {
+		pages, err := loadAgentDocs()
 		if err != nil {
 			return toolErr(err)
 		}
-		if in.IDs {
-			ids := make([]int, 0, len(recs))
-			for _, r := range recs {
-				ids = append(ids, r.ID)
+		action := strings.ToLower(strings.TrimSpace(in.Action))
+		if action == "" {
+			action = "list"
+		}
+		switch action {
+		case "list":
+			entries := docsList(pages, in.Query)
+			n := len(entries)
+			return toolOK(entries, &n)
+		case "get":
+			page, err := docsGet(pages, in.ID)
+			if err != nil {
+				return toolErr(err)
 			}
-			n := len(ids)
-			return toolOK(ids, &n)
+			return toolOK(page, nil)
+		default:
+			return toolErr(fmt.Errorf("unknown action %q (want list or get)", in.Action))
 		}
-		n := len(recs)
-		return toolOK(recs, &n)
 	})
 
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "scripts",
-		Description: "List Jamf Pro scripts. Returns {ok, value: [...], count}. Omit page to fetch all pages.",
-	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
-		scripts, err := buddy.ScriptSearch(credFromFilter(in), in.Filter, pageOpts(in), logger)
-		if err != nil {
-			return toolErr(err)
-		}
-		n := len(scripts)
-		return toolOK(scripts, &n)
-	})
-
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "packages",
-		Description: "List Jamf packages. Returns {ok, value: [...], count}. Omit page to fetch all pages.",
-	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in filterIn) (*mcpsdk.CallToolResult, any, error) {
-		pkgs, err := buddy.PackageSearch(credFromFilter(in), in.Filter, pageOpts(in), logger)
-		if err != nil {
-			return toolErr(err)
-		}
-		n := len(pkgs)
-		return toolOK(pkgs, &n)
-	})
-
-	type policyIn struct {
-		Trigger string `json:"trigger" jsonschema:"policy trigger name"`
-		Cred    string `json:"cred,omitempty"`
+	type schemaIn struct {
+		API     string `json:"api,omitempty" jsonschema:"pro (OpenAPI /api/schema), classic (Swagger /classicapi/doc/swagger.yaml), platform (embedded Platform API Gateway specs), both (pro+classic), or all (default; pro+classic+platform)"`
+		Filter  string `json:"filter,omitempty" jsonschema:"case-insensitive; space-separated terms AND-matched against path, method, tags, summary, operationId, description"`
+		Full    bool   `json:"full,omitempty" jsonschema:"if true, include filtered schema document(s) (large); default is operations catalog only"`
+		Tenant  string `json:"tenant,omitempty" jsonschema:"tenant override for this call"`
+		Surface string `json:"surface,omitempty" jsonschema:"instance or platform surface bias"`
+		Auth    string `json:"auth,omitempty" jsonschema:"auth name pin (optional)"`
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "policy",
-		Description: "Load a Jamf policy by trigger name. Returns {ok, value: {id, trigger}} (ID resolution; use starlark_eval for full details).",
-	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in policyIn) (*mcpsdk.CallToolResult, any, error) {
-		id, err := buddy.PolicyFind(resolve(credIn{Cred: in.Cred}), opts, in.Trigger, false, logger)
+		Name:        "jamf_schema",
+		Description: descJamfSchema,
+	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in schemaIn) (*mcpsdk.CallToolResult, any, error) {
+		endSess, sessErr := applySession(sessFrom(in.Tenant, in.Surface, in.Auth))
+		if sessErr != nil {
+			return toolErr(sessErr)
+		}
+		defer endSess()
+		api := in.API
+		if api == "" {
+			api = "all"
+		}
+		res, err := buddy.FetchJamfSchema(resolve(sessFrom(in.Tenant, in.Surface, in.Auth)), api, in.Filter, in.Full)
 		if err != nil {
 			return toolErr(err)
 		}
-		return toolOK(map[string]any{"id": id, "trigger": in.Trigger}, nil)
+		n := res.Count
+		return toolOK(res, &n)
 	})
 
 	type evalIn struct {
-		Source string `json:"source" jsonschema:"Starlark source to evaluate"`
-		Cred   string `json:"cred,omitempty"`
+		Source  string `json:"source" jsonschema:"Buddy Starlark source to evaluate (.buddy dialect / named builtins)"`
+		Tenant  string `json:"tenant,omitempty" jsonschema:"tenant override for this call"`
+		Surface string `json:"surface,omitempty" jsonschema:"instance or platform surface bias"`
+		Auth    string `json:"auth,omitempty" jsonschema:"auth name pin (optional)"`
 	}
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "starlark_eval",
-		Description: "Evaluate Starlark with buddy builtins in a fresh session. " +
-			"Returns {ok, value: {stdout, stderr, result, error}}. " +
-			"Prefer a single expression, or define main() and it will be called. Top-level if/for are not allowed outside functions.",
+		Name:        "buddyscript",
+		Description: descBuddyscript,
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, in evalIn) (*mcpsdk.CallToolResult, any, error) {
-		sess, err := script.NewSession(resolve(credIn{Cred: in.Cred}), opts, logger, false)
+		endSess, sessErr := applySession(sessFrom(in.Tenant, in.Surface, in.Auth))
+		if sessErr != nil {
+			return toolErr(sessErr)
+		}
+		defer endSess()
+		sess, err := script.NewSession(resolve(sessFrom(in.Tenant, in.Surface, in.Auth)), opts, logger, false)
 		if err != nil {
 			return toolErr(err)
 		}
 		res := sess.EvalOpts("mcp", in.Source, script.EvalOptions{CallMain: true})
+		stdout := res.Stdout
+		if stdout == "" && res.Result != "" {
+			stdout = res.Result
+		}
 		out := map[string]any{
-			"stdout": res.Stdout,
+			"stdout": stdout,
 			"stderr": res.Stderr,
 			"result": res.Result,
 			"error":  res.Error,
@@ -205,32 +188,6 @@ func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logg
 		}
 		return toolOK(out, nil)
 	})
-}
-
-func summarizeAuth(info map[string]interface{}) map[string]any {
-	out := map[string]any{}
-	if at, ok := info["authenticationType"]; ok {
-		out["authenticationType"] = at
-	}
-	acct, _ := info["account"].(map[string]interface{})
-	if acct != nil {
-		out["username"] = acct["username"]
-		out["accessLevel"] = acct["accessLevel"]
-		out["privilegeSet"] = acct["privilegeSet"]
-		if bySite, ok := acct["privilegesBySite"].(map[string]interface{}); ok {
-			n := 0
-			for _, v := range bySite {
-				if list, ok := v.([]interface{}); ok {
-					n += len(list)
-				}
-			}
-			out["privilegeCount"] = n
-		}
-	}
-	if sites, ok := info["sites"]; ok {
-		out["sites"] = sites
-	}
-	return out
 }
 
 func toolOK(value any, count *int) (*mcpsdk.CallToolResult, any, error) {
@@ -259,90 +216,32 @@ func encodeTool(tr ToolResult) *mcpsdk.CallToolResult {
 }
 
 func registerDocResources(server *mcpsdk.Server) {
-	for _, p := range help.CLIPages() {
-		page := p
-		uri := "buddy://docs/help/" + page.ID
-		server.AddResource(&mcpsdk.Resource{
-			URI:         uri,
-			Name:        "help/" + page.ID,
-			Description: page.Title,
-			MIMEType:    "text/plain",
-		}, func(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
-			return &mcpsdk.ReadResourceResult{
-				Contents: []*mcpsdk.ResourceContents{{
-					URI:      uri,
-					MIMEType: "text/plain",
-					Text:     page.Body,
-				}},
-			}, nil
-		})
-	}
-
-	// Browsable builtins markdown (same as buddy serve /docs/builtins).
-	uriBuiltins := "buddy://docs/builtins"
-	builtinsMD := help.BuiltinsMarkdown()
-	server.AddResource(&mcpsdk.Resource{
-		URI:         uriBuiltins,
-		Name:        "builtins",
-		Description: "Starlark builtins reference (Markdown)",
-		MIMEType:    "text/markdown",
-	}, func(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
-		return &mcpsdk.ReadResourceResult{
-			Contents: []*mcpsdk.ResourceContents{{
-				URI:      uriBuiltins,
-				MIMEType: "text/markdown",
-				Text:     builtinsMD,
-			}},
-		}, nil
-	})
-
-	docsRoot, err := findDocsRoot()
+	// Agent catalog (generated agent-tone pages + examples/help), embedded by default.
+	// BUDDY_DOCS_ROOT still overrides when set. The HTML docs UI uses CatalogHuman instead.
+	res, err := docpages.Load(docpages.LoadOptions{Catalog: docpages.CatalogAgent})
 	if err != nil {
 		return
 	}
-	for _, name := range []string{"index.md", "reference-manual.md", "api-endpoints.md", "mcp.md"} {
-		path := filepath.Join(docsRoot, name)
-		b, err := os.ReadFile(path)
-		if err != nil {
-			continue
+	for _, p := range res.Pages {
+		page := p
+		uri := docpages.URI(page)
+		mime := "text/markdown"
+		if page.Plain {
+			mime = "text/plain"
 		}
-		uri := "buddy://docs/" + name
-		body := string(b)
 		server.AddResource(&mcpsdk.Resource{
 			URI:         uri,
-			Name:        name,
-			Description: "Buddy documentation: " + name,
-			MIMEType:    "text/markdown",
+			Name:        page.ID,
+			Description: page.Title,
+			MIMEType:    mime,
 		}, func(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
 			return &mcpsdk.ReadResourceResult{
 				Contents: []*mcpsdk.ResourceContents{{
 					URI:      uri,
-					MIMEType: "text/markdown",
-					Text:     body,
+					MIMEType: mime,
+					Text:     page.Markdown,
 				}},
 			}, nil
 		})
-	}
-}
-
-func findDocsRoot() (string, error) {
-	if env := os.Getenv("BUDDY_DOCS_ROOT"); env != "" {
-		return env, nil
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	dir := cwd
-	for {
-		candidate := filepath.Join(dir, "docs")
-		if fi, err := os.Stat(filepath.Join(candidate, "index.md")); err == nil && !fi.IsDir() {
-			return candidate, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", fmt.Errorf("docs not found")
-		}
-		dir = parent
 	}
 }

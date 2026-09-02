@@ -3,27 +3,105 @@ package script
 import (
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 
 	"go.starlark.net/starlark"
 )
 
+// Removed in v4 — must not be registered in makeBuiltins.
+var forbiddenLegacyBuiltinNames = []string{
+	"policy_find_ids", "policy_get_id", "policy_get_enable", "policy_get_details", "policy_fetch_xml",
+	"policy_set_enable", "policy_set_disable", "policy_set_trigger", "policy_set_name", "policy_set_frequency",
+	"package_list", "package_find_id", "package_fetch",
+	"script_list", "script_get_id", "script_fetch",
+	"computer_find_ids", "computer_get", "computer_fetch",
+	"mdm_command_find", "mdm_fetch_commands",
+	"profile_list", "profile_find_id", "profile_fetch_xml",
+	"group_list_smart", "group_list_static", "group_find_id", "group_fetch", "smart_group_fetch",
+	"group_get_version", "group_set_version", "group_put",
+	"role_list", "role_fetch_list", "role_fetch", "role_privileges_list",
+	"client_fetch_list", "client_fetch",
+	// Renamed or removed in the conformity pass — no aliases.
+	"group_delete", "smart_group_list_computers", "static_group_list_computers",
+	"smart_group_get_criteria", "smart_group_find_criteria", "smart_group_get_version",
+	"script_get_contents",
+	"profile_get_payloads", "profile_get_payload", "profile_list_payloads", "profile_set_xml",
+}
+
 func TestV3BuiltinNamesPresent(t *testing.T) {
 	dict := makeBuiltins("default", slog.Default(), false)
 	for _, name := range []string{
 		"policies", "policy", "policy_xml", "policy_set",
-		"packages", "package", "scripts", "script",
-		"computers", "computer", "mdm_commands",
+		"packages", "package", "packages_scan", "scripts", "script", "script_create", "script_delete",
+		"computers", "computer", "computer_detail", "computer_history", "computer_policy_logs", "policy_logs", "mdm_commands",
 		"profiles", "profile", "profile_xml",
 		"smart_groups", "static_groups", "smart_group", "static_group",
+		"smart_group_delete", "smart_group_computers", "static_group_computers",
+		"smart_group_criteria", "smart_group_version", "script_contents",
 		"roles", "role", "role_privileges", "clients", "client",
-		// Deprecated aliases still registered during migration window.
-		"policy_find_ids", "package_list", "computer_find_ids", "group_list_smart",
+		"blueprints", "blueprint", "blueprint_create", "blueprint_set",
+		"blueprint_delete", "blueprint_deploy", "blueprint_undeploy",
+		"blueprint_status", "blueprint_components", "blueprint_component",
+		"auth", "confirm", "error", "exit",
+		"icon", "icons", "icon_upload", "icon_check", "icon_download", "policy_set_icon",
+		"version_extract", "version_compare", "version_sort",
+		"change_batch", "plan_change", "run_change",
+		"mobile_devices", "mobile_device", "mobile_device_send_mdm_command",
+		"mobile_device_update_inventory", "mobile_device_restart", "mobile_device_lock", "mobile_device_erase",
+		"mobile_smart_groups", "mobile_static_groups", "mobile_smart_group", "mobile_static_group",
+		"mobile_smart_group_create", "mobile_smart_group_put", "mobile_smart_group_delete",
+		"mobile_smart_group_criteria", "mobile_smart_group_set_criteria", "mobile_smart_group_devices",
+		"mobile_static_group_create", "mobile_static_group_delete", "mobile_static_group_devices",
+		"mobile_static_group_add_devices", "mobile_static_group_remove_devices", "mobile_static_group_set_devices",
+		"mobile_profiles", "mobile_profile_xml", "mobile_profile_put_xml",
+		"mobile_profile_create_xml", "mobile_profile_delete",
 	} {
 		if _, ok := dict[name]; !ok {
 			t.Errorf("missing builtin %q", name)
 		}
+	}
+}
+
+func TestForbiddenLegacyBuiltinNamesAbsent(t *testing.T) {
+	dict := makeBuiltins("default", slog.Default(), false)
+	if len(forbiddenLegacyBuiltinNames) != 49 {
+		t.Fatalf("forbidden list length = %d, want 49", len(forbiddenLegacyBuiltinNames))
+	}
+	for _, name := range forbiddenLegacyBuiltinNames {
+		if _, ok := dict[name]; ok {
+			t.Errorf("legacy alias %q must not be registered", name)
+		}
+	}
+}
+
+func TestComputerHistoryRefFromArgs(t *testing.T) {
+	ref, err := computerHistoryRefFromArgs("computer_history", starlark.MakeInt(101), "", "", "")
+	if err != nil || ref.ID != "101" {
+		t.Fatalf("id: got %+v err %v", ref, err)
+	}
+	if _, err := computerHistoryRefFromArgs("computer_history", starlark.None, "", "", ""); err == nil {
+		t.Fatal("expected error for no keys")
+	}
+	if _, err := computerHistoryRefFromArgs("computer_history", starlark.MakeInt(1), "n", "", ""); err == nil {
+		t.Fatal("expected error for id and name")
+	}
+	ref, err = computerHistoryRefFromArgs("computer_policy_logs", starlark.None, "", "C02EXAMPLE", "")
+	if err != nil || ref.Serial != "C02EXAMPLE" {
+		t.Fatalf("serial: got %+v err %v", ref, err)
+	}
+}
+
+func TestOptionalStarlarkString(t *testing.T) {
+	got, err := optionalStarlarkString(starlark.None, "status")
+	if err != nil || got != "" {
+		t.Fatalf("None: %q %v", got, err)
+	}
+	got, err = optionalStarlarkString(starlark.String("Completed"), "status")
+	if err != nil || got != "Completed" {
+		t.Fatalf("str: %q %v", got, err)
+	}
+	if _, err := optionalStarlarkString(starlark.MakeInt(1), "status"); err == nil {
+		t.Fatal("expected error for int")
 	}
 }
 
@@ -39,6 +117,53 @@ func TestXorIDOrKey(t *testing.T) {
 	}
 }
 
+func TestComputersIdsRawConflict(t *testing.T) {
+	if err := computersIdsRawConflict(true, true); err == nil {
+		t.Fatal("expected error for ids and raw")
+	}
+	if err := computersIdsRawConflict(true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := computersIdsRawConflict(false, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := computersIdsRawConflict(false, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIDListFromStarlark(t *testing.T) {
+	got, err := idListFromStarlark(starlark.String("7"), "ids")
+	if err != nil || len(got) != 1 || got[0] != "7" {
+		t.Fatalf("str: got %v err %v", got, err)
+	}
+	got, err = idListFromStarlark(starlark.MakeInt(8), "ids")
+	if err != nil || len(got) != 1 || got[0] != "8" {
+		t.Fatalf("int: got %v err %v", got, err)
+	}
+	list := starlark.NewList([]starlark.Value{starlark.String("1"), starlark.MakeInt(2)})
+	got, err = idListFromStarlark(list, "ids")
+	if err != nil || len(got) != 2 || got[0] != "1" || got[1] != "2" {
+		t.Fatalf("list: got %v err %v", got, err)
+	}
+	if _, err := idListFromStarlark(starlark.None, "ids"); err == nil {
+		t.Fatal("expected error for None")
+	}
+}
+
+func TestScriptDeleteRejectsBothIDAndIDs(t *testing.T) {
+	fn := scriptDelete("default", slog.Default())
+	thread := &starlark.Thread{Name: "t"}
+	kwargs := []starlark.Tuple{
+		{starlark.String("id"), starlark.String("1")},
+		{starlark.String("ids"), starlark.NewList([]starlark.Value{starlark.String("2")})},
+	}
+	_, err := fn(thread, nil, nil, kwargs)
+	if err == nil || !strings.Contains(err.Error(), "either id= or ids=") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestStringListFromStarlark(t *testing.T) {
 	got, err := stringListFromStarlark(starlark.String("a"), "keywords")
 	if err != nil || len(got) != 1 || got[0] != "a" {
@@ -48,6 +173,25 @@ func TestStringListFromStarlark(t *testing.T) {
 	got, err = stringListFromStarlark(list, "keywords")
 	if err != nil || len(got) != 2 {
 		t.Fatalf("got %v err %v", got, err)
+	}
+}
+
+func TestStarlarkDictSetIDIfMissing(t *testing.T) {
+	d := new(starlark.Dict)
+	_ = d.SetKey(starlark.String("name"), starlark.String("g"))
+	got := starlarkDictSetIDIfMissing(d, "42")
+	out, ok := got.(*starlark.Dict)
+	if !ok {
+		t.Fatalf("got %T", got)
+	}
+	id, found, _ := out.Get(starlark.String("id"))
+	if !found || id != starlark.String("42") {
+		t.Fatalf("id = %v found=%v", id, found)
+	}
+	withID := new(starlark.Dict)
+	_ = withID.SetKey(starlark.String("id"), starlark.String("99"))
+	if starlarkDictSetIDIfMissing(withID, "42") != withID {
+		t.Fatal("expected existing id to be preserved")
 	}
 }
 
@@ -64,18 +208,114 @@ func TestPolicyBuiltinRejectsAmbiguous(t *testing.T) {
 	}
 }
 
-func TestDeprecateWarnsOnce(t *testing.T) {
-	deprecOnce = sync.Map{}
-	calls := 0
-	inner := func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-		calls++
-		return starlark.None, nil
-	}
-	wrapped := deprecate("old_fn", "new_fn", inner)
+func TestProfilesAcceptsSessionKwargs(t *testing.T) {
+	fn := profilesBuiltin("default", slog.Default())
 	thread := &starlark.Thread{Name: "t"}
-	_, _ = wrapped(thread, nil, nil, nil)
-	_, _ = wrapped(thread, nil, nil, nil)
-	if calls != 2 {
-		t.Fatalf("inner calls = %d, want 2", calls)
+	kwargs := []starlark.Tuple{
+		{starlark.String("tenant"), starlark.String("sandbox")},
+		{starlark.String("surface"), starlark.String("instance")},
+		{starlark.String("auth"), starlark.String("sandbox-instance")},
+	}
+	_, err := fn(thread, nil, nil, kwargs)
+	if err != nil && strings.Contains(err.Error(), "unexpected keyword argument") {
+		t.Fatalf("profiles() should accept tenant/surface/auth, got %v", err)
+	}
+}
+
+func TestIconAcceptsSessionKwargs(t *testing.T) {
+	fn := iconBuiltin("default", slog.Default())
+	thread := &starlark.Thread{Name: "t"}
+	kwargs := []starlark.Tuple{
+		{starlark.String("id"), starlark.MakeInt(1)},
+		{starlark.String("tenant"), starlark.String("sandbox")},
+		{starlark.String("surface"), starlark.String("instance")},
+		{starlark.String("auth"), starlark.String("sandbox-instance")},
+	}
+	_, err := fn(thread, nil, nil, kwargs)
+	if err != nil && strings.Contains(err.Error(), "unexpected keyword argument") {
+		t.Fatalf("icon() should accept tenant/surface/auth, got %v", err)
+	}
+}
+
+func TestIconAcceptsNameKwarg(t *testing.T) {
+	fn := iconBuiltin("default", slog.Default())
+	thread := &starlark.Thread{Name: "t"}
+	kwargs := []starlark.Tuple{
+		{starlark.String("name"), starlark.String("santa.png")},
+		{starlark.String("tenant"), starlark.String("sandbox")},
+		{starlark.String("surface"), starlark.String("instance")},
+		{starlark.String("auth"), starlark.String("sandbox-instance")},
+	}
+	_, err := fn(thread, nil, nil, kwargs)
+	if err != nil && strings.Contains(err.Error(), "unexpected keyword argument") {
+		t.Fatalf("icon() should accept name=/tenant/surface/auth, got %v", err)
+	}
+}
+
+func TestIconsAcceptsSessionKwargs(t *testing.T) {
+	fn := iconsBuiltin("default", slog.Default())
+	thread := &starlark.Thread{Name: "t"}
+	kwargs := []starlark.Tuple{
+		{starlark.String("filter"), starlark.String("santa")},
+		{starlark.String("refresh"), starlark.True},
+		{starlark.String("dropcache"), starlark.False},
+		{starlark.String("progress"), starlark.True},
+		{starlark.String("tenant"), starlark.String("sandbox")},
+		{starlark.String("surface"), starlark.String("instance")},
+		{starlark.String("auth"), starlark.String("sandbox-instance")},
+	}
+	_, err := fn(thread, nil, nil, kwargs)
+	if err != nil && strings.Contains(err.Error(), "unexpected keyword argument") {
+		t.Fatalf("icons() should accept filter/refresh/dropcache/progress/tenant/surface/auth, got %v", err)
+	}
+}
+
+func TestIconCheckAcceptsSessionKwargsWithoutIconID(t *testing.T) {
+	fn := iconCheckBuiltin("default", slog.Default())
+	thread := &starlark.Thread{Name: "t"}
+	kwargs := []starlark.Tuple{
+		{starlark.String("file"), starlark.String("x.png")},
+		{starlark.String("tenant"), starlark.String("sandbox")},
+		{starlark.String("surface"), starlark.String("instance")},
+		{starlark.String("auth"), starlark.String("sandbox-instance")},
+	}
+	_, err := fn(thread, nil, nil, kwargs)
+	if err != nil && strings.Contains(err.Error(), "unexpected keyword argument") {
+		t.Fatalf("icon_check should accept tenant/surface/auth without icon_id=, got %v", err)
+	}
+}
+
+func TestIconCheckAcceptsSessionKwargsWithIconID(t *testing.T) {
+	fn := iconCheckBuiltin("default", slog.Default())
+	thread := &starlark.Thread{Name: "t"}
+	kwargs := []starlark.Tuple{
+		{starlark.String("file"), starlark.String("x.png")},
+		{starlark.String("icon_id"), starlark.MakeInt(1)},
+		{starlark.String("tenant"), starlark.String("sandbox")},
+		{starlark.String("surface"), starlark.String("instance")},
+		{starlark.String("auth"), starlark.String("sandbox-instance")},
+	}
+	_, err := fn(thread, nil, nil, kwargs)
+	if err != nil && strings.Contains(err.Error(), "unexpected keyword argument") {
+		t.Fatalf("icon_check should accept tenant/surface/auth with icon_id=, got %v", err)
+	}
+}
+
+func TestPolicySetIconRequiresXor(t *testing.T) {
+	fn := policySetIconBuiltin("default", slog.Default())
+	thread := &starlark.Thread{Name: "t"}
+	_, err := fn(thread, nil, nil, []starlark.Tuple{
+		{starlark.String("id"), starlark.MakeInt(1)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "either file= or icon_id=") {
+		t.Fatalf("got %v", err)
+	}
+	_, err = fn(thread, nil, nil, []starlark.Tuple{
+		{starlark.String("id"), starlark.MakeInt(1)},
+		{starlark.String("file"), starlark.String("a.png")},
+		{starlark.String("icon_id"), starlark.MakeInt(2)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "either file= or icon_id=") {
+		t.Fatalf("both: got %v", err)
 	}
 }

@@ -1,0 +1,193 @@
+package buddy
+
+import "buddy/internal/docspec"
+
+func init() {
+	docspec.Register(ProfilesTopic)
+}
+
+// ProfilesTopic is the structured doc source for docs/profiles.
+// Edit here, then run `make gendocs`.
+var ProfilesTopic = docspec.Topic{
+	ID:      `docs/profiles`,
+	Title:   `Configuration profiles`,
+	Section: `Resources`,
+	Keywords: []string{
+		`profile`,
+		`profiles`,
+		`clone`,
+		`copy`,
+		`redeploy`,
+		`acs`,
+	},
+	Summary: `Jamf Classic macOS configuration profiles — lifecycle (list, get, create, clone, copy, delete, redeploy). For **payload / MCX / ACS** editing, use the dedicated [profile payloads](/docs/docs/profile-payloads) cookbook.`,
+	Surfaces: []docspec.SurfaceRow{
+		{Action: "List / load", BuddyScript: "`profiles(...)` / `profile(id=…)` / `profile_xml(id=…)`", CLI: "`buddy profile list` / `get xml`", Notes: "XML string is the same Classic document"},
+		{Action: "Clone", BuddyScript: "`profile_clone(id, name)`", CLI: "`buddy profile clone`", Notes: "Same tenant; new UUIDs; unassigned scope"},
+		{Action: "Copy / migrate", BuddyScript: "`profile_copy(..., to_tenant?, to_auth?)`", Notes: "Source = tenant/auth; dest = to_*"},
+		{Action: "Create", BuddyScript: "`profile_xml_prepare_for_create` → `profile_create_xml`", CLI: "`buddy profile create`", Notes: "XML on stdin / `--file`; or greenfield `profile_create` + payloads"},
+		{Action: "Delete", BuddyScript: "`profile_delete(id)`", CLI: "`buddy profile delete`", Notes: ""},
+		{Action: "Write back", BuddyScript: "`profile_put_xml(id, xml_str)`", CLI: "`buddy profile set xml`", Notes: "After offline edits"},
+		{Action: "Redeploy / ACS", BuddyScript: "`profile_redeploy` / `profile_acs_bind_uuid`", CLI: "`buddy profile redeploy`", Notes: "ACS bind is BuddyScript-only when HTML scrape fails"},
+	},
+	Notes: []string{
+		"Payload / MCX / ACS editing is covered in [profile payloads](/docs/docs/profile-payloads).",
+	},
+	AgentNotes: []string{
+		"Do not hand-edit UUIDs in Classic XML — clone/copy mint new ones; in-place patch keeps PayloadUUID.",
+		"Do not invent Classic profile PUT bodies from `jamf_schema` or Jamf MCP `execute-request` (ACS + entity-encoding live in the profile builtins).",
+		"Do not skip [profile payloads](/docs/docs/profile-payloads) when editing PayloadContent / MCX.",
+	},
+	Builtins: []docspec.Builtin{
+		{
+			Name:    `profiles`,
+			Summary: `List profiles`,
+			Returns: `list`,
+			Params: []docspec.Param{
+				{Name: `filter`, Type: `string`, Required: false, Description: `filter`},
+			},
+		},
+		{
+			Name:    `profile`,
+			Summary: `Load profile XML`,
+			Returns: `string/dict`,
+		},
+		{
+			Name:    `profile_copy`,
+			Summary: `Copy/migrate profile`,
+			Returns: `dict {id,name}`,
+			Params: []docspec.Param{
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
+			},
+		},
+		{
+			Name:    `profile_put_xml`,
+			Summary: `Save profile XML`,
+			Returns: `None`,
+			Params: []docspec.Param{
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
+				{Name: `xml_str`, Type: `string`, Required: true, Description: `xml_str`},
+			},
+		},
+	},
+	ExamplesBuddy: []string{
+		`def main():
+    xml = profile_xml(id=42)
+    plist = profile_xml_extract_payloads(xml)
+    rows = payloads_list_identifiers(plist)
+    # Custom payloads: identifier is often reverse-DNS. Jamf Apple payloads: identifier is often a UUID; type is reverse-DNS.
+    ident = rows[0]["identifier"]
+    xml = profile_xml_patch_payload(xml, identifier=ident, new_payload={"Key": "New"})
+    profile_put_xml(id=42, xml_str=xml)
+    return "ok"`,
+	},
+	Related: []docspec.RelatedLink{
+		{Title: `Profile payloads`, Ref: `/docs/docs/profile-payloads`},
+		{Title: `Categories`, Ref: `/docs/docs/categories`},
+		{Title: `API endpoints`, Ref: `/docs/docs/api-endpoints`},
+	},
+	HelpExport: `profiles`,
+	BuiltinsHelp: `PROFILE
+  profiles(filter?, tenant?, surface?, auth?)
+      Does: List macOS configuration profiles.
+      → value: list of {id, name}
+      Params: filter?: str (client-side name substring). tenant?/surface?/auth?: omit for process defaults.
+  profile(id=?, tenant?, surface?, auth?) | profile(name=?, tenant?, surface?, auth?)
+      Does: Load one profile as XML (id=) or resolve {id, name} (name=).
+      → value: XML str (id=) or {id, name} (name=)
+      Params: pass either id= or name=, not both.
+  profile_xml(id, tenant?, surface?, auth?)
+      Does: Fetch the raw Classic profile XML (preserves outer UUID).
+      → value: str (raw profile XML)
+      Params: id: int/str.
+  profile_create(name, payloads_plist_str?, content?, category?,
+                 scope_all?, scope_group_ids?, redeploy_on_update?, tenant?, surface?, auth?)
+      Does: Create a macOS configuration profile (Classic POST).
+      → value: int (new profile ID)
+      Params: name: str; pass payloads_plist_str and/or content (list of payload
+        dicts). category?: str. scope_all defaults true when scope_group_ids omitted.
+        redeploy_on_update?: bool.
+  profile_clone(id, name, tenant?, surface?, auth?)
+      Does: Clone a profile in the same session (UUID remap, unassigned scope).
+      → value: dict {id, name}
+      Params: id: int/str; name: str (new profile name).
+      Notes: Alias of profile_copy without to_* (same-session UUID remap).
+  profile_copy(id, name?, category_id?, scope_all?, scope_group_ids?, upsert?=False,
+               tenant?, surface?, auth?, to_tenant?, to_surface?, to_auth?)
+      Does: Copy a profile to another (or the same) session with new UUIDs and unassigned scope.
+      → value: dict {id, name} or +created when upsert
+      Params: id: source. name?: dest name (optional → source name on upsert).
+        category_id?: dest category. scope_all?/scope_group_ids?: dest scope.
+        upsert?: bool. Source = tenant?/auth?; dest = to_* (omit = same session).
+      Notes: upsert=True: upsert by exact name.
+  profile_migrate(...)
+      Does: Alias of profile_copy with upsert=True.
+      → value: dict {id, name, created?}
+  profile_create_xml(xml_str, name?, tenant?, surface?, auth?)
+      Does: POST prepared profile XML to create a profile.
+      → value: dict {id, name}
+      Params: xml_str: str (after profile_xml_prepare_for_create); name?: override name.
+  profile_delete(id, tenant?, surface?, auth?)
+      Does: Delete a configuration profile.
+      → None
+      Params: id: int/str.
+  profile_redeploy(id, tenant?, surface?, auth?)
+      Does: Redeploy the profile to all currently assigned devices.
+      → None
+      Params: id: int/str.
+  profile_acs_bind_uuid(id, payload_uuid)
+      Does: Seed process cache of Classic id → ACS payload UUID when HTML scrape is unavailable.
+      → None
+      Params: id: int/str; payload_uuid: str.
+      Notes: Needed when API-token clients cannot scrape legacy HTML; lets profile_xml merge ACS Forced into Classic XML, and enables ACS writes.
+  profile_put_xml(id, xml_str, tenant?, surface?, auth?)
+      Does: PUT full profile XML (Classic envelope) to update the profile.
+      → None
+      Params: id: int/str; xml_str: str (same shape as profile_xml(id=…)).
+  profile_set_payload(id, identifier, dict_file, redeploy?, tenant?, surface?, auth?)
+      Does: Merge-patch one payload (PayloadContent keys or MCX settings) and PUT the profile.
+      → None
+      Params: id: int/str; identifier: str; dict_file: str (path to dict/plist);
+        redeploy?: bool (set redeploy_on_update=All).
+      Notes: Same merge rules as profile_xml_patch_payload.
+
+`,
+	CLIHelp: `buddy profile - Manage macOS configuration profiles
+
+Usage:
+  buddy [global-flags] profile <subcommand> [args...]
+
+Subcommands:
+  list [--filter=<name>] [--json]                           List configuration profiles
+  get xml <profile-id>                                      Output full profile XML
+  get payloads <profile-id>                                 Output payloads plist only (pretty-printed)
+  get payload <profile-id> <identifier>                      Output one PayloadContent payload (Identifier, unique Type, or unique UUID)
+  get list-payloads <profile-id>                            List PayloadContent {identifier, type, uuid}
+  set xml <profile-id> [--redeploy]                         PUT profile from XML on stdin
+  set payload <profile-id> <identifier> <dict-file.xml> [--redeploy]   Patch payload (PayloadContent merge or MCX settings)
+  create [--name=<name>] [--file=<xml>|-]                   POST profile XML (stdin if --file omitted)
+  delete <profile-id>                                       Delete a configuration profile
+  clone <profile-id> <new-name>                             Clone profile with new name, unassigned scope
+  redeploy <profile-id>                                     Redeploy to all assigned devices
+
+Notes:
+  --redeploy sets redeploy_on_update=All (pushes to all assigned devices, not just new ones)
+  get payload / list-payloads are PayloadContent only. identifier= is PayloadIdentifier, unique PayloadType, or unique PayloadUUID (Jamf Apple payloads often have Identifier == UUID). For MCX inspect use profile XML extract + payloads_get_mcx_dict (ManagedClient / flat mcx_preference_settings only).
+  set payload: PayloadContent merges keys onto the existing payload; MCX dict file is settings-only.
+
+Examples:
+  buddy profile list
+  buddy profile list --filter=Chrome
+  buddy profile list --json
+  buddy profile get xml 99
+  buddy profile get payloads 99
+  buddy profile get list-payloads 99
+  buddy profile get payload 99 com.google.chrome
+  buddy profile clone 99 "New Profile"
+  buddy profile create --name="New Profile" < profile.xml
+  buddy profile set xml 99 < profile.xml
+  buddy profile set payload 99 com.google.chrome payload.xml --redeploy
+  buddy profile redeploy 99
+  buddy profile delete 99
+`,
+}
