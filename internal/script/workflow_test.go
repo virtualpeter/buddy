@@ -1,0 +1,164 @@
+package script
+
+import (
+	"strings"
+	"testing"
+
+	"go.starlark.net/starlark"
+)
+
+func TestStepFromStarlark_NotDict(t *testing.T) {
+	_, err := stepFromStarlark(starlark.String("x"))
+	if err == nil {
+		t.Fatal("expected error for non-dict value")
+	}
+	if !strings.Contains(err.Error(), "workflow step must be a dict") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestStepFromStarlark_MissingType(t *testing.T) {
+	d := new(starlark.Dict)
+	_ = d.SetKey(starlark.String("app"), starlark.String("A"))
+	_, err := stepFromStarlark(d)
+	if err == nil {
+		t.Fatal("expected error when type is missing")
+	}
+	if !strings.Contains(err.Error(), "missing required field \"type\"") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestStepFromStarlark_UnknownType(t *testing.T) {
+	d := stepDict("unknown_step")
+	_, err := stepFromStarlark(d)
+	if err == nil {
+		t.Fatal("expected error for unknown step type")
+	}
+	if !strings.Contains(err.Error(), "unknown workflow step type") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestStepFromStarlark_SetPackage_Valid(t *testing.T) {
+	d := stepDict(stepTypeSetPackage, "app", "MyApp", "version", "1.0.0", "from_trigger", "Enroll")
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.Type != stepTypeSetPackage || s.App != "MyApp" || s.Version != "1.0.0" || s.FromTrigger != "Enroll" {
+		t.Errorf("got Type=%q App=%q Version=%q FromTrigger=%q", s.Type, s.App, s.Version, s.FromTrigger)
+	}
+}
+
+func TestStepFromStarlark_SetPackage_MissingField(t *testing.T) {
+	// missing from_trigger
+	d := stepDict(stepTypeSetPackage, "app", "A", "version", "1.0")
+	_, err := stepFromStarlark(d)
+	if err == nil {
+		t.Fatal("expected error when from_trigger missing")
+	}
+	if !strings.Contains(err.Error(), "app, version, from_trigger") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestStepFromStarlark_SetSS_Valid(t *testing.T) {
+	d := stepDict(stepTypeSetSS, "policy_id", 10, "version", "2.0")
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.Type != stepTypeSetSS || s.PolicyID != 10 || s.Version != "2.0" {
+		t.Errorf("got Type=%q PolicyID=%d Version=%q", s.Type, s.PolicyID, s.Version)
+	}
+}
+
+func TestStepFromStarlark_SetSS_MissingVersion(t *testing.T) {
+	d := stepDict(stepTypeSetSS, "policy_id", 10)
+	_, err := stepFromStarlark(d)
+	if err == nil {
+		t.Fatal("expected error when version missing")
+	}
+	if !strings.Contains(err.Error(), "policy_id, version") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestStepFromStarlark_EnablePolicy_Valid(t *testing.T) {
+	d := stepDict(stepTypeEnablePolicy, "policy_id", 5)
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.Type != stepTypeEnablePolicy || s.PolicyID != 5 {
+		t.Errorf("got Type=%q PolicyID=%d", s.Type, s.PolicyID)
+	}
+}
+
+func TestStepFromStarlark_SetScope_Valid(t *testing.T) {
+	l := starlark.NewList([]starlark.Value{starlark.MakeInt(1), starlark.MakeInt(2)})
+	d := stepDict(stepTypeSetScope, "policy_id", 7, "group_ids", l)
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.Type != stepTypeSetScope || s.PolicyID != 7 || len(s.GroupIDs) != 2 || s.GroupIDs[0] != 1 || s.GroupIDs[1] != 2 {
+		t.Errorf("got Type=%q PolicyID=%d GroupIDs=%v", s.Type, s.PolicyID, s.GroupIDs)
+	}
+}
+
+func TestStepFromStarlark_SetScope_MissingGroupIDs(t *testing.T) {
+	d := stepDict(stepTypeSetScope, "policy_id", 7)
+	_, err := stepFromStarlark(d)
+	if err == nil {
+		t.Fatal("expected error when group_ids missing")
+	}
+	if !strings.Contains(err.Error(), "policy_id, group_ids") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestStepFromStarlark_CreatePolicy_Minimal(t *testing.T) {
+	d := stepDict(stepTypeCreatePolicy, "name", "My Policy", "trigger", "Login", "script_id", 42)
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.Type != stepTypeCreatePolicy || s.PolicyName != "My Policy" || s.PolicyTrigger != "Login" || s.ScriptID != 42 {
+		t.Errorf("got Type=%q Name=%q Trigger=%q ScriptID=%d", s.Type, s.PolicyName, s.PolicyTrigger, s.ScriptID)
+	}
+}
+
+func TestStepFromStarlark_CreatePolicy_VersionSubstitution(t *testing.T) {
+	d := stepDict(stepTypeCreatePolicy, "name", "App {version}", "trigger", "v{version}", "script_id", 1, "version", "2.0")
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.PolicyName != "App 2.0" || s.PolicyTrigger != "v2.0" {
+		t.Errorf("got Name=%q Trigger=%q, want {version} substituted", s.PolicyName, s.PolicyTrigger)
+	}
+}
+
+func TestStepFromStarlark_SetProfilePayload_Valid(t *testing.T) {
+	d := stepDict(stepTypeSetProfilePayload, "profile_id", 99, "domain", "com.example.app", "dict_file", "/path/to/dict.plist")
+	s, err := stepFromStarlark(d)
+	if err != nil {
+		t.Fatalf("stepFromStarlark: %v", err)
+	}
+	if s.Type != stepTypeSetProfilePayload || s.ProfileID != 99 || s.Domain != "com.example.app" || s.DictFile != "/path/to/dict.plist" {
+		t.Errorf("got Type=%q ProfileID=%d Domain=%q DictFile=%q", s.Type, s.ProfileID, s.Domain, s.DictFile)
+	}
+}
+
+func TestStepFromStarlark_SetProfilePayload_MissingField(t *testing.T) {
+	d := stepDict(stepTypeSetProfilePayload, "profile_id", 99, "domain", "com.example")
+	_, err := stepFromStarlark(d)
+	if err == nil {
+		t.Fatal("expected error when dict_file missing")
+	}
+	if !strings.Contains(err.Error(), "profile_id, domain, dict_file") {
+		t.Errorf("error = %v", err)
+	}
+}

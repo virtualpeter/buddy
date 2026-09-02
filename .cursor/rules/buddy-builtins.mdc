@@ -1,0 +1,372 @@
+---
+description: Starlark builtin naming and argument order for buddy
+alwaysApply: true
+---
+
+# Buddy Starlark builtin conventions
+
+When adding or changing builtins in `internal/script/builtins.go` / `builtins_v3.go`, follow these rules.
+
+## Plural / singular grammar (v3)
+
+| Form | Role | Example |
+|------|------|---------|
+| **plural noun** | enumerate / search | `policies(...)`, `packages(...)`, `computers(...)` |
+| **singular noun** | load one resource | `policy(id=…)` / `policy(trigger=…)`, `package(id=…)` |
+| **singular + verb** | mutate or specialized action | `policy_set(...)`, `policy_put_xml(...)`, `computer_reboot(...)` |
+| **offline helpers** | unchanged | `rsql_*`, `plist_*`, `payloads_*`, `file_*` |
+
+- Plural `value` is a **list of summary dicts** `{id, name, ...}` unless `ids=True` (policies/computers).
+- Singular load accepts **either** `id=` **or** a natural key (`trigger=`, `name=`, `app=`+`version=`), not both.
+- Full rename map: [`docs/builtins-v3.md`](../../docs/builtins-v3.md). Deprecated aliases warn once on stderr.
+
+## Argument order
+
+- **Resource identifiers first**, then payload/options, then **cred? last**.
+- `cred` is always optional (`cred?`). No builtin takes required `cred` as the first positional.
+
+**Good:** `policy_set(policy_id, enable=True, cred?)`, `smart_group_set_version(group_id, version, cred?)`, `script(id=script_id, cred?)`  
+**Avoid:** `policy_set(cred, policy_id, …)`, `script(id)` with bare `id` when a mutate helper takes `script_id` (use the named param)
+
+## Pagination (list builtins)
+
+Jamf collection list APIs that support `page` / `page-size` use this pattern on Starlark list builtins:
+
+- `page?` (int, 0-based): when **omitted**, fetch **all** pages and return the combined result.
+- `page_size?` (int): defaults to 200 when omitted or ≤ 0.
+- Place `page?` / `page_size?` before `cred?`.
+
+Go side: `buddy.PageOpts` + `fetchJamfPaged` in `internal/buddy/pagination.go` (`PageAll = -1`). CLI list commands that print tables always use `PageAll`.
+
+## Parameter names
+
+Use `{resource}_id` for mutate/action builtins: `policy_id`, `group_id`, `profile_id`, `package_id`, `script_id`, `computer_id`, `role_id`, `client_id`. For lists of IDs use e.g. `policy_ids`, `computer_ids`.
+
+Singular **load** builtins use kwargs `id=` (or a natural key like `trigger=` / `name=` / `app=`+`version=`), not `policy_id` / `script_id` as the primary selector—see grammar above.
+
+## File I/O
+
+Local filesystem helpers return `{"ok": bool, "value": ..., "error": str}` like other builtins.
+
+- `file_read(path)` → `value: str` — full file as UTF-8 text; `ok=false` if not valid UTF-8 (use `file_read_bytes`).
+- `file_read_bytes(path)` → `value: bytes` — raw contents.
+- `file_write(path, data)` → `value: None` — `data` is `str` or `bytes`; overwrites or creates with mode `0644`.
+
+## Print / diagnostics
+
+- Starlark `print()` is wired to **stdout** (`thread.Print` in `internal/script/script.go`).
+- Buddy adds **`error(*args, sep=...)`** — same behavior as `print` but writes to **stderr** (`errorBuiltin` in `builtins.go`).
+- **`confirm(msg?)`** — returns `bool` (`True`/`False`); prompts "Proceed? [y/N]" on stdin using the same UX as CLI confirms (`buddy.ConfirmPrompt`). If the process was started with global **`-y`**, returns `True` without reading stdin (`runnerOpts.SkipConfirm`).
+
+## Action naming (v3)
+
+Prefer plural/singular nouns over `*_list` / `*_find_ids` / `*_fetch` / `*_get_id`.
+
+- **plural** — enumerate (summary list).
+- **singular** — load one resource (full or summary depending on kwargs).
+- **singular_verb** — mutate (`policy_set`, `smart_group_put`, `computer_reboot`).
+- Keep fat multi-step helpers (`policy_set_ss`, `policy_set_package`, …).
+
+Legacy `fetch` / `get_*` / `list_*` names remain as temporary deprecated aliases.
+
+## Help text
+
+In `cmd/buddy/help.go`, document every builtin with the same parameter names and order (resource IDs first, cred? last). Keep the "Conventions" note that states resource IDs come first and cred is always last.
+
+Each builtin entry must include:
+- **Parameter descriptions**: a short description per parameter (type or meaning, optional vs required). Use an indented "Params: ..." line after the signature.
+- **Return description**: what `value` is when `ok` is true (e.g. "dict (full resource JSON)", "None", "list of int"), or state that the function does not return (e.g. exit). Use "→ value: ..." or "→ None" on the signature line and add "Returns: ..." in the Params line when helpful.
+
+## Groups / Smart groups
+
+The following builtins work with Jamf smart computer groups using the v2 JSON API
+(`/api/v2/computer-groups/smart-groups`). They always return a result dict
+`{"ok": bool, "value": ..., "error": str}`.
+
+- `smart_group(id=?)` | `smart_group(name=?, cred?)` → value: dict
+  - **Params**:
+    - Pass either `id` (string) or `name` (string), not both.
+    - `cred?` (string, optional): Credential name; defaults to the active config cred.
+  - **Returns**:
+    - `value`: dict representing the full smart group JSON document (keys follow Jamf’s schema, e.g. `name`, `description`, `criteria`, `siteId`).
+
+- `smart_group_create(body, cred?) → value: dict`
+  - **Params**:
+    - `body` (dict): Smart group JSON (`name` required; `criteria` optional; `id: -1` optional create convention).
+    - `cred?` (string, optional).
+  - **Returns**:
+    - `value`: dict `{"id": str, "href"?: str}` from Jamf’s create response.
+  - **Behavior**:
+    - `POST`s `body` to `/api/v2/computer-groups/smart-groups`.
+
+- `smart_group_put(group_id, body, cred?) → value: None`
+  - **Params**:
+    - `group_id` (string): Smart group ID.
+    - `body` (dict/list tree): Full smart group JSON, as returned by `smart_group(id=…)`.
+    - `cred?` (string, optional).
+  - **Behavior**:
+    - Encodes `body` to JSON and `PUT`s it to `/api/v2/computer-groups/smart-groups/{group_id}` using script opts with `SkipConfirm=true`.
+
+- `smart_group_get_criteria(group_id, cred?) → value: list[dict]`
+  - **Params**:
+    - `group_id` (string).
+    - `cred?` (string, optional).
+  - **Returns**:
+    - `value`: the `criteria` array from the smart group JSON (or `[]` if missing). Each element is a dict:
+      - `name` (string)
+      - `priority` (int)
+      - `andOr` (string)
+      - `searchType` (string)
+      - `value` (string)
+      - `openingParen` (bool, optional)
+      - `closingParen` (bool, optional)
+
+- `smart_group_set_criteria(group_id, criteria, cred?) → value: None`
+  - **Params**:
+    - `group_id` (string).
+    - `criteria` (list[dict]): New criteria array using the keys above.
+    - `cred?` (string, optional).
+  - **Behavior**:
+    - Fetches the smart group, replaces its `criteria` field with `criteria`, and PUTs the updated JSON.
+    - Other fields (`name`, `siteId`, etc.) are preserved.
+
+- `smart_group_find_criteria(group_id, name_substring, cred?) → value: list[dict]`
+  - **Params**:
+    - `group_id` (string).
+    - `name_substring` (string): Case-insensitive substring to match on each criterion’s `name`.
+    - `cred?` (string, optional).
+  - **Returns**:
+    - `value`: list of criteria dicts whose `name` contains `name_substring` (case-insensitive).
+
+- `smart_group_update_criterion_value(group_id, name_substring, new_value, cred?) → value: None`
+  - **Params**:
+    - `group_id` (string).
+    - `name_substring` (string): Case-insensitive substring used to select criteria by `name`.
+    - `new_value` (string): New `value` to set on matching criteria.
+    - `cred?` (string, optional).
+  - **Behavior**:
+    - Fetches the smart group, scans its `criteria` list, and for each criterion whose `name` contains `name_substring`, sets `value` to `new_value`.
+    - Fails with `ok=false` if no criteria match.
+
+**Example (bump version criterion):**
+
+```python
+r = smart_group_update_criterion_value(
+    group_id = "123",
+    name_substring = "version",
+    new_value = "2.0.0",
+)
+if not r["ok"]:
+    fail(r["error"])
+```
+
+## Static computer groups
+
+These builtins manage **static** Jamf computer group membership. Listing prefers
+`GET /api/v2/computer-groups/static-groups/{id}` when the JSON includes an
+`assignments` field; otherwise membership is read via Classic
+`GET /JSSResource/computergroups/id/{id}` (XML). Updates use
+`PUT /api/v2/computer-groups/static-groups/{id}` with a full `assignments`
+array. They return `{"ok": bool, "value": ..., "error": str}`.
+
+- `static_group_list_computers(group_id, filter?, cred?) → value: list[dict]`
+  - **Params**:
+    - `group_id` (string): Static computer group ID.
+    - `filter?` (string, optional): Client-side substring; matched case-insensitively against `id`, `name`, and `serial`.
+    - `cred?` (string, optional).
+  - **Returns**:
+    - `value`: list of dicts `{id, name, serial}`. `name` may be empty when the API returns only assignment IDs.
+
+- `static_group_create(body, cred?) → value: dict`
+  - **Params**:
+    - `body` (dict): Static group JSON (`name` required; `assignments` optional list of computer id strings; `description`/`siteId` optional).
+    - `cred?` (string, optional).
+  - **Returns**:
+    - `value`: dict `{"id": str, "href"?: str}` from Jamf’s create response.
+  - **Behavior**:
+    - `POST`s `body` to `/api/v2/computer-groups/static-groups`.
+
+- `static_group_add_computers(group_id, computer_ids, cred?) → value: None`
+  - **Params**:
+    - `group_id` (string).
+    - `computer_ids` (list of int or str): IDs to add (merge into membership).
+    - `cred?` (string, optional).
+  - **Behavior**: Read-modify-write; no-op if all IDs are already members.
+
+- `static_group_remove_computers(group_id, computer_ids, cred?) → value: None`
+  - **Params**:
+    - `group_id` (string).
+    - `computer_ids` (list of int or str): IDs to remove.
+    - `cred?` (string, optional).
+  - **Behavior**: Read-modify-write; no-op if none of the IDs are members.
+
+- `static_group_set_computers(group_id, computer_ids, cred?) → value: None`
+  - **Params**:
+    - `group_id` (string).
+    - `computer_ids` (list of int or str): Replaces the entire membership list.
+    - `cred?` (string, optional).
+
+## Profiles / payloads
+
+Profile helpers work with Jamf macOS configuration profiles and their embedded
+payload plists. They compose with `plist_decode` / `plist_encode` to let you
+edit payload dicts in Starlark.
+
+Offline XML/plist transforms take strings (no API call). Use `profile_xml(id=…)` /
+`profile(id=…)` (same XML) and `profile_put_xml` to load and save.
+
+- `profile_xml_extract_payloads(profile_xml_str) → value: string`
+  - **Params**:
+    - `profile_xml_str` (string): Full profile XML.
+  - **Returns**:
+    - `value`: payloads plist XML string extracted from the `<payloads>` element (XML entities unescaped).
+
+- `profile_xml_replace_payloads(profile_xml_str, payloads_plist_str) → value: string`
+  - **Params**:
+    - `profile_xml_str` (string).
+    - `payloads_plist_str` (string): New payloads plist XML to embed under `<payloads>`.
+  - **Returns**:
+    - `value`: updated profile XML.
+
+- `profile_xml_set_redeploy_all(profile_xml_str) → value: string`
+  - **Params**:
+    - `profile_xml_str` (string).
+  - **Returns**:
+    - `value`: profile XML with `<redeploy_on_update>All</redeploy_on_update>`.
+
+- `profile_xml_patch_payload(profile_xml_str, domain, new_payload) → value: string`
+  - **Params**:
+    - `profile_xml_str` (string).
+    - `domain` (string): PayloadIdentifier or MCX domain key.
+    - `new_payload` (dict or string): Full payload dict / plist, or MCX settings dict / bare `<dict>` XML.
+  - **Returns**:
+    - `value`: updated profile XML (PayloadContent replace, else MCX `mcx_preference_settings`).
+
+- `payloads_list_identifiers(payloads_plist_str) → value: list[string]`
+  - **Params**:
+    - `payloads_plist_str` (string): Payloads plist XML from `profile_xml_extract_payloads`.
+  - **Returns**:
+    - `value`: list of `PayloadIdentifier` strings under `PayloadContent`, or `[]` if no `PayloadContent` array exists.
+
+- `payloads_get_payload(payloads_plist_str, domain) → value: string`
+  - **Params**:
+    - `payloads_plist_str` (string).
+    - `domain` (string): PayloadIdentifier to select (e.g. `\"com.google.chrome\"`).
+  - **Returns**:
+    - `value`: plist `<dict>...</dict>` fragment for the payload with `PayloadIdentifier == domain`.
+
+- `payloads_replace_payload(payloads_plist_str, domain, new_payload) → value: string`
+  - **Params**:
+    - `payloads_plist_str` (string).
+    - `domain` (string).
+    - `new_payload` (dict or string): Replacement payload dict or plist XML.
+  - **Returns**:
+    - `value`: updated payloads plist XML with the payload for `domain` replaced.
+
+- `payloads_replace_mcx_dict(payloads_plist_str, domain, dict_xml_str) → value: string`
+  - **Params**:
+    - `payloads_plist_str` (string).
+    - `domain` (string).
+    - `dict_xml_str` (string): Replacement MCX `<dict>...</dict>` fragment.
+  - **Returns**:
+    - `value`: updated payloads plist XML.
+
+- `payloads_set_content(content, payloads_plist_str?) → value: string`
+  - **Params**:
+    - `content` (list[dict]): Full `PayloadContent` array.
+    - `payloads_plist_str?` (string, optional): Existing payloads plist; omit or `\"\"` to start fresh.
+  - **Returns**:
+    - `value`: payloads plist XML with `PayloadContent` set to `content`.
+
+- `payloads_add_payload(payloads_plist_str, domain, new_payload) → value: string`
+  - **Params**:
+    - `payloads_plist_str` (string): Existing payloads plist, or `\"\"` to create one.
+    - `domain` (string): PayloadIdentifier.
+    - `new_payload` (dict or string): Payload to append (or replace if domain already present).
+  - **Returns**:
+    - `value`: updated payloads plist XML. Sets `PayloadIdentifier` to `domain` when missing.
+
+- `payloads_remove_payload(payloads_plist_str, domain) → value: string`
+  - **Params**:
+    - `payloads_plist_str` (string).
+    - `domain` (string).
+  - **Returns**:
+    - `value`: payloads plist XML with that domain removed. Fails if not found.
+
+- `plist_normalise_dict(data_str) → value: string`
+  - **Params**:
+    - `data_str` (string): Bare `<dict>` fragment or full plist XML.
+  - **Returns**:
+    - `value`: bare `<dict>...</dict>` fragment (same normalisation the CLI uses for payload files).
+
+**Recommended pattern for editing a payload:**
+
+```python
+# Fetch profile XML, then offline-edit payloads
+r = profile_xml(id = 42)
+if not r["ok"]:
+    fail(r["error"])
+xml = r["value"]
+
+# One-shot patch (PayloadContent or MCX):
+chrome = {"PayloadIdentifier": "com.google.chrome", "PayloadType": "com.google.chrome", "SomeKey": "NewValue"}
+r2 = profile_xml_patch_payload(xml, "com.google.chrome", chrome)
+if not r2["ok"]:
+    fail(r2["error"])
+profile_put_xml(profile_id = 42, xml_str = r2["value"])
+
+# Or assemble PayloadContent from a list:
+r3 = payloads_set_content(content = [chrome, other_payload])
+if not r3["ok"]:
+    fail(r3["error"])
+xml2 = profile_xml_replace_payloads(xml, r3["value"])["value"]
+profile_put_xml(profile_id = 42, xml_str = xml2)
+```
+
+**Longer extract / decode / replace pattern:**
+
+```python
+r = profile_xml(id = 42)
+if not r["ok"]:
+    fail(r["error"])
+xml = r["value"]
+payloads = profile_xml_extract_payloads(xml)["value"]
+
+r2 = payloads_get_payload(payloads, "com.google.chrome")
+if not r2["ok"]:
+    fail(r2["error"])
+chrome = plist_decode(r2["value"])["value"]
+chrome["SomeKey"] = "NewValue"
+
+r3 = payloads_replace_payload(payloads, "com.google.chrome", chrome)
+if not r3["ok"]:
+    fail(r3["error"])
+xml = profile_xml_replace_payloads(xml, r3["value"])["value"]
+profile_put_xml(profile_id = 42, xml_str = xml)
+```
+
+## XML helpers (offline)
+
+- `xml_escape(s) → value: string` — entity-encode `&` `<` `>` for nesting text inside XML element content.
+- `xml_unescape(s) → value: string` — reverse XML/HTML character entities.
+- `xml_sort(xml_str, element?, key?, attr?, only?, order?, ignore_case?, numeric?, recursive?) → value: string`
+  - **Params**:
+    - `xml_str` (string): XML document or fragment.
+    - `element?` (string): Parent tag or etree path whose children are sorted; default document root.
+    - `key?` (string): Child tag text, or plist `<key>/<string>` pair name.
+    - `attr?` (string): Attribute on each child (wins over `key`).
+    - `only?` (string): Only reorder children with this tag.
+    - `order?` (string): `"asc"` (default) or `"desc"`.
+    - `ignore_case?` / `numeric?` / `recursive?` (bool).
+
+## RSQL helpers (offline)
+
+Build Jamf `filter=` strings for package/computer/mdm/group list APIs. All return `{"ok", "value": str, "error"}`.
+
+- `rsql_escape(s)` / `rsql_quote(s)`
+- `rsql_eq` / `rsql_ne` — strings quoted; numbers/bools unquoted
+- `rsql_lt` / `rsql_gt` / `rsql_le` / `rsql_ge` — strings left unquoted (ISO datetimes)
+- `rsql_contains(field, substring)` — `field=="*substring*"`
+- `rsql_in(field, values)` / `rsql_and(clauses)` / `rsql_or(clauses)`
+- `rsql_datetime(year, month, day, hour?, minute?, second?)` — UTC `YYYY-MM-DDTHH:MM:SSZ`
+- `rsql_now()` / `rsql_days_ago(days)` / `rsql_hours_ago(hours)`

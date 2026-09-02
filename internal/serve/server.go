@@ -1,0 +1,205 @@
+package serve
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os/exec"
+	"runtime"
+	"strings"
+	"time"
+
+	"buddy/internal/buddy"
+)
+
+// Options configures the local buddy web server.
+type Options struct {
+	Addr     string // e.g. "127.0.0.1:8742"
+	DocsRoot string // optional override
+	Open     bool
+	CredName string
+	Opts     buddy.Opts
+	Logger   *slog.Logger
+}
+
+// Run starts the HTTP server and blocks until the context is cancelled or Listen fails.
+func Run(ctx context.Context, o Options) error {
+	if o.Addr == "" {
+		o.Addr = "127.0.0.1:8742"
+	}
+	if o.Logger == nil {
+		o.Logger = slog.Default()
+	}
+	host, _, err := net.SplitHostPort(o.Addr)
+	if err != nil {
+		return fmt.Errorf("addr: %w", err)
+	}
+	if host != "127.0.0.1" && host != "localhost" && host != "::1" {
+		return fmt.Errorf("buddy serve binds localhost only (got %q)", host)
+	}
+
+	docsRoot, err := resolveDocsRoot(o.DocsRoot)
+	if err != nil {
+		return err
+	}
+	pages, err := loadDocPages(docsRoot)
+	if err != nil {
+		return err
+	}
+	md := newMarkdown()
+	store := newSessionStore(o.CredName, o.Opts, o.Logger)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		http.Redirect(w, r, "/docs/", http.StatusFound)
+	})
+	mux.HandleFunc("/docs", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/docs/", http.StatusFound)
+	})
+	mux.HandleFunc("/docs/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.Trim(strings.TrimPrefix(r.URL.Path, "/docs/"), "/") == "help/builtins" {
+			http.Redirect(w, r, "/docs/builtins", http.StatusFound)
+			return
+		}
+		serveDocsHTML(w, r, pages, md)
+	})
+	mux.HandleFunc("/notebook", func(w http.ResponseWriter, r *http.Request) {
+		serveNotebookHTML(w, r, o.CredName)
+	})
+	mux.HandleFunc("/api/pages", func(w http.ResponseWriter, r *http.Request) {
+		type item struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}
+		out := make([]item, 0, len(pages))
+		for _, p := range pages {
+			out = append(out, item{ID: p.ID, Title: p.Title})
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
+	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("q")
+		writeJSON(w, http.StatusOK, searchPages(pages, q, 40))
+	})
+	mux.HandleFunc("/api/page/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/page/")
+		p := pageByID(pages, id)
+		if p == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		htmlBody, err := renderMarkdown(md, p.Markdown)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":    p.ID,
+			"title": p.Title,
+			"html":  htmlBody,
+			"toc":   extractTOC(p.Markdown),
+		})
+	})
+	mux.HandleFunc("/api/creds", func(w http.ResponseWriter, r *http.Request) {
+		cfg := buddy.GetActiveConfig()
+		names := []string{}
+		active := o.CredName
+		if cfg != nil {
+			for name := range cfg.Credentials {
+				names = append(names, name)
+			}
+			if active == "" {
+				active = cfg.Cred
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"active": active, "creds": names})
+	})
+	mux.HandleFunc("/api/session", store.handleCreate)
+	mux.HandleFunc("/api/session/", func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(r.URL.Path, "/api/session/")
+		parts := strings.Split(rest, "/")
+		if len(parts) == 0 || parts[0] == "" {
+			http.NotFound(w, r)
+			return
+		}
+		id := parts[0]
+		if len(parts) == 1 {
+			store.handleDelete(w, r, id)
+			return
+		}
+		switch parts[1] {
+		case "eval":
+			store.handleEval(w, r, id)
+		case "reset":
+			store.handleReset(w, r, id)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	srv := &http.Server{
+		Addr:              o.Addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	ln, err := net.Listen("tcp", o.Addr)
+	if err != nil {
+		return err
+	}
+	url := "http://" + o.Addr + "/docs/"
+	o.Logger.Info("buddy serve listening", "url", url, "docs", docsRoot)
+	fmt.Printf("buddy serve: %s\n", url)
+	fmt.Printf("notebook:    http://%s/notebook\n", o.Addr)
+
+	if o.Open {
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			_ = openBrowser(url)
+		}()
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.Serve(ln)
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+		return nil
+	case err := <-errCh:
+		if err == http.ErrServerClosed {
+			return nil
+		}
+		return err
+	}
+}
+
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	default:
+		return fmt.Errorf("unsupported OS for --open")
+	}
+	return cmd.Start()
+}
+
+// CredNamesJSON is used by tests.
+func CredNamesJSON(names []string, active string) string {
+	b, _ := json.Marshal(map[string]any{"active": active, "creds": names})
+	return string(b)
+}

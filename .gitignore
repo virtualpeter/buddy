@@ -1,0 +1,17 @@
+# Build output
+/buddy
+
+# Go
+*.exe
+*.test
+*.out
+
+# OS
+.DS_Store
+
+#random junk
+/*.xml
+/*.json
+/.cursor/*.log
+/.vscode/
+buddy-Darwin-arm64
