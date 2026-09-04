@@ -24,6 +24,16 @@ const ComputersBuiltinsSection = `COMPUTER
       Does: Load one computer with all inventory sections.
       → value: dict (GET /api/v4/computers-inventory-detail/{id} JSON)
       Params: id: str.
+  computer_extension_attributes(id, filter?, tenant?, surface?, auth?)
+      Does: List extension attribute values on a computer (section=EXTENSION_ATTRIBUTES).
+      → value: list of {id, name, inputType, dataType, values}
+      Params: id: computer id. filter?: case-insensitive substring on name or definition id.
+      Notes: Definitions are extension_attribute*; SCRIPT/LDAP values are read-only.
+  computer_set_extension_attribute(id, ea_id?, ea_name?, values, tenant?, surface?, auth?)
+      Does: Set TEXT/POPUP EA values via PATCH /api/v4/computers-inventory-detail/{id}.
+      → None
+      Params: id: computer id. pass either ea_id= (definitionId) or ea_name= (exact).
+        values: str or list[str]. Rejects SCRIPT/LDAP.
   computer_history(id=?, name=?, serial=?, udid=?, subset?, tenant?, surface?, auth?)
       Does: Load Classic computer history (policy/event execution logs, not MDM or audit history).
       → value: dict (general plus flattened policy_logs and other present subsets)
@@ -106,6 +116,8 @@ Subcommands:
   list [args...]                                              List computers
   get <computer-id> [--section=<name>[,<name>...]]            Show inventory JSON (default GENERAL)
   detail <computer-id>                                        Show all inventory sections (inventory-detail)
+  eas <computer-id> [--filter=<term>] [--json]                List extension attribute values on a computer
+  set ea <computer-id> <ea-id|name> <value>                    Set TEXT/POPUP EA value (PATCH inventory-detail)
   history <computer-id> [--subset=PolicyLogs] [--json]        Classic computer history (default PolicyLogs table)
   logs <computer-id> [--policy=<policy-id>] [--status=] [--since=] [--until=] [--json]  Flattened policy execution logs
   reboot <computer-id> [computer-id...]                       Send RESTART_DEVICE MDM command
@@ -152,6 +164,8 @@ Examples:
   buddy computer get 101
   buddy computer get 101 --section=GENERAL,HARDWARE
   buddy computer detail 101
+  buddy computer eas 101
+  buddy computer set ea 101 "Asset Tag" "LAB-42"
   buddy computer history 101
   buddy computer history 101 --json
   buddy computer logs 101 --policy=42

@@ -40,8 +40,10 @@ const (
 	MsgCmdBenchmark   = "cli.cmd.benchmark"
 	MsgCmdRole        = "cli.cmd.role"
 	MsgCmdClient      = "cli.cmd.client"
-	MsgCmdScript      = "cli.cmd.script"
-	MsgCmdSetup       = "cli.cmd.setup"
+	MsgCmdScript             = "cli.cmd.script"
+	MsgCmdExtensionAttribute = "cli.cmd.extension_attribute"
+	MsgCmdMobileExtAttr      = "cli.cmd.mobile_extension_attribute"
+	MsgCmdSetup              = "cli.cmd.setup"
 	MsgCmdServe       = "cli.cmd.serve"
 	MsgCmdMCP         = "cli.cmd.mcp"
 	MsgCmdLSP         = "cli.cmd.lsp"
@@ -95,8 +97,10 @@ var en = map[string]string{
 	MsgCmdBenchmark:   "Platform compliance benchmarks",
 	MsgCmdRole:        "Manage API roles (list/get/create/update/delete/privileges)",
 	MsgCmdClient:      "Manage API integrations (list/get/create/update/delete/credentials/set)",
-	MsgCmdScript:      "Manage Jamf scripts (list/get/create/upload/download/delete/set)",
-	MsgCmdSetup:       "basic-setup; secrets; managed-plist; write-script; store-oauth",
+	MsgCmdScript:             "Manage Jamf scripts (list/get/create/upload/download/delete/set)",
+	MsgCmdExtensionAttribute: "Manage computer extension attributes (list/get/create/upload/download/delete/set)",
+	MsgCmdMobileExtAttr:      "Manage mobile-device extension attributes (list/get/create/delete)",
+	MsgCmdSetup:              "basic-setup; secrets; managed-plist; write-script; store-oauth",
 	MsgCmdServe:       "Local docs + config + script IDE web UI",
 	MsgCmdMCP:         "MCP stdio server for AI tools (setup discovers host configs)",
 	MsgCmdLSP:         "Language server for buddyscript (editor integration)",

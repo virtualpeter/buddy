@@ -10,7 +10,7 @@ Human docs: [docs/index.md](docs/index.md) (About), [docs/getting-started.md](do
 |------|------|
 | `cmd/buddy/` | CLI entry, dispatch, help (`help.go`) |
 | `internal/clispec/` | CLI command/flag identifiers and English message catalog (`T`) |
-| `internal/buddy/` | Jamf API clients, config, auth, secrets |
+| `internal/buddy/` | Jamf API clients, config, auth, secrets (incl. computer/mobile extension attributes) |
 | `internal/buddy/tokenauth/` | Token acquisition, cache, 401 refresh |
 | `internal/script/` | buddyscript (Starlark) builtins + session |
 | `internal/mcp/` | `buddy mcp` stdio server |

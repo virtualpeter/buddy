@@ -96,6 +96,16 @@ var helpScriptGet = help.ScriptGet
 
 var helpScriptSet = help.ScriptSet
 
+// helpExtensionAttribute is generated (make gendocs).
+var helpExtensionAttribute = help.ExtensionAttributesCLIHelp
+
+var helpExtensionAttributeGet = help.ExtensionAttributeGet
+
+var helpExtensionAttributeSet = help.ExtensionAttributeSet
+
+// helpMobileExtAttr is generated (make gendocs).
+var helpMobileExtAttr = help.MobileExtensionAttributesCLIHelp
+
 // printCommandHelp routes 'buddy help [command] [subcommand]' to the appropriate help text.
 func printCommandHelp(path []string) {
 	key := strings.Join(path, ".")
@@ -135,6 +145,10 @@ func printCommandHelp(path []string) {
 		clispec.CmdScript:      helpScript,
 		clispec.HelpPath(clispec.CmdScript, clispec.SubGet): helpScriptGet,
 		clispec.HelpPath(clispec.CmdScript, clispec.SubSet): helpScriptSet,
+		clispec.CmdExtensionAttribute: helpExtensionAttribute,
+		clispec.HelpPath(clispec.CmdExtensionAttribute, clispec.SubGet): helpExtensionAttributeGet,
+		clispec.HelpPath(clispec.CmdExtensionAttribute, clispec.SubSet): helpExtensionAttributeSet,
+		clispec.CmdMobileExtAttr: helpMobileExtAttr,
 		clispec.CmdSetup: helpSetup,
 		clispec.CmdServe: helpServe,
 		clispec.CmdMCP:   helpMCP,

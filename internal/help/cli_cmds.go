@@ -503,6 +503,35 @@ Examples:
   buddy script set priority 7 AFTER
   buddy script set notes 7 "Installs Google Chrome"
 `
+const ExtensionAttributeGet = `buddy extension-attribute get - Retrieve computer extension attribute information
+
+Usage:
+  buddy [global-flags] extension-attribute get <ea-id>           Show full EA record
+  buddy [global-flags] extension-attribute get contents <ea-id>  Output SCRIPT body only (pipeable)
+  buddy [global-flags] extension-attribute get id <name>         Resolve EA name to numeric ID
+
+Aliases: ea, eas
+
+Examples:
+  buddy ea get 7
+  buddy ea get contents 7
+  buddy ea get contents 7 > check.sh
+  buddy ea get id "OS Version Check"
+`
+const ExtensionAttributeSet = `buddy extension-attribute set - Modify computer extension attribute properties
+
+Usage:
+  buddy [global-flags] extension-attribute set name        <ea-id> <value>       Rename EA
+  buddy [global-flags] extension-attribute set enabled     <ea-id> true|false    Enable/disable (SCRIPT)
+  buddy [global-flags] extension-attribute set description <ea-id> <value>       Set description
+  buddy [global-flags] extension-attribute set contents    <ea-id> <value>       Set SCRIPT body
+  buddy [global-flags] extension-attribute set display     <ea-id> <type>        Set inventoryDisplayType
+
+Examples:
+  buddy ea set name 7 "OS Version Check"
+  buddy ea set enabled 7 false
+  buddy ea set display 7 EXTENSION_ATTRIBUTES
+`
 const Serve = `buddy serve - Local docs, config, and script IDE web UI
 
 Usage:

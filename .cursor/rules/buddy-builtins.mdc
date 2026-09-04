@@ -20,6 +20,12 @@ When adding or changing builtins in `internal/script/builtins.go` / `builtins_v3
 - Singular load accepts **either** `id=` **or** a natural key (`trigger=`, `name=`, `name=`+`version=` for packages), not both.
 - Do **not** reintroduce removed legacy aliases (`package_list`, `policy_find_ids`, …). See also [docs/reference-manual.md](../../docs/reference-manual.md#built-in-functions).
 
+## Extension attributes
+
+- **Definitions** (Settings): `extension_attributes` / `extension_attribute` / `extension_attribute_*` for computer EAs (`/api/v1/computer-extension-attributes`). List summaries strip `scriptContents` (same rule as scripts). Mobile: `mobile_extension_attributes` / `mobile_extension_attribute*` (no SCRIPT).
+- **Values** (inventory on a Mac): `computer_extension_attributes(id, …)` and `computer_set_extension_attribute(id, ea_id?|ea_name?, values, …)` — hang off **computer**, not the definition noun. TEXT/POPUP writable; SCRIPT/LDAP rejected.
+- Copy/migrate: `extension_attribute_copy` / `_clone` / `_migrate` (upsert by exact name; LDAP mapping passed through).
+
 ## Return contract
 
 - Builtins return **bare values** on success and **raise** on failure.

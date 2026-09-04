@@ -26,8 +26,9 @@ type ListFilterSpec struct {
 var (
 	FilterSpecPackages     = ListFilterSpec{DefaultField: "packageName", Match: ListFilterContains}
 	FilterSpecComputers    = ListFilterSpec{DefaultField: "general.name", Match: ListFilterContains}
-	FilterSpecScripts      = ListFilterSpec{DefaultField: "name", Match: ListFilterContains}
-	FilterSpecCategories   = ListFilterSpec{DefaultField: "name", Match: ListFilterContains}
+	FilterSpecScripts             = ListFilterSpec{DefaultField: "name", Match: ListFilterContains}
+	FilterSpecExtensionAttributes = ListFilterSpec{DefaultField: "name", Match: ListFilterContains}
+	FilterSpecCategories          = ListFilterSpec{DefaultField: "name", Match: ListFilterContains}
 	FilterSpecGroups       = ListFilterSpec{DefaultField: "name", Match: ListFilterContains}
 	FilterSpecMDM          = ListFilterSpec{DefaultField: "status", Match: ListFilterEq}
 	FilterSpecDevices      = ListFilterSpec{DefaultField: "name", Match: ListFilterContains}

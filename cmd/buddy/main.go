@@ -191,6 +191,10 @@ func main() {
 		exitOnErr(logger, "Client command failed", runClient(credName, opts, args[1:], logger))
 	case clispec.CmdScript:
 		exitOnErr(logger, "Script command failed", runJamfScript(credName, opts, args[1:], logger))
+	case clispec.CmdExtensionAttribute:
+		exitOnErr(logger, "Extension-attribute command failed", runExtensionAttribute(credName, opts, args[1:], logger))
+	case clispec.CmdMobileExtAttr:
+		exitOnErr(logger, "Mobile-extension-attribute command failed", runMobileExtensionAttribute(credName, opts, args[1:], logger))
 	case clispec.CmdMdm:
 		exitOnErr(logger, "MDM command failed", runMdm(credName, opts, args[1:], logger))
 	case clispec.CmdMobile:
@@ -1581,6 +1585,19 @@ func runComputerIDs(args []string, fn func([]int) error) error {
 	return fn(ids)
 }
 
+// computerEAKeyIsID reports whether s looks like a numeric EA definition id.
+func computerEAKeyIsID(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func parseInt(s, name string) (int, error) {
 	n, err := strconv.Atoi(strings.TrimSpace(s))
 	if err != nil || n <= 0 {
@@ -2361,9 +2378,43 @@ func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logg
 		return runComputerIDs(args, func(ids []int) error {
 			return buddy.ComputerCertificates(credName, opts, ids, log)
 		})
+	case "eas":
+		if len(args) < 1 {
+			return missingArg("computer-id", clispec.UsageHelp(clispec.CmdComputer))
+		}
+		filter, rest, err := extractStringFlag(args[1:], clispec.FlagFilter)
+		if err != nil {
+			return err
+		}
+		asJSON, rest := extractBareFlag(rest, clispec.FlagJSON)
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown eas flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdComputer))
+		}
+		return buddy.ComputerExtensionAttributesList(credName, args[0], filter, asJSON, log)
+	case clispec.SubSet:
+		if len(args) < 1 {
+			return missingArg("property", clispec.UsageHelp(clispec.CmdComputer))
+		}
+		if args[0] != "ea" {
+			return fmt.Errorf("unknown computer set property: %q (use: ea)", args[0])
+		}
+		if len(args) < 4 {
+			return missingArg("computer-id, ea-id|name, or value", clispec.UsageHelp(clispec.CmdComputer))
+		}
+		spec := buddy.ComputerSetExtensionAttributeSpec{
+			ComputerID: args[1],
+			Values:     []string{args[3]},
+		}
+		key := strings.TrimSpace(args[2])
+		if computerEAKeyIsID(key) {
+			spec.EAID = key
+		} else {
+			spec.EAName = key
+		}
+		return buddy.ComputerSetExtensionAttribute(credName, opts, spec, log)
 	default:
 		return errUnknownSubcommand("computer", subcommand, []string{
-			clispec.SubList, clispec.SubGet, "detail", "history", "logs", "reboot", "redeploy", "shutdown", "lock", "logout", "erase",
+			clispec.SubList, clispec.SubGet, "detail", "history", "logs", "eas", clispec.SubSet, "reboot", "redeploy", "shutdown", "lock", "logout", "erase",
 			"device-info", "device-location", "security-info", "installed-apps", "managed-apps", "certificates",
 		})
 	}

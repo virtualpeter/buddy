@@ -601,6 +601,8 @@ var Builtins = builtinsHead +
 	ProfilesBuiltinsSection +
 	ProfilePayloadsBuiltinsSection +
 	ScriptsBuiltinsSection +
+	ExtensionAttributesBuiltinsSection +
+	MobileExtensionAttributesBuiltinsSection +
 	CategoriesBuiltinsSection +
 	MacappsBuiltinsSection +
 	AppsBuiltinsSection +
