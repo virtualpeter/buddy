@@ -24,14 +24,6 @@ func (KeychainMaster) Delete() error {
 	return keychainMasterDelete()
 }
 
-func (KeychainMaster) Has() (bool, error) {
-	_, err := keychainMasterGet()
-	if err != nil {
-		return false, nil
-	}
-	return true, nil
-}
-
 // KeychainDEK stores the vault data key as one Keychain generic-password.
 type KeychainDEK struct{}
 
@@ -54,10 +46,24 @@ func (KeychainDEK) Delete() error {
 	return keychainDEKDelete()
 }
 
-func (KeychainDEK) Has() (bool, error) {
-	_, err := keychainDEKGet()
-	if err != nil {
-		return false, nil
+// KeychainTokenWrap stores the token-cache AES wrap key (never userPresence).
+type KeychainTokenWrap struct{}
+
+func (KeychainTokenWrap) Description() string {
+	return keychainTokenWrapDescription()
+}
+
+func (KeychainTokenWrap) Get() (string, error) {
+	return keychainTokenWrapGet()
+}
+
+func (KeychainTokenWrap) Set(value string) error {
+	if value == "" {
+		return fmt.Errorf("token wrap key must not be empty")
 	}
-	return true, nil
+	return keychainTokenWrapSet(value)
+}
+
+func (KeychainTokenWrap) Delete() error {
+	return keychainTokenWrapDelete()
 }

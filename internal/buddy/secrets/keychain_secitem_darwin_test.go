@@ -14,3 +14,9 @@ func TestKeychainSecItemDescription(t *testing.T) {
 		t.Fatalf("description: %s", d)
 	}
 }
+
+// Manual check (signed binary, interactive Mac): after `make install-signed`,
+// `buddy mcp` or a vault-backed command (e.g. `buddy policy list`) should prompt
+// once for Touch ID / passcode to release the DEK, then reuse the in-process
+// session. Set BUDDY_VAULT_UNLOCK=after-first-unlock to skip ACL for CI.
+// Presence plumbing is covered by C helpers; full Keychain UI cannot run in go test.

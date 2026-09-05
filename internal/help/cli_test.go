@@ -25,7 +25,7 @@ func TestCommandCatalogMatchesClispec(t *testing.T) {
 
 func TestCLIMarkdownHasCommands(t *testing.T) {
 	md := CLIMarkdown()
-	for _, id := range []string{"overview", "auth", "cred", "policy", "policy-set", "group", "setup", "serve", "mcp", "lsp"} {
+	for _, id := range []string{"overview", "auth", "token", "cred", "policy", "policy-set", "group", "setup", "serve", "mcp", "lsp"} {
 		want := `id="` + id + `"`
 		if !strings.Contains(md, want) {
 			t.Errorf("CLIMarkdown missing %s", want)
@@ -146,9 +146,17 @@ func TestParseCLIHelpCredLeadAndNotes(t *testing.T) {
 		t.Fatalf("lead = %q", p.Lead)
 	}
 	foundNotes := false
+	var subcommands, examples string
 	for _, s := range p.Sections {
-		if s.Label == "Notes" && strings.Contains(s.Body, "platform clientId") {
-			foundNotes = true
+		switch s.Label {
+		case "Notes":
+			if strings.Contains(s.Body, "platform clientId") {
+				foundNotes = true
+			}
+		case "Subcommands":
+			subcommands = s.Body
+		case "Examples":
+			examples = s.Body
 		}
 	}
 	if !foundNotes {
@@ -157,6 +165,41 @@ func TestParseCLIHelpCredLeadAndNotes(t *testing.T) {
 			labels = append(labels, s.Label)
 		}
 		t.Fatalf("expected Notes from indented Notes: header, sections=%v", labels)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(subcommands), "add ") {
+		t.Fatalf("full cred Subcommands should start with add:\n%s", subcommands)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(examples), "buddy cred add ") {
+		t.Fatalf("full cred Examples should start with cred add:\n%s", examples)
+	}
+}
+
+func TestParseCLIHelpCredShort(t *testing.T) {
+	p := parseCLIHelp(CredShort)
+	if p.Does != "Manage tenants, auths, and secrets" {
+		t.Fatalf("Does = %q", p.Does)
+	}
+	var subcommands, notes, examples string
+	for _, s := range p.Sections {
+		switch {
+		case s.Label == "Subcommands":
+			subcommands = s.Body
+		case s.Label == "Notes":
+			notes = s.Body
+		case s.Label == "Examples":
+			examples = s.Body
+		case strings.HasPrefix(s.Label, "Flags"):
+			t.Fatalf("short cred help should not include %q", s.Label)
+		}
+	}
+	if !strings.HasPrefix(strings.TrimSpace(subcommands), "add ") {
+		t.Fatalf("short Subcommands should start with add:\n%s", subcommands)
+	}
+	if !strings.Contains(notes, "buddy cred help") {
+		t.Fatalf("short Notes should point at cred help:\n%s", notes)
+	}
+	if !strings.Contains(examples, "buddy cred add --tenant=") {
+		t.Fatalf("short Examples missing setup add:\n%s", examples)
 	}
 }
 

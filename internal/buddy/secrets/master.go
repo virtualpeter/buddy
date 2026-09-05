@@ -210,6 +210,25 @@ func (m *envDEK) Description() string {
 	return m.inner.Description()
 }
 
+func (m *envDEK) GetPresence(reason string) (string, error) {
+	if p := envVaultPassphrase(); p != "" {
+		if _, ok := ParseDEK(p); ok {
+			return p, nil
+		}
+	}
+	if p, ok := m.inner.(presenceDEKStore); ok {
+		return p.GetPresence(reason)
+	}
+	return m.inner.Get()
+}
+
+func (m *envDEK) SetPresence(value, reason string) error {
+	if p, ok := m.inner.(presenceDEKStore); ok {
+		return p.SetPresence(value, reason)
+	}
+	return m.inner.Set(value)
+}
+
 // MemoryMaster is an in-memory key/passphrase (tests).
 type MemoryMaster struct {
 	Phrase string

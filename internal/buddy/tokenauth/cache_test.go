@@ -83,7 +83,7 @@ func TestCorruptSealedTokenPurged(t *testing.T) {
 
 	path := filepath.Join(dir, "badseal.json")
 	data, _ := json.Marshal(diskTokenFile{
-		V:      diskTokenVersion,
+		V:      diskTokenVersionV1,
 		Token:  base64Garbage(),
 		Expiry: time.Now().Add(30 * time.Minute).UTC(),
 		URL:    "https://jamf.example.com",
@@ -115,7 +115,7 @@ func TestLoadDiskTokenNearExpiryPurges(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := json.Marshal(diskTokenFile{
-		V:      diskTokenVersion,
+		V:      diskTokenVersionV1,
 		Token:  sealed,
 		Expiry: time.Now().Add(5 * time.Second).UTC(),
 		URL:    "https://jamf.example.com",
@@ -144,8 +144,8 @@ func TestCleanExpiredTokenCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	good := diskTokenFile{V: diskTokenVersion, Token: goodSeal, Expiry: time.Now().Add(30 * time.Minute).UTC(), URL: "https://a.example"}
-	bad := diskTokenFile{V: diskTokenVersion, Token: badSeal, Expiry: time.Now().Add(-time.Minute).UTC(), URL: "https://a.example"}
+	good := diskTokenFile{V: diskTokenVersionV1, Token: goodSeal, Expiry: time.Now().Add(30 * time.Minute).UTC(), URL: "https://a.example"}
+	bad := diskTokenFile{V: diskTokenVersionV1, Token: badSeal, Expiry: time.Now().Add(-time.Minute).UTC(), URL: "https://a.example"}
 	write := func(name string, f diskTokenFile) {
 		b, _ := json.Marshal(f)
 		if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
@@ -169,6 +169,73 @@ func TestCleanExpiredTokenCache(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "good.json")); err != nil {
 		t.Fatal("good entry should remain")
+	}
+}
+
+func TestPeekDiskTokenDoesNotDeleteExpired(t *testing.T) {
+	dir := t.TempDir()
+	restore := SetTokenCacheDirForTest(dir)
+	t.Cleanup(restore)
+
+	path := filepath.Join(dir, "stale.json")
+	sealed, err := sealToken("old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(diskTokenFile{
+		V:      diskTokenVersionV1,
+		Token:  sealed,
+		Expiry: time.Now().Add(-time.Minute).UTC(),
+		URL:    "https://jamf.example.com",
+	})
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info := PeekDiskToken("stale")
+	if !info.Present {
+		t.Fatal("expected present expired cache")
+	}
+	if info.Usable {
+		t.Fatal("expected unusable")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("peek must not delete expired file: %v", err)
+	}
+}
+
+func TestDropDiskTokenAndDropAll(t *testing.T) {
+	dir := t.TempDir()
+	restore := SetTokenCacheDirForTest(dir)
+	t.Cleanup(restore)
+
+	if err := saveDiskToken("keep-me", "https://a.example", "tok", time.Now().Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if !DropDiskToken("keep-me") {
+		t.Fatal("expected drop of existing file")
+	}
+	if DropDiskToken("keep-me") {
+		t.Fatal("second drop should report missing")
+	}
+	if err := saveDiskToken("a", "https://a.example", "t1", time.Now().Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveDiskToken("b", "https://a.example", "t2", time.Now().Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	res, err := DropAllDiskTokens()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Dropped != 2 {
+		t.Fatalf("dropped=%d want 2", res.Dropped)
+	}
+	list, err := ListDiskTokens()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("list=%d after drop all", len(list))
 	}
 }
 

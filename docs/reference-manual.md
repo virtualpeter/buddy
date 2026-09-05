@@ -71,12 +71,18 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred set passphrase` — create or rotate the recovery passphrase (backups; does not wrap the live vault)
 - `buddy cred delete auth|tenant <name>` — remove auth (+store secrets) or tenant (cascades sole-linked auths)
 - `buddy cred clean secrets` — review secret-store entries and prompt to delete orphans
-- `buddy cred erase secrets` — wipe the vault, data key, recovery passphrase, and leftover Keychain items
+- `buddy cred erase secrets` — wipe the vault, data key, recovery passphrase, token-wrap key, token cache files, and leftover Keychain items
 - `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`
 - `buddy cred migrate` — move inline YAML secrets and old per-auth store items into the vault
 - `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of tenants, auths (with secrets), and channels; restore prompts once per auth (Enter restores, or `-y`)
 - `buddy setup secrets` — create missing tenant auths and surface-coverage gaps; store missing passwords / client secrets
 - `buddy auth test` — ForceRenew + probe the active session (`--all` for every cell)
+- `buddy auth token refresh` — obtain, keep-alive, or replace the session token from cache state (`--raw` prints the bearer)
+- `buddy auth authorization` — cached Jamf authorization details from `GET /api/v1/auth` (access level, privilege set, privileges); `--all` dumps every cache entry
+- `buddy auth token show` — print the session Authorization header (`--raw` for bearer only)
+- `buddy auth token status` — disk cache metadata (no bearer); `--all` lists every `tokens/` file
+- `buddy auth token drop` — invalidate the session cache (including still-valid files); `--all` drops every file
+- `buddy token direct` — one-shot bearer mint (no config/vault; `--url`/`--region` plus basic or oauth flags)
 - `buddy --tenant <name> ...` — select tenant (auto-picks auth); `--user`/`--auth` pins an auth
 
 For `basic` auth, buddy exchanges username/password for a Bearer token via Jamf’s `POST /api/v1/auth/token`.
@@ -148,7 +154,7 @@ buddy help [command] [subcommand]
 | `--version` | Print version and exit |
 | `-y` | Skip confirmation prompts (destructive MDM actions still use extra checks where required) |
 | `-v`, `--verbose` | Verbose output |
-| `-t`, `--trace` | Trace HTTP to stderr (headers and bodies; secrets redacted) |
+| `-t`, `--trace` | Trace HTTP to stderr (headers and bodies; Authorization/Cookie and token-shaped values redacted) |
 | `--tenant <name>` | Tenant from config (auto-picks auth) |
 | `--user <name>` | Pin an auth (`--auth` alias) |
 
@@ -156,7 +162,8 @@ buddy help [command] [subcommand]
 
 | Command | Role |
 |---------|------|
-| `auth` | Test auth; print token material |
+| `auth` | Test auth; print session token material |
+| `token` | One-shot bearer mint without config (`token direct`) |
 | `cred` | Manage `config.yaml` tenants, auths, and platform secrets |
 | *(path)* | Execute a script: `buddy script.buddy` |
 | `policy` | Policies (list/get/set/create/delete/logs) |
@@ -368,7 +375,7 @@ These are Makefile variables, not runtime config:
 
 | Variable | Effect |
 |----------|--------|
-| `BUDDY_CODESIGN_IDENTITY` | Developer ID Application identity required to sign the Darwin/arm64 binary |
+| `BUDDY_CODESIGN_IDENTITY` | Developer ID Application identity used to sign the Darwin/arm64 binary (default: first match from `security find-identity -v -p codesigning`) |
 | `BUDDY_CODESIGN_IDENTIFIER` | Bundle identifier (default `virtualpete.buddy.cli`); must stay stable so Keychain ACLs survive rebuilds |
 | `BUDDY_PKG_SIGN_IDENTITY` | Optional Developer ID Installer identity for `make package` (branded product archive + Finder icon from `internal/serve/buddy.png`) |
 

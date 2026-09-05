@@ -12,7 +12,11 @@ import (
 )
 
 func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) == 0 || args[0] == clispec.SubHelp {
+	if len(args) == 0 {
+		fmt.Print(helpCredShort)
+		return nil
+	}
+	if args[0] == clispec.SubHelp {
 		fmt.Print(helpCred)
 		return nil
 	}
@@ -47,7 +51,7 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, log *slog.Logger
 		return runCredRestore(cfg, opts, args[1:])
 	default:
 		return errUnknownSubcommand("cred", args[0], []string{
-			clispec.SubList, clispec.SubStatus, clispec.SubAdd, clispec.SubGet, clispec.SubSet, clispec.SubDelete, "use", "store", "migrate", "clean", "erase", "backup", "restore", clispec.SubHelp,
+			clispec.SubAdd, clispec.SubSet, clispec.SubStatus, clispec.SubList, clispec.SubGet, clispec.SubDelete, "use", "store", "migrate", "clean", "erase", "backup", "restore", clispec.SubHelp,
 		})
 	}
 }
@@ -1437,6 +1441,7 @@ Notes:
   or renaming an auth.
   tokens: removes bearer cache files that are expired, corrupt, undecodable, or
   within the skew window. Still-valid tokens are kept. No prompt (safe anytime).
+  To invalidate a still-valid cache, use 'buddy auth token drop'.
 
 Examples:
   buddy cred clean secrets
@@ -1485,7 +1490,8 @@ Subcommands:
 Notes:
   Unlike 'cred clean secrets' (orphans only), this removes every password and
   client-secret buddy stored in the vault, plus the vault data key and
-  recovery passphrase.
+  recovery passphrase. Also deletes the token-wrap Keychain item and
+  ~/.config/buddy/tokens/ cache files.
   Auths, tenants, and channels in config.yaml are not changed. Re-store with
   'buddy cred set secret' or 'buddy setup secrets'.
   On macOS, leftover per-auth Keychain items are cleared from both services

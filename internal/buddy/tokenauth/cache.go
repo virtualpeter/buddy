@@ -19,9 +19,8 @@ import (
 )
 
 // diskTokenFile is the on-disk shape for a cached bearer token.
-// Version 1 stores Token as base64(AES-GCM(nonce||ciphertext)) using a
-// compiled-in obfuscation key — enough to stop casual `cat` of the cache,
-// not a substitute for 0600 permissions or a real secret store.
+// v=1: AES-GCM with a compiled-in obfuscation key (Linux / unsigned fallback).
+// v=2: AES-GCM with a Darwin Keychain wrap key (account token-wrap, no userPresence).
 type diskTokenFile struct {
 	V      int       `json:"v"`
 	Token  string    `json:"token"`
@@ -29,15 +28,15 @@ type diskTokenFile struct {
 	URL    string    `json:"url,omitempty"`
 }
 
-const diskTokenVersion = 1
+const diskTokenVersion = diskTokenVersionV2
 
 // clockSkewWindow is how close to expiry a token may be and still be used.
 // Avoids sending a bearer that expires mid-request; replaces the old 3-minute
 // proactive refresh window.
 const clockSkewWindow = 15 * time.Second
 
-// Compiled obfuscation material (not a user secret). Changing this invalidates
-// existing cache files — they are deleted on the next load/sweep.
+// Compiled obfuscation material (not a user secret). Used for v=1 files and
+// when no wrap key is available. Changing this invalidates v=1 cache files.
 const tokenCacheObfuscationMaterial = "buddy\x00token-cache\x00v1\x00" +
 	"7f3c9e1a2b4d6e8f0a1c3d5e7b9f2a4c6d8e0f1a3b5c7d9e"
 
@@ -46,8 +45,11 @@ func tokenCacheAESKey() []byte {
 	return sum[:]
 }
 
-func sealToken(plain string) (string, error) {
-	block, err := aes.NewCipher(tokenCacheAESKey())
+func sealTokenWithKey(plain string, key []byte) (string, error) {
+	if len(key) != tokenWrapKeySize {
+		return "", fmt.Errorf("invalid wrap key size")
+	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
@@ -63,12 +65,15 @@ func sealToken(plain string) (string, error) {
 	return base64.StdEncoding.EncodeToString(out), nil
 }
 
-func openToken(sealed string) (string, error) {
+func openTokenWithKey(sealed string, key []byte) (string, error) {
+	if len(key) != tokenWrapKeySize {
+		return "", fmt.Errorf("invalid wrap key size")
+	}
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(sealed))
 	if err != nil {
 		return "", err
 	}
-	block, err := aes.NewCipher(tokenCacheAESKey())
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
@@ -87,6 +92,36 @@ func openToken(sealed string) (string, error) {
 	return string(plain), nil
 }
 
+// sealToken seals with wrap key (v=2) when available, else compiled-in (v=1).
+func sealToken(plain string) (string, error) {
+	if k, ok := wrapKeyOrCreate(); ok {
+		return sealTokenWithKey(plain, k)
+	}
+	return sealTokenWithKey(plain, tokenCacheAESKey())
+}
+
+func sealVersion() int {
+	if _, ok := wrapKeyOrCreate(); ok {
+		return diskTokenVersionV2
+	}
+	return diskTokenVersionV1
+}
+
+func openToken(sealed string, version int) (string, error) {
+	switch version {
+	case diskTokenVersionV2:
+		k, ok := wrapKey()
+		if !ok {
+			return "", fmt.Errorf("token wrap key missing")
+		}
+		return openTokenWithKey(sealed, k)
+	case diskTokenVersionV1:
+		return openTokenWithKey(sealed, tokenCacheAESKey())
+	default:
+		return "", fmt.Errorf("unknown token cache version %d", version)
+	}
+}
+
 // parseDiskTokenFile unmarshals and opens the bearer. On any format/decrypt
 // failure returns ok=false (caller should delete the file).
 func parseDiskTokenFile(data []byte) (token string, expiry time.Time, url string, ok bool) {
@@ -94,14 +129,25 @@ func parseDiskTokenFile(data []byte) (token string, expiry time.Time, url string
 	if err := json.Unmarshal(data, &f); err != nil {
 		return "", time.Time{}, "", false
 	}
-	if f.V != diskTokenVersion || f.Token == "" || f.Expiry.IsZero() {
+	if f.Token == "" || f.Expiry.IsZero() {
 		return "", time.Time{}, "", false
 	}
-	tok, err := openToken(f.Token)
+	if f.V != diskTokenVersionV1 && f.V != diskTokenVersionV2 {
+		return "", time.Time{}, "", false
+	}
+	tok, err := openToken(f.Token, f.V)
 	if err != nil || tok == "" {
 		return "", time.Time{}, "", false
 	}
 	return tok, f.Expiry, f.URL, true
+}
+
+func parseDiskTokenVersion(data []byte) int {
+	var f diskTokenFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return 0
+	}
+	return f.V
 }
 
 var (
@@ -186,6 +232,11 @@ func loadDiskToken(cacheKey, baseURL string, minRemaining time.Duration) (token 
 		_ = os.Remove(path)
 		return "", time.Time{}, false
 	}
+	if parseDiskTokenVersion(data) == diskTokenVersionV1 {
+		if _, hasWrap := wrapKey(); hasWrap {
+			_ = saveDiskToken(cacheKey, fileURL, tok, exp)
+		}
+	}
 	return tok, exp, true
 }
 
@@ -203,7 +254,7 @@ func saveDiskToken(cacheKey, baseURL, token string, expiry time.Time) error {
 		return fmt.Errorf("seal token: %w", err)
 	}
 	f := diskTokenFile{
-		V:      diskTokenVersion,
+		V:      sealVersion(),
 		Token:  sealed,
 		Expiry: expiry.UTC(),
 		URL:    strings.TrimRight(baseURL, "/"),
@@ -230,6 +281,105 @@ func removeDiskToken(cacheKey string) {
 		return
 	}
 	_ = os.Remove(path)
+}
+
+// DiskTokenInfo is metadata for a tokens/ cache file (never includes the bearer).
+type DiskTokenInfo struct {
+	Key     string
+	URL     string
+	Expiry  time.Time
+	Usable  bool
+	Present bool
+}
+
+// PeekDiskToken reports cache metadata without deleting expired or corrupt files.
+func PeekDiskToken(cacheKey string) DiskTokenInfo {
+	info := DiskTokenInfo{Key: cacheKey}
+	path, err := tokenCachePath(cacheKey)
+	if err != nil {
+		return info
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return info
+	}
+	_, exp, fileURL, ok := parseDiskTokenFile(data)
+	if !ok {
+		return info
+	}
+	info.Present = true
+	info.URL = fileURL
+	info.Expiry = exp
+	info.Usable = tokenUsable(exp, clockSkewWindow)
+	return info
+}
+
+// ListDiskTokens returns metadata for every *.json file under the token cache dir.
+func ListDiskTokens() ([]DiskTokenInfo, error) {
+	dir, err := tokenCacheDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []DiskTokenInfo
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		key := strings.TrimSuffix(e.Name(), ".json")
+		out = append(out, PeekDiskToken(key))
+	}
+	return out, nil
+}
+
+// DropDiskToken removes the cache file for cacheKey. Reports whether a file was present.
+func DropDiskToken(cacheKey string) bool {
+	path, err := tokenCachePath(cacheKey)
+	if err != nil {
+		return false
+	}
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	_ = os.Remove(path)
+	return true
+}
+
+// TokenCacheDropResult summarizes deleting every tokens/ cache file.
+type TokenCacheDropResult struct {
+	Dropped int
+	Dir     string
+}
+
+// DropAllDiskTokens removes every token cache file (including still-valid ones).
+func DropAllDiskTokens() (TokenCacheDropResult, error) {
+	dir, err := tokenCacheDir()
+	if err != nil {
+		return TokenCacheDropResult{}, err
+	}
+	out := TokenCacheDropResult{Dir: dir}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return out, nil
+		}
+		return out, err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err == nil {
+			out.Dropped++
+		}
+	}
+	return out, nil
 }
 
 // TokenCacheCleanResult summarizes a tokens/ directory sweep.

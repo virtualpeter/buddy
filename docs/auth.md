@@ -110,39 +110,45 @@ Keep production passwords and OAuth client secrets **out of YAML**. Inline secre
 
 Resolution order: **inline config → vault → error**. Vault keys are **auth names**.
 
-Passwords and client secrets are stored in **`~/.config/buddy/secrets.enc`** (AES-256-GCM) next to `config.yaml`. A **random 256-bit data key (DEK)** unlocks the vault on each CLI run (no PBKDF2, no Touch ID). A **recovery passphrase** is only for `cred backup` / `restore` and for unwrapping that DEK onto a new binary or Mac.
+Passwords and client secrets are stored in **`~/.config/buddy/secrets.enc`** (AES-256-GCM) next to `config.yaml`. A **random 256-bit data key (DEK)** decrypts the vault. After the DEK is loaded once into **process memory**, further secret reads in that process do not call Keychain again (no PBKDF2). A **recovery passphrase** is only for `cred backup` / `restore` and for unwrapping that DEK onto a new binary or Mac.
 
 | `BUDDY_SECRET_STORE` | Platform | Data key (DEK) | Recovery passphrase |
 |----------------------|----------|----------------|---------------------|
 | (default) | macOS (`make buddy`) | Keychain, service `buddy`, account `dek`, via `security(1)` | same service, account `master` |
-| (default) | macOS (`make buddy-darwin-arm64`) | Keychain, service `virtualpete.buddy.cli` (label Buddy), account `dek`, `AfterFirstUnlockThisDeviceOnly`, via Security.framework | same service, account `master` |
+| (default) | macOS (`make buddy-darwin-arm64`) | Keychain, service `virtualpete.buddy.cli` (label Buddy), account `dek`, `AfterFirstUnlockThisDeviceOnly` + LocalAuthentication presence gate (SecAccessControl when entitled), via Security.framework | same service, account `master` (no presence ACL) |
 | (default) | Linux / Windows | `~/.config/buddy/dek` (mode `0600`) | `~/.config/buddy/master` (mode `0600`; Windows: `%APPDATA%\buddy\…`) |
 | `file` | any | Same as the Linux DEK file | Same as the Linux master file |
 | `pass` | Unix | `pass show buddy/dek` | `pass show buddy/master` |
 | `keychain` | macOS only | Explicit Keychain (same backend as the binary: CLI or SecItem) | same |
 
-`BUDDY_VAULT_PASSPHRASE` overrides the recovery passphrase for CI/tests (never written). If the value is a tagged DEK (`dek:v1:…`), it overrides the data key instead.
+Escape hatches (never written to disk as config):
+
+- `BUDDY_VAULT_PASSPHRASE` — overrides the recovery passphrase for CI/tests. If the value is a tagged DEK (`dek:v1:…`), it overrides the data key instead (skips Keychain).
+- `BUDDY_VAULT_UNLOCK=after-first-unlock` — on signed Darwin only, store/read the DEK **without** `userPresence` (legacy accessibility; useful for CI). Default is presence-gated.
 
 **Default Darwin binary (`make buddy`)**
 
 - Writes Keychain items with `security -i` (secret on stdin, not argv) under service `buddy`
 - Convenient for development (no CGO, survives `go build`)
 - ACL is on `/usr/bin/security`, so any process running as you can read the same items
+- No Touch ID / presence gate (Linux/Windows-style file or CLI Keychain strength)
 
 **Signed release (`make buddy-darwin-arm64`, build tag `secitem`)**
 
-- Uses Security.framework so the ACL is buddy’s Developer ID (only that signed binary can read without a prompt)
+- Uses Security.framework so the ACL is buddy’s Developer ID
 - Upgrades keep working as long as the Team ID and identifier stay the same
 - Separate Keychain service (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) — never shares ACL or items with `./buddy`; the vault file is shared
-- DEK uses `AfterFirstUnlockThisDeviceOnly` (available after login; screen lock does not prompt Terminal)
-- Touch ID / user presence only when creating or unwrapping the DEK, setting the recovery passphrase, or restoring a backup — not on ordinary commands such as `buddy policy list`
-- Unsigned `./buddy` cannot use a meaningful app ACL; biometrics are a signed-release feature
+- **Presence unlock:** ideally Keychain `SecAccessControl` `userPresence`. A bare Developer ID CLI **cannot** store that ACL today (`errSecMissingEntitlement` — needs `keychain-access-groups` + provisioning profile / `.app` packaging). Buddy falls back to **LocalAuthentication** (`evaluatePolicy` device-owner) once per process before releasing the DEK into memory, then reads an `AfterFirstUnlockThisDeviceOnly` Keychain item
+- First vault use in a process loads the DEK into memory (**process session**): `buddy mcp` / `buddy serve` unlock at start; CLI unlocks lazily on the first vault-backed secret resolve. `cred status` / `cred store` alone do not unlock the vault
+- Escape: `BUDDY_VAULT_UNLOCK=after-first-unlock` skips the LocalAuthentication gate (and ACL attempts)
+- Recovery `master` item stays non-presence so vault writes do not prompt for every save
+- Unsigned `./buddy` cannot use a meaningful app ACL; presence prompts are a signed-release feature. An unlocked mcp/serve process still holds the DEK in RAM
 
-A signed binary does not see a DEK stored by `./buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against `./buddy-darwin-arm64` (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. `make install-signed` copies that binary to `~/go/bin/buddy`. `buddy cred erase secrets` deletes the vault, the DEK, the recovery passphrase, and leftover per-auth items from **both** Keychain services.
+A signed binary does not see a DEK stored by `./buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against `./buddy-darwin-arm64` (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. `make install-signed` copies that binary to `~/go/bin/buddy`. `buddy cred erase secrets` deletes the vault, the DEK, the recovery passphrase, the token-wrap key, token cache files, and leftover per-auth items from **both** Keychain services.
 
 **Codesign**
 
-- Requires Darwin/arm64 and `BUDDY_CODESIGN_IDENTITY` (a Developer ID Application identity)
+- Requires Darwin/arm64. Signs with the first valid Developer ID Application from `security find-identity -v -p codesigning`; set `BUDDY_CODESIGN_IDENTITY` to override
 - Identifier defaults to `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) and must stay stable so Keychain ACLs survive rebuilds
 - The Keychain service is hardcoded to that reverse-DNS string (not read from the running binary), so overriding the identifier at sign time still stores items under `virtualpete.buddy.cli`
 - Ad-hoc signatures are rejected
@@ -159,7 +165,7 @@ buddy cred migrate                                   # inline YAML + old per-aut
 buddy cred backup ./buddy.creds                      # uses stored recovery passphrase by default; AES-GCM file
 buddy cred restore ./buddy.creds                     # recovery passphrase; confirm each auth; new local DEK
 buddy cred clean secrets                             # review / delete orphaned vault entries
-buddy cred erase secrets                             # wipe vault + DEK + recovery passphrase (+ leftover Keychain items)
+buddy cred erase secrets                             # wipe vault + DEK + recovery passphrase + token wrap/cache
 buddy cred delete auth sandbox-admin                 # also clears vault secrets
 ```
 
@@ -173,31 +179,36 @@ Config and tokens live under `~/.config/buddy` on macOS/Linux (`$XDG_CONFIG_HOME
 
 ## How tokens are cached
 
-Buddy reuses a bearer token until shortly before it expires (about 15 seconds of clock skew), then obtains a new one. There is no proactive keep-alive while the token is still valid.
+Buddy reuses a bearer token until shortly before it expires (about 15 seconds of clock skew), then obtains a new one. There is no proactive keep-alive while the token is still valid. On CLI, the vault (Touch ID / presence unlock) is opened only when a token must be **minted or refreshed** — a still-valid disk cache under `~/.config/buddy/tokens/` skips the vault entirely. `buddy mcp` / `buddy serve` still unlock once at process start.
 
 | Auth type | Token source | Refresh |
 |-----------|--------------|---------|
-| `basic` | `/api/v1/auth/token` (treated as ~18 minutes, ahead of Jamf’s 20-minute limit) | Keep-alive on HTTP 401 or `buddy auth refresh`; otherwise re-auth |
-| `oauth` (instance) | `/api/oauth/token`; expiry from `expires_in` | Re-auth with client credentials when expired or on 401 |
-| `oauth` (Platform) | `{gateway}/auth/token` (fallback `/oauth2/token`); ~900s | Re-auth; no keep-alive |
-| `command` | External command each time | Not cached on disk |
+| `basic` | `/api/v1/auth/token` (treated as ~18 minutes, ahead of Jamf’s 20-minute limit) | Keep-alive on HTTP 401 or `buddy auth token refresh` when a cached token is still usable; otherwise obtain |
+| `oauth` (instance) | `/api/oauth/token`; expiry from `expires_in` | `buddy auth token refresh` replaces via client credentials; also on expiry or 401 |
+| `platform` | `{gateway}/auth/token` (fallback `/oauth2/token`); ~900s | Same as oauth; no keep-alive |
+| `command` | External command each time | `buddy auth token refresh` re-runs `runCommand`; not cached on disk |
 
 Authenticated HTTP retries **once** after a refresh if Jamf returns 401.
 
-Tokens are also written under `~/.config/buddy/tokens/` (mode `0600`) so later CLI invocations can reuse them. The file is obfuscated enough to discourage casual `cat`; it is **not** a secret store. Expired, URL-mismatched, or corrupt files are deleted on load. `command` auth skips the disk cache.
+Tokens are also written under `~/.config/buddy/tokens/` (mode `0600`) so later CLI invocations can reuse them. On macOS the ciphertext is AES-GCM wrapped with a random key in Keychain account `token-wrap` (no Touch ID / `userPresence`; not the vault DEK). Linux and Windows use a compiled-in obfuscation key — enough to discourage casual `cat`, not a secret store. Expired, URL-mismatched, or corrupt files are deleted on load. `command` auth skips the disk cache. `buddy cred erase secrets` deletes the wrap key and the token files.
+
+Debug logs, `--trace`, and `--script-trace` pass through a redaction filter (JWTs, `Bearer` values, and fields such as `access_token`, `token`, and `client_secret`). `buddy auth token show --raw` still prints the bearer to stdout.
 
 ```sh
 buddy auth test                         # ForceRenew + probe the active tenant/auth
 buddy auth test --all                   # every covering auth × tenant × surface
-buddy auth caps                         # last-check / privileges cache for the current pin
-buddy auth token [--raw] [--tenant=T] [--user=A]
-buddy auth refresh --url=URL [TOKEN]    # keep-alive (instance; basic)
+buddy auth authorization [--all]        # cached GET /api/v1/auth details (privileges, access level)
+buddy auth token show [--raw] [--tenant=T] [--user=A]
+buddy auth token status [--all]         # disk cache metadata (no bearer)
+buddy auth token drop [--all]           # invalidate cache (including still-valid files)
+buddy auth token refresh [--raw]        # obtain / keep-alive / replace from cache state
+buddy token direct --url=… --username=… --password=…   # one-shot mint, no config
 buddy cred clean tokens                 # delete expired or corrupt disk cache files
 ```
 
-`--raw` prints only the bearer token on stdout (no `Authorization:` prefix). Use it when another program should consume the token as a single line.
+`auth token refresh` uses the derived session (`--tenant` / `--user`) and the on-disk cache: **obtain** if there is no usable token, **refresh** (Jamf keep-alive) for basic when a cached token is still usable, **replace** for oauth/platform (client credentials) and command (`runCommand`). `--raw` on `auth token refresh` or `auth token show` prints only the bearer. `token drop` removes still-valid files; `cred clean tokens` only sweeps expired or corrupt leftovers. One-shot mint without config is `buddy token direct`.
 
-Last `auth test` results (token ok / probe, and instance privilege names when `/api/v1/auth` succeeded) are cached under `~/.config/buddy/caps/` with the same 0600 + obfuscation style as tokens. Buddy uses that cache when auto-picking among auths. Missing or stale cache is ignored (fail open). Legacy `type: oauth` + `surface: platform` migrates to `type: platform` on load.
+Last `auth test` results (token ok / probe, and Jamf authorization details when `GET /api/v1/auth` succeeded: access level, privilege set, privileges) are cached under `~/.config/buddy/caps/` with the same 0600 + compiled-in obfuscation style (not the token wrap key). Buddy uses that cache when auto-picking among auths. Missing or stale cache is ignored (fail open). Legacy `type: oauth` + `surface: platform` migrates to `type: platform` on load.
 
 ---
 

@@ -13,7 +13,11 @@ var helpVersion = help.Version
 
 var helpAuth = help.Auth
 
+var helpToken = help.Token
+
 var helpCred = help.Cred
+
+var helpCredShort = help.CredShort
 
 // helpPolicy is generated (make gendocs).
 var helpPolicy = help.PoliciesCLIHelp
@@ -114,7 +118,9 @@ func printCommandHelp(path []string) {
 	}
 	key := strings.Join(path, ".")
 	helpMap := map[string]string{
-		clispec.CmdAuth:       helpAuth,
+		clispec.CmdAuth:  helpAuth,
+		clispec.CmdToken: helpToken,
+		clispec.HelpPath(clispec.CmdToken, clispec.SubDirect): helpToken,
 		clispec.CmdCred:       helpCred,
 		clispec.CmdVersion:    helpVersion,
 		clispec.CmdShell:      help.Shell,
@@ -147,16 +153,16 @@ func printCommandHelp(path []string) {
 		clispec.CmdRole:        helpRole,
 		clispec.CmdClient:      helpClient,
 		clispec.CmdScript:      helpScript,
-		clispec.HelpPath(clispec.CmdScript, clispec.SubGet): helpScriptGet,
-		clispec.HelpPath(clispec.CmdScript, clispec.SubSet): helpScriptSet,
-		clispec.CmdExtensionAttribute: helpExtensionAttribute,
+		clispec.HelpPath(clispec.CmdScript, clispec.SubGet):             helpScriptGet,
+		clispec.HelpPath(clispec.CmdScript, clispec.SubSet):             helpScriptSet,
+		clispec.CmdExtensionAttribute:                                   helpExtensionAttribute,
 		clispec.HelpPath(clispec.CmdExtensionAttribute, clispec.SubGet): helpExtensionAttributeGet,
 		clispec.HelpPath(clispec.CmdExtensionAttribute, clispec.SubSet): helpExtensionAttributeSet,
-		clispec.CmdMobileExtAttr: helpMobileExtAttr,
-		clispec.CmdSetup: helpSetup,
-		clispec.CmdServe: helpServe,
-		clispec.CmdMCP:   helpMCP,
-		clispec.CmdLSP:   helpLSP,
+		clispec.CmdMobileExtAttr:                                        helpMobileExtAttr,
+		clispec.CmdSetup:                                                helpSetup,
+		clispec.CmdServe:                                                helpServe,
+		clispec.CmdMCP:                                                  helpMCP,
+		clispec.CmdLSP:                                                  helpLSP,
 	}
 	if text, ok := helpMap[key]; ok {
 		fmt.Print(text)

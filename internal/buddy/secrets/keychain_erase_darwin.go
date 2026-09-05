@@ -68,6 +68,9 @@ func EraseKeychainService(service string) (int, error) {
 	if err := deleteKeychainAccount(service, dekKeychainAccount); err != nil {
 		errs = append(errs, err)
 	}
+	if err := deleteKeychainAccount(service, tokenWrapKeychainAccount); err != nil {
+		errs = append(errs, err)
+	}
 	if len(errs) > 0 {
 		return deleted, fmt.Errorf("deleted %d, %d failed: %v", deleted, len(errs), errs)
 	}

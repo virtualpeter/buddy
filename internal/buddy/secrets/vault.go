@@ -25,11 +25,11 @@ var vaultCaches sync.Map // path -> *vaultMem
 
 // VaultStore persists secrets in an AES-GCM sidecar (secrets.enc).
 type VaultStore struct {
-	path     string
-	dek      MasterStore
-	recovery MasterStore
-	bioOK    bool
-	mu       sync.Mutex
+	path       string
+	dek        MasterStore
+	recovery   MasterStore
+	sessionDEK string // encoded DEK held for this process after UnlockSession
+	mu         sync.Mutex
 }
 
 // NewVaultStore creates a vault. Empty path uses VaultPath() on each operation.
@@ -181,10 +181,58 @@ func (v *VaultStore) Erase() (int, error) {
 		return 0, err
 	}
 	vaultCaches.Delete(path)
+	v.LockSession()
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return 0, fmt.Errorf("remove vault: %w", err)
 	}
 	return n, nil
+}
+
+// UnlockSession loads the vault DEK into process memory (one Keychain presence
+// prompt on signed macOS). MCP and serve call this at start; CLI unlocks lazily
+// via dekOptional on first vault use.
+func (v *VaultStore) UnlockSession(reason string) error {
+	if v == nil {
+		return fmt.Errorf("vault store is nil")
+	}
+	return v.ensureSessionDEKOptional(reason)
+}
+
+// LockSession clears the in-memory DEK and vault plaintext cache (tests / future).
+func (v *VaultStore) LockSession() {
+	if v == nil {
+		return
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.sessionDEK = ""
+	if path, err := v.vaultPath(); err == nil {
+		vaultCaches.Delete(path)
+	}
+}
+
+// SessionUnlocked reports whether UnlockSession (or lazy unlock) holds a DEK.
+func (v *VaultStore) SessionUnlocked() bool {
+	if v == nil {
+		return false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	_, ok := ParseDEK(v.sessionDEK)
+	return ok
+}
+
+// UnlockDefaultStore unlocks the process vault session via DefaultStore.
+func UnlockDefaultStore(reason string) error {
+	store, err := DefaultStore()
+	if err != nil {
+		return err
+	}
+	vs, ok := store.(*VaultStore)
+	if !ok {
+		return nil
+	}
+	return vs.UnlockSession(reason)
 }
 
 // SetPassphrase stores newPass as the recovery passphrase (backups) and
@@ -198,9 +246,6 @@ func (v *VaultStore) SetPassphrase(newPass string) error {
 	rec := v.recoveryStore()
 	if rec == nil {
 		return fmt.Errorf("recovery store is nil")
-	}
-	if err := v.confirmPrivileged("Buddy wants to set the vault recovery passphrase"); err != nil {
-		return err
 	}
 
 	path, err := v.vaultPath()
@@ -247,8 +292,6 @@ func (v *VaultStore) load() (vaultPayload, error) {
 }
 
 func (v *VaultStore) loadOrEmpty() (vaultPayload, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
 	path, err := v.vaultPath()
 	if err != nil {
 		return vaultPayload{}, err
@@ -263,15 +306,35 @@ func (v *VaultStore) loadOrEmpty() (vaultPayload, error) {
 	if info.Size() == 0 {
 		return vaultPayload{Secrets: map[string]secretFile{}}, nil
 	}
+	// Best-effort Keychain presence prompt outside v.mu (OK if no DEK yet;
+	// unwrap/recovery paths resolve inside unlockExisting).
+	_ = v.ensureSessionDEKOptional(DefaultUnlockReason)
+
+	v.mu.Lock()
+	info, err = os.Stat(path)
+	if err != nil {
+		v.mu.Unlock()
+		if os.IsNotExist(err) {
+			return vaultPayload{Secrets: map[string]secretFile{}}, nil
+		}
+		return vaultPayload{}, fmt.Errorf("stat vault: %w", err)
+	}
+	if info.Size() == 0 {
+		v.mu.Unlock()
+		return vaultPayload{Secrets: map[string]secretFile{}}, nil
+	}
 	if cached, ok := vaultCaches.Load(path); ok {
 		mem := cached.(*vaultMem)
-		if mem.modTime.Equal(info.ModTime()) && mem.size == info.Size() {
-			if key, kerr := v.dekOptional(); kerr == nil && key == mem.key && key != "" {
-				return cloneVaultPayload(mem.payload), nil
-			}
+		if mem.modTime.Equal(info.ModTime()) && mem.size == info.Size() &&
+			mem.key != "" && mem.key == v.sessionDEK {
+			out := cloneVaultPayload(mem.payload)
+			v.mu.Unlock()
+			return out, nil
 		}
 	}
+	v.mu.Unlock()
 
+	// Decrypt without holding v.mu (ensureDEK / Keychain must not re-enter the lock).
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return vaultPayload{}, fmt.Errorf("read vault: %w", err)
@@ -292,13 +355,17 @@ func (v *VaultStore) loadOrEmpty() (vaultPayload, error) {
 	if err != nil {
 		return vaultPayload{}, err
 	}
+	v.mu.Lock()
+	v.sessionDEK = enc
 	vaultCaches.Store(path, &vaultMem{
 		modTime: info.ModTime(),
 		size:    info.Size(),
 		key:     enc,
 		payload: cloneVaultPayload(payload),
 	})
-	return cloneVaultPayload(payload), nil
+	out := cloneVaultPayload(payload)
+	v.mu.Unlock()
+	return out, nil
 }
 
 func (v *VaultStore) save(payload vaultPayload) error {
@@ -424,8 +491,17 @@ func parseVaultPayload(plain []byte) (vaultPayload, error) {
 }
 
 func (v *VaultStore) resolveDEK(env Envelope, typedPass string) ([]byte, error) {
-	if enc, err := v.dekOptional(); err == nil {
+	v.mu.Lock()
+	if key, ok := ParseDEK(v.sessionDEK); ok {
+		v.mu.Unlock()
+		return key, nil
+	}
+	v.mu.Unlock()
+	if enc, err := v.fetchDEK(DefaultUnlockReason); err == nil {
 		if key, ok := ParseDEK(enc); ok {
+			v.mu.Lock()
+			v.sessionDEK = enc
+			v.mu.Unlock()
 			return key, nil
 		}
 	}
@@ -449,15 +525,15 @@ func (v *VaultStore) resolveDEK(env Envelope, typedPass string) ([]byte, error) 
 		if err != nil {
 			return nil, err
 		}
-		if err := v.confirmPrivileged("Buddy wants to store the vault key in the Keychain"); err != nil {
-			return nil, err
-		}
 		if v.dek == nil {
 			return nil, fmt.Errorf("dek store is nil")
 		}
-		if err := v.dek.Set(enc); err != nil {
+		if err := v.storeDEK(enc, "Buddy wants to store the vault key"); err != nil {
 			return nil, err
 		}
+		v.mu.Lock()
+		v.sessionDEK = enc
+		v.mu.Unlock()
 		return key, nil
 	}
 	return nil, fmt.Errorf("vault key not available — restore from backup, or run 'buddy cred set passphrase' with the recovery phrase")
@@ -479,8 +555,17 @@ func (v *VaultStore) resolveV1Passphrase(typedPass string) (string, error) {
 }
 
 func (v *VaultStore) ensureDEK(create bool) ([]byte, error) {
-	if enc, err := v.dekOptional(); err == nil {
+	v.mu.Lock()
+	if key, ok := ParseDEK(v.sessionDEK); ok {
+		v.mu.Unlock()
+		return key, nil
+	}
+	v.mu.Unlock()
+	if enc, err := v.fetchDEK(DefaultUnlockReason); err == nil {
 		if key, ok := ParseDEK(enc); ok {
+			v.mu.Lock()
+			v.sessionDEK = enc
+			v.mu.Unlock()
 			return key, nil
 		}
 	}
@@ -490,9 +575,6 @@ func (v *VaultStore) ensureDEK(create bool) ([]byte, error) {
 	if v.dek == nil {
 		return nil, fmt.Errorf("dek store is nil")
 	}
-	if err := v.confirmPrivileged("Buddy wants to create a vault key"); err != nil {
-		return nil, err
-	}
 	key, err := GenerateDEK()
 	if err != nil {
 		return nil, err
@@ -501,28 +583,92 @@ func (v *VaultStore) ensureDEK(create bool) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := v.dek.Set(enc); err != nil {
+	if err := v.storeDEK(enc, "Buddy wants to create a vault key"); err != nil {
 		return nil, err
 	}
+	v.mu.Lock()
+	v.sessionDEK = enc
+	v.mu.Unlock()
 	return key, nil
 }
 
-func (v *VaultStore) confirmPrivileged(reason string) error {
-	if v != nil && v.bioOK {
-		return nil
+func (v *VaultStore) storeDEK(enc, reason string) error {
+	if v.dek == nil {
+		return fmt.Errorf("dek store is nil")
 	}
-	if err := confirmDeviceOwner(reason); err != nil {
-		return err
+	if p, ok := v.dek.(presenceDEKStore); ok {
+		return p.SetPresence(enc, reason)
 	}
-	if v != nil {
-		v.bioOK = true
-	}
-	return nil
+	return v.dek.Set(enc)
 }
 
 func (v *VaultStore) dekOptional() (string, error) {
+	if err := v.ensureSessionDEK(DefaultUnlockReason); err != nil {
+		return "", err
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.sessionDEK, nil
+}
+
+func (v *VaultStore) ensureSessionDEK(reason string) error {
+	return v.unlockSession(reason, false)
+}
+
+// ensureSessionDEKOptional is for process start (mcp/serve): OK if no DEK yet.
+func (v *VaultStore) ensureSessionDEKOptional(reason string) error {
+	return v.unlockSession(reason, true)
+}
+
+// unlockSession loads the DEK into session memory. Keychain I/O runs outside v.mu.
+func (v *VaultStore) unlockSession(reason string, allowMissing bool) error {
+	if v == nil {
+		return fmt.Errorf("vault store is nil")
+	}
+	v.mu.Lock()
+	if _, ok := ParseDEK(v.sessionDEK); ok {
+		v.mu.Unlock()
+		return nil
+	}
+	v.mu.Unlock()
+
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = DefaultUnlockReason
+	}
+	enc, err := v.fetchDEK(reason)
+	if err != nil {
+		if allowMissing && isVaultKeyMissing(err) {
+			return nil
+		}
+		return err
+	}
+	if _, ok := ParseDEK(enc); !ok {
+		if allowMissing {
+			return nil
+		}
+		return fmt.Errorf("vault key not set")
+	}
+	v.mu.Lock()
+	v.sessionDEK = enc
+	v.mu.Unlock()
+	return nil
+}
+
+func isVaultKeyMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "not found") || strings.Contains(s, "vault key not set")
+}
+
+func (v *VaultStore) fetchDEK(reason string) (string, error) {
 	if v.dek == nil {
 		return "", fmt.Errorf("dek store is nil")
+	}
+	if p, ok := v.dek.(presenceDEKStore); ok {
+		return p.GetPresence(reason)
 	}
 	return v.dek.Get()
 }

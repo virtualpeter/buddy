@@ -7,6 +7,7 @@ import (
 
 	"buddy/internal/buddy"
 	"buddy/internal/buddy/secrets"
+	"buddy/internal/clispec"
 )
 
 type mockSecretStore struct {
@@ -266,22 +267,22 @@ func TestExtractGlobalFlags(t *testing.T) {
 		t.Fatalf("rest = %v, want %v", rest, want)
 	}
 
-	argv = []string{"buddy", "auth", "token", "--raw", "--user=default"}
+	argv = []string{"buddy", "auth", "token", "show", "--raw", "--user=default"}
 	g, rest = extractGlobalFlags(argv)
 	if g.user != "default" {
 		t.Fatalf("user = %q, want default", g.user)
 	}
-	want = []string{"buddy", "auth", "token", "--raw"}
+	want = []string{"buddy", "auth", "token", "show", "--raw"}
 	if !reflect.DeepEqual(rest, want) {
 		t.Fatalf("rest = %v, want %v", rest, want)
 	}
 
-	argv = []string{"buddy", "auth", "token", "--raw", "--cred=default"}
+	argv = []string{"buddy", "auth", "token", "show", "--raw", "--cred=default"}
 	g, rest = extractGlobalFlags(argv)
 	if !g.rejectCred {
 		t.Fatal("expected rejectCred for removed --cred")
 	}
-	want = []string{"buddy", "auth", "token", "--raw"}
+	want = []string{"buddy", "auth", "token", "show", "--raw"}
 	if !reflect.DeepEqual(rest, want) {
 		t.Fatalf("rest = %v, want %v", rest, want)
 	}
@@ -326,7 +327,7 @@ func TestExtractGlobalFlags(t *testing.T) {
 }
 
 func TestRunAuthRefreshHelp(t *testing.T) {
-	// runAuth treats "auth refresh help" via subcommand help check in token/refresh branches.
+	// extractGlobalFlags does not rewrite "auth refresh" to "auth token refresh".
 	argv := []string{"buddy", "auth", "refresh", "help"}
 	g, rest := extractGlobalFlags(argv)
 	if g.showVersion {
@@ -335,6 +336,94 @@ func TestRunAuthRefreshHelp(t *testing.T) {
 	want := []string{"buddy", "auth", "refresh", "help"}
 	if !reflect.DeepEqual(rest, want) {
 		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+}
+
+func TestAuthTokenBareShowsHelp(t *testing.T) {
+	err := runAuthToken("", nil, nil)
+	if err != nil {
+		t.Fatalf("bare token should print help, got %v", err)
+	}
+}
+
+func TestAuthTokenRawFlagHintsShow(t *testing.T) {
+	err := runAuthToken("", []string{"--raw"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "auth token show") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAuthTokenShowPrintsToken(t *testing.T) {
+	err := runAuthToken("", []string{"show"}, nil)
+	if err == nil {
+		t.Fatal("expected session resolve error")
+	}
+	if strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("show parsed as flag: %v", err)
+	}
+	if strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("show not recognised: %v", err)
+	}
+}
+
+func TestAuthTokenRejectsMovedDirectFlags(t *testing.T) {
+	err := runAuthToken("", []string{"--url=https://example.jamfcloud.com", "--username=admin", "--password=secret"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "buddy token direct") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestTokenDirectRequiresFlags(t *testing.T) {
+	err := runTokenDirect(nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "buddy token help") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAuthTokenStatusAndDropAreSubcommands(t *testing.T) {
+	err := runAuthToken("", []string{"status"}, nil)
+	if err == nil {
+		t.Fatal("expected session resolve error")
+	}
+	if strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("status parsed as flag: %v", err)
+	}
+
+	err = runAuthToken("", []string{"drop"}, nil)
+	if err == nil {
+		t.Fatal("expected session resolve error")
+	}
+	if strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("drop parsed as flag: %v", err)
+	}
+}
+
+func TestAuthRefreshMovedToTokenRefresh(t *testing.T) {
+	err := runAuth("", buddy.Opts{}, []string{clispec.SubRefresh}, nil)
+	if err == nil || !strings.Contains(err.Error(), "auth token refresh") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAuthCapsMovedToAuthorization(t *testing.T) {
+	err := runAuth("", buddy.Opts{}, []string{"caps"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "authorization") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAuthTokenRefreshDoesNotRequirePastedToken(t *testing.T) {
+	err := runAuthTokenRefresh("", nil, nil)
+	if err == nil {
+		t.Fatal("expected session resolve error")
+	}
+	if strings.Contains(err.Error(), "token is required") {
+		t.Fatalf("refresh still requires pasted token: %v", err)
+	}
+
+	err = runAuthTokenRefresh("", []string{"eyJhbGciOiJIUzI1NiJ9.aaa"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "unexpected argument") {
+		t.Fatalf("want unexpected argument, got %v", err)
 	}
 }
 

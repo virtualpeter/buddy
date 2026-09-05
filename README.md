@@ -42,18 +42,19 @@ make buddy
 
 The binary is built to `./buddy` (`CGO_ENABLED=0`). On macOS the default binary stores the vault data key and recovery passphrase in Keychain via `security(1)` (service `buddy`).
 
-The **signed release** (`make buddy-darwin-arm64`) uses Security.framework and a separate Keychain service (`virtualpete.buddy.cli`) so only buddy can read the DEK without a prompt. Secrets stay in `secrets.enc`. See [docs/auth.md](docs/auth.md) for Keychain ACLs, Touch ID, and `cred set passphrase`.
+The **signed release** (`make buddy-darwin-arm64`) uses Security.framework and a separate Keychain service (`virtualpete.buddy.cli`). Vault unlock prompts once per process (LocalAuthentication on Developer ID CLI; Keychain `userPresence` when entitled). Secrets stay in `secrets.enc`. See [docs/auth.md](docs/auth.md).
 
 ```sh
-BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make buddy-darwin-arm64
-# or: BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make install-signed
-# or: BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make package
+make buddy-darwin-arm64
+# or: make install-signed
+# or: make package
+# Override: BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make buddy-darwin-arm64
 ```
 
 | Target | Binary | Keychain | Notes |
 |--------|--------|----------|-------|
 | `make buddy` | `./buddy` | service `buddy` via `security(1)` | Default; no CGO; existing items keep working |
-| `make buddy-darwin-arm64` | `./buddy-darwin-arm64` | service `virtualpete.buddy.cli` (label Buddy) via Security.framework | Requires Darwin/arm64 and `BUDDY_CODESIGN_IDENTITY`; identifier `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) must stay stable; store the recovery passphrase with `./buddy-darwin-arm64 cred set passphrase` |
+| `make buddy-darwin-arm64` | `./buddy-darwin-arm64` | service `virtualpete.buddy.cli` (label Buddy) via Security.framework | Requires Darwin/arm64; signs with the first Developer ID Application from `security find-identity` (`BUDDY_CODESIGN_IDENTITY` overrides); identifier `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) must stay stable; store the recovery passphrase with `./buddy-darwin-arm64 cred set passphrase` |
 | `make install-signed` | `~/go/bin/buddy` | same as `buddy-darwin-arm64` | Builds the signed binary, then copies it over `~/go/bin/buddy` |
 | `make package` | `/usr/local/bin/buddy` (via pkg) | same as `buddy-darwin-arm64` | Branded `buddy-<version>.pkg` (installer UI + Finder icon); optional `BUDDY_PKG_SIGN_IDENTITY` (Developer ID Installer) |
 
@@ -142,7 +143,7 @@ buddy cred use --mcp sandbox
 buddy cred store
 buddy cred delete auth sandbox-admin   # also clears vault secrets
 buddy cred clean secrets               # review/delete orphaned vault entries
-buddy cred erase secrets               # wipe vault + DEK + recovery passphrase (+ leftover Keychain items)
+buddy cred erase secrets               # wipe vault + DEK + recovery passphrase + token wrap/cache
 buddy cred clean tokens                # delete expired/corrupt disk token cache files
 ```
 

@@ -28,6 +28,10 @@ func keychainDEKDescription() string {
 	return "macOS Keychain (unsupported on this platform)"
 }
 
+func keychainTokenWrapDescription() string {
+	return "macOS Keychain (unsupported on this platform)"
+}
+
 func keychainMasterGet() (string, error) {
 	return "", keychainUnsupported()
 }
@@ -49,6 +53,18 @@ func keychainDEKSet(string) error {
 }
 
 func keychainDEKDelete() error {
+	return keychainUnsupported()
+}
+
+func keychainTokenWrapGet() (string, error) {
+	return "", keychainUnsupported()
+}
+
+func keychainTokenWrapSet(string) error {
+	return keychainUnsupported()
+}
+
+func keychainTokenWrapDelete() error {
 	return keychainUnsupported()
 }
 

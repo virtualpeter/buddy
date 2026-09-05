@@ -17,49 +17,117 @@ Usage:
 
 Subcommands:
   test [--all]                 Prove the secret (ForceRenew + probe); --all tests every tenant×surface×auth
-  caps [--all]                 Print cached last-check / privileges for the current pin (or every cell)
-  token [args...]              Print Authorization header or raw bearer token
-  refresh [<token>] [args...]  Refresh a bearer token via keep-alive (instance basic auth)
+  authorization [--all]        Print cached authorization details from GET /api/v1/auth
+  token                        Show token subcommands (same as token help)
+  token show [--raw]           Print Authorization header, or raw bearer with --raw
+  token status [--all]         Show disk token cache metadata (no bearer)
+  token drop [--all]           Invalidate the disk token cache (including still-valid files)
+  token refresh [--raw]        Obtain, keep-alive, or replace the session token from cache state
 
 Flags for 'test':
   --all                        Test every covering auth × tenant × surface (not just the default session)
 
-Flags for 'caps':
-  --all                        Dump every still-valid caps cache entry
+Flags for 'authorization':
+  --all                        Every still-valid authorization-details cache entry
 
-Flags for 'token':
-  --raw                        Print bearer token only (for scripts and token_command)
-  --url=<url>                  Jamf Pro or Platform gateway base URL (direct auth)
-  --region=<region>            Platform gateway region (direct auth; builds URL when --url omitted)
-  --tenant-id=<tenant-id>      Platform API Gateway tenant id (direct auth; requires oauth)
-  --username=<username>          Username (direct basic auth)
-  --password=<password>          Password (direct basic auth)
-  --client-id=<client-id>        OAuth2 client ID (direct auth)
-  --client-secret=<client-secret>  OAuth2 client secret (direct auth)
-  --oauth2-creds-file=<path>     JSON file with client_id and client_secret
+Flags for 'token show':
+  --raw                        Print bearer only (no "Bearer " prefix)
 
-Flags for 'refresh':
-  --url=<url>                    Jamf Pro base URL (defaults to --user credential URL)
-  --token=<token>                Bearer token to refresh (or pass as positional arg)
+Flags for 'token status' / 'token drop':
+  --all                        Every file under ~/.config/buddy/tokens/ (not just the current session)
+
+Flags for 'token refresh':
+  --raw                        Print the new bearer token only
 
 Notes:
   auth test always discards the cached token and mints a new one. Exit 0 if the
   secret works (probe 403 is live=token-ok, not a bad secret). Exit non-zero if
   the secret is missing or the token POST fails. cred get secret is presence only.
-  Last results are cached under ~/.config/buddy/caps/ for cred status and session pick.
+
+  auth authorization prints the last Jamf authorization details cached after
+  auth test (GET /api/v1/auth: accessLevel, privilegeSet, privileges, username).
+  Session pick and cred status use that cache. Missing or stale cache is ignored.
+
+  auth token refresh uses the derived session (--tenant / --user) and the disk
+  cache: basic keep-alives a usable cached token (Jamf POST /api/v1/auth/keep-alive),
+  otherwise obtains; oauth and platform always replace via client credentials;
+  command re-runs runCommand.
+  auth token drop removes still-valid cache files; cred clean tokens only deletes
+  expired or corrupt leftovers. One-shot mint without config is 'buddy token direct'.
 
 Examples:
   buddy auth test
   buddy auth test --all
   buddy --user dev auth test
-  buddy auth caps
+  buddy auth authorization
+  buddy auth authorization --all
   buddy auth token
-  buddy auth token --raw
-  buddy --user dev auth token --raw
-  buddy auth token --raw --url=https://example.jamfcloud.com --username=admin --password=secret
-  buddy auth token --raw --region=us --tenant-id=<tenant-id> --client-id=<client-id> --client-secret=<client-secret>
-  buddy auth refresh eyJhbGciOiJIUzI1NiJ9...
-  buddy --user dev auth refresh --token=eyJhbGciOiJIUzI1NiJ9...
+  buddy auth token show
+  buddy auth token show --raw
+  buddy --user dev auth token show --raw
+  buddy auth token status
+  buddy auth token status --all
+  buddy auth token drop
+  buddy --user dev auth token refresh
+  buddy auth token refresh --raw
+`
+const Token = `buddy token - Mint a bearer token without config
+
+Usage:
+  buddy [global-flags] token <subcommand> [args...]
+
+Subcommands:
+  direct [args...]             One-shot token mint (no config or vault)
+
+Flags for 'direct':
+  --url=<url>                  Jamf Pro or Platform gateway base URL
+  --region=<region>            Platform gateway region (builds URL when --url omitted)
+  --tenant-id=<tenant-id>      Platform tenant id (gateway oauth; needs client-id and client-secret)
+  --username=<username>        Basic auth username
+  --password=<password>        Basic auth password
+  --client-id=<client-id>      OAuth2 client ID (instance, or Platform with --tenant-id)
+  --client-secret=<client-secret>  OAuth2 client secret
+  --oauth2-creds-file=<path>   JSON file with client_id and client_secret
+
+Notes:
+  Prints the raw bearer (no "Bearer " prefix). Does not load a named auth or the
+  vault. Pass either username+password or client-id+client-secret (not both).
+  --tenant-id selects Platform; omit it for instance. Tokens still land in
+  tokens/ under a direct-* cache key. Secrets on the command line are visible
+  in process lists.
+
+  For a configured session, use 'buddy auth token show --raw' instead.
+
+Examples:
+  buddy token direct --url=https://example.jamfcloud.com --username=admin --password=secret
+  buddy token direct --region=us --tenant-id=<tenant-id> --client-id=<client-id> --client-secret=<client-secret>
+  buddy token direct --url=https://example.jamfcloud.com --oauth2-creds-file=./client.json
+`
+const CredShort = `buddy cred - Manage tenants, auths, and secrets
+
+Usage:
+  buddy [global-flags] cred <subcommand> [args...]
+
+Subcommands:
+  add [auth-name] [args...]         Guided tenant + auth + secret
+  set tenant <name> [args...]       Add or update a tenant (Jamf environment)
+  set auth <name> [args...]         Add or update an auth (the --user name)
+  set secret <auth> [args...]       Store password / client secret in the vault
+  status [--test]                   Tenant × surface coverage
+  list                              List tenants, auths, and channel policies
+  get tenant|auth|channel|secret    Show one item (secrets redacted / presence only)
+  use [tenant]                      Show or set tenant.default
+  help                              Full flags, channel policy, backup, vault, migrate, clean, erase
+
+Notes:
+  An auth is a named principal in config.yaml (not a Jamf account). Pin it with
+  --user / --auth. Full flags and notes: buddy cred help.
+
+Examples:
+  buddy cred add --tenant=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
+  buddy cred set tenant sandbox --url=https://example.jamfcloud.com
+  buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox
+  buddy cred set secret sandbox-admin --password
 `
 const Cred = `buddy cred - Manage tenants, auths, secrets, and channel policies
 
@@ -76,28 +144,28 @@ Usage:
   buddy [global-flags] cred restore <file> [--passphrase=] [-y]
 
 Subcommands:
-  status [--test]                   Tenant × surface coverage (gaps, secret presence, last live check)
   add [auth-name] [args...]         Guided tenant + auth + secret (optional live test)
+  set tenant <name> [args...]       Add or update a tenant
+  set auth <name> [args...]         Add or update an auth (the --user name; link to tenants)
+  set secret <auth> [args...]       Store password / client secret in the vault
+  status [--test]                   Tenant × surface coverage (gaps, secret presence, last live check)
   list                              List tenants, auths, and channel policies
   get tenant <name>                 Show tenant details
   get auth <name>                   Show auth details (secrets redacted)
   get channel <cli|mcp|ide>
                                     Show channel policy
   get secret <auth>                 Show where secrets are stored (values hidden; presence only)
-  set tenant <name> [args...]       Add or update a tenant
-  set auth <name> [args...]         Add or update an auth (link to tenants)
+  use [tenant]                      Show or set tenant.default
+  use --cli|--mcp|--ide [tenant]
+                                    Show or set channels.<client>.tenant
   set channel <cli|mcp|ide> [args...]
                                     Set channel access / tenant / tenants allowlist
-  set secret <auth> [args...]       Store password / client secret in the vault
   set passphrase [--passphrase=]    Create or rotate the recovery passphrase (backups)
   delete tenant|auth|secret <name>  Remove a tenant (cascades sole-linked auths+secrets),
                                     auth (+secrets), or stored secrets
   clean secrets                     Review secret-store entries; prompt to delete orphans
   clean tokens                      Delete expired/corrupt files under ~/.config/buddy/tokens/
-  erase secrets                     Wipe the vault, data key, recovery passphrase, and leftover Keychain items
-  use [tenant]                      Show or set tenant.default
-  use --cli|--mcp|--ide [tenant]
-                                    Show or set channels.<client>.tenant
+  erase secrets                     Wipe the vault, data key, recovery passphrase, token wrap/cache, and leftover Keychain items
   store                             Show vault path, data-key backend, and recovery-passphrase backend
   migrate [auth]                    Move inline YAML secrets and old per-auth store items into the vault
   backup <file>                     Encrypt tenants, auths (with secrets), and channels to a file
@@ -174,8 +242,8 @@ Notes for 'backup' / 'restore':
 Notes:
   cred status is the maintenance view (tenant × surface coverage). cred list is
   the raw dump. cred get secret / status SECRET column are presence only —
-  'buddy auth test' proves the secret (ForceRenew). Last live results live in
-  ~/.config/buddy/caps/ (same obfuscation style as tokens/).
+  'buddy auth test' proves the secret (ForceRenew). Last authorization details
+  from GET /api/v1/auth live in ~/.config/buddy/caps/ (same obfuscation style as tokens/).
   A platform clientId may list multiple tenants under --tenants.
   credentials: / string tenant: / defaults: / allow_auths: and the notebook
   / serve client names are removed — use tenants:/auths: and channels.<cli|mcp|ide>.
@@ -195,11 +263,13 @@ Notes:
   Deleting a tenant deletes auths linked only to that tenant (with secrets) and
   unlinks multi-tenant auths; use 'buddy cred clean secrets' for leftover orphans
   or 'buddy cred erase secrets' to wipe the vault, data key, recovery passphrase,
-  and any leftover per-auth Keychain items (both macOS services).
+  token-wrap key, on-disk token cache, and leftover per-auth Keychain items
+  (both macOS services).
   cred migrate moves inline YAML secrets into the vault and, with no auth name,
   imports leftover per-auth Keychain/file/pass entries.
   Token files under ~/.config/buddy/tokens/ are purged when expired (or via
   'buddy cred clean tokens'); still-valid entries are reused across CLI runs.
+  'buddy auth token drop' invalidates still-valid cache files for a session.
   Auth channels (cli/mcp/ide) default to all. Channel policy access and
   auth access both clamp mutates (most restrictive wins). Restrict MCP e.g.:
   channels.mcp.access=readonly and/or auth channels excluding mcp from full auths.
@@ -210,17 +280,19 @@ Notes:
   agents cannot fall back to generic jamf_get/jamf_put; treat raises as coverage gaps.
 
 Examples:
-  buddy cred status
-  buddy cred status --test
   buddy cred add --tenant=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
   buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=apac --tenant-id=…
-  buddy cred set auth platform-ro --type=platform --client-id=… --tenants=sandbox --access=readonly --channels=mcp,ide
   buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox --channels=cli,ide
+  buddy cred set auth platform-ro --type=platform --client-id=… --tenants=sandbox --access=readonly --channels=mcp,ide
+  buddy cred set secret platform-ro --client-secret
+  buddy cred status
+  buddy cred status --test
+  buddy cred use sandbox
+  buddy cred use --mcp sandbox
   buddy cred set channel mcp --access=readonly --tenant=sandbox --tenants=sandbox
   buddy cred set channel mcp --deny-builtins=computer_erase
   buddy cred set channel mcp --allow-builtins=*
   buddy cred set tenant prod --deny-builtins=* --allow-builtins=policies,policy
-  buddy cred set secret platform-ro --client-secret
   buddy cred set passphrase
   buddy cred delete auth sandbox-admin
   buddy cred delete tenant sandbox
@@ -229,8 +301,6 @@ Examples:
   buddy cred erase secrets
   buddy cred backup ./buddy.creds
   buddy cred restore ./buddy.creds
-  buddy cred use sandbox
-  buddy cred use --mcp sandbox
   buddy --tenant=sandbox policy list --filter=chrome
   buddy --user=sandbox-admin policy set …
 `

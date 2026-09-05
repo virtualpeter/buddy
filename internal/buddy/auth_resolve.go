@@ -28,7 +28,7 @@ func (c CredentialConfig) ResolveAuthWithSecrets(credName string) (ResolvedAuth,
 		ClientSecret: auth.ClientSecret,
 	}
 
-	switch auth.Type {
+	switch AuthMechanismType(auth.Type) {
 	case "command":
 		return resolved, nil
 	case "basic":

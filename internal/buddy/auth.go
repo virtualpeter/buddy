@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"buddy/internal/buddy/tokenauth"
@@ -185,6 +186,219 @@ func PrintRawToken(credName string, direct DirectAuthOpts, log *slog.Logger) err
 		return err
 	}
 	fmt.Println(token)
+	return nil
+}
+
+// AuthRefreshResult is the outcome of buddy auth token refresh.
+type AuthRefreshResult struct {
+	Auth   string
+	Tenant string
+	Type   string
+	Action string
+	Expiry time.Time
+	Token  string
+}
+
+// AuthRefresh obtains, keep-alive refreshes, or replaces the session token
+// based on auth type and disk-cache state.
+func AuthRefresh(credName string, log *slog.Logger) (*AuthRefreshResult, error) {
+	sess, err := ResolveSessionForCred(credName, OpAny)
+	if err != nil {
+		return nil, err
+	}
+	cred := sess.Credential
+	out := &AuthRefreshResult{
+		Auth:   sess.AuthName,
+		Tenant: sess.TenantName,
+		Type:   sess.Auth.Type,
+	}
+	switch cred.Auth.Type {
+	case "command":
+		header, err := resolveCommandToken(sess.AuthName, cred.Auth)
+		if err != nil {
+			return nil, err
+		}
+		out.Action = tokenauth.TokenActionReplace
+		out.Token = strings.TrimPrefix(header, "Bearer ")
+		return out, nil
+	case "basic", "oauth":
+		a, err := cachedAuthenticator(sessionCacheName(sess), sess.AuthName, cred)
+		if err != nil {
+			return nil, err
+		}
+		res, err := a.RefreshSession()
+		if err != nil {
+			return nil, err
+		}
+		out.Action = res.Action
+		out.Expiry = res.Expiry
+		out.Token = res.Token
+		return out, nil
+	case "":
+		return nil, fmt.Errorf("auth %q has no type configured", sess.AuthName)
+	default:
+		return nil, fmt.Errorf("auth %q has unknown type %q", sess.AuthName, cred.Auth.Type)
+	}
+}
+
+// PrintAuthRefresh writes a short status (no bearer) for auth token refresh.
+func PrintAuthRefresh(res *AuthRefreshResult) {
+	if res == nil {
+		return
+	}
+	fmt.Printf("auth:     %s\n", res.Auth)
+	fmt.Printf("tenant:   %s\n", res.Tenant)
+	fmt.Printf("type:     %s\n", res.Type)
+	fmt.Printf("action:   %s\n", res.Action)
+	if !res.Expiry.IsZero() {
+		fmt.Printf("expires:  %s\n", res.Expiry.UTC().Format(time.RFC3339))
+	}
+}
+
+// TokenCacheStatus is local disk-cache metadata for one session (no bearer).
+type TokenCacheStatus struct {
+	Auth   string
+	Tenant string
+	Type   string
+	Cache  string // missing | present | expired | n/a
+	Expiry time.Time
+	Usable bool
+	Key    string
+	URL    string
+}
+
+func tokenCacheState(authType string, info tokenauth.DiskTokenInfo) string {
+	if authType == "command" {
+		return "n/a"
+	}
+	if !info.Present {
+		return "missing"
+	}
+	if !info.Usable {
+		return "expired"
+	}
+	return "present"
+}
+
+// SessionTokenStatus returns disk-cache metadata for the resolved session.
+func SessionTokenStatus(credName string) (*TokenCacheStatus, error) {
+	sess, err := ResolveSessionForCred(credName, OpAny)
+	if err != nil {
+		return nil, err
+	}
+	st := &TokenCacheStatus{
+		Auth:   sess.AuthName,
+		Tenant: sess.TenantName,
+		Type:   sess.Auth.Type,
+		Key:    sessionDiskCacheKey(sess),
+	}
+	if sess.Auth.Type == "command" || sess.Credential.Auth.Type == "command" {
+		st.Cache = "n/a"
+		return st, nil
+	}
+	info := tokenauth.PeekDiskToken(st.Key)
+	st.Cache = tokenCacheState(sess.Auth.Type, info)
+	st.Expiry = info.Expiry
+	st.Usable = info.Usable
+	st.URL = info.URL
+	return st, nil
+}
+
+// PrintTokenStatus prints cache metadata for the session, or every tokens/ file when all.
+func PrintTokenStatus(credName string, all bool) error {
+	if all {
+		return printAllTokenStatus()
+	}
+	st, err := SessionTokenStatus(credName)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("auth:     %s\n", st.Auth)
+	fmt.Printf("tenant:   %s\n", st.Tenant)
+	fmt.Printf("type:     %s\n", st.Type)
+	fmt.Printf("cache:    %s\n", st.Cache)
+	fmt.Printf("key:      %s\n", st.Key)
+	if !st.Expiry.IsZero() {
+		fmt.Printf("expires:  %s (%s)\n", st.Expiry.UTC().Format(time.RFC3339), formatTokenRemaining(st.Expiry))
+	}
+	if st.Cache != "n/a" && st.Cache != "missing" {
+		fmt.Printf("usable:   %s\n", boolYesNo(st.Usable))
+	}
+	if st.URL != "" {
+		fmt.Printf("url:      %s\n", st.URL)
+	}
+	return nil
+}
+
+func printAllTokenStatus() error {
+	list, err := tokenauth.ListDiskTokens()
+	if err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		fmt.Println("no token cache files")
+		return nil
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "KEY\tCACHE\tEXPIRES\tREMAINING\tUSABLE\tURL")
+	for _, info := range list {
+		cache := tokenCacheState("", info)
+		exp := ""
+		remain := ""
+		if !info.Expiry.IsZero() {
+			exp = info.Expiry.UTC().Format(time.RFC3339)
+			remain = formatTokenRemaining(info.Expiry)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			info.Key, cache, exp, remain, boolYesNo(info.Usable), info.URL)
+	}
+	return tw.Flush()
+}
+
+func formatTokenRemaining(exp time.Time) string {
+	d := time.Until(exp)
+	if d <= 0 {
+		return "expired"
+	}
+	return d.Truncate(time.Second).String()
+}
+
+func boolYesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
+}
+
+// DropTokenCache invalidates the session disk+process token cache, or every file when all.
+func DropTokenCache(credName string, all bool) error {
+	if all {
+		evictAllAuthenticators()
+		res, err := tokenauth.DropAllDiskTokens()
+		if err != nil {
+			return err
+		}
+		if res.Dir != "" {
+			fmt.Printf("Token cache: %s\n", res.Dir)
+		}
+		fmt.Printf("dropped %d token cache file(s)\n", res.Dropped)
+		return nil
+	}
+	sess, err := ResolveSessionForCred(credName, OpAny)
+	if err != nil {
+		return err
+	}
+	if sess.Auth.Type == "command" || sess.Credential.Auth.Type == "command" {
+		fmt.Printf("no disk cache for command auth %q\n", sess.AuthName)
+		return nil
+	}
+	key := sessionDiskCacheKey(sess)
+	evictAuthenticator(sessionCacheName(sess))
+	if tokenauth.DropDiskToken(key) {
+		fmt.Printf("dropped token cache for %s\n", key)
+		return nil
+	}
+	fmt.Printf("no token cache for %s\n", key)
 	return nil
 }
 
@@ -596,7 +810,7 @@ func PrintAuthTestAll(results []AuthTestAllResult) {
 		okN, tokenOkN, failN, missN, len(results))
 }
 
-// PrintAuthCaps dumps cached last-check records as JSON.
+// PrintAuthCaps dumps cached Jamf authorization details (GET /api/v1/auth).
 func PrintAuthCaps(cfg *Config, credName string, all bool) error {
 	var recs []CapsRecord
 	if all {

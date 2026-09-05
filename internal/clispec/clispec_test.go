@@ -77,7 +77,7 @@ func TestEnglishCatalogComplete(t *testing.T) {
 	ids := []string{
 		MsgMissingArg, MsgMissingArgHint, MsgUnknownCommand, MsgUnknownSubcommand,
 		MsgDidYouMean, MsgUseCandidates, MsgRunHelpList, MsgNoHelp,
-		MsgCmdAuth, MsgCmdCred, MsgCmdPolicy, MsgCmdCategory, MsgCmdMacApp, MsgCmdApp,
+		MsgCmdAuth, MsgCmdToken, MsgCmdCred, MsgCmdPolicy, MsgCmdCategory, MsgCmdMacApp, MsgCmdApp,
 		MsgCmdGroup, MsgCmdProfile, MsgCmdPackage, MsgCmdIcon, MsgCmdComputer, MsgCmdMdm,
 		MsgCmdMobile, MsgCmdMobileGroup, MsgCmdMobileProf,
 		MsgCmdBlueprint, MsgCmdDevice, MsgCmdDeviceGroup, MsgCmdDDM, MsgCmdBenchmark,

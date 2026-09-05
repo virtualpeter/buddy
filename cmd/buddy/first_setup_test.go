@@ -18,6 +18,7 @@ func TestShouldOfferFirstTimeSetup(t *testing.T) {
 		{[]string{clispec.CmdSetup, "basic-setup"}, false},
 		{[]string{clispec.CmdCred, "list"}, false},
 		{[]string{clispec.CmdAuth, "test"}, false},
+		{[]string{clispec.CmdToken, "direct"}, false},
 		{[]string{clispec.CmdServe}, false},
 		{[]string{clispec.CmdLSP}, false},
 		{[]string{clispec.CmdMCP}, false},
