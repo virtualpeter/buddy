@@ -108,6 +108,10 @@ var helpMobileExtAttr = help.MobileExtensionAttributesCLIHelp
 
 // printCommandHelp routes 'buddy help [command] [subcommand]' to the appropriate help text.
 func printCommandHelp(path []string) {
+	if len(path) > 0 {
+		path = append([]string(nil), path...)
+		path[0] = clispec.CanonicalCommand(path[0])
+	}
 	key := strings.Join(path, ".")
 	helpMap := map[string]string{
 		clispec.CmdAuth:       helpAuth,

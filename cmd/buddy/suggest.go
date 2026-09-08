@@ -8,7 +8,7 @@ import (
 	"buddy/internal/clispec"
 )
 
-// Common plural / alias typos for top-level commands (before edit-distance).
+// Documented aliases for top-level commands (resolved at dispatch; also used before edit-distance).
 var commandAliases = clispec.CommandAliases()
 
 func knownCommandNames() []string {

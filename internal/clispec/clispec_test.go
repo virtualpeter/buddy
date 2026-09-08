@@ -128,6 +128,34 @@ func TestCommandAliases(t *testing.T) {
 	if a["policies"] != CmdPolicy || a["blueprints"] != CmdBlueprint {
 		t.Fatalf("aliases = %v", a)
 	}
+	if a["ea"] != CmdExtensionAttribute || a["eas"] != CmdExtensionAttribute || a["extension-attributes"] != CmdExtensionAttribute {
+		t.Fatalf("ea aliases = %v", a)
+	}
+	if a["mobile-ea"] != CmdMobileExtAttr {
+		t.Fatalf("mobile-ea alias = %v", a)
+	}
+}
+
+func TestCanonicalCommand(t *testing.T) {
+	cases := map[string]string{
+		"ea":                    CmdExtensionAttribute,
+		"eas":                   CmdExtensionAttribute,
+		"EA":                    CmdExtensionAttribute,
+		"extension-attributes":  CmdExtensionAttribute,
+		"extension-attribute":   CmdExtensionAttribute,
+		"  ea  ":                CmdExtensionAttribute,
+		"policies":              CmdPolicy,
+		"policy":                CmdPolicy,
+		"mobile-ea":             CmdMobileExtAttr,
+		"mobile-eas":            CmdMobileExtAttr,
+		"xyzzy":                 "xyzzy",
+		"":                      "",
+	}
+	for in, want := range cases {
+		if got := CanonicalCommand(in); got != want {
+			t.Errorf("CanonicalCommand(%q) = %q, want %q", in, got, want)
+		}
+	}
 }
 
 func TestCatalogEntriesStable(t *testing.T) {

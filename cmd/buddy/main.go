@@ -71,6 +71,9 @@ func main() {
 	buddy.SetActiveConfig(cfg)
 
 	args := os.Args[1:]
+	if len(args) > 0 {
+		args[0] = clispec.CanonicalCommand(args[0])
+	}
 	channel := buddy.ChannelCLI
 	if len(args) > 0 {
 		switch args[0] {

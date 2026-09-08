@@ -1,5 +1,7 @@
 package clispec
 
+import "strings"
+
 // Command is a top-level CLI command. ID is never translated; Summary is a message ID.
 type Command struct {
 	ID      string
@@ -58,7 +60,8 @@ func RootCommands() []Command {
 	}
 }
 
-// DispatchNames is every token accepted as argv[0] (Root commands plus help).
+// DispatchNames is every canonical token accepted as argv[0] (Root commands plus help).
+// Documented aliases are resolved to these IDs by CanonicalCommand.
 func DispatchNames() []string {
 	out := make([]string, 0, len(RootCommands())+1)
 	out = append(out, CmdHelp)
@@ -68,7 +71,7 @@ func DispatchNames() []string {
 	return out
 }
 
-// CommandAliases maps plural/typo tokens to a dispatch name.
+// CommandAliases maps documented alias tokens (plurals and short names) to a dispatch name.
 func CommandAliases() map[string]string {
 	out := map[string]string{}
 	for _, c := range RootCommands() {
@@ -77,6 +80,24 @@ func CommandAliases() map[string]string {
 		}
 	}
 	return out
+}
+
+// CanonicalCommand returns the dispatch ID for a command or documented alias
+// (case-insensitive). Unknown tokens are returned unchanged.
+func CanonicalCommand(name string) string {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" {
+		return name
+	}
+	for _, n := range DispatchNames() {
+		if n == key {
+			return n
+		}
+	}
+	if id, ok := CommandAliases()[key]; ok {
+		return id
+	}
+	return name
 }
 
 // GlobalFlags is the Global flags: table in buddy help, in display order.
