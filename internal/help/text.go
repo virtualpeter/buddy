@@ -607,8 +607,10 @@ var Builtins = builtinsHead +
 	MacappsBuiltinsSection +
 	AppsBuiltinsSection +
 	ComputersBuiltinsSection +
+	ComputerSearchesBuiltinsSection +
 	MdmBuiltinsSection +
 	MobileDevicesBuiltinsSection +
+	MobileSearchesBuiltinsSection +
 	MobileGroupsBuiltinsSection +
 	MobileProfilesBuiltinsSection +
 	RolesBuiltinsSection +

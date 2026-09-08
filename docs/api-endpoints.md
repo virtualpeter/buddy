@@ -516,6 +516,30 @@ Base path: `/JSSResource/computerhistory`
 
 ---
 
+## Advanced computer searches (Classic API)
+
+Jamf’s **Reports** UI for Macs is Classic advanced computer searches. There is no Pro JSON CRUD for this object. Buddy’s `computer_search` / `buddy computer-search` treat **definition** and **results** as separate calls (`computers` on GET-by-id can be huge).
+
+Base path: `/JSSResource/advancedcomputersearches`
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/JSSResource/advancedcomputersearches` | `ComputerSearchSearch`, `computer_searches` | List `{id, name}` (JSON Accept; XML fallback) |
+| `GET` | `/JSSResource/advancedcomputersearches/id/{id}` | `ComputerSearchFetch`, `computer_search` | Definition JSON; buddy **strips `computers`** |
+| `GET` | `/JSSResource/advancedcomputersearches/name/{name}` | `ComputerSearchFetchByName` | Exact Classic name |
+| `GET` | `/JSSResource/computerreports/id/{id}` | `ComputerSearchComputers`, `computer_search_computers` | Results-only `Computer` rows (same saved-search IDs) |
+| `POST` | `/JSSResource/advancedcomputersearches/id/0` | `ComputerSearchCreate`, `computer_search_create` | Create (JSON body; `computers` stripped) |
+| `PUT` | `/JSSResource/advancedcomputersearches/id/{id}` | `ComputerSearchPut`, `computer_search_put` | Full replace (JSON; `computers` stripped) |
+| `DELETE` | `/JSSResource/advancedcomputersearches/id/{id}` | `ComputerSearchDelete`, `computer_search_delete` | Delete by id |
+
+### Notes
+
+- `computerreports` is **not** a second resource noun — it is the results path for the same advanced-search IDs. If that GET fails, buddy falls back to ACS `computers`.
+- Pass Classic JSON through (`and_or` / `search_type`). List `--filter` / `filter=` is client-side on `{id, name}`.
+- Not DDM / benchmark / blueprint status reports, not per-Mac `computerhardwaresoftwarereports`, and not `buddy report`.
+
+---
+
 ## MDM Commands (Jamf Pro API v2)
 
 Base path: `/api/v2/mdm/commands`
@@ -557,6 +581,27 @@ Base path: `/api/v2/mobile-devices`
 - The list endpoint has no RSQL `filter`; buddy's `--filter` / `filter=` is a client-side substring over id/name/serial/udid/username/model/type.
 - MDM actions resolve each device's `managementId` from `GET /api/v2/mobile-devices/{id}`, then POST `/api/v2/mdm/commands` — same send path as computers, different `clientType`.
 - Command types used: `DEVICE_INFORMATION` (update-inventory), `RESTART_DEVICE`, `DEVICE_LOCK` (optional `message`/`phoneNumber`/`pin`), `ERASE_DEVICE` (optional `pin`, `obliterationBehavior`, `preserveDataPlan`, `disallowProximitySetup`).
+
+---
+
+## Advanced mobile-device searches (Pro + Classic)
+
+Definitions: Pro `/api/v1/advanced-mobile-device-searches` (paginated JSON CRUD). **No membership in the Pro schema.** Results: Classic `GET /JSSResource/advancedmobiledevicesearches/id/{id}` → `mobile_devices`. Buddy’s `mobile_search` / `buddy mobile-search` split definition vs results like computer searches.
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/api/v1/advanced-mobile-device-searches` | `MobileSearchSearch`, `mobile_searches` | Paginated `{id, name}` (omit page = all) |
+| `GET` | `/api/v1/advanced-mobile-device-searches/{id}` | `MobileSearchFetch`, `mobile_search` | Pro definition JSON (no devices) |
+| `POST` | `/api/v1/advanced-mobile-device-searches` | `MobileSearchCreate`, `mobile_search_create` | Create (Pro camelCase `andOr` / `searchType`) |
+| `PUT` | `/api/v1/advanced-mobile-device-searches/{id}` | `MobileSearchPut`, `mobile_search_put` | Full replace |
+| `DELETE` | `/api/v1/advanced-mobile-device-searches/{id}` | `MobileSearchDelete`, `mobile_search_delete` | Delete by id |
+| `GET` | `/JSSResource/advancedmobiledevicesearches/id/{id}` | `MobileSearchDevices`, `mobile_search_devices` | Classic result rows (`mobile_devices`) |
+
+### Notes
+
+- Result rows are Classic `mobile_devices` only; Pro GET has no membership. List `filter=` is client-side on id/name (Pro list has no RSQL in this slice).
+- Classic swagger’s “Pro equivalent” note for **user** searches points at `advanced-user-content-searches` (VPP/content). That is **not** Classic `advancedusersearches` (user inventory) and is not wired here.
+- Not DDM / benchmark / patch reports.
 
 ---
 

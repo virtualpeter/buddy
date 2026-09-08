@@ -96,6 +96,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "computer_history", computerHistoryBuiltin(credName, logger))
 	putBuiltin(dict, "computer_policy_logs", computerPolicyLogsBuiltin(credName, logger))
 	putBuiltin(dict, "policy_logs", policyLogsBuiltin(credName, logger))
+	registerComputerSearchBuiltins(dict, credName, logger)
 	putBuiltin(dict, "mdm_commands", mdmCommandsBuiltin(credName, logger))
 	putBuiltin(dict, "profiles", profilesBuiltin(credName, logger))
 	putBuiltin(dict, "profile", profileBuiltin(credName, logger))
@@ -125,6 +126,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "blueprint_component", blueprintComponentBuiltin(credName, logger))
 	registerPlatformBuiltins(dict, credName, logger)
 	registerMobileBuiltins(dict, credName, logger)
+	registerMobileSearchBuiltins(dict, credName, logger)
 	registerMobileExtensionAttributeBuiltins(dict, credName, logger)
 
 	// Multi-step helpers / specialized actions.

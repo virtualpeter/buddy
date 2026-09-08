@@ -171,8 +171,10 @@ buddy help [command] [subcommand]
 | `profile` | macOS configuration profiles |
 | `package` | Package records (upload, metadata, history) |
 | `computer` | Computer inventory and MDM actions |
+| `computer-search` | Classic advanced computer searches (Jamf Reports) |
 | `mdm` | Query MDM command history (RSQL) |
 | `mobile-device` | Jamf Pro mobile devices (inventory + MDM actions) |
+| `mobile-search` | Advanced mobile-device searches (Jamf Reports) |
 | `mobile-group` | Smart/static mobile-device groups |
 | `mobile-profile` | Mobile-device configuration profiles |
 | `role` | API roles |

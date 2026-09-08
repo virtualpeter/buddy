@@ -66,6 +66,9 @@ var helpDeviceGroup = help.DeviceGroupsCLIHelp
 // helpMobileDevice is generated (make gendocs).
 var helpMobileDevice = help.MobileDevicesCLIHelp
 
+// helpMobileSearch is generated (make gendocs).
+var helpMobileSearch = help.MobileSearchesCLIHelp
+
 // helpMobileGroup is generated (make gendocs).
 var helpMobileGroup = help.MobileGroupsCLIHelp
 
@@ -86,6 +89,9 @@ var helpIcon = help.IconsCLIHelp
 
 // helpComputer is generated (make gendocs).
 var helpComputer = help.ComputersCLIHelp
+
+// helpComputerSearch is generated (make gendocs).
+var helpComputerSearch = help.ComputerSearchesCLIHelp
 
 // helpRole is generated (make gendocs).
 var helpRole = help.RolesCLIHelp
@@ -133,26 +139,28 @@ func printCommandHelp(path []string) {
 		clispec.HelpPath(clispec.CmdPolicy, clispec.SubCreate): helpPolicyCreate,
 		clispec.HelpPath(clispec.CmdPolicy, clispec.SubDelete): helpPolicyDelete,
 		clispec.HelpPath(clispec.CmdPolicy, clispec.SubLogs):   helpPolicyLogs,
-		clispec.CmdCategory:    helpCategory,
-		clispec.CmdMacApp:      helpMacApp,
-		clispec.CmdApp:         helpApp,
-		clispec.CmdGroup:       helpGroup,
-		clispec.CmdProfile:     helpProfile,
-		clispec.CmdPackage:     helpPackage,
-		clispec.CmdIcon:        helpIcon,
-		clispec.CmdComputer:    helpComputer,
-		clispec.CmdMdm:         helpMdm,
-		clispec.CmdMobile:      helpMobileDevice,
-		clispec.CmdMobileGroup: helpMobileGroup,
-		clispec.CmdMobileProf:  helpMobileProfile,
-		clispec.CmdBlueprint:   helpBlueprint,
-		clispec.CmdDevice:      helpDevice,
-		clispec.CmdDeviceGroup: helpDeviceGroup,
-		clispec.CmdDDM:         helpDDM,
-		clispec.CmdBenchmark:   helpBenchmark,
-		clispec.CmdRole:        helpRole,
-		clispec.CmdClient:      helpClient,
-		clispec.CmdScript:      helpScript,
+		clispec.CmdCategory:       helpCategory,
+		clispec.CmdMacApp:         helpMacApp,
+		clispec.CmdApp:            helpApp,
+		clispec.CmdGroup:          helpGroup,
+		clispec.CmdProfile:        helpProfile,
+		clispec.CmdPackage:        helpPackage,
+		clispec.CmdIcon:           helpIcon,
+		clispec.CmdComputer:       helpComputer,
+		clispec.CmdComputerSearch: helpComputerSearch,
+		clispec.CmdMdm:            helpMdm,
+		clispec.CmdMobile:         helpMobileDevice,
+		clispec.CmdMobileSearch:   helpMobileSearch,
+		clispec.CmdMobileGroup:    helpMobileGroup,
+		clispec.CmdMobileProf:     helpMobileProfile,
+		clispec.CmdBlueprint:      helpBlueprint,
+		clispec.CmdDevice:         helpDevice,
+		clispec.CmdDeviceGroup:    helpDeviceGroup,
+		clispec.CmdDDM:            helpDDM,
+		clispec.CmdBenchmark:      helpBenchmark,
+		clispec.CmdRole:           helpRole,
+		clispec.CmdClient:         helpClient,
+		clispec.CmdScript:         helpScript,
 		clispec.HelpPath(clispec.CmdScript, clispec.SubGet):             helpScriptGet,
 		clispec.HelpPath(clispec.CmdScript, clispec.SubSet):             helpScriptSet,
 		clispec.CmdExtensionAttribute:                                   helpExtensionAttribute,
