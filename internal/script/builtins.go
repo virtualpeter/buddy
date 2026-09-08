@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"buddy/internal/buddy"
+	"buddy/internal/redact"
 
 	"go.starlark.net/starlark"
 )
@@ -302,12 +303,12 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 			dict[bName] = starlark.NewBuiltin(bName, func(t *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 				pos := t.CallFrame(0).Pos
 				w := writerFromLocal(t, localStderr, os.Stderr)
-				fmt.Fprintf(w, "[trace] %s:%d  → %s(%s)\n", pos.Filename(), pos.Line, bName, formatTraceArgs(args, kwargs))
+				fmt.Fprintf(w, "[trace] %s:%d  → %s(%s)\n", pos.Filename(), pos.Line, bName, redact.String(formatTraceArgs(args, kwargs)))
 				result, err := starlark.Call(t, orig, args, kwargs)
 				if err != nil {
-					fmt.Fprintf(w, "[trace] %s:%d  ← %s error: %v\n", pos.Filename(), pos.Line, bName, err)
+					fmt.Fprintf(w, "[trace] %s:%d  ← %s error: %s\n", pos.Filename(), pos.Line, bName, redact.String(err.Error()))
 				} else {
-					fmt.Fprintf(w, "[trace] %s:%d  ← %s = %s\n", pos.Filename(), pos.Line, bName, result)
+					fmt.Fprintf(w, "[trace] %s:%d  ← %s = %s\n", pos.Filename(), pos.Line, bName, redact.String(fmt.Sprint(result)))
 				}
 				return result, err
 			})

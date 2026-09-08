@@ -378,7 +378,7 @@ func CleanExpiredCapsCache() (CapsCacheCleanResult, error) {
 	return out, nil
 }
 
-// ListCapsRecords loads every still-valid caps file (for auth caps --all).
+// ListCapsRecords loads every still-valid caps file (for auth authorization --all).
 func ListCapsRecords() []CapsRecord {
 	dir, err := capsCacheDir()
 	if err != nil {

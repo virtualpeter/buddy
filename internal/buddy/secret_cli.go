@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"buddy/internal/buddy/secrets"
+	"buddy/internal/buddy/tokenauth"
 )
 
 // SetCredentialSecrets stores password and/or client secret for a credential.
@@ -39,6 +40,12 @@ func PromptSecret(label string) (string, error) {
 // StdinIsTerminal reports whether stdin is an interactive terminal.
 func StdinIsTerminal() bool {
 	return secrets.StdinIsTerminal()
+}
+
+// UnlockVaultSession loads the vault DEK into process memory (Touch ID / passcode
+// on signed macOS). Call at mcp/serve start; CLI unlocks lazily on first vault use.
+func UnlockVaultSession(reason string) error {
+	return secrets.UnlockDefaultStore(reason)
 }
 
 // ReadSecretFromStdin reads a secret value from stdin.
@@ -172,8 +179,8 @@ func ListBuddyKeychainSecrets() ([]KeychainSecretGroup, error) {
 
 // EraseCredentialSecrets deletes every secret in the active store.
 // On macOS it also deletes leftover items from both buddy Keychain services
-// (CLI "buddy" and signed "virtualpete.buddy.cli"), including the vault DEK
-// and recovery passphrase.
+// (CLI "buddy" and signed "virtualpete.buddy.cli"), including the vault DEK,
+// recovery passphrase, token-wrap key, and on-disk token cache files.
 func EraseCredentialSecrets() (storeDeleted, keychainDeleted int, err error) {
 	store, err := secrets.DefaultStore()
 	if err != nil {
@@ -205,6 +212,9 @@ func EraseCredentialSecrets() (storeDeleted, keychainDeleted int, err error) {
 	if secrets.UsingOverrideStore() {
 		return storeDeleted, 0, nil
 	}
+	_, _ = tokenauth.DropAllDiskTokens()
+	tokenauth.ClearWrapKeyCache()
+	_ = secrets.DeleteTokenWrap()
 	for _, svc := range secrets.BuddyKeychainServices() {
 		n, err := secrets.EraseKeychainService(svc)
 		keychainDeleted += n

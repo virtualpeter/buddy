@@ -40,6 +40,9 @@ func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) 
 		version = "dev"
 	}
 	opts = withMCPOpts(opts)
+	if err := buddy.UnlockVaultSession("Unlock Buddy vault for MCP"); err != nil {
+		return fmt.Errorf("vault unlock: %w", err)
+	}
 	instructions := ServerInstructions
 	unconfigured := buddy.ConfigNeedsSetup(buddy.GetActiveConfig())
 	if unconfigured {

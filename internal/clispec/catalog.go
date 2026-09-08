@@ -18,36 +18,37 @@ const (
 	MsgRunHelpList       = "cli.run_help_list"
 	MsgNoHelp            = "cli.no_help"
 
-	MsgCmdAuth        = "cli.cmd.auth"
-	MsgCmdCred        = "cli.cmd.cred"
-	MsgCmdPolicy      = "cli.cmd.policy"
-	MsgCmdCategory    = "cli.cmd.category"
-	MsgCmdMacApp      = "cli.cmd.macapp"
-	MsgCmdApp         = "cli.cmd.app"
-	MsgCmdGroup       = "cli.cmd.group"
-	MsgCmdProfile     = "cli.cmd.profile"
-	MsgCmdPackage     = "cli.cmd.package"
-	MsgCmdIcon        = "cli.cmd.icon"
-	MsgCmdComputer    = "cli.cmd.computer"
-	MsgCmdMdm         = "cli.cmd.mdm"
-	MsgCmdBlueprint   = "cli.cmd.blueprint"
-	MsgCmdDevice      = "cli.cmd.device"
-	MsgCmdDeviceGroup = "cli.cmd.device_group"
-	MsgCmdMobile      = "cli.cmd.mobile_device"
-	MsgCmdMobileGroup = "cli.cmd.mobile_group"
-	MsgCmdMobileProf  = "cli.cmd.mobile_profile"
-	MsgCmdDDM         = "cli.cmd.ddm"
-	MsgCmdBenchmark   = "cli.cmd.benchmark"
-	MsgCmdRole        = "cli.cmd.role"
-	MsgCmdClient      = "cli.cmd.client"
+	MsgCmdAuth               = "cli.cmd.auth"
+	MsgCmdToken              = "cli.cmd.token"
+	MsgCmdCred               = "cli.cmd.cred"
+	MsgCmdPolicy             = "cli.cmd.policy"
+	MsgCmdCategory           = "cli.cmd.category"
+	MsgCmdMacApp             = "cli.cmd.macapp"
+	MsgCmdApp                = "cli.cmd.app"
+	MsgCmdGroup              = "cli.cmd.group"
+	MsgCmdProfile            = "cli.cmd.profile"
+	MsgCmdPackage            = "cli.cmd.package"
+	MsgCmdIcon               = "cli.cmd.icon"
+	MsgCmdComputer           = "cli.cmd.computer"
+	MsgCmdMdm                = "cli.cmd.mdm"
+	MsgCmdBlueprint          = "cli.cmd.blueprint"
+	MsgCmdDevice             = "cli.cmd.device"
+	MsgCmdDeviceGroup        = "cli.cmd.device_group"
+	MsgCmdMobile             = "cli.cmd.mobile_device"
+	MsgCmdMobileGroup        = "cli.cmd.mobile_group"
+	MsgCmdMobileProf         = "cli.cmd.mobile_profile"
+	MsgCmdDDM                = "cli.cmd.ddm"
+	MsgCmdBenchmark          = "cli.cmd.benchmark"
+	MsgCmdRole               = "cli.cmd.role"
+	MsgCmdClient             = "cli.cmd.client"
 	MsgCmdScript             = "cli.cmd.script"
 	MsgCmdExtensionAttribute = "cli.cmd.extension_attribute"
 	MsgCmdMobileExtAttr      = "cli.cmd.mobile_extension_attribute"
 	MsgCmdSetup              = "cli.cmd.setup"
-	MsgCmdServe       = "cli.cmd.serve"
-	MsgCmdMCP         = "cli.cmd.mcp"
-	MsgCmdLSP         = "cli.cmd.lsp"
-	MsgCmdVersion     = "cli.cmd.version"
+	MsgCmdServe              = "cli.cmd.serve"
+	MsgCmdMCP                = "cli.cmd.mcp"
+	MsgCmdLSP                = "cli.cmd.lsp"
+	MsgCmdVersion            = "cli.cmd.version"
 
 	MsgGFlagVersion     = "cli.gflag.version"
 	MsgGFlagEval        = "cli.gflag.eval"
@@ -75,42 +76,43 @@ var en = map[string]string{
 	MsgRunHelpList:       "Run 'buddy help' for a list of commands.",
 	MsgNoHelp:            "No help available for %q\n\n",
 
-	MsgCmdAuth:        "Test authentication for the active tenant/auth",
-	MsgCmdCred:        "Manage tenants, auths, and secrets in the config file",
-	MsgCmdPolicy:      "Manage Jamf policies (list/get/set/create/delete/logs)",
-	MsgCmdCategory:    "Manage categories (list/get/create/delete)",
-	MsgCmdMacApp:      "Manage Classic Mac App Store apps (list/get/create/delete)",
-	MsgCmdApp:         "Manage policy apps (list/scan/get/import/cache/upgrade)",
-	MsgCmdGroup:       "Manage computer groups (list/get/create/delete; smart/static membership)",
-	MsgCmdProfile:     "Manage configuration profiles (list/get/set/create/delete/clone/redeploy)",
-	MsgCmdPackage:     "Manage package records (list/get/download/upload/delete/set/history)",
-	MsgCmdIcon:        "Manage Self Service icons (list/get/upload/check/download)",
-	MsgCmdComputer:    "Manage computers and MDM commands (list/get/reboot/lock/erase/...)",
-	MsgCmdMdm:         "Query MDM commands from Jamf Pro (list with RSQL filter)",
-	MsgCmdBlueprint:   "Manage Platform API blueprints (list/get/create/set/delete/deploy/…)",
-	MsgCmdDevice:      "Manage Platform API devices (inventory + check-in/restart/erase/…)",
-	MsgCmdDeviceGroup: "Manage Platform API device groups (not Pro computer groups)",
-	MsgCmdMobile:      "Manage Jamf Pro mobile devices (list/get/update-inventory/restart/lock/erase)",
-	MsgCmdMobileGroup: "Manage mobile-device groups (smart criteria; static membership)",
-	MsgCmdMobileProf:  "Manage mobile-device configuration profiles (list/get/put/create/delete)",
-	MsgCmdDDM:         "Platform DDM declaration reporting (read-only)",
-	MsgCmdBenchmark:   "Platform compliance benchmarks",
-	MsgCmdRole:        "Manage API roles (list/get/create/update/delete/privileges)",
-	MsgCmdClient:      "Manage API integrations (list/get/create/update/delete/credentials/set)",
+	MsgCmdAuth:               "Test authentication for the active tenant/auth",
+	MsgCmdToken:              "Mint a bearer token with one-shot flags (no config)",
+	MsgCmdCred:               "Manage tenants, auths, and secrets in the config file",
+	MsgCmdPolicy:             "Manage Jamf policies (list/get/set/create/delete/logs)",
+	MsgCmdCategory:           "Manage categories (list/get/create/delete)",
+	MsgCmdMacApp:             "Manage Classic Mac App Store apps (list/get/create/delete)",
+	MsgCmdApp:                "Manage policy apps (list/scan/get/import/cache/upgrade)",
+	MsgCmdGroup:              "Manage computer groups (list/get/create/delete; smart/static membership)",
+	MsgCmdProfile:            "Manage configuration profiles (list/get/set/create/delete/clone/redeploy)",
+	MsgCmdPackage:            "Manage package records (list/get/download/upload/delete/set/history)",
+	MsgCmdIcon:               "Manage Self Service icons (list/get/upload/check/download)",
+	MsgCmdComputer:           "Manage computers and MDM commands (list/get/reboot/lock/erase/...)",
+	MsgCmdMdm:                "Query MDM commands from Jamf Pro (list with RSQL filter)",
+	MsgCmdBlueprint:          "Manage Platform API blueprints (list/get/create/set/delete/deploy/…)",
+	MsgCmdDevice:             "Manage Platform API devices (inventory + check-in/restart/erase/…)",
+	MsgCmdDeviceGroup:        "Manage Platform API device groups (not Pro computer groups)",
+	MsgCmdMobile:             "Manage Jamf Pro mobile devices (list/get/update-inventory/restart/lock/erase)",
+	MsgCmdMobileGroup:        "Manage mobile-device groups (smart criteria; static membership)",
+	MsgCmdMobileProf:         "Manage mobile-device configuration profiles (list/get/put/create/delete)",
+	MsgCmdDDM:                "Platform DDM declaration reporting (read-only)",
+	MsgCmdBenchmark:          "Platform compliance benchmarks",
+	MsgCmdRole:               "Manage API roles (list/get/create/update/delete/privileges)",
+	MsgCmdClient:             "Manage API integrations (list/get/create/update/delete/credentials/set)",
 	MsgCmdScript:             "Manage Jamf scripts (list/get/create/upload/download/delete/set)",
 	MsgCmdExtensionAttribute: "Manage computer extension attributes (list/get/create/upload/download/delete/set)",
 	MsgCmdMobileExtAttr:      "Manage mobile-device extension attributes (list/get/create/delete)",
 	MsgCmdSetup:              "basic-setup; secrets; managed-plist; write-script; store-oauth",
-	MsgCmdServe:       "Local docs + config + script IDE web UI",
-	MsgCmdMCP:         "MCP stdio server for AI tools (setup discovers host configs)",
-	MsgCmdLSP:         "Language server for buddyscript (editor integration)",
-	MsgCmdVersion:     "Print version and exit (same as --version)",
+	MsgCmdServe:              "Local docs + config + script IDE web UI",
+	MsgCmdMCP:                "MCP stdio server for AI tools (setup discovers host configs)",
+	MsgCmdLSP:                "Language server for buddyscript (editor integration)",
+	MsgCmdVersion:            "Print version and exit (same as --version)",
 
 	MsgGFlagVersion:     "Print version and exit",
 	MsgGFlagEval:        "Run a buddyscript snippet and exit (see 'buddy help shell')",
 	MsgGFlagSkipConfirm: "Skip confirmation prompts (buddy CLI and confirm() in scripts)",
 	MsgGFlagVerbose:     "Verbose output",
-	MsgGFlagTrace:       "Trace HTTP requests and responses to stderr (headers and bodies; Authorization/Cookie redacted)",
+	MsgGFlagTrace:       "Trace HTTP requests and responses to stderr (headers and bodies; Authorization/Cookie and token-shaped values redacted)",
 	MsgGFlagScriptTrace: "Trace buddyscript builtin calls and print() in scripts and the interactive shell",
 	MsgGFlagTenant:      "Tenant from config (default: config.tenant); auto-picks auth",
 	MsgGFlagUser:        "Pin an auth name (--auth alias)",

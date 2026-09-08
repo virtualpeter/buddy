@@ -6,7 +6,12 @@ GOFLAGS := -v -buildvcs=false
 # make buddy-darwin-arm64 is Darwin/arm64-only: CGO + Security.framework + Developer ID.
 CGO_ENABLED ?= 0
 export CGO_ENABLED
-# Signed release: codesign identity is required. Identifier must stay stable across releases.
+# Signed release: identifier must stay stable across releases.
+# Identity defaults to the first valid Developer ID Application from
+# `security find-identity -v -p codesigning`. Set BUDDY_CODESIGN_IDENTITY to override.
+ifeq ($(BUDDY_CODESIGN_IDENTITY),)
+BUDDY_CODESIGN_IDENTITY := $(shell security find-identity -v -p codesigning 2>/dev/null | awk -F '"' '/Developer ID Application/ { print $$2; exit }')
+endif
 BUDDY_CODESIGN_IDENTIFIER ?= virtualpete.buddy.cli
 
 BUILDTARGET := buddy
@@ -21,6 +26,9 @@ BUDDY_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || ech
 # Buddy CLI (builds to ./buddy)
 BUDDY_GO_FILES := $(shell find cmd/buddy internal docfs stdlib \( -name "*.go" -o -name "*.buddy" -o -name "buddy.png" \) 2>/dev/null)
 DOC_SOURCES := $(shell find docs examples -type f \( -name '*.md' -o -name '*.buddy' -o -name '*.json' \) 2>/dev/null) README.md
+
+.PHONY: default
+default: $(SIGNED_TARGET)
 
 .PHONY: gendocs
 gendocs:
@@ -69,13 +77,13 @@ buddy-lite: sync-docfs
 	@ls -lh buddy-lite
 
 # Darwin/arm64 release binary: Security.framework Keychain (service virtualpete.buddy.cli, label Buddy).
-# Requires BUDDY_CODESIGN_IDENTITY (Developer ID Application). Does not clobber ./buddy.
-.PHONY: $(SIGNED_TARGET)
+# Signs with BUDDY_CODESIGN_IDENTITY (Developer ID Application; default from find-identity). Does not clobber ./buddy.
+
 $(SIGNED_TARGET): sync-docfs
 	@test "$$(uname -s)" = Darwin || { echo "make $(SIGNED_TARGET) is macOS-only"; exit 1; }
 	@test "$$(uname -m)" = arm64 || { echo "make $(SIGNED_TARGET) is arm64-only"; exit 1; }
-	@test -n "$(BUDDY_CODESIGN_IDENTITY)" || { echo "BUDDY_CODESIGN_IDENTITY is required (Developer ID Application)"; exit 1; }
-	@echo "Building $(SIGNED_TARGET) (version $(BUDDY_VERSION)$(if $(TAGS), tags=secitem,$(TAGS), tags=secitem), CGO_ENABLED=1)..."
+	@test -n "$(BUDDY_CODESIGN_IDENTITY)" || { echo "no Developer ID Application identity found; set BUDDY_CODESIGN_IDENTITY or install a Developer ID"; exit 1; }
+	@echo "Building $(SIGNED_TARGET) (version $(BUDDY_VERSION)$(if $(TAGS), tags=secitem,$(TAGS), tags=secitem), CGO_ENABLED=1, identity=$(BUDDY_CODESIGN_IDENTITY))..."
 	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) -tags 'secitem$(if $(TAGS),$(comma)$(TAGS))' -ldflags "-X main.Version=$(BUDDY_VERSION)" -o $(SIGNED_TARGET) ./cmd/buddy
 	codesign --force --sign "$(BUDDY_CODESIGN_IDENTITY)" --identifier "$(BUDDY_CODESIGN_IDENTIFIER)" $(SIGNED_TARGET)
 	@info=$$(codesign -dv --verbose=2 $(SIGNED_TARGET) 2>&1); \
@@ -195,6 +203,6 @@ help:
 	@echo ""
 	@echo "Build tags (TAGS=…): noserve, nomcp, nolsp — omit optional features"
 	@echo "CGO_ENABLED=$(CGO_ENABLED) by default (set CGO_ENABLED=1 to override)"
-	@echo "$(SIGNED_TARGET): BUDDY_CODESIGN_IDENTITY required; BUDDY_CODESIGN_IDENTIFIER=$(BUDDY_CODESIGN_IDENTIFIER)"
+	@echo "$(SIGNED_TARGET): BUDDY_CODESIGN_IDENTITY defaults to first Developer ID Application (security find-identity); override with BUDDY_CODESIGN_IDENTITY=…; BUDDY_CODESIGN_IDENTIFIER=$(BUDDY_CODESIGN_IDENTIFIER)"
 	@echo "package: same as $(SIGNED_TARGET); branded installer + Finder icon; optional BUDDY_PKG_SIGN_IDENTITY (Developer ID Installer)"
 .PHONY: help

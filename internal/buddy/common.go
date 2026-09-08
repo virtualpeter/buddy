@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 
 	"buddy/internal/buddy/tokenauth"
+	"buddy/internal/redact"
 )
 
 var logger *slog.Logger
@@ -50,7 +51,7 @@ func InitLogger() {
 	} else {
 		level = slog.LevelInfo
 	}
-	logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	logger = slog.New(redact.WrapHandler(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
 }
 
 // GetLogger returns the global logger instance.
@@ -65,7 +66,7 @@ func GetLogger() *slog.Logger {
 // Call this after InitLogger once the CLI flags have been parsed.
 func SetVerbose(verbose bool) {
 	if verbose {
-		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		logger = slog.New(redact.WrapHandler(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	}
 }
 
@@ -125,6 +126,38 @@ func sessionCacheName(sess *Session) string {
 	return name
 }
 
+func sessionDiskCacheKey(sess *Session) string {
+	if sess == nil {
+		return ""
+	}
+	return sessionDiskCacheKeyFromParts(sessionCacheName(sess), sess.Credential)
+}
+
+func sessionDiskCacheKeyFromParts(cacheName string, cred CredentialConfig) string {
+	if cred.IsPlatform() && !strings.Contains(cacheName, "@platform:") {
+		return cacheName + "@platform:" + cred.EffectiveTenantID()
+	}
+	return cacheName
+}
+
+func evictAuthenticator(cacheName string) {
+	credAuthCache.mu.Lock()
+	defer credAuthCache.mu.Unlock()
+	if a, ok := credAuthCache.byCred[cacheName]; ok {
+		a.ClearMemoryToken()
+		delete(credAuthCache.byCred, cacheName)
+	}
+}
+
+func evictAllAuthenticators() {
+	credAuthCache.mu.Lock()
+	defer credAuthCache.mu.Unlock()
+	for _, a := range credAuthCache.byCred {
+		a.ClearMemoryToken()
+	}
+	credAuthCache.byCred = make(map[string]*tokenauth.Authenticator)
+}
+
 // resolveCommandToken runs the configured command and returns the trimmed stdout
 // as a Bearer token.
 func resolveCommandToken(_ string, auth AuthConfig) (string, error) {
@@ -159,6 +192,7 @@ func init() {
 // cachedAuthenticator builds or returns a cached Authenticator.
 // cacheName is the process-cache key (auth@tenant, or auth@tenant@platform:{id} on platform);
 // secretName is the secret-store key (auth name).
+// Vault secrets are loaded lazily only when a token must be minted or refreshed.
 func cachedAuthenticator(cacheName, secretName string, cred CredentialConfig) (*tokenauth.Authenticator, error) {
 	credAuthCache.mu.Lock()
 	defer credAuthCache.mu.Unlock()
@@ -168,18 +202,12 @@ func cachedAuthenticator(cacheName, secretName string, cred CredentialConfig) (*
 	if err := cred.Validate(); err != nil {
 		return nil, fmt.Errorf("auth %q: %w", secretName, err)
 	}
-	resolved, err := cred.ResolveAuthWithSecrets(secretName)
-	if err != nil {
-		return nil, err
-	}
 	baseURL := cred.EffectiveBaseURL()
 	if baseURL == "" {
 		return nil, fmt.Errorf("auth %q has no URL or region configured", secretName)
 	}
-	diskKey := cacheName
-	if cred.IsPlatform() && !strings.Contains(cacheName, "@platform:") {
-		diskKey = cacheName + "@platform:" + cred.EffectiveTenantID()
-	}
+	diskKey := sessionDiskCacheKeyFromParts(cacheName, cred)
+	auth := cred.Auth
 	cfg := tokenauth.Config{
 		Name:     secretName,
 		BaseURL:  baseURL,
@@ -187,15 +215,37 @@ func cachedAuthenticator(cacheName, secretName string, cred CredentialConfig) (*
 		Platform: cred.UsesPlatformAuth(),
 		Logger:   GetLogger(),
 	}
-	switch resolved.Type {
+	switch auth.Type {
 	case "basic":
-		cfg.Username = resolved.Username
-		cfg.Password = resolved.Password
+		cfg.Username = auth.Username
+		cfg.Password = auth.Password // inline only; vault via LoadSecrets
+		if strings.TrimSpace(cfg.Password) == "" {
+			name := secretName
+			cc := cred
+			cfg.LoadSecrets = func() (string, string, error) {
+				resolved, err := cc.ResolveAuthWithSecrets(name)
+				if err != nil {
+					return "", "", err
+				}
+				return resolved.Password, "", nil
+			}
+		}
 	case "oauth":
-		cfg.ClientId = resolved.ClientID
-		cfg.ClientSecret = resolved.ClientSecret
+		cfg.ClientId = auth.ClientID
+		cfg.ClientSecret = auth.ClientSecret // inline only; vault via LoadSecrets
+		if strings.TrimSpace(cfg.ClientSecret) == "" {
+			name := secretName
+			cc := cred
+			cfg.LoadSecrets = func() (string, string, error) {
+				resolved, err := cc.ResolveAuthWithSecrets(name)
+				if err != nil {
+					return "", "", err
+				}
+				return "", resolved.ClientSecret, nil
+			}
+		}
 	default:
-		return nil, fmt.Errorf("internal: cachedAuthenticator for auth type %q", resolved.Type)
+		return nil, fmt.Errorf("internal: cachedAuthenticator for auth type %q", auth.Type)
 	}
 	a := tokenauth.NewAuthenticator(cfg)
 	credAuthCache.byCred[cacheName] = a
@@ -376,9 +426,9 @@ func performHTTP(req *http.Request) (*http.Response, error) {
 func redactHeaderValue(name, value string) string {
 	switch strings.ToLower(name) {
 	case "authorization", "proxy-authorization", "cookie", "set-cookie":
-		return "<redacted>"
+		return redact.Placeholder
 	default:
-		return value
+		return redact.String(value)
 	}
 }
 
@@ -396,16 +446,16 @@ func formatTraceBody(b []byte) string {
 		return "(empty)\n"
 	}
 	if len(b) <= maxHTTPTraceBodyBytes {
-		return string(b) + "\n"
+		return redact.String(string(b)) + "\n"
 	}
 	trunc := maxHTTPTraceBodyBytes
-	return string(b[:trunc]) + fmt.Sprintf("\n... (truncated %d of %d bytes)\n", len(b)-trunc, len(b))
+	return redact.String(string(b[:trunc])) + fmt.Sprintf("\n... (truncated %d of %d bytes)\n", len(b)-trunc, len(b))
 }
 
 func writeHTTPTrace(req *http.Request, reqBody []byte, resp *http.Response, respBody []byte) {
 	var b strings.Builder
 	b.WriteString("\n=== HTTP trace ===\n")
-	b.WriteString(fmt.Sprintf(">>> %s %s\n", req.Method, req.URL.String()))
+	b.WriteString(fmt.Sprintf(">>> %s %s\n", req.Method, redact.String(req.URL.String())))
 	for _, name := range sortedHeaderNames(req.Header) {
 		for _, v := range req.Header[name] {
 			b.WriteString(fmt.Sprintf(">>> %s: %s\n", name, redactHeaderValue(name, v)))
@@ -424,7 +474,7 @@ func writeHTTPTrace(req *http.Request, reqBody []byte, resp *http.Response, resp
 	b.WriteString("<<< body:\n")
 	b.WriteString(formatTraceBody(respBody))
 	b.WriteString("=== end HTTP trace ===\n\n")
-	fmt.Fprint(os.Stderr, b.String())
+	fmt.Fprint(os.Stderr, redact.String(b.String()))
 }
 
 func readHTTPBody(resp *http.Response) ([]byte, error) {

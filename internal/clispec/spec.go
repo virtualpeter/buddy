@@ -28,6 +28,7 @@ type GlobalFlag struct {
 func RootCommands() []Command {
 	return []Command{
 		{ID: CmdAuth, Summary: MsgCmdAuth, Aliases: []string{"auths"}},
+		{ID: CmdToken, Summary: MsgCmdToken},
 		{ID: CmdCred, Summary: MsgCmdCred, Aliases: []string{"creds", "credentials"}},
 		{ID: CmdPolicy, Summary: MsgCmdPolicy, Aliases: []string{"policies"}},
 		{ID: CmdCategory, Summary: MsgCmdCategory, Aliases: []string{"categories"}},
@@ -120,6 +121,7 @@ func CatalogEntries() []CatalogEntry {
 	return []CatalogEntry{
 		{ID: TopicOverview, Title: "Overview", Level: 2},
 		{ID: CmdAuth, Title: CmdAuth, Level: 2},
+		{ID: CmdToken, Title: CmdToken, Level: 2},
 		{ID: CmdCred, Title: CmdCred, Level: 2},
 		{ID: CmdPolicy, Title: CmdPolicy, Level: 2},
 		{ID: CatalogID(CmdPolicy, SubList), Title: HelpTitle(CmdPolicy, SubList), Level: 3},

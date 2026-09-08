@@ -30,6 +30,10 @@ func keychainDEKDescription() string {
 	return fmt.Sprintf("macOS Keychain (service %q, account %q, security CLI)", keychainService, dekKeychainAccount)
 }
 
+func keychainTokenWrapDescription() string {
+	return fmt.Sprintf("macOS Keychain (service %q, account %q, security CLI)", keychainService, tokenWrapKeychainAccount)
+}
+
 func keychainLookup(service, account string) (string, error) {
 	cmd := exec.Command("security", "find-generic-password", "-s", service, "-a", account, "-w")
 	output, err := cmd.Output()
@@ -91,6 +95,22 @@ func keychainDEKSet(value string) error {
 
 func keychainDEKDelete() error {
 	return deleteKeychainAccount(keychainService, dekKeychainAccount)
+}
+
+func keychainTokenWrapGet() (string, error) {
+	v, err := keychainLookup(keychainService, tokenWrapKeychainAccount)
+	if err != nil {
+		return "", err
+	}
+	return v, nil
+}
+
+func keychainTokenWrapSet(value string) error {
+	return keychainStoreValue(keychainService, tokenWrapKeychainAccount, value)
+}
+
+func keychainTokenWrapDelete() error {
+	return deleteKeychainAccount(keychainService, tokenWrapKeychainAccount)
 }
 
 func (k *KeychainStore) Get(credName string, kind Kind) (string, error) {

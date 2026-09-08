@@ -3,9 +3,12 @@
 package secrets
 
 /*
-#cgo LDFLAGS: -framework Security -framework CoreFoundation
+#cgo CFLAGS: -x objective-c -fobjc-arc
+#cgo LDFLAGS: -framework Security -framework CoreFoundation -framework LocalAuthentication -framework Foundation
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
+#import <LocalAuthentication/LocalAuthentication.h>
+#import <Foundation/Foundation.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -41,37 +44,109 @@ char *buddy_secitem_errstr(int st) {
 	return c;
 }
 
-int buddy_secitem_get(const char *service, const char *account, char **out, size_t *out_len) {
+// buddy_secitem_get_ex reads a generic password.
+// presence=1 attaches an LAContext (userPresence ACL items prompt).
+// reason is the localizedReason / operation prompt.
+// reuse_secs is touchIDAuthenticationAllowableReuseDuration (0 = none).
+int buddy_secitem_get_ex(const char *service, const char *account, int presence, const char *reason, double reuse_secs, char **out, size_t *out_len) {
+	@autoreleasepool {
+		CFStringRef svc = cfstr(service);
+		CFStringRef acct = cfstr(account);
+		LAContext *ctx = nil;
+		CFMutableDictionaryRef query = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
+		CFDictionarySetValue(query, kSecAttrService, svc);
+		CFDictionarySetValue(query, kSecAttrAccount, acct);
+		CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue);
+		CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitOne);
+		if (presence) {
+			ctx = [[LAContext alloc] init];
+			if (reuse_secs > 0) {
+				ctx.touchIDAuthenticationAllowableReuseDuration = reuse_secs;
+			}
+			NSString *r = @"Unlock Buddy vault";
+			if (reason != NULL && reason[0] != 0) {
+				r = [NSString stringWithUTF8String:reason];
+			}
+			ctx.localizedReason = r;
+			CFDictionarySetValue(query, kSecUseAuthenticationContext, (__bridge CFTypeRef)ctx);
+		}
+		CFTypeRef result = NULL;
+		OSStatus st = SecItemCopyMatching(query, &result);
+		CFRelease(query);
+		CFRelease(svc);
+		CFRelease(acct);
+		if (st != errSecSuccess) {
+			return (int)st;
+		}
+		CFDataRef data = (CFDataRef)result;
+		CFIndex n = CFDataGetLength(data);
+		*out = malloc((size_t)n + 1);
+		if (*out == NULL) {
+			CFRelease(result);
+			return (int)errSecAllocate;
+		}
+		if (n > 0) {
+			memcpy(*out, CFDataGetBytePtr(data), (size_t)n);
+		}
+		(*out)[n] = 0;
+		*out_len = (size_t)n;
+		CFRelease(result);
+		return 0;
+	}
+}
+
+// buddy_secitem_has returns 0 if the item exists (no data, skip auth UI when possible).
+int buddy_secitem_has(const char *service, const char *account) {
 	CFStringRef svc = cfstr(service);
 	CFStringRef acct = cfstr(account);
-	const void *keys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecReturnData, kSecMatchLimit};
-	const void *vals[] = {kSecClassGenericPassword, svc, acct, kCFBooleanTrue, kSecMatchLimitOne};
-	CFDictionaryRef query = CFDictionaryCreate(NULL, keys, vals, 5, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	const void *keys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecReturnAttributes, kSecMatchLimit, kSecUseAuthenticationUI};
+	const void *vals[] = {kSecClassGenericPassword, svc, acct, kCFBooleanTrue, kSecMatchLimitOne, kSecUseAuthenticationUISkip};
+	CFDictionaryRef query = CFDictionaryCreate(NULL, keys, vals, 6, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 	CFTypeRef result = NULL;
 	OSStatus st = SecItemCopyMatching(query, &result);
 	CFRelease(query);
 	CFRelease(svc);
 	CFRelease(acct);
-	if (st != errSecSuccess) {
-		return (int)st;
-	}
-	CFDataRef data = (CFDataRef)result;
-	CFIndex n = CFDataGetLength(data);
-	*out = malloc((size_t)n + 1);
-	if (*out == NULL) {
+	if (result != NULL) {
 		CFRelease(result);
-		return (int)errSecAllocate;
 	}
-	if (n > 0) {
-		memcpy(*out, CFDataGetBytePtr(data), (size_t)n);
-	}
-	(*out)[n] = 0;
-	*out_len = (size_t)n;
-	CFRelease(result);
-	return 0;
+	return (int)st;
 }
 
-int buddy_secitem_set(const char *service, const char *account, const char *label, const char *value, size_t value_len, int after_first_unlock) {
+// buddy_secitem_readable_without_auth returns 0 if the secret is readable with
+// LAContext.interactionNotAllowed (no ACL / no prompt). errSecInteractionNotAllowed
+// (-25308) means presence/ACL is required. Other negative OSStatus on error.
+int buddy_secitem_readable_without_auth(const char *service, const char *account) {
+	@autoreleasepool {
+		CFStringRef svc = cfstr(service);
+		CFStringRef acct = cfstr(account);
+		LAContext *ctx = [[LAContext alloc] init];
+		ctx.interactionNotAllowed = YES;
+		CFMutableDictionaryRef query = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
+		CFDictionarySetValue(query, kSecAttrService, svc);
+		CFDictionarySetValue(query, kSecAttrAccount, acct);
+		CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue);
+		CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitOne);
+		CFDictionarySetValue(query, kSecUseAuthenticationContext, (__bridge CFTypeRef)ctx);
+		CFTypeRef result = NULL;
+		OSStatus st = SecItemCopyMatching(query, &result);
+		CFRelease(query);
+		CFRelease(svc);
+		CFRelease(acct);
+		if (result != NULL) {
+			CFRelease(result);
+		}
+		return (int)st;
+	}
+}
+
+// buddy_secitem_set_ex stores a generic password.
+// presence=1 uses SecAccessControl userPresence + AfterFirstUnlockThisDeviceOnly.
+// presence=0 + after_first_unlock=1 uses AfterFirstUnlockThisDeviceOnly without ACL.
+// AccessControl cannot be applied via SecItemUpdate — presence writes always replace.
+int buddy_secitem_set_ex(const char *service, const char *account, const char *label, const char *value, size_t value_len, int presence, int after_first_unlock) {
 	CFStringRef svc = cfstr(service);
 	CFStringRef acct = cfstr(account);
 	CFStringRef lbl = cfstr(label);
@@ -80,37 +155,55 @@ int buddy_secitem_set(const char *service, const char *account, const char *labe
 	const void *qkeys[] = {kSecClass, kSecAttrService, kSecAttrAccount};
 	const void *qvals[] = {kSecClassGenericPassword, svc, acct};
 	CFDictionaryRef query = CFDictionaryCreate(NULL, qkeys, qvals, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-	CFDictionaryRef attrs;
-	if (lbl != NULL) {
-		const void *akeys[] = {kSecValueData, kSecAttrLabel};
-		const void *avals[] = {data, lbl};
-		attrs = CFDictionaryCreate(NULL, akeys, avals, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+
+	OSStatus st;
+	if (presence) {
+		(void)SecItemDelete(query);
+		st = errSecItemNotFound;
 	} else {
-		const void *akey = kSecValueData;
-		const void *aval = data;
-		attrs = CFDictionaryCreate(NULL, &akey, &aval, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		CFDictionarySetValue(attrs, kSecValueData, data);
+		if (lbl != NULL) {
+			CFDictionarySetValue(attrs, kSecAttrLabel, lbl);
+		}
+		st = SecItemUpdate(query, attrs);
+		CFRelease(attrs);
 	}
-	OSStatus st = SecItemUpdate(query, attrs);
-	CFRelease(attrs);
 	if (st == errSecItemNotFound) {
-		CFDictionaryRef item;
-		CFStringRef access = after_first_unlock ? kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly : NULL;
-		if (lbl != NULL && access != NULL) {
-			const void *ikeys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecAttrLabel, kSecValueData, kSecAttrAccessible};
-			const void *ivals[] = {kSecClassGenericPassword, svc, acct, lbl, data, access};
-			item = CFDictionaryCreate(NULL, ikeys, ivals, 6, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-		} else if (lbl != NULL) {
-			const void *ikeys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecAttrLabel, kSecValueData};
-			const void *ivals[] = {kSecClassGenericPassword, svc, acct, lbl, data};
-			item = CFDictionaryCreate(NULL, ikeys, ivals, 5, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-		} else if (access != NULL) {
-			const void *ikeys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecValueData, kSecAttrAccessible};
-			const void *ivals[] = {kSecClassGenericPassword, svc, acct, data, access};
-			item = CFDictionaryCreate(NULL, ikeys, ivals, 5, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-		} else {
-			const void *ikeys[] = {kSecClass, kSecAttrService, kSecAttrAccount, kSecValueData};
-			const void *ivals[] = {kSecClassGenericPassword, svc, acct, data};
-			item = CFDictionaryCreate(NULL, ikeys, ivals, 4, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		CFMutableDictionaryRef item = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		CFDictionarySetValue(item, kSecClass, kSecClassGenericPassword);
+		CFDictionarySetValue(item, kSecAttrService, svc);
+		CFDictionarySetValue(item, kSecAttrAccount, acct);
+		CFDictionarySetValue(item, kSecValueData, data);
+		if (lbl != NULL) {
+			CFDictionarySetValue(item, kSecAttrLabel, lbl);
+		}
+		if (presence) {
+			CFErrorRef cerr = NULL;
+			SecAccessControlRef sac = SecAccessControlCreateWithFlags(
+				kCFAllocatorDefault,
+				kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+				kSecAccessControlUserPresence,
+				&cerr);
+			if (sac == NULL) {
+				if (cerr != NULL) {
+					CFRelease(cerr);
+				}
+				CFRelease(item);
+				CFRelease(query);
+				CFRelease(data);
+				CFRelease(svc);
+				CFRelease(acct);
+				if (lbl != NULL) {
+					CFRelease(lbl);
+				}
+				return (int)errSecParam;
+			}
+			CFDictionarySetValue(item, kSecAttrAccessControl, sac);
+			CFRelease(sac);
+			CFDictionarySetValue(item, kSecAttrComment, CFSTR("buddy-userPresence-v1"));
+		} else if (after_first_unlock) {
+			CFDictionarySetValue(item, kSecAttrAccessible, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly);
 		}
 		st = SecItemAdd(item, NULL);
 		CFRelease(item);
@@ -140,9 +233,9 @@ int buddy_secitem_delete(const char *service, const char *account) {
 
 int buddy_secitem_list(const char *service, char **out) {
 	CFStringRef svc = cfstr(service);
-	const void *keys[] = {kSecClass, kSecAttrService, kSecReturnAttributes, kSecMatchLimit};
-	const void *vals[] = {kSecClassGenericPassword, svc, kCFBooleanTrue, kSecMatchLimitAll};
-	CFDictionaryRef query = CFDictionaryCreate(NULL, keys, vals, 4, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	const void *keys[] = {kSecClass, kSecAttrService, kSecReturnAttributes, kSecMatchLimit, kSecUseAuthenticationUI};
+	const void *vals[] = {kSecClassGenericPassword, svc, kCFBooleanTrue, kSecMatchLimitAll, kSecUseAuthenticationUISkip};
+	CFDictionaryRef query = CFDictionaryCreate(NULL, keys, vals, 5, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 	CFTypeRef result = NULL;
 	OSStatus st = SecItemCopyMatching(query, &result);
 	CFRelease(query);
@@ -188,6 +281,11 @@ import (
 const (
 	keychainService    = keychainServiceSigned
 	errSecItemNotFound = -25300
+	// errSecInteractionNotAllowed: auth UI required but disallowed (UIFail/Skip).
+	errSecInteractionNotAllowed = -25308
+	// Do not reuse Mac unlock for vault DEK — process session already avoids
+	// repeat prompts; reuse made presence look like a no-op after login.
+	keychainReuseSecs = 0.0
 )
 
 // KeychainStore stores secrets via Security.framework (signed release binary).
@@ -207,17 +305,36 @@ func keychainMasterDescription() string {
 }
 
 func keychainDEKDescription() string {
-	return fmt.Sprintf("macOS Keychain (service %q, account %q, AfterFirstUnlockThisDeviceOnly, Security.framework)", keychainService, dekKeychainAccount)
+	mode := "userPresence ACL when entitled; else LocalAuthentication + AfterFirstUnlockThisDeviceOnly"
+	if !VaultUnlockUsesPresence() {
+		mode = "AfterFirstUnlockThisDeviceOnly"
+	}
+	return fmt.Sprintf("macOS Keychain (service %q, account %q, %s, Security.framework)", keychainService, dekKeychainAccount, mode)
 }
 
-func secitemGet(service, account string) (string, error) {
+func keychainTokenWrapDescription() string {
+	return fmt.Sprintf("macOS Keychain (service %q, account %q, AfterFirstUnlockThisDeviceOnly, Security.framework)", keychainService, tokenWrapKeychainAccount)
+}
+
+func secitemGet(service, account, reason string, presence bool) (string, error) {
 	cSvc := C.CString(service)
 	defer C.free(unsafe.Pointer(cSvc))
 	cAcct := C.CString(account)
 	defer C.free(unsafe.Pointer(cAcct))
+	var cReason *C.char
+	if reason != "" {
+		cReason = C.CString(reason)
+		defer C.free(unsafe.Pointer(cReason))
+	}
+	pres := 0
+	reuse := 0.0
+	if presence {
+		pres = 1
+		reuse = keychainReuseSecs
+	}
 	var out *C.char
 	var n C.size_t
-	st := C.buddy_secitem_get(cSvc, cAcct, &out, &n)
+	st := C.buddy_secitem_get_ex(cSvc, cAcct, C.int(pres), cReason, C.double(reuse), &out, &n)
 	defer cFree(out)
 	if int(st) == errSecItemNotFound {
 		return "", fmt.Errorf("keychain item %q not found", account)
@@ -228,11 +345,7 @@ func secitemGet(service, account string) (string, error) {
 	return C.GoStringN(out, C.int(n)), nil
 }
 
-func secitemSet(service, account, label, value string) error {
-	return secitemSetOpts(service, account, label, value, false)
-}
-
-func secitemSetOpts(service, account, label, value string, afterFirstUnlock bool) error {
+func secitemSet(service, account, label, value string, presence, afterFirstUnlock bool) error {
 	cSvc := C.CString(service)
 	defer C.free(unsafe.Pointer(cSvc))
 	cAcct := C.CString(account)
@@ -247,44 +360,15 @@ func secitemSetOpts(service, account, label, value string, afterFirstUnlock bool
 		cLbl = C.CString(label)
 		defer C.free(unsafe.Pointer(cLbl))
 	}
-	flag := 0
+	pres, afu := 0, 0
+	if presence {
+		pres = 1
+	}
 	if afterFirstUnlock {
-		flag = 1
+		afu = 1
 	}
-	st := C.buddy_secitem_set(cSvc, cAcct, cLbl, cVal, C.size_t(len(value)), C.int(flag))
+	st := C.buddy_secitem_set_ex(cSvc, cAcct, cLbl, cVal, C.size_t(len(value)), C.int(pres), C.int(afu))
 	return secitemError(st)
-}
-
-func keychainMasterGet() (string, error) {
-	v, err := secitemGet(keychainService, masterKeychainAccount)
-	if err != nil {
-		return "", fmt.Errorf("recovery passphrase not set — run 'buddy cred set passphrase': %w", err)
-	}
-	return v, nil
-}
-
-func keychainMasterSet(value string) error {
-	return secitemSet(keychainService, masterKeychainAccount, keychainLabelSigned, value)
-}
-
-func keychainMasterDelete() error {
-	return secitemDeleteAccount(masterKeychainAccount)
-}
-
-func keychainDEKGet() (string, error) {
-	v, err := secitemGet(keychainService, dekKeychainAccount)
-	if err != nil {
-		return "", fmt.Errorf("vault key not set: %w", err)
-	}
-	return v, nil
-}
-
-func keychainDEKSet(value string) error {
-	return secitemSetOpts(keychainService, dekKeychainAccount, keychainLabelSigned, value, true)
-}
-
-func keychainDEKDelete() error {
-	return secitemDeleteAccount(dekKeychainAccount)
 }
 
 func secitemDeleteAccount(account string) error {
@@ -297,6 +381,48 @@ func secitemDeleteAccount(account string) error {
 		return nil
 	}
 	return secitemError(st)
+}
+
+func secitemHas(account string) (bool, error) {
+	cSvc := C.CString(keychainService)
+	defer C.free(unsafe.Pointer(cSvc))
+	cAcct := C.CString(account)
+	defer C.free(unsafe.Pointer(cAcct))
+	st := C.buddy_secitem_has(cSvc, cAcct)
+	if int(st) == errSecItemNotFound {
+		return false, nil
+	}
+	if int(st) == 0 {
+		return true, nil
+	}
+	// Interaction skipped / auth required still means the item may exist.
+	if int(st) == errSecInteractionNotAllowed || int(st) == -128 /* userCanceled */ {
+		return true, nil
+	}
+	if err := secitemError(st); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// secitemUnprotectedReadable reports whether the item's secret can be read
+// without authentication UI (legacy AfterFirstUnlock, no userPresence ACL).
+func secitemUnprotectedReadable(account string) (unprotected bool, missing bool, err error) {
+	cSvc := C.CString(keychainService)
+	defer C.free(unsafe.Pointer(cSvc))
+	cAcct := C.CString(account)
+	defer C.free(unsafe.Pointer(cAcct))
+	st := C.buddy_secitem_readable_without_auth(cSvc, cAcct)
+	switch int(st) {
+	case 0:
+		return true, false, nil
+	case errSecItemNotFound:
+		return false, true, nil
+	case errSecInteractionNotAllowed, -25293 /* errSecAuthFailed */ :
+		return false, false, nil
+	default:
+		return false, false, secitemError(st)
+	}
 }
 
 func cFree(p *C.char) {
@@ -317,9 +443,140 @@ func secitemError(st C.int) error {
 	return fmt.Errorf("keychain: status %d", int(st))
 }
 
+func keychainMasterGet() (string, error) {
+	v, err := secitemGet(keychainService, masterKeychainAccount, "", false)
+	if err != nil {
+		return "", fmt.Errorf("recovery passphrase not set — run 'buddy cred set passphrase': %w", err)
+	}
+	return v, nil
+}
+
+func keychainMasterGetPresence(reason string) (string, error) {
+	_ = reason
+	return keychainMasterGet()
+}
+
+func keychainMasterSet(value string) error {
+	return secitemSet(keychainService, masterKeychainAccount, keychainLabelSigned, value, false, false)
+}
+
+func keychainMasterSetPresence(value, reason string) error {
+	_ = reason
+	return keychainMasterSet(value)
+}
+
+func keychainMasterDelete() error {
+	return secitemDeleteAccount(masterKeychainAccount)
+}
+
+func keychainDEKGet() (string, error) {
+	return keychainDEKGetPresence(DefaultUnlockReason)
+}
+
+func keychainDEKGetPresence(reason string) (string, error) {
+	if !VaultUnlockUsesPresence() {
+		v, err := secitemGet(keychainService, dekKeychainAccount, reason, false)
+		if err != nil {
+			return "", fmt.Errorf("vault key not set: %w", err)
+		}
+		return v, nil
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = DefaultUnlockReason
+	}
+
+	// Probe without UI. macOS does not return kSecAttrAccessControl in attribute dumps.
+	unprotected, missing, err := secitemUnprotectedReadable(dekKeychainAccount)
+	if err != nil {
+		return "", fmt.Errorf("vault key not set: %w", err)
+	}
+	if missing {
+		return "", fmt.Errorf("vault key not set: keychain item %q not found", dekKeychainAccount)
+	}
+
+	if unprotected {
+		legacy, lerr := secitemGet(keychainService, dekKeychainAccount, reason, false)
+		if lerr != nil {
+			return "", fmt.Errorf("vault key not set: %w", lerr)
+		}
+		// Best-effort ACL migrate (needs keychain-access-groups / .app packaging).
+		if merr := migrateDEKToPresence(legacy, reason); merr == nil {
+			if v, gerr := secitemGet(keychainService, dekKeychainAccount, reason, true); gerr == nil {
+				return v, nil
+			}
+		}
+		// Developer ID CLI: SecAccessControl userPresence is unavailable (-34018).
+		// Gate DEK release with LocalAuthentication, then read unprotected item.
+		if err := confirmDeviceOwner(reason); err != nil {
+			return "", err
+		}
+		return legacy, nil
+	}
+
+	v, err := secitemGet(keychainService, dekKeychainAccount, reason, true)
+	if err != nil {
+		return "", fmt.Errorf("vault key not set: %w", err)
+	}
+	return v, nil
+}
+
+func migrateDEKToPresence(value, reason string) error {
+	_ = reason
+	_ = secitemDeleteAccount(dekKeychainAccount)
+	err := secitemSet(keychainService, dekKeychainAccount, keychainLabelSigned, value, true, true)
+	if err != nil {
+		// Never leave the vault without a DEK if ACL write is rejected.
+		if rerr := secitemSet(keychainService, dekKeychainAccount, keychainLabelSigned, value, false, true); rerr != nil {
+			return fmt.Errorf("%w (restore unprotected dek: %v)", err, rerr)
+		}
+		return err
+	}
+	return nil
+}
+
+func keychainDEKSet(value string) error {
+	return keychainDEKSetPresence(value, "Buddy wants to store the vault key")
+}
+
+func keychainDEKSetPresence(value, reason string) error {
+	_ = reason
+	if !VaultUnlockUsesPresence() {
+		_ = secitemDeleteAccount(dekKeychainAccount)
+		return secitemSet(keychainService, dekKeychainAccount, keychainLabelSigned, value, false, true)
+	}
+	_ = secitemDeleteAccount(dekKeychainAccount)
+	err := secitemSet(keychainService, dekKeychainAccount, keychainLabelSigned, value, true, true)
+	if err == nil {
+		return nil
+	}
+	// Fall back to AfterFirstUnlock when the platform rejects AccessControl.
+	if rerr := secitemSet(keychainService, dekKeychainAccount, keychainLabelSigned, value, false, true); rerr != nil {
+		return fmt.Errorf("%w (fallback unprotected dek: %v)", err, rerr)
+	}
+	return nil // stored unprotected; unlock path uses confirmDeviceOwner
+}
+
+func keychainDEKDelete() error {
+	return secitemDeleteAccount(dekKeychainAccount)
+}
+
+func keychainTokenWrapGet() (string, error) {
+	return secitemGet(keychainService, tokenWrapKeychainAccount, "", false)
+}
+
+func keychainTokenWrapSet(value string) error {
+	_ = secitemDeleteAccount(tokenWrapKeychainAccount)
+	return secitemSet(keychainService, tokenWrapKeychainAccount, keychainLabelSigned, value, false, true)
+}
+
+func keychainTokenWrapDelete() error {
+	return secitemDeleteAccount(tokenWrapKeychainAccount)
+}
+
 func (k *KeychainStore) Get(credName string, kind Kind) (string, error) {
 	account := keychainAccount(credName, kind)
-	val, err := secitemGet(keychainService, account)
+	val, err := secitemGet(keychainService, account, DefaultUnlockReason, VaultUnlockUsesPresence())
 	if err != nil {
 		return "", fmt.Errorf("secret %q not found in keychain for credential %q", kind, credName)
 	}
@@ -327,28 +584,17 @@ func (k *KeychainStore) Get(credName string, kind Kind) (string, error) {
 }
 
 func (k *KeychainStore) Set(credName string, kind Kind, value string) error {
-	return secitemSet(keychainService, keychainAccount(credName, kind), keychainLabelSigned, value)
+	account := keychainAccount(credName, kind)
+	_ = secitemDeleteAccount(account)
+	return secitemSet(keychainService, account, keychainLabelSigned, value, VaultUnlockUsesPresence(), false)
 }
 
 func (k *KeychainStore) Delete(credName string, kind Kind) error {
-	account := keychainAccount(credName, kind)
-	cSvc := C.CString(keychainService)
-	defer C.free(unsafe.Pointer(cSvc))
-	cAcct := C.CString(account)
-	defer C.free(unsafe.Pointer(cAcct))
-	st := C.buddy_secitem_delete(cSvc, cAcct)
-	if int(st) == errSecItemNotFound {
-		return nil
-	}
-	return secitemError(st)
+	return secitemDeleteAccount(keychainAccount(credName, kind))
 }
 
 func (k *KeychainStore) Has(credName string, kind Kind) (bool, error) {
-	_, err := k.Get(credName, kind)
-	if err != nil {
-		return false, nil
-	}
-	return true, nil
+	return secitemHas(keychainAccount(credName, kind))
 }
 
 func (k *KeychainStore) List() ([]Entry, error) {

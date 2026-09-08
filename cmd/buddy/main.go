@@ -168,6 +168,8 @@ func main() {
 		os.Exit(0)
 	case clispec.CmdAuth:
 		exitOnErr(logger, "Auth command failed", runAuth(credName, opts, args[1:], logger))
+	case clispec.CmdToken:
+		exitOnErr(logger, "Token command failed", runToken(args[1:], logger))
 	case clispec.CmdCred:
 		exitOnErr(logger, "Cred command failed", runCred(cfg, opts, args[1:], logger))
 	case clispec.CmdPolicy:
@@ -248,7 +250,7 @@ func shouldOfferFirstTimeSetup(args []string) bool {
 	switch cmd {
 	case clispec.CmdHelp, clispec.CmdVersion:
 		return false
-	case clispec.CmdSetup, clispec.CmdCred, clispec.CmdAuth:
+	case clispec.CmdSetup, clispec.CmdCred, clispec.CmdAuth, clispec.CmdToken:
 		return false
 	case clispec.CmdServe, clispec.CmdLSP:
 		return false
@@ -2941,7 +2943,7 @@ func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 			return err
 		}
 		return buddy.AuthTest(credName, log)
-	case clispec.SubCaps:
+	case clispec.SubAuthorization:
 		all := false
 		for _, a := range args[1:] {
 			switch a {
@@ -2951,7 +2953,7 @@ func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 				fmt.Print(helpAuth)
 				return nil
 			default:
-				return fmt.Errorf("unknown argument %q; usage: buddy auth caps [--all]", a)
+				return fmt.Errorf("unknown argument %q; usage: buddy auth authorization [--all]", a)
 			}
 		}
 		return buddy.PrintAuthCaps(buddy.GetActiveConfig(), credName, all)
@@ -2961,23 +2963,37 @@ func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 			return nil
 		}
 		return runAuthToken(credName, args[1:], log)
-	case "refresh":
-		if len(args) > 1 && args[1] == clispec.SubHelp {
-			fmt.Print(helpAuth)
-			return nil
-		}
-		return runAuthRefresh(credName, args[1:], log)
+	case clispec.SubRefresh:
+		return fmt.Errorf("moved to 'buddy auth token refresh'; see 'buddy auth help'")
+	case "caps":
+		return fmt.Errorf("unknown auth subcommand %q (use: authorization)", args[0])
 	default:
-		return errUnknownSubcommand("auth", args[0], []string{"token", "refresh", clispec.SubTest, clispec.SubCaps, clispec.SubHelp})
+		return errUnknownSubcommand("auth", args[0], []string{"token", clispec.SubTest, clispec.SubAuthorization, clispec.SubHelp})
 	}
 }
 
-func runAuthToken(credName string, args []string, log *slog.Logger) error {
-	fs := flag.NewFlagSet("auth token", flag.ContinueOnError)
-	raw := fs.Bool("raw", false, "Print bearer token only (no \"Bearer \" prefix)")
-	baseURL := fs.String("url", "", "Jamf Pro or Platform API Gateway base URL (direct auth)")
-	region := fs.String("region", "", "Platform API Gateway region (direct auth; builds URL when --url omitted)")
-	tenantID := fs.String("tenant-id", "", "Platform API Gateway tenant id (direct auth)")
+func runToken(args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
+		fmt.Print(helpToken)
+		return nil
+	}
+	switch args[0] {
+	case clispec.SubDirect:
+		if len(args) > 1 && args[1] == clispec.SubHelp {
+			fmt.Print(helpToken)
+			return nil
+		}
+		return runTokenDirect(args[1:], log)
+	default:
+		return errUnknownSubcommand("token", args[0], []string{clispec.SubDirect, clispec.SubHelp})
+	}
+}
+
+func runTokenDirect(args []string, log *slog.Logger) error {
+	fs := flag.NewFlagSet("token direct", flag.ContinueOnError)
+	baseURL := fs.String("url", "", "Jamf Pro or Platform API Gateway base URL")
+	region := fs.String("region", "", "Platform API Gateway region (builds URL when --url omitted)")
+	tenantID := fs.String("tenant-id", "", "Platform API Gateway tenant id")
 	username := fs.String("username", "", "Username for basic auth")
 	password := fs.String("password", "", "Password for basic auth")
 	clientID := fs.String("client-id", "", "OAuth2 client ID")
@@ -2987,7 +3003,6 @@ func runAuthToken(credName string, args []string, log *slog.Logger) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-
 	direct := buddy.DirectAuthOpts{
 		BaseURL:         *baseURL,
 		Region:          *region,
@@ -2998,45 +3013,129 @@ func runAuthToken(credName string, args []string, log *slog.Logger) error {
 		ClientSecret:    *clientSecret,
 		OAuth2CredsFile: *oauth2CredsFile,
 	}
-
-	if *raw || direct.UsesDirectAuth() {
-		return buddy.PrintRawToken(credName, direct, log)
+	if !direct.UsesDirectAuth() {
+		return fmt.Errorf("direct auth requires --url or --region plus username/password or client-id/client-secret; see 'buddy token help'")
 	}
-
-	return buddy.GetToken(credName)
+	return buddy.PrintRawToken("", direct, log)
 }
 
-func runAuthRefresh(credName string, args []string, log *slog.Logger) error {
-	fs := flag.NewFlagSet("auth refresh", flag.ContinueOnError)
-	baseURL := fs.String("url", "", "Jamf Pro base URL (defaults to --user credential URL)")
-	tokenFlag := fs.String("token", "", "Bearer token to refresh via keep-alive")
+func runAuthToken(credName string, args []string, log *slog.Logger) error {
+	if len(args) == 0 || args[0] == clispec.SubHelp {
+		fmt.Print(helpAuth)
+		return nil
+	}
+	switch args[0] {
+	case clispec.SubShow:
+		if len(args) > 1 && args[1] == clispec.SubHelp {
+			fmt.Print(helpAuth)
+			return nil
+		}
+		return runAuthTokenShow(credName, args[1:], log)
+	case clispec.SubStatus:
+		return runAuthTokenStatus(credName, args[1:])
+	case clispec.SubDrop:
+		return runAuthTokenDrop(credName, args[1:])
+	case clispec.SubRefresh:
+		if len(args) > 1 && args[1] == clispec.SubHelp {
+			fmt.Print(helpAuth)
+			return nil
+		}
+		return runAuthTokenRefresh(credName, args[1:], log)
+	default:
+		if movedDirectAuthFlags(args) {
+			return fmt.Errorf("direct auth flags moved to 'buddy token direct'; see 'buddy token help'")
+		}
+		if strings.HasPrefix(args[0], "-") {
+			return fmt.Errorf("print a token with 'buddy auth token show [--raw]'; see 'buddy auth help'")
+		}
+		return errUnknownSubcommand("auth token", args[0], []string{clispec.SubShow, clispec.SubStatus, clispec.SubDrop, clispec.SubRefresh, clispec.SubHelp})
+	}
+}
+
+func runAuthTokenShow(credName string, args []string, log *slog.Logger) error {
+	fs := flag.NewFlagSet("auth token show", flag.ContinueOnError)
+	raw := fs.Bool("raw", false, "Print bearer token only (no \"Bearer \" prefix)")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-
-	tokenValue := strings.TrimSpace(*tokenFlag)
-	if tokenValue == "" && fs.NArg() > 0 {
-		tokenValue = strings.TrimSpace(fs.Arg(0))
+	if *raw {
+		return buddy.PrintRawToken(credName, buddy.DirectAuthOpts{}, log)
 	}
-	if tokenValue == "" {
-		return fmt.Errorf("token is required; run '%s' for usage", clispec.UsageHelp(clispec.CmdAuth, "refresh"))
-	}
+	return buddy.GetToken(credName)
+}
 
-	urlValue := strings.TrimSpace(*baseURL)
-	if urlValue == "" {
-		var err error
-		urlValue, err = buddy.GetBaseURL(credName)
-		if err != nil {
-			return fmt.Errorf("Jamf Pro URL is required (use --url or configure --user): %w", err)
+func movedDirectAuthFlags(args []string) bool {
+	for _, a := range args {
+		name, _, _ := strings.Cut(a, "=")
+		switch name {
+		case "--url", "--region", "--tenant-id", "--username", "--password",
+			"--client-id", "--client-secret", "--oauth2-creds-file":
+			return true
 		}
 	}
+	return false
+}
 
-	refreshed, err := buddy.RefreshRawToken(urlValue, tokenValue, log)
+func parseAuthAllFlag(args []string, usage string) (all bool, err error) {
+	for _, a := range args {
+		switch a {
+		case "--all":
+			all = true
+		case clispec.SubHelp:
+			return false, errAuthHelp
+		default:
+			return false, fmt.Errorf("unknown argument %q; usage: %s", a, usage)
+		}
+	}
+	return all, nil
+}
+
+var errAuthHelp = fmt.Errorf("auth help")
+
+func runAuthTokenStatus(credName string, args []string) error {
+	all, err := parseAuthAllFlag(args, "buddy auth token status [--all]")
+	if err != nil {
+		if err == errAuthHelp {
+			fmt.Print(helpAuth)
+			return nil
+		}
+		return err
+	}
+	return buddy.PrintTokenStatus(credName, all)
+}
+
+func runAuthTokenDrop(credName string, args []string) error {
+	all, err := parseAuthAllFlag(args, "buddy auth token drop [--all]")
+	if err != nil {
+		if err == errAuthHelp {
+			fmt.Print(helpAuth)
+			return nil
+		}
+		return err
+	}
+	return buddy.DropTokenCache(credName, all)
+}
+
+func runAuthTokenRefresh(credName string, args []string, log *slog.Logger) error {
+	fs := flag.NewFlagSet("auth token refresh", flag.ContinueOnError)
+	raw := fs.Bool("raw", false, "Print bearer token only (no \"Bearer \" prefix)")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected argument %q; usage: buddy auth token refresh [--raw]", fs.Arg(0))
+	}
+	res, err := buddy.AuthRefresh(credName, log)
 	if err != nil {
 		return err
 	}
-	fmt.Println(refreshed)
+	if *raw {
+		fmt.Println(res.Token)
+		return nil
+	}
+	buddy.PrintAuthRefresh(res)
 	return nil
 }
 

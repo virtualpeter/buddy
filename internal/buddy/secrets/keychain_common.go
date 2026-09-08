@@ -18,6 +18,8 @@ const (
 	masterKeychainAccount = "master"
 	// dekKeychainAccount is the random vault data key (not a per-auth secret).
 	dekKeychainAccount = "dek"
+	// tokenWrapKeychainAccount is the AES wrap key for tokens/*.json (no userPresence).
+	tokenWrapKeychainAccount = "token-wrap"
 )
 
 func keychainAccount(credName string, kind Kind) string {
