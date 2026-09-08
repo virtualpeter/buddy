@@ -19,6 +19,7 @@ keywords:
   - mdm
   - computer_history
   - computer_policy_logs
+  - computer_extension_attributes
   - policy logs
 ---
 
@@ -34,14 +35,16 @@ Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …).
 - Computer inventory is **v4** (`/api/v4/computers-inventory`). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime` (see [api-endpoints](/docs/docs/api-endpoints)).
 - Date filters: `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, `general.reportDate` (last inventory). Unquoted ISO-8601 UTC.
 - `computers()` summary dicts include `lastContact`, `lastCheckIn`, `reportDate`, `lastEnrolledDate`, `platform` from GENERAL. `raw=True` is Jamf `results[]` passthrough (xor with `ids=True`). List `section=` adds HARDWARE/OS without N+1 gets.
-- `computer(id)` returns full inventory JSON for requested sections (Jamf default GENERAL). Use `computer_detail(id)` for all sections.
+- `computer(id)` returns full inventory JSON for requested sections (Jamf default GENERAL). Use `computer_detail(id)` for all sections. Known sections include GENERAL, HARDWARE, OPERATING_SYSTEM, USER_AND_LOCATION, PURCHASING, EXTENSION_ATTRIBUTES.
 - Prefer named `computer_*` builtins over raw MDM POSTs.
+- EA inventory values: `computer_extension_attributes(id)` / `computer_set_extension_attribute` (TEXT/POPUP only). Definitions are [extension attributes](/docs/docs/extension-attributes).
 
 ## Facts
 
 - List / find: `computers(filter=…, sort?, section?, raw?, page?, page_size?)` · `buddy computer list [--sort=] [--json]` — v4 dates `lastContact` / `lastCheckIn` / `reportDate`; omit page to fetch all
 - Load: `computer(id=…, section?)` · `buddy computer get [--section=…]` — Passthrough JSON; default GENERAL; `section` → `?section=`
 - Load all sections: `computer_detail(id=…)` · `buddy computer detail` — `GET …/computers-inventory-detail/{id}`
+- EA values: `computer_extension_attributes` / `computer_set_extension_attribute` · `buddy computer eas` / `set ea` — `section=EXTENSION_ATTRIBUTES`; TEXT/POPUP writable via PATCH
 - Policy logs: `computer_history` / `computer_policy_logs` / `policy_logs` · `buddy computer history` / `logs` — Classic computerhistory per Mac; policy_logs needs a bounded computer list
 - MDM actions: `computer_reboot` / `computer_lock` / … · `buddy computer reboot|lock|…` — Named builtins and matching CLI verbs
 - Classic **computer history** is policy/event execution logs (`GET /JSSResource/computerhistory`), not MDM command history and not package/script audit `history`. MDM **command history** is [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices).

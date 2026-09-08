@@ -98,7 +98,8 @@ Inline folklore moved into per-object pages — `docs` list matches **keywords**
 | Smart vs static vs device groups | [smart-groups.md](/docs/docs/smart-groups), [static-groups.md](/docs/docs/static-groups), [device-groups.md](/docs/docs/device-groups) |
 | Profiles / payloads / ACS | [profiles.md](/docs/docs/profiles), [profile-payloads.md](/docs/docs/profile-payloads) |
 | Scripts list vs body | [scripts.md](/docs/docs/scripts) |
-| Cross-tenant copy / upsert | [categories.md](/docs/docs/categories) → [scripts.md](/docs/docs/scripts) → [policies.md](/docs/docs/policies) / [profiles.md](/docs/docs/profiles); prefer `*_copy(..., upsert=True)` |
+| Extension attributes | [extension-attributes.md](/docs/docs/extension-attributes) |
+| Cross-tenant copy / upsert | [categories.md](/docs/docs/categories) → [scripts.md](/docs/docs/scripts) → [extension-attributes.md](/docs/docs/extension-attributes) → [policies.md](/docs/docs/policies) / [profiles.md](/docs/docs/profiles); prefer `*_copy(..., upsert=True)` |
 
 ---
 

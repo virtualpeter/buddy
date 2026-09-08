@@ -33,6 +33,10 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 	for _, name := range []string{
 		"policies", "policy", "policy_xml", "policy_set",
 		"packages", "package", "packages_scan", "scripts", "script", "script_create", "script_delete",
+		"extension_attributes", "extension_attribute", "extension_attribute_create", "extension_attribute_delete",
+		"extension_attribute_contents", "extension_attribute_copy", "extension_attribute_dependencies",
+		"computer_extension_attributes", "computer_set_extension_attribute",
+		"mobile_extension_attributes", "mobile_extension_attribute", "mobile_extension_attribute_create",
 		"computers", "computer", "computer_detail", "computer_history", "computer_policy_logs", "policy_logs", "mdm_commands",
 		"profiles", "profile", "profile_xml",
 		"smart_groups", "static_groups", "smart_group", "static_group",

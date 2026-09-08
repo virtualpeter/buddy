@@ -40,6 +40,7 @@ func TestNormalizeListFilter(t *testing.T) {
 		{"packages rsql pass", `packageName=="*Chrome*";cloudTransferStatus=="READY"`, FilterSpecPackages, `packageName=="*Chrome*";cloudTransferStatus=="READY"`},
 		{"computers bare", "MacBook", FilterSpecComputers, `general.name=="*MacBook*"`},
 		{"scripts bare", "install", FilterSpecScripts, `name=="*install*"`},
+		{"extension attributes bare", "Chrome", FilterSpecExtensionAttributes, `name=="*Chrome*"`},
 		{"groups bare", "chrome", FilterSpecGroups, `name=="*chrome*"`},
 		{"categories bare", "apps", FilterSpecCategories, `name=="*apps*"`},
 		{"devices bare", "Mac", FilterSpecDevices, `name=="*Mac*"`},

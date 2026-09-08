@@ -1,0 +1,15 @@
+# List SCRIPT extension attributes and show dependents before delete.
+# Requires a configured Jamf tenant (buddy auth / config).
+
+def main():
+    rows = extension_attributes(filter='inputType=="SCRIPT"')
+    out = []
+    for r in rows:
+        deps = extension_attribute_dependencies(id=r["id"])
+        out.append({
+            "id": r["id"],
+            "name": r["name"],
+            "enabled": r["enabled"],
+            "deps": len(deps),
+        })
+    return out

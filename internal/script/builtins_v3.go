@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"buddy/internal/buddy"
 
@@ -547,6 +548,82 @@ func computerDetailBuiltin(credName string, logger *slog.Logger) func(*starlark.
 			return resultErr(err.Error())
 		}
 		return resultOK(val), nil
+	}
+}
+
+// computer_extension_attributes(id, filter?, tenant?, surface?, auth?) → list of EA value dicts
+func computerExtensionAttributesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal starlark.Value
+		var filter starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("computer_extension_attributes", args, kwargs, "id", &idVal, "filter?", &filter,
+			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		idStr, err := starlarkIDString(idVal, "id")
+		if err != nil {
+			return nil, err
+		}
+		rows, err := buddy.ComputerFetchExtensionAttributes(sessionPin, idStr, string(filter))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		b, err := json.Marshal(rows)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		val, err := JSONDecodeToStarlark(string(b))
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(val), nil
+	}
+}
+
+// computer_set_extension_attribute(id, ea_id?, ea_name?, values, tenant?, surface?, auth?) → None
+func computerSetExtensionAttributeBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var idVal, valuesVal starlark.Value
+		var eaID, eaName starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("computer_set_extension_attribute", args, kwargs,
+			"id", &idVal, "ea_id?", &eaID, "ea_name?", &eaName, "values", &valuesVal,
+			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		idStr, err := starlarkIDString(idVal, "id")
+		if err != nil {
+			return nil, err
+		}
+		eaIDStr := strings.TrimSpace(string(eaID))
+		eaNameStr := strings.TrimSpace(string(eaName))
+		if (eaIDStr == "") == (eaNameStr == "") {
+			return resultErr("pass either ea_id= or ea_name=, not both")
+		}
+		vals, err := stringListFromStarlark(valuesVal, "values")
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		if err := buddy.ComputerSetExtensionAttribute(sessionPin, scriptOpts, buddy.ComputerSetExtensionAttributeSpec{
+			ComputerID: idStr,
+			EAID:       eaIDStr,
+			EAName:     eaNameStr,
+			Values:     vals,
+		}, logger); err != nil {
+			return resultErr(err.Error())
+		}
+		return resultOK(starlark.None), nil
 	}
 }
 

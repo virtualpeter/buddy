@@ -51,6 +51,7 @@ func TestAllTopicsRegistered(t *testing.T) {
 		"docs/profiles", "docs/profile-payloads", "docs/packages", "docs/scripts",
 		"docs/categories", "docs/macapps", "docs/computers", "docs/mdm",
 		"docs/mobile-devices", "docs/mobile-groups", "docs/mobile-profiles",
+		"docs/extension-attributes", "docs/mobile-extension-attributes",
 		"docs/api-roles", "docs/api-clients", "docs/blueprints", "docs/devices",
 		"docs/device-groups", "docs/ddm", "docs/benchmarks", "docs/icons",
 	}

@@ -12,6 +12,9 @@ func TestSuggestTopLevelCommand(t *testing.T) {
 		"device-groups": "device-group",
 		"creds":         "cred",
 		"credentials":   "cred",
+		"ea":            "extension-attribute",
+		"eas":           "extension-attribute",
+		"mobile-ea":     "mobile-extension-attribute",
 		"bluepritn":     "blueprint", // transposition-ish
 		"profil":        "profile",
 		"xyzzy":         "",

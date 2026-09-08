@@ -15,7 +15,7 @@ var knownCommands = func() map[string]struct{} {
 }()
 
 func isKnownCommand(name string) bool {
-	_, ok := knownCommands[name]
+	_, ok := knownCommands[clispec.CanonicalCommand(name)]
 	return ok
 }
 

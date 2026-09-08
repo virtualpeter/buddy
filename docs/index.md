@@ -36,6 +36,8 @@ The only required config is to define tenants + auths; passwords or oauth secret
 | [Packages / JCDS](packages.md) | READY gate, wait, download |
 | [Icons](icons.md) | Self Service icons (list via weekly catalog cache; get/upload/check/download) |
 | [Scripts](scripts.md) | List vs body; copy/migrate |
+| [Extension attributes](extension-attributes.md) | Computer EA definitions + inventory values |
+| [Mobile extension attributes](mobile-extension-attributes.md) | Mobile EA definitions (TEXT/POPUP/LDAP) |
 | [Categories](categories.md) | Category copy (migrate step 1) |
 | [Mac App Store apps](macapps.md) | Classic macapplications (list/get/create/delete) |
 | [Policy apps](apps.md) | Self Service + packages (list/get/upgrade) |

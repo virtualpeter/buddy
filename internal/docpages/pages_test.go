@@ -16,6 +16,7 @@ func TestLoadHumanEmbedded(t *testing.T) {
 	for _, id := range []string{
 		"docs/index", "docs/getting-started", "docs/policies", "docs/smart-groups", "docs/static-groups",
 		"docs/profiles", "docs/packages", "docs/icons", "docs/scripts", "docs/categories",
+		"docs/extension-attributes", "docs/mobile-extension-attributes",
 		"docs/computers", "docs/mdm", "docs/mobile-devices", "docs/mobile-groups", "docs/mobile-profiles",
 		"docs/api-roles", "docs/api-clients",
 		"docs/blueprints", "docs/devices", "docs/device-groups", "docs/ddm", "docs/benchmarks",

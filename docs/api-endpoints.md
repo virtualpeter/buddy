@@ -194,6 +194,55 @@ Base path: `/api/v1/scripts`
 
 ---
 
+## Extension attributes (Jamf Pro API v1)
+
+### Computer definitions
+
+Base path: `/api/v1/computer-extension-attributes`
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/api/v1/computer-extension-attributes` | `ExtensionAttributeSearch`, `ExtensionAttributeList`, `ExtensionAttributeGetID` | List EAs (paginated); bare filter → `name=="*term*"`; list strips `scriptContents` |
+| `GET` | `/api/v1/computer-extension-attributes/{id}` | `extensionAttributeGetFull`, `ExtensionAttributeGet`, `ExtensionAttributeUpdate`, `ExtensionAttributeSet*` | Fetch full EA including `scriptContents` when SCRIPT |
+| `POST` | `/api/v1/computer-extension-attributes` | `ExtensionAttributePostDetail`, `ExtensionAttributeCreate` | Create EA (SCRIPT/TEXT/POPUP/LDAP) |
+| `PUT` | `/api/v1/computer-extension-attributes/{id}` | `extensionAttributePut`, `ExtensionAttributePutFields`, `ExtensionAttributeSet*` | Replace EA record |
+| `DELETE` | `/api/v1/computer-extension-attributes/{id}` | `extensionAttributeDeleteOne` | Delete one EA |
+| `POST` | `/api/v1/computer-extension-attributes/delete-multiple` | `ExtensionAttributeDelete` (multi) | Bulk delete by ids |
+| `GET` | `/api/v1/computer-extension-attributes/{id}/history` | `ExtensionAttributeHistory` | Audit history |
+| `GET` | `/api/v1/computer-extension-attributes/{id}/data-dependency` | `ExtensionAttributeDependencies` | Smart group / advanced search dependents |
+| `GET` | `/api/v1/computer-extension-attributes/templates` | `ExtensionAttributeTemplateSearch` | Jamf Nation templates |
+| `GET` | `/api/v1/computer-extension-attributes/templates/{id}` | `ExtensionAttributeFetchTemplate` | One template (EA-shaped body) |
+| `POST` | `/api/v1/computer-extension-attributes/upload` | `ExtensionAttributeUploadXML` | Multipart XML import |
+| `GET` | `/api/v1/computer-extension-attributes/{id}/download` | `ExtensionAttributeDownloadXML` | XML export |
+
+### Mobile definitions
+
+Base path: `/api/v1/mobile-device-extension-attributes`
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/api/v1/mobile-device-extension-attributes` | `MobileExtensionAttributeSearch` | List mobile EAs (no SCRIPT) |
+| `GET` | `/api/v1/mobile-device-extension-attributes/{id}` | `mobileExtensionAttributeGetFull` | Fetch one |
+| `POST` | `/api/v1/mobile-device-extension-attributes` | `MobileExtensionAttributePostDetail` | Create |
+| `PUT` | `/api/v1/mobile-device-extension-attributes/{id}` | `mobileExtensionAttributePut` | Update |
+| `DELETE` | `/api/v1/mobile-device-extension-attributes/{id}` | `MobileExtensionAttributeDelete` | Delete |
+
+### Inventory values (computers)
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/api/v4/computers-inventory/{id}?section=EXTENSION_ATTRIBUTES` | `ComputerFetchExtensionAttributes` | Read EA values on a Mac |
+| `PATCH` | `/api/v4/computers-inventory-detail/{id}` | `ComputerSetExtensionAttribute` | Set TEXT/POPUP values (`extensionAttributes: [{definitionId, values}]`) |
+
+### Notes
+
+- Computer EA list summaries never include `scriptContents` (same rule as scripts).
+- SCRIPT and LDAP inventory values are not writable; TEXT/POPUP are.
+- Migrate order: categories → scripts → **extension attributes** → smart groups → policies.
+- Classic `/computerextensionattributes` XML is not used for CRUD.
+
+---
+
 ## Policies (Classic API)
 
 Base path: `/JSSResource/policies`
@@ -426,8 +475,9 @@ Base paths: `/api/v4/computers-inventory`, `/api/v2/mdm/commands`, `/api/v1/jamf
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
 | `GET` | `/api/v4/computers-inventory` | `ComputerSearch`, `ComputerSearchRaw`, `ComputerSearchPrint`, `computers` | List computers (paginated; all pages by default); optional RSQL `filter`, `sort`, repeated `section=` |
-| `GET` | `/api/v4/computers-inventory/{id}` | `ComputerGet`, `ComputerGetValue`, `computer`, `computerGetManagementID` | Fetch computer inventory (default GENERAL; optional `?section=`) |
+| `GET` | `/api/v4/computers-inventory/{id}` | `ComputerGet`, `ComputerGetValue`, `computer`, `computerGetManagementID`, `ComputerFetchExtensionAttributes` | Fetch computer inventory (default GENERAL; optional `?section=`; use `EXTENSION_ATTRIBUTES` for EA values) |
 | `GET` | `/api/v4/computers-inventory-detail/{id}` | `ComputerDetail`, `ComputerDetailValue`, `computer_detail` | Fetch all inventory sections |
+| `PATCH` | `/api/v4/computers-inventory-detail/{id}` | `ComputerSetExtensionAttribute`, `computer_set_extension_attribute` | Set TEXT/POPUP EA values (`extensionAttributes: [{definitionId, values}]`) |
 | `POST` | `/api/v2/mdm/commands` | `ComputerReboot`, `ComputerShutdown`, `ComputerLock`, `ComputerLogOut`, `ComputerErase`, `ComputerDeviceInfo`, `ComputerDeviceLocation`, `ComputerSecurityInfo`, `ComputerInstalledApps`, `ComputerManagedApps`, `ComputerCertificates` | Send MDM command (requires managementId from inventory) |
 | `POST` | `/api/v1/jamf-management-framework/redeploy/{id}` | `ComputerRedeploy` | Trigger Jamf Management Framework redeploy on a computer |
 

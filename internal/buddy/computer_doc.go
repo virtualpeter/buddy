@@ -27,6 +27,7 @@ var ComputersTopic = docspec.Topic{
 		`mdm`,
 		`computer_history`,
 		`computer_policy_logs`,
+		`computer_extension_attributes`,
 		`policy logs`,
 	},
 	Summary: `Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …). Classic **policy execution logs** are ` + "`computer_history`" + ` / ` + "`computer_policy_logs`" + `. For MDM **command history** queries, see [mdm](/docs/docs/mdm). Platform inventory is [devices](/docs/docs/devices) — different API surface.`,
@@ -34,6 +35,7 @@ var ComputersTopic = docspec.Topic{
 		{Action: "List / find", BuddyScript: "`computers(filter=…, sort?, section?, raw?, page?, page_size?)`", CLI: "`buddy computer list [--sort=] [--json]`", Notes: "v4 dates `lastContact` / `lastCheckIn` / `reportDate`; omit page to fetch all"},
 		{Action: "Load", BuddyScript: "`computer(id=…, section?)`", CLI: "`buddy computer get [--section=…]`", Notes: "Passthrough JSON; default GENERAL; `section` → `?section=`"},
 		{Action: "Load all sections", BuddyScript: "`computer_detail(id=…)`", CLI: "`buddy computer detail`", Notes: "`GET …/computers-inventory-detail/{id}`"},
+		{Action: "EA values", BuddyScript: "`computer_extension_attributes` / `computer_set_extension_attribute`", CLI: "`buddy computer eas` / `set ea`", Notes: "`section=EXTENSION_ATTRIBUTES`; TEXT/POPUP writable via PATCH"},
 		{Action: "Policy logs", BuddyScript: "`computer_history` / `computer_policy_logs` / `policy_logs`", CLI: "`buddy computer history` / `logs`", Notes: "Classic computerhistory per Mac; policy_logs needs a bounded computer list"},
 		{Action: "MDM actions", BuddyScript: "`computer_reboot` / `computer_lock` / …", CLI: "`buddy computer reboot|lock|…`", Notes: "Named builtins and matching CLI verbs"},
 	},
@@ -48,8 +50,9 @@ var ComputersTopic = docspec.Topic{
 		"Computer inventory is **v4** (`/api/v4/computers-inventory`). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime` (see [api-endpoints](/docs/docs/api-endpoints)).",
 		"Date filters: `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, `general.reportDate` (last inventory). Unquoted ISO-8601 UTC.",
 		"`computers()` summary dicts include `lastContact`, `lastCheckIn`, `reportDate`, `lastEnrolledDate`, `platform` from GENERAL. `raw=True` is Jamf `results[]` passthrough (xor with `ids=True`). List `section=` adds HARDWARE/OS without N+1 gets.",
-		"`computer(id)` returns full inventory JSON for requested sections (Jamf default GENERAL). Use `computer_detail(id)` for all sections.",
+		"`computer(id)` returns full inventory JSON for requested sections (Jamf default GENERAL). Use `computer_detail(id)` for all sections. Known sections include GENERAL, HARDWARE, OPERATING_SYSTEM, USER_AND_LOCATION, PURCHASING, EXTENSION_ATTRIBUTES.",
 		"Prefer named `computer_*` builtins over raw MDM POSTs.",
+		"EA inventory values: `computer_extension_attributes(id)` / `computer_set_extension_attribute` (TEXT/POPUP only). Definitions are [extension attributes](/docs/docs/extension-attributes).",
 	},
 	Builtins: []docspec.Builtin{
 		{
@@ -153,6 +156,16 @@ var ComputersTopic = docspec.Topic{
       Does: Load one computer with all inventory sections.
       → value: dict (GET /api/v4/computers-inventory-detail/{id} JSON)
       Params: id: str.
+  computer_extension_attributes(id, filter?, tenant?, surface?, auth?)
+      Does: List extension attribute values on a computer (section=EXTENSION_ATTRIBUTES).
+      → value: list of {id, name, inputType, dataType, values}
+      Params: id: computer id. filter?: case-insensitive substring on name or definition id.
+      Notes: Definitions are extension_attribute*; SCRIPT/LDAP values are read-only.
+  computer_set_extension_attribute(id, ea_id?, ea_name?, values, tenant?, surface?, auth?)
+      Does: Set TEXT/POPUP EA values via PATCH /api/v4/computers-inventory-detail/{id}.
+      → None
+      Params: id: computer id. pass either ea_id= (definitionId) or ea_name= (exact).
+        values: str or list[str]. Rejects SCRIPT/LDAP.
   computer_history(id=?, name=?, serial=?, udid=?, subset?, tenant?, surface?, auth?)
       Does: Load Classic computer history (policy/event execution logs, not MDM or audit history).
       → value: dict (general plus flattened policy_logs and other present subsets)
@@ -233,6 +246,8 @@ Subcommands:
   list [args...]                                              List computers
   get <computer-id> [--section=<name>[,<name>...]]            Show inventory JSON (default GENERAL)
   detail <computer-id>                                        Show all inventory sections (inventory-detail)
+  eas <computer-id> [--filter=<term>] [--json]                List extension attribute values on a computer
+  set ea <computer-id> <ea-id|name> <value>                    Set TEXT/POPUP EA value (PATCH inventory-detail)
   history <computer-id> [--subset=PolicyLogs] [--json]        Classic computer history (default PolicyLogs table)
   logs <computer-id> [--policy=<policy-id>] [--status=] [--since=] [--until=] [--json]  Flattened policy execution logs
   reboot <computer-id> [computer-id...]                       Send RESTART_DEVICE MDM command
@@ -279,6 +294,8 @@ Examples:
   buddy computer get 101
   buddy computer get 101 --section=GENERAL,HARDWARE
   buddy computer detail 101
+  buddy computer eas 101
+  buddy computer set ea 101 "Asset Tag" "LAB-42"
   buddy computer history 101
   buddy computer history 101 --json
   buddy computer logs 101 --policy=42

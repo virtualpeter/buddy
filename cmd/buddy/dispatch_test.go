@@ -12,6 +12,15 @@ func TestIsKnownCommand(t *testing.T) {
 	if !isKnownCommand("policy") {
 		t.Error("expected policy to be a known command")
 	}
+	if !isKnownCommand("ea") {
+		t.Error("expected ea alias to be a known command")
+	}
+	if !isKnownCommand("eas") {
+		t.Error("expected eas alias to be a known command")
+	}
+	if !isKnownCommand("mobile-ea") {
+		t.Error("expected mobile-ea alias to be a known command")
+	}
 	if isKnownCommand("run") {
 		t.Error("run should not be a known command")
 	}
