@@ -336,20 +336,11 @@ func MobileSearchGetID(credName, name string, _ *slog.Logger) (string, error) {
 	return id, nil
 }
 
-// MobileSearchResultsPrint prints Classic result rows as JSON, or a compact table.
-func MobileSearchResultsPrint(credName, id, filter string, asJSON bool, _ *slog.Logger) error {
+// MobileSearchResultsPrint prints Classic result rows as a table, JSON, CSV, or jq --raw.
+func MobileSearchResultsPrint(credName, id, filter string, opts SearchResultPrintOpts, _ *slog.Logger) error {
 	rows, err := MobileSearchDevices(credName, id, filter)
 	if err != nil {
 		return err
 	}
-	if asJSON {
-		return printJSONValue(rows)
-	}
-	fmt.Printf("%-8s  %-32s  %s\n", "ID", "Name", "Serial")
-	fmt.Printf("%-8s  %-32s  %s\n", "--------", "--------------------------------", "----------------")
-	for _, r := range rows {
-		fmt.Printf("%-8s  %-32s  %s\n", classicMapID(r), truncate(classicMapName(r), 32), classicMapSerial(r))
-	}
-	fmt.Printf("\n%d mobile device(s)\n", len(rows))
-	return nil
+	return formatSearchResults(rows, opts, "mobile device(s)")
 }

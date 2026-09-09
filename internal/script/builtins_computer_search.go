@@ -30,6 +30,27 @@ func bodyMapFromStarlark(v starlark.Value, label string) (map[string]interface{}
 	return m, nil
 }
 
+func searchFieldsFromStarlark(v starlark.Value) ([]string, error) {
+	if v == nil || v == starlark.None {
+		return nil, nil
+	}
+	if s, ok := starlark.AsString(v); ok {
+		return buddy.ParseSearchFields(s), nil
+	}
+	list, err := stringListFromStarlark(v, "fields")
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, item := range list {
+		out = append(out, buddy.ParseSearchFields(item)...)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
 func searchSummaryList(rows []buddy.ComputerSearchSummary) starlark.Value {
 	list := starlark.NewList(nil)
 	for _, r := range rows {
@@ -102,13 +123,18 @@ func computerSearchBuiltin(credName string, logger *slog.Logger) func(*starlark.
 func computerSearchComputersBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value
+		fieldsVal := starlark.Value(starlark.None)
 		var filter starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("computer_search_computers", args, kwargs, "id", &idVal, "filter?", &filter,
+		if err := starlark.UnpackArgs("computer_search_computers", args, kwargs, "id", &idVal, "filter?", &filter, "fields?", &fieldsVal,
 			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
 		idStr, err := starlarkIDString(idVal, "id")
+		if err != nil {
+			return nil, err
+		}
+		want, err := searchFieldsFromStarlark(fieldsVal)
 		if err != nil {
 			return nil, err
 		}
@@ -120,6 +146,13 @@ func computerSearchComputersBuiltin(credName string, logger *slog.Logger) func(*
 		rows, err := buddy.ComputerSearchComputers(pin, idStr, string(filter))
 		if err != nil {
 			return resultErr(err.Error())
+		}
+		keys, err := buddy.ResolveSearchResultFields(rows, want)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		if len(want) > 0 {
+			rows = buddy.ProjectSearchResultRows(rows, keys)
 		}
 		return jsonResult(rows, nil)
 	}

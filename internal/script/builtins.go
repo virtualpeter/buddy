@@ -177,6 +177,8 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "json_decode", jsonDecodeBuiltin)
 	putBuiltin(dict, "json_encode", jsonEncodeBuiltin)
 	putBuiltin(dict, "json_pretty", jsonPrettyBuiltin)
+	putBuiltin(dict, "json_flatten", jsonFlattenBuiltin)
+	putBuiltin(dict, "jq", jqBuiltin)
 	putBuiltin(dict, "plist_decode", plistDecodeBuiltin)
 	putBuiltin(dict, "plist_encode", plistEncodeBuiltin)
 	putBuiltin(dict, "xml_escape", xmlEscapeBuiltin)
@@ -2271,6 +2273,50 @@ func jsonPrettyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tu
 		return resultErr(err.Error())
 	}
 	return resultOK(starlark.String(s)), nil
+}
+
+// json_flatten(value, prefix?, sep?) → dict
+func jsonFlattenBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var val starlark.Value
+	var prefix, sep string
+	if err := starlark.UnpackArgs("json_flatten", args, kwargs, "value", &val, "prefix?", &prefix, "sep?", &sep); err != nil {
+		return nil, err
+	}
+	g, err := StarlarkValueToGo(val)
+	if err != nil {
+		return resultErr(err.Error())
+	}
+	out, err := buddy.JSONFlatten(g, prefix, sep)
+	if err != nil {
+		return resultErr(err.Error())
+	}
+	sv, err := GoValueToStarlark(out)
+	if err != nil {
+		return resultErr(err.Error())
+	}
+	return resultOK(sv), nil
+}
+
+// jq(value, expr) → value
+func jqBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var val starlark.Value
+	var expr string
+	if err := starlark.UnpackArgs("jq", args, kwargs, "value", &val, "expr", &expr); err != nil {
+		return nil, err
+	}
+	g, err := StarlarkValueToGo(val)
+	if err != nil {
+		return resultErr(err.Error())
+	}
+	out, err := buddy.ApplyJQ(g, expr)
+	if err != nil {
+		return resultErr(err.Error())
+	}
+	sv, err := GoValueToStarlark(out)
+	if err != nil {
+		return resultErr(err.Error())
+	}
+	return resultOK(sv), nil
 }
 
 // plist_decode(plist_xml_str) → dict or list

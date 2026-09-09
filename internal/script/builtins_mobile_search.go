@@ -95,13 +95,18 @@ func mobileSearchBuiltin(credName string, logger *slog.Logger) func(*starlark.Th
 func mobileSearchDevicesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value
+		fieldsVal := starlark.Value(starlark.None)
 		var filter starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("mobile_search_devices", args, kwargs, "id", &idVal, "filter?", &filter,
+		if err := starlark.UnpackArgs("mobile_search_devices", args, kwargs, "id", &idVal, "filter?", &filter, "fields?", &fieldsVal,
 			"tenant?", &sess.Tenant, "surface?", &sess.Surface, "auth?", &sess.Auth); err != nil {
 			return nil, err
 		}
 		idStr, err := starlarkIDString(idVal, "id")
+		if err != nil {
+			return nil, err
+		}
+		want, err := searchFieldsFromStarlark(fieldsVal)
 		if err != nil {
 			return nil, err
 		}
@@ -113,6 +118,13 @@ func mobileSearchDevicesBuiltin(credName string, logger *slog.Logger) func(*star
 		rows, err := buddy.MobileSearchDevices(pin, idStr, string(filter))
 		if err != nil {
 			return resultErr(err.Error())
+		}
+		keys, err := buddy.ResolveSearchResultFields(rows, want)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		if len(want) > 0 {
+			rows = buddy.ProjectSearchResultRows(rows, keys)
 		}
 		return jsonResult(rows, nil)
 	}

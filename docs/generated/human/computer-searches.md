@@ -9,7 +9,7 @@ Jamf **Reports** for Macs are Classic **advanced computer searches**. Buddy list
 |---------|-------------|-----|-------|
 | List | `computer_searches(filter?)` | `buddy computer-search list` | Classic `{id, name}`; client-side substring on id/name |
 | Load definition | `computer_search(id=…)` / `computer_search(name=…)` | `buddy computer-search get` / `get id <name>` | `computers` stripped |
-| Run / results | `computer_search_computers(id, filter?)` | `buddy computer-search results` | Display-field keys kept; client-side filter on id/name/serial |
+| Run / results | `computer_search_computers(id, filter?, fields?)` | `buddy computer-search results [--fields=…] [--fromjson=…] [--flatten=…] [--csv] [--jq=…] [--raw]` | One column per display field (or `--fields=`); `--fromjson`/`--flatten` for JSON-string cells; `--json` / `--csv` / `--jq` + `--raw` |
 | Create | `computer_search_create(body)` | `create --file=` or `create <name>` | Classic JSON (`and_or` / `search_type`); POST `…/id/0` |
 | Replace | `computer_search_put(id, body)` | `put <search-id> --file=` | Full PUT; `computers` stripped before send |
 | Delete | `computer_search_delete(id=…)` / `ids=…` | `delete <search-id> […]` | One or more IDs |

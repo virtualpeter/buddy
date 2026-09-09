@@ -54,11 +54,37 @@ func runMobileSearch(credName string, opts buddy.Opts, args []string, log *slog.
 		if err != nil {
 			return err
 		}
+		fields, rest, err := extractStringFlag(rest, clispec.FlagFields)
+		if err != nil {
+			return err
+		}
+		jqExpr, rest, err := extractStringFlag(rest, clispec.FlagJQ)
+		if err != nil {
+			return err
+		}
+		fromJSON, rest, err := extractStringFlag(rest, clispec.FlagFromJSON)
+		if err != nil {
+			return err
+		}
+		flatten, rest, err := extractStringFlag(rest, clispec.FlagFlatten)
+		if err != nil {
+			return err
+		}
 		asJSON, rest := extractBareFlag(rest, clispec.FlagJSON)
+		asCSV, rest := extractBareFlag(rest, clispec.FlagCSV)
+		asRaw, rest := extractBareFlag(rest, clispec.FlagRaw)
 		if len(rest) > 0 {
 			return fmt.Errorf("unknown results flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdMobileSearch))
 		}
-		return buddy.MobileSearchResultsPrint(credName, id, filter, asJSON, log)
+		return buddy.MobileSearchResultsPrint(credName, id, filter, buddy.SearchResultPrintOpts{
+			Fields:   fields,
+			JQ:       jqExpr,
+			FromJSON: fromJSON,
+			Flatten:  flatten,
+			JSON:     asJSON,
+			CSV:      asCSV,
+			Raw:      asRaw,
+		}, log)
 
 	case clispec.SubCreate:
 		return runMobileSearchCreate(credName, opts, args, log)

@@ -31,7 +31,7 @@ Jamf **Reports** for mobile devices: Pro JSON CRUD for the saved search definiti
 
 - List: `mobile_searches(filter?, page?, page_size?)` · `buddy mobile-search list` — Pro paginated `{id, name}`; omit page = all; client-side filter
 - Load definition: `mobile_search(id=…)` / `mobile_search(name=…)` · `buddy mobile-search get` / `get id <name>` — Pro JSON; no devices
-- Run / results: `mobile_search_devices(id, filter?)` · `buddy mobile-search results` — Classic `mobile_devices`; client-side filter on id/name/serial
+- Run / results: `mobile_search_devices(id, filter?, fields?)` · `buddy mobile-search results [--fields=…] [--fromjson=…] [--flatten=…] [--csv] [--jq=…] [--raw]` — Classic `mobile_devices`; `--fromjson`/`--flatten` for JSON-string cells; `--json` / `--csv` / `--jq` + `--raw`
 - Create: `mobile_search_create(body)` · `create --file=` or `create <name>` — Pro camelCase `andOr` / `searchType`
 - Replace: `mobile_search_put(id, body)` · `put <search-id> --file=` — Full Pro PUT
 - Delete: `mobile_search_delete(id=…)` / `ids=…` · `delete <search-id> […]` — One or more IDs
@@ -100,8 +100,12 @@ Returns: list of dict
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "fields": {
+      "description": "display-field names to keep",
+      "type": "string"
+    },
     "filter": {
-      "description": "client-side substring on id/name/serial",
+      "description": "client-side substring on any result field",
       "type": "string"
     },
     "id": {

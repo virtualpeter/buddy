@@ -13,10 +13,10 @@ const ComputerSearchesBuiltinsSection = `COMPUTER SEARCH (Classic advancedcomput
       Does: Load one advanced computer search definition (computers stripped).
       → value: dict (Classic JSON: name, criteria, display_fields, site, …)
       Params: Pass either id or name, not both.
-  computer_search_computers(id, filter?, tenant?, surface?, auth?)
+  computer_search_computers(id, filter?, fields?, tenant?, surface?, auth?)
       Does: Return result rows for a saved search (computerreports, then ACS computers).
       → value: list of dict (display-field keys kept, e.g. Computer_Name)
-      Params: id: str (search-id); filter?: str (client-side substring on id/name/serial).
+      Params: id: str (search-id); filter?: str (client-side substring on any result field); fields?: str or list of str (comma-separated JSON keys or "Computer Name"; omit = all).
   computer_search_create(body, tenant?, surface?, auth?)
       Does: POST a Classic advanced computer search (JSON to …/id/0).
       → value: dict {id, name}
@@ -44,8 +44,8 @@ Subcommands:
   list [--filter=<term>] [--json]              List saved searches (id, name)
   get <search-id>                              Show definition JSON (no computers)
   get id <name>                                Resolve exact name to ID
-  results <search-id> [--filter=<term>] [--json]
-                                               Run the search; print result rows
+  results <search-id> [--filter=<term>] [--fields=<name>[,<name>...]] [--fromjson=<name>[,<name>...]] [--flatten=<name>[,<name>...]] [--json|--csv] [--jq=<expr>] [--raw]
+                                               Run the search; table of display fields
   create --file=<json>                         Create from Classic JSON
   create <name>                                Create a named empty search
   put <search-id> --file=<json>                Replace definition (computers stripped)
@@ -56,8 +56,14 @@ Flags for 'list':
   --json            Print JSON instead of a table
 
 Flags for 'results':
-  --filter=<term>   Client-side substring on id, name, or serial
-  --json            Print full result-row JSON (display fields)
+  --filter=<term>                 Client-side substring on any result field
+  --fields=<name>[,<name>...]     Columns to show (JSON keys or "Computer Name"); omit = all
+  --json                          Print full result-row JSON (no truncation)
+  --csv                           Print RFC 4180 CSV (JSON-key headers; no count footer)
+  --jq=<expr>                     Apply a jq expression after --fields
+  --fromjson=<name>[,<name>...]   Parse JSON-string cells into objects (for jq / --json)
+  --flatten=<name>[,<name>...]    Explode JSON objects into dotted columns (parses strings)
+  --raw                           Print jq stream like jq -r (requires --jq)
 
 Flags for 'create' / 'put':
   --file=<json>     Path to a JSON object, or - for stdin
@@ -65,11 +71,17 @@ Flags for 'create' / 'put':
 Notes:
   Classic /JSSResource/advancedcomputersearches. Results prefer computerreports
   for the same search-id. This is the Jamf Reports UI, not DDM/benchmark reports.
+  --json, --csv, and --raw are mutually exclusive. --raw requires --jq.
 
 Examples:
   buddy computer-search list --filter=Chrome
   buddy acs get 42
   buddy computer-search results 42 --filter=lab --json
+  buddy acs results 219 --fields=Computer_Name,Username,Last_Check_in
+  buddy acs results 219 --fields=Computer_Name,Username,Last_Check_in --csv
+  buddy acs results 219 --jq='map({name: .Computer_Name, user: .Username})' --csv
+  buddy acs results 219 --jq='.[].Computer_Name' --raw
+  buddy acs results 219 --fields=id,Computer_Name,Wi_Fi_History --fromjson=Wi_Fi_History --flatten=Wi_Fi_History --csv
   buddy computer-search create "Lab Macs"
   buddy computer-search put 42 --file=search.json
   buddy computer-search delete 42

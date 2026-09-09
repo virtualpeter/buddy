@@ -13,10 +13,10 @@ const MobileSearchesBuiltinsSection = `MOBILE SEARCH (Pro advanced-mobile-device
       Does: Load one Pro advanced mobile-device search definition (no devices).
       → value: dict (full Pro JSON)
       Params: Pass either id or name, not both. Name is an exact, case-insensitive list match.
-  mobile_search_devices(id, filter?, tenant?, surface?, auth?)
+  mobile_search_devices(id, filter?, fields?, tenant?, surface?, auth?)
       Does: Return Classic result rows (GET advancedmobiledevicesearches; Pro GET has no membership).
       → value: list of dict (display-field keys kept)
-      Params: id: str (search-id); filter?: str (client-side substring on id/name/serial).
+      Params: id: str (search-id); filter?: str (client-side substring on any result field); fields?: str or list of str (comma-separated JSON keys; omit = all).
   mobile_search_create(body, tenant?, surface?, auth?)
       Does: POST a Pro advanced mobile-device search.
       → value: dict {id, name}
@@ -44,8 +44,8 @@ Subcommands:
   list [--filter=<term>] [--json]              List saved searches (id, name)
   get <search-id>                              Show Pro definition JSON
   get id <name>                                Resolve exact name to ID
-  results <search-id> [--filter=<term>] [--json]
-                                               Classic device rows for the search
+  results <search-id> [--filter=<term>] [--fields=<name>[,<name>...]] [--fromjson=<name>[,<name>...]] [--flatten=<name>[,<name>...]] [--json|--csv] [--jq=<expr>] [--raw]
+                                               Run the search; table of display fields
   create --file=<json>                         Create from Pro JSON
   create <name>                                Create a named empty search
   put <search-id> --file=<json>                Replace Pro definition
@@ -56,8 +56,14 @@ Flags for 'list':
   --json            Print JSON instead of a table
 
 Flags for 'results':
-  --filter=<term>   Client-side substring on id, name, or serial
-  --json            Print full result-row JSON
+  --filter=<term>                 Client-side substring on any result field
+  --fields=<name>[,<name>...]     Columns to show (JSON keys); omit = all
+  --json                          Print full result-row JSON (no truncation)
+  --csv                           Print RFC 4180 CSV (JSON-key headers; no count footer)
+  --jq=<expr>                     Apply a jq expression after --fields
+  --fromjson=<name>[,<name>...]   Parse JSON-string cells into objects (for jq / --json)
+  --flatten=<name>[,<name>...]    Explode JSON objects into dotted columns (parses strings)
+  --raw                           Print jq stream like jq -r (requires --jq)
 
 Flags for 'create' / 'put':
   --file=<json>     Path to a JSON object, or - for stdin
@@ -66,11 +72,16 @@ Notes:
   Definitions: Pro /api/v1/advanced-mobile-device-searches. Results: Classic
   GET /JSSResource/advancedmobiledevicesearches (mobile_devices). Not user
   searches and not Pro advanced-user-content-searches (VPP content).
+  --json, --csv, and --raw are mutually exclusive. --raw requires --jq.
 
 Examples:
   buddy mobile-search list --filter=iPad
   buddy mobile-acs get 88
   buddy mobile-search results 88 --json
+  buddy mobile-acs results 88 --fields=id,name
+  buddy mobile-acs results 88 --fields=id,name --csv
+  buddy mobile-search results 88 --jq='.[].name' --raw
+  buddy mobile-acs results 88 --fromjson=Wi_Fi_History --flatten=Wi_Fi_History --csv
   buddy mobile-search create "Lab iPads"
   buddy mobile-search put 88 --file=search.json
   buddy mobile-search delete 88

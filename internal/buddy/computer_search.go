@@ -349,20 +349,11 @@ func ComputerSearchGetID(credName, name string, _ *slog.Logger) (string, error) 
 	return id, nil
 }
 
-// ComputerSearchResultsPrint prints result rows as JSON, or a compact id/name/serial table.
-func ComputerSearchResultsPrint(credName, id, filter string, asJSON bool, _ *slog.Logger) error {
+// ComputerSearchResultsPrint prints result rows as a table, JSON, CSV, or jq --raw.
+func ComputerSearchResultsPrint(credName, id, filter string, opts SearchResultPrintOpts, _ *slog.Logger) error {
 	rows, err := ComputerSearchComputers(credName, id, filter)
 	if err != nil {
 		return err
 	}
-	if asJSON {
-		return printJSONValue(rows)
-	}
-	fmt.Printf("%-8s  %-32s  %s\n", "ID", "Name", "Serial")
-	fmt.Printf("%-8s  %-32s  %s\n", "--------", "--------------------------------", "----------------")
-	for _, r := range rows {
-		fmt.Printf("%-8s  %-32s  %s\n", classicMapID(r), truncate(classicMapName(r), 32), classicMapSerial(r))
-	}
-	fmt.Printf("\n%d computer(s)\n", len(rows))
-	return nil
+	return formatSearchResults(rows, opts, "computer(s)")
 }
