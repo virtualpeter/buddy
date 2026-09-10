@@ -23,6 +23,11 @@ First time? Run any Jamf command interactively (or 'buddy cred add') for the set
 Use 'buddy help starlark' or 'buddy help builtins' for buddyscript reference.
 Use 'buddy help <command>' or 'buddy <command> help' for command details.
 Use 'buddy <command> <subcommand> help' for subcommand details.
+
+Notes:
+  Global flags may appear anywhere before -- (buddy policy list --tenant sandbox -v).
+  Long flags accept a single dash (-tenant is --tenant). Short flags are not combinable (-vt is not -v -t).
+  Command and subcommand names accept a unique prefix (buddy ico list).
 `
 
 // Root is buddy help with no arguments (also the Command index overview).

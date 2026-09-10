@@ -120,7 +120,14 @@ var helpMobileExtAttr = help.MobileExtensionAttributesCLIHelp
 func printCommandHelp(path []string) {
 	if len(path) > 0 {
 		path = append([]string(nil), path...)
-		path[0] = clispec.CanonicalCommand(path[0])
+		id, amb, ok := clispec.ResolveCommand(path[0])
+		if ok {
+			path[0] = id
+		} else if len(amb) > 0 {
+			fmt.Fprintf(os.Stderr, "%s\n", clispec.T(clispec.MsgAmbiguousCommand, path[0], strings.Join(amb, ", ")))
+			fmt.Fprintln(os.Stderr, clispec.T(clispec.MsgRunHelpList))
+			return
+		}
 	}
 	key := strings.Join(path, ".")
 	helpMap := map[string]string{

@@ -70,3 +70,28 @@ func TestRunCredUnknownSubcommandListsSetupFirst(t *testing.T) {
 		t.Fatalf("want add, set before list in candidates: %s", msg)
 	}
 }
+
+func TestRunCredSetChannelTenant(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	cfg := &buddy.Config{
+		Tenants: map[string]buddy.TenantConfig{"sandbox": {URL: "https://example.jamfcloud.com"}},
+		Tenant:  buddy.TenantSelection{Default: "sandbox"},
+	}
+	out := captureStdout(t, func() {
+		if err := runCredSetChannel(cfg, []string{"mcp", "--tenant=sandbox"}); err != nil {
+			t.Fatalf("runCredSetChannel: %v", err)
+		}
+	})
+	if cfg.Channels["mcp"].Tenant != "sandbox" {
+		t.Fatalf("channels.mcp.tenant = %q, want sandbox; out=%s", cfg.Channels["mcp"].Tenant, out)
+	}
+	out = captureStdout(t, func() {
+		if err := runCredSetChannel(cfg, []string{"cli", "--tenant", "sandbox"}); err != nil {
+			t.Fatalf("runCredSetChannel space: %v", err)
+		}
+	})
+	if cfg.Channels["cli"].Tenant != "sandbox" {
+		t.Fatalf("channels.cli.tenant = %q; out=%s", cfg.Channels["cli"].Tenant, out)
+	}
+}

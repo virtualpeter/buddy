@@ -10,6 +10,9 @@ import (
 )
 
 func runComputerSearch(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("computer-search", args, []string{clispec.SubList, clispec.SubGet, clispec.SubResults, clispec.SubCreate, clispec.SubPut, clispec.SubDelete, clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpComputerSearch)
 		return nil

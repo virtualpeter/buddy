@@ -13,7 +13,14 @@ import (
 )
 
 func runMCP(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if len(args) > 0 && (args[0] == clispec.SubHelp || args[0] == "-h" || args[0] == "--help") {
+	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
+		fmt.Print(helpMCP)
+		return nil
+	}
+	if err := resolveArg0("mcp", args, []string{"setup", clispec.SubHelp}); err != nil {
+		return err
+	}
+	if len(args) > 0 && args[0] == clispec.SubHelp {
 		fmt.Print(helpMCP)
 		return nil
 	}

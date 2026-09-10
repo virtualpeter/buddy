@@ -147,6 +147,8 @@ buddy [global-flags] <command> [subcommand] [args...]
 buddy help [command] [subcommand]
 ```
 
+Global flags may appear anywhere before `--`. Long flags accept a single dash (`-tenant` is `--tenant`); short flags are not combinable (`-vt` is not `-v -t`). Command and subcommand names accept a unique prefix (`buddy ico list`).
+
 **Global flags**
 
 | Flag | Meaning |

@@ -16,6 +16,11 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, log *slog.Logger
 		fmt.Print(helpCredShort)
 		return nil
 	}
+	if err := resolveArg0("cred", args, []string{
+		clispec.SubAdd, clispec.SubSet, clispec.SubStatus, clispec.SubList, clispec.SubGet, clispec.SubDelete, "use", "allow", "store", "migrate", "clean", "erase", "backup", "restore", clispec.SubHelp,
+	}); err != nil {
+		return err
+	}
 	if args[0] == clispec.SubHelp {
 		fmt.Print(helpCred)
 		return nil
@@ -60,6 +65,11 @@ func runCredGet(cfg *buddy.Config, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("missing item; usage: buddy cred get tenant|auth|secret|channel <name> (see '%s')", clispec.UsageHelp(clispec.CmdCred))
 	}
+	if match, amb := clispec.MatchToken(args[0], []string{"tenant", "auth", "secret", "channel"}); match != "" {
+		args[0] = match
+	} else if len(amb) > 0 {
+		return errAmbiguousSubcommand("cred get", args[0], amb)
+	}
 	switch args[0] {
 	case "tenant":
 		if len(args) < 2 {
@@ -97,6 +107,9 @@ func runCredSet(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("missing item; usage: buddy cred set tenant|auth|secret|passphrase <name> … (see '%s')", clispec.UsageHelp(clispec.CmdCred))
 	}
+	if err := resolveArg0("cred set", args, []string{"tenant", "auth", "channel", "secret", "passphrase"}); err != nil {
+		return err
+	}
 	switch args[0] {
 	case "tenant":
 		return runCredSetTenant(cfg, opts, args[1:])
@@ -119,6 +132,9 @@ func runCredSet(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 func runCredDelete(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("missing item; usage: buddy cred delete tenant|auth|secret <name> (see '%s')", clispec.UsageHelp(clispec.CmdCred))
+	}
+	if err := resolveArg0("cred delete", args, []string{"tenant", "auth", "secret"}); err != nil {
+		return err
 	}
 	switch args[0] {
 	case "tenant":
@@ -278,13 +294,28 @@ func runCredSetChannel(cfg *buddy.Config, args []string) error {
 	}
 	var access, tenant, tenantsCSV, denyCSV, allowCSV string
 	var setAccess, setTenant, setTenants, setDeny, setAllow bool
-	for _, a := range args[1:] {
+	for i := 1; i < len(args); i++ {
+		a := args[i]
 		switch {
 		case strings.HasPrefix(a, "--access="):
 			access = strings.TrimPrefix(a, "--access=")
 			setAccess = true
+		case a == "--access":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return fmt.Errorf("--access requires a value")
+			}
+			i++
+			access = args[i]
+			setAccess = true
 		case strings.HasPrefix(a, "--tenant="):
 			tenant = strings.TrimPrefix(a, "--tenant=")
+			setTenant = true
+		case a == "--tenant":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return fmt.Errorf("--tenant requires a value")
+			}
+			i++
+			tenant = args[i]
 			setTenant = true
 		case a == "--tenants=" || a == "--tenants":
 			tenantsCSV = ""
@@ -1424,6 +1455,9 @@ func runCredStore() error {
 }
 
 func runCredClean(cfg *buddy.Config, opts buddy.Opts, args []string) error {
+	if err := resolveArg0("cred clean", args, []string{"secrets", "tokens", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(`buddy cred clean - Review and remove orphaned secrets or stale tokens
 
@@ -1478,6 +1512,9 @@ func runCredCleanTokens() error {
 }
 
 func runCredErase(opts buddy.Opts, args []string) error {
+	if err := resolveArg0("cred erase", args, []string{"secrets", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(`buddy cred erase - Wipe every secret from the platform store
 

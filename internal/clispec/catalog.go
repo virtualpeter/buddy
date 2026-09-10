@@ -9,14 +9,16 @@ import (
 
 // Message IDs (stable keys; not English-as-id).
 const (
-	MsgMissingArg        = "cli.missing_arg"
-	MsgMissingArgHint    = "cli.missing_arg_hint"
-	MsgUnknownCommand    = "cli.unknown_command"
-	MsgUnknownSubcommand = "cli.unknown_subcommand"
-	MsgDidYouMean        = "cli.did_you_mean"
-	MsgUseCandidates     = "cli.use_candidates"
-	MsgRunHelpList       = "cli.run_help_list"
-	MsgNoHelp            = "cli.no_help"
+	MsgMissingArg          = "cli.missing_arg"
+	MsgMissingArgHint      = "cli.missing_arg_hint"
+	MsgUnknownCommand      = "cli.unknown_command"
+	MsgUnknownSubcommand   = "cli.unknown_subcommand"
+	MsgAmbiguousCommand    = "cli.ambiguous_command"
+	MsgAmbiguousSubcommand = "cli.ambiguous_subcommand"
+	MsgDidYouMean          = "cli.did_you_mean"
+	MsgUseCandidates       = "cli.use_candidates"
+	MsgRunHelpList         = "cli.run_help_list"
+	MsgNoHelp              = "cli.no_help"
 
 	MsgCmdAuth               = "cli.cmd.auth"
 	MsgCmdToken              = "cli.cmd.token"
@@ -69,14 +71,16 @@ var catalogs = map[string]map[string]string{
 }
 
 var en = map[string]string{
-	MsgMissingArg:        "missing %s; run '%s' for usage",
-	MsgMissingArgHint:    "missing %s; run '%s'",
-	MsgUnknownCommand:    "Unknown command: %q",
-	MsgUnknownSubcommand: "unknown %s subcommand: %q",
-	MsgDidYouMean:        "\nDid you mean %q?",
-	MsgUseCandidates:     " (use: %s)",
-	MsgRunHelpList:       "Run 'buddy help' for a list of commands.",
-	MsgNoHelp:            "No help available for %q\n\n",
+	MsgMissingArg:          "missing %s; run '%s' for usage",
+	MsgMissingArgHint:      "missing %s; run '%s'",
+	MsgUnknownCommand:      "Unknown command: %q",
+	MsgUnknownSubcommand:   "unknown %s subcommand: %q",
+	MsgAmbiguousCommand:    "Ambiguous command: %q (could be: %s)",
+	MsgAmbiguousSubcommand: "ambiguous %s subcommand: %q (could be: %s)",
+	MsgDidYouMean:          "\nDid you mean %q?",
+	MsgUseCandidates:       " (use: %s)",
+	MsgRunHelpList:         "Run 'buddy help' for a list of commands.",
+	MsgNoHelp:              "No help available for %q\n\n",
 
 	MsgCmdAuth:               "Test authentication for the active tenant/auth",
 	MsgCmdToken:              "Mint a bearer token with one-shot flags (no config)",

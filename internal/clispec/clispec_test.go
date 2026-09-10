@@ -76,6 +76,7 @@ func TestMissingKeyPanicsInTest(t *testing.T) {
 func TestEnglishCatalogComplete(t *testing.T) {
 	ids := []string{
 		MsgMissingArg, MsgMissingArgHint, MsgUnknownCommand, MsgUnknownSubcommand,
+		MsgAmbiguousCommand, MsgAmbiguousSubcommand,
 		MsgDidYouMean, MsgUseCandidates, MsgRunHelpList, MsgNoHelp,
 		MsgCmdAuth, MsgCmdToken, MsgCmdCred, MsgCmdPolicy, MsgCmdCategory, MsgCmdMacApp, MsgCmdApp,
 		MsgCmdGroup, MsgCmdProfile, MsgCmdPackage, MsgCmdIcon, MsgCmdComputer, MsgCmdComputerSearch, MsgCmdMdm,
@@ -165,6 +166,49 @@ func TestCanonicalCommand(t *testing.T) {
 		if got := CanonicalCommand(in); got != want {
 			t.Errorf("CanonicalCommand(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestMatchToken(t *testing.T) {
+	cands := []string{"list", "get", "logs", "help"}
+	if got, amb := MatchToken("li", cands); got != "list" || amb != nil {
+		t.Fatalf("li → %q %v want list", got, amb)
+	}
+	if got, amb := MatchToken("l", cands); got != "" || len(amb) != 2 {
+		t.Fatalf("l → %q %v want ambiguous list,logs", got, amb)
+	}
+	if got, amb := MatchToken("LIST", cands); got != "list" || amb != nil {
+		t.Fatalf("LIST exact → %q %v", got, amb)
+	}
+	if got, amb := MatchToken("xyzzy", cands); got != "" || amb != nil {
+		t.Fatalf("unknown → %q %v", got, amb)
+	}
+}
+
+func TestResolveCommand(t *testing.T) {
+	id, amb, ok := ResolveCommand("ico")
+	if !ok || id != CmdIcon || amb != nil {
+		t.Fatalf("ico → %q %v ok=%v want icon", id, amb, ok)
+	}
+	id, amb, ok = ResolveCommand("pol")
+	if !ok || id != CmdPolicy {
+		t.Fatalf("pol → %q %v ok=%v want policy", id, amb, ok)
+	}
+	id, amb, ok = ResolveCommand("ea")
+	if !ok || id != CmdExtensionAttribute {
+		t.Fatalf("ea alias → %q ok=%v", id, ok)
+	}
+	id, amb, ok = ResolveCommand("c")
+	if ok || id != "" || len(amb) < 2 {
+		t.Fatalf("c → id=%q amb=%v ok=%v want ambiguous", id, amb, ok)
+	}
+	id, amb, ok = ResolveCommand("xyzzy")
+	if ok || amb != nil || id != "xyzzy" {
+		t.Fatalf("xyzzy → %q %v ok=%v", id, amb, ok)
+	}
+	id, amb, ok = ResolveCommand("icons")
+	if !ok || id != CmdIcon {
+		t.Fatalf("icons alias → %q ok=%v", id, ok)
 	}
 }
 

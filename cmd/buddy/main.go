@@ -72,7 +72,14 @@ func main() {
 
 	args := os.Args[1:]
 	if len(args) > 0 {
-		args[0] = clispec.CanonicalCommand(args[0])
+		id, amb, ok := clispec.ResolveCommand(args[0])
+		if ok {
+			args[0] = id
+		} else if len(amb) > 0 {
+			fmt.Fprintf(os.Stderr, "%s\n", clispec.T(clispec.MsgAmbiguousCommand, args[0], strings.Join(amb, ", ")))
+			fmt.Fprintln(os.Stderr, clispec.T(clispec.MsgRunHelpList))
+			os.Exit(1)
+		}
 	}
 	channel := buddy.ChannelCLI
 	if len(args) > 0 {
@@ -266,6 +273,9 @@ func shouldOfferFirstTimeSetup(args []string) bool {
 }
 
 func runPolicy(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("policy", args, []string{clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubCreate, clispec.SubDelete, clispec.SubLogs, clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpPolicy)
 		return nil
@@ -504,6 +514,13 @@ func policySetRequireID(args []string, min int, hint string) (int, error) {
 }
 
 func runPolicySet(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {
+	var err error
+	subcommand, err = matchSubcommand("policy set", subcommand, []string{
+		"ss", "scope", "enable", "disable", "trigger", "install", "name", "frequency", "icon", "package", "xml", clispec.SubHelp,
+	})
+	if err != nil {
+		return err
+	}
 	if subcommand == clispec.SubHelp {
 		fmt.Print(helpPolicySet)
 		return nil
@@ -686,6 +703,11 @@ func parseDisableSourceFlags(disableSource, keepSource bool) (buddy.DisableSourc
 }
 
 func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {
+	var err error
+	subcommand, err = matchSubcommand("policy create", subcommand, []string{"package", "ss", clispec.SubHelp})
+	if err != nil {
+		return err
+	}
 	if subcommand == clispec.SubHelp {
 		fmt.Print(helpPolicyCreate)
 		return nil
@@ -776,6 +798,9 @@ func runPolicyCreate(credName string, opts buddy.Opts, subcommand string, args [
 }
 
 func runIcon(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("icon", args, []string{clispec.SubList, clispec.SubGet, clispec.SubUpload, clispec.SubCheck, clispec.SubDownload, clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpIcon)
 		return nil
@@ -905,6 +930,9 @@ func iconDownloadFileName(rec buddy.Icon, id int) string {
 }
 
 func runCategory(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("category", args, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubDelete, clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpCategory)
 		return nil
@@ -978,6 +1006,9 @@ func runCategory(credName string, opts buddy.Opts, args []string, log *slog.Logg
 }
 
 func runMacApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("macapp", args, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubDelete, clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpMacApp)
 		return nil
@@ -1079,6 +1110,9 @@ func printAppScanSource(res buddy.AppScanResult) {
 }
 
 func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("app", args, []string{clispec.SubList, "scan", clispec.SubGet, "import", "cache", "upgrade", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpApp)
 		return nil
@@ -1237,6 +1271,9 @@ func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		}, log)
 		return err
 	case "cache":
+		if err := resolveArg0("app cache", args, []string{"status", "refresh", clispec.SubHelp}); err != nil {
+			return err
+		}
 		if len(args) == 0 || args[0] == clispec.SubHelp {
 			fmt.Println("Usage: buddy [global-flags] app cache <status|refresh>")
 			return nil
@@ -1256,6 +1293,9 @@ func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 }
 
 func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("group", args, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubDelete, "smart", "static", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpGroup)
 		return nil
@@ -1269,6 +1309,11 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 			return fmt.Errorf("usage: buddy group list smart|static [%s]", clispec.FlagEq(clispec.FlagFilter, "rsql"))
 		}
 		groupType := args[0]
+		if resolved, err := matchSubcommand("group list", groupType, []string{"smart", "static"}); err != nil {
+			return err
+		} else {
+			groupType = resolved
+		}
 		filter := ""
 		fs := flag.NewFlagSet("group list "+groupType, flag.ContinueOnError)
 		fs.StringVar(&filter, clispec.FlagFilter, "", "name filter (plain substring or RSQL)")
@@ -1303,6 +1348,11 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 		}
 		sub := args[0]
 		args = args[1:]
+		if resolved, err := matchSubcommand("group smart", sub, []string{"members", "criteria", "set-criteria", "version", "set-version"}); err != nil {
+			return err
+		} else {
+			sub = resolved
+		}
 		switch sub {
 		case "members":
 			var filter string
@@ -1356,6 +1406,11 @@ func runGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger)
 		}
 		sub := args[0]
 		args = args[1:]
+		if resolved, err := matchSubcommand("group static", sub, []string{"members", clispec.SubAdd, "remove", clispec.SubSet}); err != nil {
+			return err
+		} else {
+			sub = resolved
+		}
 		switch sub {
 		case "members":
 			var filter string
@@ -1430,6 +1485,11 @@ func runGroupCreate(credName string, opts buddy.Opts, args []string, log *slog.L
 		return fmt.Errorf("usage: buddy group create smart|static ...; run '%s' for usage", clispec.UsageHelp(clispec.CmdGroup))
 	}
 	kind := args[0]
+	if resolved, err := matchSubcommand("group create", kind, []string{"smart", "static"}); err != nil {
+		return err
+	} else {
+		kind = resolved
+	}
 	args = args[1:]
 	switch kind {
 	case "smart":
@@ -1781,6 +1841,9 @@ func parsePolicySSArgs(args []string) (buddy.PolicySSOpts, int, error) {
 }
 
 func runProfile(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("profile", args, []string{clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubCreate, clispec.SubDelete, clispec.SubClone, "redeploy", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpProfile)
 		return nil
@@ -1868,6 +1931,11 @@ func runProfile(credName string, opts buddy.Opts, args []string, log *slog.Logge
 }
 
 func runProfileGet(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {
+	var err error
+	subcommand, err = matchSubcommand("profile get", subcommand, []string{"xml", "payloads", "payload", "list-payloads", clispec.SubHelp})
+	if err != nil {
+		return err
+	}
 	if subcommand == clispec.SubHelp {
 		fmt.Print(helpProfile)
 		return nil
@@ -1924,6 +1992,11 @@ func runProfileGet(credName string, opts buddy.Opts, subcommand string, args []s
 }
 
 func runProfileSet(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {
+	var err error
+	subcommand, err = matchSubcommand("profile set", subcommand, []string{"xml", "payload", clispec.SubHelp})
+	if err != nil {
+		return err
+	}
 	if subcommand == clispec.SubHelp {
 		fmt.Print(helpProfile)
 		return nil
@@ -1967,6 +2040,9 @@ func runProfileSet(credName string, opts buddy.Opts, subcommand string, args []s
 }
 
 func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("package", args, []string{clispec.SubList, clispec.SubGet, "download", clispec.SubDelete, clispec.SubSet, "history", clispec.SubUpload, "scan", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpPackage)
 		return nil
@@ -2217,6 +2293,12 @@ func runComputerLogs(credName string, args []string, log *slog.Logger) error {
 }
 
 func runComputer(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("computer", args, []string{
+		clispec.SubList, clispec.SubGet, "detail", "history", "logs", "eas", clispec.SubSet, "reboot", "redeploy", "shutdown", "lock", "logout", "erase",
+		"device-info", "device-location", "security-info", "installed-apps", "managed-apps", "certificates", clispec.SubHelp,
+	}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpComputer)
 		return nil
@@ -2441,6 +2523,9 @@ func runPackageSet(credName string, opts buddy.Opts, args []string, log *slog.Lo
 }
 
 func runRole(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("role", args, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubUpdate, clispec.SubDelete, "privileges", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpRole)
 		return nil
@@ -2498,6 +2583,9 @@ func runRole(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 }
 
 func runClient(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("client", args, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubUpdate, clispec.SubDelete, "credentials", clispec.SubSet, clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpClient)
 		return nil
@@ -2579,6 +2667,9 @@ func runClientSet(credName string, opts buddy.Opts, args []string, log *slog.Log
 }
 
 func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("script", args, []string{clispec.SubList, clispec.SubGet, "history", clispec.SubCreate, clispec.SubUpload, clispec.SubUpdate, "download", clispec.SubDelete, clispec.SubSet, clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpScript)
 		return nil
@@ -2739,85 +2830,14 @@ func runJamfScriptSet(credName string, opts buddy.Opts, args []string, log *slog
 	}
 }
 
-// extractGlobalFlags removes buddy global flags from argv (any position) and returns the rest.
-func extractGlobalFlags(argv []string) (globalCLI, []string) {
-	var g globalCLI
-	if len(argv) == 0 {
-		return g, argv
-	}
-	out := []string{argv[0]}
-	for i := 1; i < len(argv); i++ {
-		a := argv[i]
-		switch {
-		case a == clispec.Flag(clispec.FlagVersion):
-			g.showVersion = true
-		case a == clispec.Short(clispec.ShortSkipConfirm):
-			g.skipConfirm = true
-		case a == clispec.Short(clispec.ShortVerbose), a == clispec.Flag(clispec.FlagVerbose):
-			g.verbose = true
-		case a == clispec.Short(clispec.ShortTrace), a == clispec.Flag(clispec.FlagTrace):
-			g.trace = true
-		case a == clispec.Flag(clispec.FlagScriptTrace):
-			g.scriptTrace = true
-		case a == clispec.Short(clispec.ShortEval), a == clispec.Flag(clispec.FlagEval):
-			if g.evalSource != "" {
-				g.evalDup = true
-			}
-			if i+1 >= len(argv) {
-				g.evalMissing = true
-			} else {
-				i++
-				if g.evalSource == "" {
-					g.evalSource = argv[i]
-				}
-			}
-		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagEval)):
-			if g.evalSource != "" {
-				g.evalDup = true
-			} else {
-				g.evalSource = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagEval))
-				if g.evalSource == "" {
-					g.evalMissing = true
-				}
-			}
-		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagTenant)):
-			g.tenant = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagTenant))
-		case a == clispec.Flag(clispec.FlagTenant):
-			if i+1 < len(argv) {
-				i++
-				g.tenant = argv[i]
-			}
-		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagUser)):
-			g.user = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagUser))
-		case a == clispec.Flag(clispec.FlagUser):
-			if i+1 < len(argv) {
-				i++
-				g.user = argv[i]
-			}
-		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)):
-			g.user = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagAuth))
-		case a == clispec.Flag(clispec.FlagAuth):
-			if i+1 < len(argv) {
-				i++
-				g.user = argv[i]
-			}
-		case a == "--cred", strings.HasPrefix(a, "--cred="):
-			g.rejectCred = true
-			if a == "--cred" && i+1 < len(argv) && !strings.HasPrefix(argv[i+1], "-") {
-				i++ // consume value so it is not treated as a command
-			}
-		default:
-			out = append(out, a)
-		}
-	}
-	return g, out
-}
-
 func printUsage() {
 	fmt.Fprint(os.Stderr, help.Root)
 }
 
 func runBlueprint(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("blueprint", args, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubSet, clispec.SubDelete, "deploy", "undeploy", "status", "components", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpBlueprint)
 		return nil
@@ -2919,6 +2939,9 @@ func runBlueprint(credName string, opts buddy.Opts, args []string, log *slog.Log
 }
 
 func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("auth", args, []string{"token", clispec.SubTest, clispec.SubAuthorization, clispec.SubRefresh, "caps", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpAuth)
 		return nil
@@ -2977,6 +3000,9 @@ func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 }
 
 func runToken(args []string, log *slog.Logger) error {
+	if err := resolveArg0("token", args, []string{clispec.SubDirect, clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpToken)
 		return nil
@@ -3024,6 +3050,9 @@ func runTokenDirect(args []string, log *slog.Logger) error {
 }
 
 func runAuthToken(credName string, args []string, log *slog.Logger) error {
+	if err := resolveArg0("auth token", args, []string{clispec.SubShow, clispec.SubStatus, clispec.SubDrop, clispec.SubRefresh, clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpAuth)
 		return nil
@@ -3144,6 +3173,9 @@ func runAuthTokenRefresh(credName string, args []string, log *slog.Logger) error
 }
 
 func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string, log *slog.Logger) error {
+	if err := resolveArg0("setup", args, []string{"basic-setup", "write-script", "store-oauth", "secrets", "managed-plist", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpSetup)
 		return nil
@@ -3314,6 +3346,9 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 }
 
 func runMdm(credName string, _ buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("mdm", args, []string{clispec.SubList, clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpMdm)
 		return nil

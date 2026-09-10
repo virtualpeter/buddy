@@ -324,6 +324,86 @@ func TestExtractGlobalFlags(t *testing.T) {
 	if !g.evalMissing {
 		t.Fatal("expected evalMissing for bare -e")
 	}
+
+	argv = []string{"buddy", "policy", "list", "-tenant=sandbox", "-v"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "sandbox" || !g.verbose {
+		t.Fatalf("tenant=%q verbose=%v", g.tenant, g.verbose)
+	}
+	want = []string{"buddy", "policy", "list"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "policy", "list", "--tenant", "sandbox", "-t"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "sandbox" || !g.trace {
+		t.Fatalf("tenant=%q trace=%v", g.tenant, g.trace)
+	}
+	want = []string{"buddy", "policy", "list"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "policy", "list", "-vt"}
+	g, rest = extractGlobalFlags(argv)
+	if g.verbose || g.trace {
+		t.Fatal("-vt must not bundle -v -t")
+	}
+	want = []string{"buddy", "policy", "list", "--vt"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "script.buddy", "--", "--tenant", "foo"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "" {
+		t.Fatalf("tenant after -- leaked: %q", g.tenant)
+	}
+	want = []string{"buddy", "script.buddy", "--", "--tenant", "foo"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "cred", "set", "channel", "mcp", "--tenant=sandbox"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "" {
+		t.Fatalf("channel --tenant stolen as global: %q", g.tenant)
+	}
+	want = []string{"buddy", "cred", "set", "channel", "mcp", "--tenant=sandbox"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "--tenant=other", "cred", "set", "channel", "mcp", "--tenant=sandbox"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "other" {
+		t.Fatalf("session tenant = %q, want other", g.tenant)
+	}
+	want = []string{"buddy", "cred", "set", "channel", "mcp", "--tenant=sandbox"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "cred", "add", "--tenant=sandbox", "--url=https://example.jamfcloud.com"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "" {
+		t.Fatalf("cred add --tenant stolen: %q", g.tenant)
+	}
+	want = []string{"buddy", "cred", "add", "--tenant=sandbox", "--url=https://example.jamfcloud.com"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "setup", "store-oauth", "--user=admin", "--tenant=prod"}
+	g, rest = extractGlobalFlags(argv)
+	if g.user != "" || g.tenant != "" {
+		t.Fatalf("setup store-oauth flags stolen user=%q tenant=%q", g.user, g.tenant)
+	}
+	want = []string{"buddy", "setup", "store-oauth", "--user=admin", "--tenant=prod"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
 }
 
 func TestRunAuthRefreshHelp(t *testing.T) {

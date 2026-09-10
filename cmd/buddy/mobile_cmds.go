@@ -59,6 +59,9 @@ func parseMobileDeviceIDArgs(args []string) ([]int, []string, error) {
 }
 
 func runMobileDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("mobile-device", args, []string{clispec.SubList, clispec.SubGet, "update-inventory", "restart", "lock", "erase", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpMobileDevice)
 		return nil
@@ -150,6 +153,9 @@ func runMobileDevice(credName string, opts buddy.Opts, args []string, log *slog.
 }
 
 func runMobileGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("mobile-group", args, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubDelete, "smart", "static", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpMobileGroup)
 		return nil
@@ -161,6 +167,11 @@ func runMobileGroup(credName string, opts buddy.Opts, args []string, log *slog.L
 		kind := "smart"
 		if len(args) > 0 && !strings.HasPrefix(args[0], "--") {
 			kind = args[0]
+			if resolved, err := matchSubcommand("mobile-group list", kind, []string{"smart", "static"}); err != nil {
+				return err
+			} else {
+				kind = resolved
+			}
 			args = args[1:]
 		}
 		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
@@ -203,6 +214,11 @@ func runMobileGroup(credName string, opts buddy.Opts, args []string, log *slog.L
 			return fmt.Errorf("usage: buddy mobile-group create <smart|static> [--file=<file>|-]; run '%s'", clispec.UsageHelp(clispec.CmdMobileGroup))
 		}
 		kind := args[0]
+		if resolved, err := matchSubcommand("mobile-group create", kind, []string{"smart", "static"}); err != nil {
+			return err
+		} else {
+			kind = resolved
+		}
 		body, _, err := readJSONFileArg(args[1:])
 		if err != nil {
 			return err
@@ -226,6 +242,11 @@ func runMobileGroup(credName string, opts buddy.Opts, args []string, log *slog.L
 			return fmt.Errorf("usage: buddy mobile-group delete <smart|static> <group-id>; run '%s'", clispec.UsageHelp(clispec.CmdMobileGroup))
 		}
 		kind := args[0]
+		if resolved, err := matchSubcommand("mobile-group delete", kind, []string{"smart", "static"}); err != nil {
+			return err
+		} else {
+			kind = resolved
+		}
 		groupID := strings.TrimSpace(args[1])
 		switch kind {
 		case "smart":
@@ -252,6 +273,11 @@ func runMobileGroupSmart(credName string, opts buddy.Opts, args []string, log *s
 	}
 	sub := args[0]
 	args = args[1:]
+	if resolved, err := matchSubcommand("mobile-group smart", sub, []string{"members", "criteria", "set-criteria"}); err != nil {
+		return err
+	} else {
+		sub = resolved
+	}
 	switch sub {
 	case "members":
 		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
@@ -305,6 +331,11 @@ func runMobileGroupStatic(credName string, opts buddy.Opts, args []string, log *
 	}
 	sub := args[0]
 	args = args[1:]
+	if resolved, err := matchSubcommand("mobile-group static", sub, []string{"members", clispec.SubAdd, "remove", clispec.SubSet}); err != nil {
+		return err
+	} else {
+		sub = resolved
+	}
 	switch sub {
 	case "members":
 		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
@@ -370,6 +401,9 @@ func printRawJSON(body []byte) error {
 }
 
 func runMobileProfile(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("mobile-profile", args, []string{clispec.SubList, clispec.SubGet, "put", clispec.SubCreate, clispec.SubDelete, clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpMobileProfile)
 		return nil
