@@ -74,6 +74,7 @@ func runComputerSearch(credName string, opts buddy.Opts, args []string, log *slo
 		asJSON, rest := extractBareFlag(rest, clispec.FlagJSON)
 		asCSV, rest := extractBareFlag(rest, clispec.FlagCSV)
 		asRaw, rest := extractBareFlag(rest, clispec.FlagRaw)
+		includeID, rest := extractBareFlag(rest, clispec.FlagID)
 		if len(rest) > 0 {
 			return fmt.Errorf("unknown results flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdComputerSearch))
 		}
@@ -85,6 +86,7 @@ func runComputerSearch(credName string, opts buddy.Opts, args []string, log *slo
 			JSON:     asJSON,
 			CSV:      asCSV,
 			Raw:      asRaw,
+			ID:       includeID,
 		}, log)
 
 	case clispec.SubCreate:

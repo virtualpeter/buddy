@@ -31,7 +31,7 @@ Jamf **Reports** for mobile devices: Pro JSON CRUD for the saved search definiti
 
 - List: `mobile_searches(filter?, page?, page_size?)` · `buddy mobile-search list` — Pro paginated `{id, name}`; omit page = all; client-side filter
 - Load definition: `mobile_search(id=…)` / `mobile_search(name=…)` · `buddy mobile-search get` / `get id <name>` — Pro JSON; no devices
-- Run / results: `mobile_search_devices(id, filter?, fields?)` · `buddy mobile-search results [--fields=…] [--fromjson=…] [--flatten=…] [--csv] [--jq=…] [--raw]` — Classic `mobile_devices`; `--fromjson`/`--flatten` for JSON-string cells; `--json` / `--csv` / `--jq` + `--raw`
+- Run / results: `mobile_search_devices(id, filter?, fields?)` · `buddy mobile-search results [--fields=…] [--csv] [--id]` — CSV uses spaced headers and omits id unless `--id`; `--fromjson`/`--flatten` for JSON-string cells
 - Create: `mobile_search_create(body)` · `create --file=` or `create <name>` — Pro camelCase `andOr` / `searchType`
 - Replace: `mobile_search_put(id, body)` · `put <search-id> --file=` — Full Pro PUT
 - Delete: `mobile_search_delete(id=…)` / `ids=…` · `delete <search-id> […]` — One or more IDs

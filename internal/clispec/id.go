@@ -99,6 +99,7 @@ const (
 	FlagRaw         = "raw"
 	FlagFromJSON    = "fromjson"
 	FlagFlatten     = "flatten"
+	FlagID          = "id"
 	FlagSort        = "sort"
 	FlagSince       = "since"
 	FlagUntil       = "until"

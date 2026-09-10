@@ -44,7 +44,7 @@ Subcommands:
   list [--filter=<term>] [--json]              List saved searches (id, name)
   get <search-id>                              Show definition JSON (no computers)
   get id <name>                                Resolve exact name to ID
-  results <search-id> [--filter=<term>] [--fields=<name>[,<name>...]] [--fromjson=<name>[,<name>...]] [--flatten=<name>[,<name>...]] [--json|--csv] [--jq=<expr>] [--raw]
+  results <search-id> [--filter=<term>] [--fields=<name>[,<name>...]] [--fromjson=<name>[,<name>...]] [--flatten=<name>[,<name>...]] [--json|--csv] [--id] [--jq=<expr>] [--raw]
                                                Run the search; table of display fields
   create --file=<json>                         Create from Classic JSON
   create <name>                                Create a named empty search
@@ -59,7 +59,8 @@ Flags for 'results':
   --filter=<term>                 Client-side substring on any result field
   --fields=<name>[,<name>...]     Columns to show (JSON keys or "Computer Name"); omit = all
   --json                          Print full result-row JSON (no truncation)
-  --csv                           Print RFC 4180 CSV (JSON-key headers; no count footer)
+  --csv                           Print RFC 4180 CSV (spaces in headers; no id unless --id; no count footer)
+  --id                            Include the id column in CSV
   --jq=<expr>                     Apply a jq expression after --fields
   --fromjson=<name>[,<name>...]   Parse JSON-string cells into objects (for jq / --json)
   --flatten=<name>[,<name>...]    Explode JSON objects into dotted columns (parses strings)
@@ -72,6 +73,7 @@ Notes:
   Classic /JSSResource/advancedcomputersearches. Results prefer computerreports
   for the same search-id. This is the Jamf Reports UI, not DDM/benchmark reports.
   --json, --csv, and --raw are mutually exclusive. --raw requires --jq.
+  CSV headers use spaces instead of underscores. The id column is omitted unless --id.
 
 Examples:
   buddy computer-search list --filter=Chrome
@@ -79,9 +81,10 @@ Examples:
   buddy computer-search results 42 --filter=lab --json
   buddy acs results 219 --fields=Computer_Name,Username,Last_Check_in
   buddy acs results 219 --fields=Computer_Name,Username,Last_Check_in --csv
+  buddy acs results 219 --csv --id
   buddy acs results 219 --jq='map({name: .Computer_Name, user: .Username})' --csv
   buddy acs results 219 --jq='.[].Computer_Name' --raw
-  buddy acs results 219 --fields=id,Computer_Name,Wi_Fi_History --fromjson=Wi_Fi_History --flatten=Wi_Fi_History --csv
+  buddy acs results 219 --fields=Computer_Name,Wi_Fi_History --fromjson=Wi_Fi_History --flatten=Wi_Fi_History --csv
   buddy computer-search create "Lab Macs"
   buddy computer-search put 42 --file=search.json
   buddy computer-search delete 42

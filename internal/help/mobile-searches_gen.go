@@ -44,7 +44,7 @@ Subcommands:
   list [--filter=<term>] [--json]              List saved searches (id, name)
   get <search-id>                              Show Pro definition JSON
   get id <name>                                Resolve exact name to ID
-  results <search-id> [--filter=<term>] [--fields=<name>[,<name>...]] [--fromjson=<name>[,<name>...]] [--flatten=<name>[,<name>...]] [--json|--csv] [--jq=<expr>] [--raw]
+  results <search-id> [--filter=<term>] [--fields=<name>[,<name>...]] [--fromjson=<name>[,<name>...]] [--flatten=<name>[,<name>...]] [--json|--csv] [--id] [--jq=<expr>] [--raw]
                                                Run the search; table of display fields
   create --file=<json>                         Create from Pro JSON
   create <name>                                Create a named empty search
@@ -59,7 +59,8 @@ Flags for 'results':
   --filter=<term>                 Client-side substring on any result field
   --fields=<name>[,<name>...]     Columns to show (JSON keys); omit = all
   --json                          Print full result-row JSON (no truncation)
-  --csv                           Print RFC 4180 CSV (JSON-key headers; no count footer)
+  --csv                           Print RFC 4180 CSV (spaces in headers; no id unless --id; no count footer)
+  --id                            Include the id column in CSV
   --jq=<expr>                     Apply a jq expression after --fields
   --fromjson=<name>[,<name>...]   Parse JSON-string cells into objects (for jq / --json)
   --flatten=<name>[,<name>...]    Explode JSON objects into dotted columns (parses strings)
@@ -73,13 +74,15 @@ Notes:
   GET /JSSResource/advancedmobiledevicesearches (mobile_devices). Not user
   searches and not Pro advanced-user-content-searches (VPP content).
   --json, --csv, and --raw are mutually exclusive. --raw requires --jq.
+  CSV headers use spaces instead of underscores. The id column is omitted unless --id.
 
 Examples:
   buddy mobile-search list --filter=iPad
   buddy mobile-acs get 88
   buddy mobile-search results 88 --json
-  buddy mobile-acs results 88 --fields=id,name
-  buddy mobile-acs results 88 --fields=id,name --csv
+  buddy mobile-acs results 88 --fields=name
+  buddy mobile-acs results 88 --fields=name --csv
+  buddy mobile-acs results 88 --csv --id
   buddy mobile-search results 88 --jq='.[].name' --raw
   buddy mobile-acs results 88 --fromjson=Wi_Fi_History --flatten=Wi_Fi_History --csv
   buddy mobile-search create "Lab iPads"

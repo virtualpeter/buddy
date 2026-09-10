@@ -173,7 +173,7 @@ func TestPrintSearchResultCSV(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(recs) != 3 || recs[0][0] != "Computer_Name" || recs[0][1] != "Username" {
+	if len(recs) != 3 || recs[0][0] != "Computer Name" || recs[0][1] != "Username" {
 		t.Fatalf("header: %v", recs)
 	}
 	if recs[1][0] != "Mac, 1" || recs[1][1] != "ada\nlab" {
@@ -216,7 +216,7 @@ func TestWriteSearchResults_FormatFlags(t *testing.T) {
 	if err := writeSearchResults(&buf, rows, SearchResultPrintOpts{Fields: "Computer_Name,Username", CSV: true}, "computer(s)"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(buf.String(), "Computer_Name,Username\n") || strings.Contains(buf.String(), "computer(s)") {
+	if !strings.HasPrefix(buf.String(), "Computer Name,Username\n") || strings.Contains(buf.String(), "computer(s)") {
 		t.Fatalf("csv:\n%s", buf.String())
 	}
 
@@ -281,8 +281,11 @@ func TestFlattenSearchResultFields_CSV(t *testing.T) {
 	}
 	out := buf.String()
 	header := strings.Split(out, "\n")[0]
-	if !strings.Contains(header, "Wi_Fi_History.current.place") || !strings.Contains(header, "id") || !strings.Contains(header, "Computer_Name") {
+	if !strings.Contains(header, "Wi Fi History.current.place") || !strings.Contains(header, "Computer Name") {
 		t.Fatalf("header: %s", header)
+	}
+	if strings.HasPrefix(header, "id,") || strings.Contains(header, ",id,") {
+		t.Fatalf("csv omits id without --id: %s", header)
 	}
 	if strings.Contains(header, ",Wi_Fi_History,") || strings.HasSuffix(header, ",Wi_Fi_History") || strings.HasPrefix(header, "Wi_Fi_History,") {
 		t.Fatalf("parent still present: %s", header)
@@ -305,5 +308,27 @@ func TestFlattenSearchResultFields_CSV(t *testing.T) {
 	mixedOut := buf.String()
 	if !strings.Contains(mixedOut, "not-json") || !strings.Contains(mixedOut, "hobo") {
 		t.Fatalf("skip bad json:\n%s", mixedOut)
+	}
+}
+
+func TestCSVHeadersAndIDFlag(t *testing.T) {
+	rows := []map[string]interface{}{
+		{"id": float64(12), "Computer_Name": "Mac-A", "Username": "ada"},
+	}
+	var buf strings.Builder
+	if err := writeSearchResults(&buf, rows, SearchResultPrintOpts{CSV: true}, "computer(s)"); err != nil {
+		t.Fatal(err)
+	}
+	header := strings.Split(buf.String(), "\n")[0]
+	if header != "Computer Name,Username" {
+		t.Fatalf("default csv header: %q", header)
+	}
+	buf.Reset()
+	if err := writeSearchResults(&buf, rows, SearchResultPrintOpts{CSV: true, ID: true}, "computer(s)"); err != nil {
+		t.Fatal(err)
+	}
+	header = strings.Split(buf.String(), "\n")[0]
+	if header != "id,Computer Name,Username" {
+		t.Fatalf("--id csv header: %q", header)
 	}
 }

@@ -361,14 +361,34 @@ type SearchResultPrintOpts struct {
 	JSON     bool
 	CSV      bool
 	Raw      bool
+	ID       bool
+}
+
+func isSearchResultIDKey(key string) bool {
+	return normalizeSearchFieldName(key) == "id"
+}
+
+func dropSearchResultIDKeys(keys []string) []string {
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if isSearchResultIDKey(k) {
+			continue
+		}
+		out = append(out, k)
+	}
+	return out
 }
 
 func printSearchResultCSV(w io.Writer, rows []map[string]interface{}, keys []string) error {
 	if len(keys) == 0 {
 		keys = searchResultColumnKeys(rows)
 	}
+	headers := make([]string, len(keys))
+	for i, k := range keys {
+		headers[i] = searchResultHeader(k)
+	}
 	cw := csv.NewWriter(w)
-	if err := cw.Write(keys); err != nil {
+	if err := cw.Write(headers); err != nil {
 		return err
 	}
 	for _, row := range rows {
@@ -464,6 +484,10 @@ func writeSearchResults(w io.Writer, rows []map[string]interface{}, opts SearchR
 			return err
 		}
 		rows, keys = flattenSearchResultFields(rows, flKeys, keys)
+	}
+
+	if opts.CSV && !opts.ID {
+		keys = dropSearchResultIDKeys(keys)
 	}
 
 	if opts.JSON {
