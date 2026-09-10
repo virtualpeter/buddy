@@ -42,8 +42,10 @@ The only required config is to define tenants + auths; passwords or oauth secret
 | [Mac App Store apps](macapps.md) | Classic macapplications (list/get/create/delete) |
 | [Policy apps](apps.md) | Self Service + packages (list/get/upgrade) |
 | [Computers](computers.md) | Inventory, Classic policy logs, MDM actions |
+| [Computer advanced searches](computer-searches.md) | Jamf Reports: saved Mac searches + result rows |
 | [MDM command history](mdm.md) | Query command history (RSQL) |
 | [Mobile devices](mobile-devices.md) | iOS/iPadOS/tvOS inventory + MDM actions |
+| [Mobile advanced searches](mobile-searches.md) | Jamf Reports: saved mobile searches + result rows |
 | [Mobile-device groups](mobile-groups.md) | Smart criteria / static membership |
 | [Mobile profiles](mobile-profiles.md) | Mobile configuration profiles (Classic XML) |
 | [API roles](api-roles.md) | Pro API roles |

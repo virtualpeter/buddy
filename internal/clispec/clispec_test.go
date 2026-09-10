@@ -78,8 +78,8 @@ func TestEnglishCatalogComplete(t *testing.T) {
 		MsgMissingArg, MsgMissingArgHint, MsgUnknownCommand, MsgUnknownSubcommand,
 		MsgDidYouMean, MsgUseCandidates, MsgRunHelpList, MsgNoHelp,
 		MsgCmdAuth, MsgCmdToken, MsgCmdCred, MsgCmdPolicy, MsgCmdCategory, MsgCmdMacApp, MsgCmdApp,
-		MsgCmdGroup, MsgCmdProfile, MsgCmdPackage, MsgCmdIcon, MsgCmdComputer, MsgCmdMdm,
-		MsgCmdMobile, MsgCmdMobileGroup, MsgCmdMobileProf,
+		MsgCmdGroup, MsgCmdProfile, MsgCmdPackage, MsgCmdIcon, MsgCmdComputer, MsgCmdComputerSearch, MsgCmdMdm,
+		MsgCmdMobile, MsgCmdMobileSearch, MsgCmdMobileGroup, MsgCmdMobileProf,
 		MsgCmdBlueprint, MsgCmdDevice, MsgCmdDeviceGroup, MsgCmdDDM, MsgCmdBenchmark,
 		MsgCmdRole, MsgCmdClient, MsgCmdScript, MsgCmdExtensionAttribute, MsgCmdMobileExtAttr,
 		MsgCmdSetup, MsgCmdServe, MsgCmdMCP,
@@ -134,22 +134,32 @@ func TestCommandAliases(t *testing.T) {
 	if a["mobile-ea"] != CmdMobileExtAttr {
 		t.Fatalf("mobile-ea alias = %v", a)
 	}
+	if a["acs"] != CmdComputerSearch || a["computer-searches"] != CmdComputerSearch {
+		t.Fatalf("computer-search aliases = %v", a)
+	}
+	if a["mobile-acs"] != CmdMobileSearch || a["mobile-searches"] != CmdMobileSearch {
+		t.Fatalf("mobile-search aliases = %v", a)
+	}
 }
 
 func TestCanonicalCommand(t *testing.T) {
 	cases := map[string]string{
-		"ea":                    CmdExtensionAttribute,
-		"eas":                   CmdExtensionAttribute,
-		"EA":                    CmdExtensionAttribute,
-		"extension-attributes":  CmdExtensionAttribute,
-		"extension-attribute":   CmdExtensionAttribute,
-		"  ea  ":                CmdExtensionAttribute,
-		"policies":              CmdPolicy,
-		"policy":                CmdPolicy,
-		"mobile-ea":             CmdMobileExtAttr,
-		"mobile-eas":            CmdMobileExtAttr,
-		"xyzzy":                 "xyzzy",
-		"":                      "",
+		"ea":                   CmdExtensionAttribute,
+		"eas":                  CmdExtensionAttribute,
+		"EA":                   CmdExtensionAttribute,
+		"extension-attributes": CmdExtensionAttribute,
+		"extension-attribute":  CmdExtensionAttribute,
+		"  ea  ":               CmdExtensionAttribute,
+		"policies":             CmdPolicy,
+		"policy":               CmdPolicy,
+		"mobile-ea":            CmdMobileExtAttr,
+		"mobile-eas":           CmdMobileExtAttr,
+		"acs":                  CmdComputerSearch,
+		"computer-searches":    CmdComputerSearch,
+		"mobile-acs":           CmdMobileSearch,
+		"mobile-searches":      CmdMobileSearch,
+		"xyzzy":                "xyzzy",
+		"":                     "",
 	}
 	for in, want := range cases {
 		if got := CanonicalCommand(in); got != want {

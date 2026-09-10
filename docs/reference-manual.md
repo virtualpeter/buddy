@@ -171,8 +171,10 @@ buddy help [command] [subcommand]
 | `profile` | macOS configuration profiles |
 | `package` | Package records (upload, metadata, history) |
 | `computer` | Computer inventory and MDM actions |
+| `computer-search` | Classic advanced computer searches (Jamf Reports) |
 | `mdm` | Query MDM command history (RSQL) |
 | `mobile-device` | Jamf Pro mobile devices (inventory + MDM actions) |
+| `mobile-search` | Advanced mobile-device searches (Jamf Reports) |
 | `mobile-group` | Smart/static mobile-device groups |
 | `mobile-profile` | Mobile-device configuration profiles |
 | `role` | API roles |
@@ -304,7 +306,7 @@ profile_put_xml(id=42, xml_str=xml)  # None; raises on API error
 
 ## Built-in functions
 
-Buddy registers many functions for policies, groups, profiles, packages, scripts, computers, MDM, roles, clients, JSON/plist/XML transforms (`xml_escape` / `xml_unescape` / `xml_sort`, payload builders), dotted-numeric version helpers (`version_extract` / `version_compare` / `version_sort`), RSQL filter builders (`rsql_*`), local file I/O, a **declarative workflow** layer (`step_*` + `run_workflow`), and **change batches** (`change_batch` / `plan_change` / `run_change`) for approval-oriented multi-step changes.
+Buddy registers many functions for policies, groups, profiles, packages, scripts, computers, MDM, roles, clients, JSON/plist/XML transforms (`jq`, `json_flatten`, `xml_escape` / `xml_unescape` / `xml_sort`, payload builders), dotted-numeric version helpers (`version_extract` / `version_compare` / `version_sort`), RSQL filter builders (`rsql_*`), local file I/O, a **declarative workflow** layer (`step_*` + `run_workflow`), and **change batches** (`change_batch` / `plan_change` / `run_change`) for approval-oriented multi-step changes.
 
 **Canonical reference** (always matches your installed `buddy` binary):
 

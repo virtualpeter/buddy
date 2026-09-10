@@ -190,6 +190,8 @@ func main() {
 		exitOnErr(logger, "Icon command failed", runIcon(credName, opts, args[1:], logger))
 	case clispec.CmdComputer:
 		exitOnErr(logger, "Computer command failed", runComputer(credName, opts, args[1:], logger))
+	case clispec.CmdComputerSearch:
+		exitOnErr(logger, "Computer-search command failed", runComputerSearch(credName, opts, args[1:], logger))
 	case clispec.CmdRole:
 		exitOnErr(logger, "Role command failed", runRole(credName, opts, args[1:], logger))
 	case clispec.CmdClient:
@@ -204,6 +206,8 @@ func main() {
 		exitOnErr(logger, "MDM command failed", runMdm(credName, opts, args[1:], logger))
 	case clispec.CmdMobile:
 		exitOnErr(logger, "Mobile-device command failed", runMobileDevice(credName, opts, args[1:], logger))
+	case clispec.CmdMobileSearch:
+		exitOnErr(logger, "Mobile-search command failed", runMobileSearch(credName, opts, args[1:], logger))
 	case clispec.CmdMobileGroup:
 		exitOnErr(logger, "Mobile-group command failed", runMobileGroup(credName, opts, args[1:], logger))
 	case clispec.CmdMobileProf:

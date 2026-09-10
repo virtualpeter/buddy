@@ -99,6 +99,45 @@ func TestRunSourceUnwrap(t *testing.T) {
 	}
 }
 
+func TestRunSourceJQ(t *testing.T) {
+	logger := slog.Default()
+	out, err := captureStdout(t, func() error {
+		return RunSource("default", buddy.Opts{}, `jq({"a": 1}, ".a")`, nil, logger, false)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != "1" {
+		t.Fatalf("jq int: stdout=%q", out)
+	}
+	out, err = captureStdout(t, func() error {
+		return RunSource("default", buddy.Opts{}, `jq({"n": "Ada"}, ".n")`, nil, logger, false)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != "Ada" {
+		t.Fatalf("jq string should be unquoted: stdout=%q", out)
+	}
+	err = RunSource("default", buddy.Opts{}, `jq({"a": 1}, ".foo & .bar")`, nil, logger, false)
+	if err == nil {
+		t.Fatal("expected jq parse error")
+	}
+}
+
+func TestRunSourceJSONFlatten(t *testing.T) {
+	logger := slog.Default()
+	out, err := captureStdout(t, func() error {
+		return RunSource("default", buddy.Opts{}, `json_flatten({"current": {"place": "hobo"}}, prefix="h")["h.current.place"]`, nil, logger, false)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != "hobo" {
+		t.Fatalf("json_flatten: stdout=%q", out)
+	}
+}
+
 func TestRunSourceArgs(t *testing.T) {
 	logger := slog.Default()
 	out, err := captureStdout(t, func() error {

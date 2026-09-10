@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -89,16 +91,20 @@ func MobileDeviceSearchPrint(credName, filter string, asJSON bool, logger *slog.
 }
 
 func printJSONValue(v interface{}) error {
+	return printJSONValueTo(os.Stdout, v)
+}
+
+func printJSONValueTo(w io.Writer, v interface{}) error {
 	body, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
 	var pretty bytes.Buffer
 	if err := json.Indent(&pretty, body, "", "  "); err != nil {
-		fmt.Println(string(body))
+		fmt.Fprintln(w, string(body))
 		return nil
 	}
-	fmt.Println(pretty.String())
+	fmt.Fprintln(w, pretty.String())
 	return nil
 }
 

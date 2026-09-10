@@ -47,6 +47,7 @@ Examples:
   buddy -t deploy.buddy
   buddy -e 'unwrap(jamf_schema(filter="smtp"))'
   buddy -e 'unwrap(jamf_schema(filter="smtp"), pretty=False)' | jq '.operations[0]'
+  buddy -e 'unwrap(jq(jamf_schema(filter="smtp"), ".operations[0]"))'
   buddy --eval='print(len(args))' -- foo bar
   buddy -y -e 'unwrap(policies("chrome"))'
 `
@@ -255,6 +256,7 @@ SERIALIZATION
     • For jq / stdout JSON, use unwrap (optional helper — not the error model):
         data = unwrap(jamf_schema(filter="smtp"))
         buddy script.buddy | jq '.operations[0]'
+        unwrap(jq(jamf_schema(filter="smtp"), ".operations[0]"))
     • json_encode / json_pretty return JSON strings — prefer unwrap when you want
       stdout bytes for tools.
 
@@ -280,6 +282,18 @@ SERIALIZATION
       Does: Encode a value as indented JSON (not printed).
       → value: str (indented JSON)
       Params: value: dict, list, or primitive. Prefer unwrap(result) to print real newlines to stdout.
+  json_flatten(value, prefix?, sep?)
+      Does: Hoist nested object keys into a flat dict with dotted names.
+      → value: dict
+      Params: value: dict; prefix?: str (prepended to keys); sep?: str (default ".").
+      Notes: Recurses objects only. Arrays and scalars stay one value. Pair with
+        json_decode when a field is a JSON string (e.g. Wi_Fi_History).
+  jq(value, expr)
+      Does: Apply a jq expression to a dict, list, or primitive (gojq; in-process).
+      → value: the collected result (0 values → []; 1 value → that value; N values → list)
+      Params: value: JSON-like dict/list/primitive. expr: jq filter string.
+      Notes: Strings are already unquoted (jq -r). Use json_encode if you want JSON text.
+        Not a replacement for unwrap / piping to jq(1). Object key order is not preserved.
   plist_decode(plist_xml_str)
       Does: Parse plist XML into a dict or list.
       → value: dict or list
@@ -607,8 +621,10 @@ var Builtins = builtinsHead +
 	MacappsBuiltinsSection +
 	AppsBuiltinsSection +
 	ComputersBuiltinsSection +
+	ComputerSearchesBuiltinsSection +
 	MdmBuiltinsSection +
 	MobileDevicesBuiltinsSection +
+	MobileSearchesBuiltinsSection +
 	MobileGroupsBuiltinsSection +
 	MobileProfilesBuiltinsSection +
 	RolesBuiltinsSection +

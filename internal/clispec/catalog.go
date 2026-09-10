@@ -30,11 +30,13 @@ const (
 	MsgCmdPackage            = "cli.cmd.package"
 	MsgCmdIcon               = "cli.cmd.icon"
 	MsgCmdComputer           = "cli.cmd.computer"
+	MsgCmdComputerSearch     = "cli.cmd.computer_search"
 	MsgCmdMdm                = "cli.cmd.mdm"
 	MsgCmdBlueprint          = "cli.cmd.blueprint"
 	MsgCmdDevice             = "cli.cmd.device"
 	MsgCmdDeviceGroup        = "cli.cmd.device_group"
 	MsgCmdMobile             = "cli.cmd.mobile_device"
+	MsgCmdMobileSearch       = "cli.cmd.mobile_search"
 	MsgCmdMobileGroup        = "cli.cmd.mobile_group"
 	MsgCmdMobileProf         = "cli.cmd.mobile_profile"
 	MsgCmdDDM                = "cli.cmd.ddm"
@@ -88,11 +90,13 @@ var en = map[string]string{
 	MsgCmdPackage:            "Manage package records (list/get/download/upload/delete/set/history)",
 	MsgCmdIcon:               "Manage Self Service icons (list/get/upload/check/download)",
 	MsgCmdComputer:           "Manage computers and MDM commands (list/get/reboot/lock/erase/...)",
+	MsgCmdComputerSearch:     "Manage Classic advanced computer searches (Jamf Reports)",
 	MsgCmdMdm:                "Query MDM commands from Jamf Pro (list with RSQL filter)",
 	MsgCmdBlueprint:          "Manage Platform API blueprints (list/get/create/set/delete/deploy/…)",
 	MsgCmdDevice:             "Manage Platform API devices (inventory + check-in/restart/erase/…)",
 	MsgCmdDeviceGroup:        "Manage Platform API device groups (not Pro computer groups)",
 	MsgCmdMobile:             "Manage Jamf Pro mobile devices (list/get/update-inventory/restart/lock/erase)",
+	MsgCmdMobileSearch:       "Manage advanced mobile-device searches (Jamf Reports)",
 	MsgCmdMobileGroup:        "Manage mobile-device groups (smart criteria; static membership)",
 	MsgCmdMobileProf:         "Manage mobile-device configuration profiles (list/get/put/create/delete)",
 	MsgCmdDDM:                "Platform DDM declaration reporting (read-only)",
