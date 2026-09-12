@@ -50,7 +50,7 @@ func TestSetTenantAndAuthMetadata(t *testing.T) {
 	if snap.NeedsSetup || len(snap.Tenants) != 1 || len(snap.Auths) != 1 {
 		t.Fatalf("snapshot %+v", snap)
 	}
-	if snap.Auths[0].Secret != SecretPresenceMissing {
+	if snap.Auths[0].Secret != SecretPresenceLocked {
 		t.Fatalf("secret presence = %q", snap.Auths[0].Secret)
 	}
 }

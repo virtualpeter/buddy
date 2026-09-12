@@ -43,7 +43,7 @@ func StdinIsTerminal() bool {
 }
 
 // UnlockVaultSession loads the vault DEK into process memory (Touch ID / passcode
-// on signed macOS). Call at mcp/serve start; CLI unlocks lazily on first vault use.
+// on signed macOS). CLI, mcp, and serve unlock lazily on first vault use.
 func UnlockVaultSession(reason string) error {
 	return secrets.UnlockDefaultStore(reason)
 }

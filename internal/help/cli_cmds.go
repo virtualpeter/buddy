@@ -115,7 +115,7 @@ Subcommands:
   set context <name> [args...]      Add or update a context (instance URL and/or Platform gateway)
   set auth <name> [args...]         Add or update an auth (the --user name)
   set secret <auth> [args...]       Store password / client secret in the vault
-  status [--test]                   Context × surface coverage
+  status [--test] [--unlock]        Context × surface coverage
   list                              List contexts, auths, and channel policies
   get context|auth|channel|secret   Show one item (secrets redacted / presence only)
   use [context]                     Show or set context.default
@@ -151,7 +151,7 @@ Subcommands:
   set context <name> [args...]      Add or update a context (tenant is a dual-read alias)
   set auth <name> [args...]         Add or update an auth (the --user name; link to contexts)
   set secret <auth> [args...]       Store password / client secret in the vault
-  status [--test]                   Context × surface coverage (gaps, secret presence, last live check)
+  status [--test] [--unlock]        Context × surface coverage (gaps, secret presence, last live check)
   list                              List contexts, auths, and channel policies
   get context <name>                Show context details (tenant is a dual-read alias)
   get auth <name>                   Show auth details (secrets redacted)
@@ -176,6 +176,7 @@ Subcommands:
 
 Flags for 'status':
   --test                            Run auth test --all first (ForceRenew), then print the matrix
+  --unlock                          Open the vault so SECRET is stored/missing (default SECRET is locked)
 
 Flags for 'add':
   --context=<name>                  Existing or new context name (--tenant alias)
@@ -252,9 +253,11 @@ Notes for 'backup' / 'restore':
 
 Notes:
   cred status is the maintenance view (context × surface coverage). cred list is
-  the raw dump. cred get secret / status SECRET column are presence only —
-  'buddy auth test' proves the secret (ForceRenew). Last authorization details
-  from GET /api/v1/auth live in ~/.config/buddy/caps/ (same obfuscation style as tokens/).
+  the raw dump. Default SECRET is locked (does not open the vault / Touch ID).
+  cred status --unlock or --test classifies stored/missing. cred get secret
+  is presence only — 'buddy auth test' proves the secret (ForceRenew). Last
+  authorization details from GET /api/v1/auth live in ~/.config/buddy/caps/
+  (same obfuscation style as tokens/).
   A platform clientId may list multiple contexts under --contexts.
   credentials: / string tenant: / defaults: / allow_auths: and the notebook
   / serve client names are removed — use contexts:/auths: and channels.<cli|mcp|ide>.
@@ -298,6 +301,7 @@ Examples:
   buddy cred set auth platform-ro --type=platform --client-id=… --contexts=sandbox --scope=environment --access=readonly --channels=mcp,ide
   buddy cred set secret platform-ro --client-secret
   buddy cred status
+  buddy cred status --unlock
   buddy cred status --test
   buddy cred use sandbox
   buddy cred use --mcp sandbox

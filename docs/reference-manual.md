@@ -43,7 +43,7 @@ make buddy
 make install    # copies to ~/go/bin/buddy
 ```
 
-Or run `./buddy` from the build directory.
+Or run `./dist/buddy` from the build directory.
 
 ---
 
@@ -65,7 +65,7 @@ Builtin deny/allow is per layer (channel allow cannot unblock a context deny). `
 Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, secrets, and tokens](auth.md)**.
 
 - `buddy cred help` — set/list/get/delete contexts, auths, and channel policies; manage secrets; `cred use` / `cred set channel`
-- `buddy cred status` — context × surface coverage (gaps, secret presence, last live check); `--test` runs `auth test --all` first
+- `buddy cred status` — context × surface coverage (gaps, last live check); SECRET is locked unless `--unlock` or `--test` (`--test` runs `auth test --all` first)
 - `buddy cred add` — guided context + auth + secret (optional live test)
 - `buddy cred set secret <auth>` — store password/client secret in the vault
 - `buddy cred set passphrase` — create or rotate the recovery passphrase (backups; does not wrap the live vault)
@@ -373,14 +373,15 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 | `BUDDY_MANAGED_PLIST` | Path to a managed-config plist (replaces Darwin `/Library/Managed Preferences/virtualpete.buddy.cli.plist`) |
 | `BUDDY_CLASSIC_INSTANCE_ONLY` | Override `features.classic_instance_only` (`true`/`false`). Default false: Classic may use `/api/proclassic/` (no `/JSSResource` in the path). `true` forces **Classic `/JSSResource` only** onto instance. Does not apply to ACS or `GET /api/v1/policies` (always instance). |
 
-### Build-only (`make buddy-darwin-arm64` / `make package`)
+### Build-only (`make buddy-darwin-arm64` / `make app` / `make package`)
 
 These are Makefile variables, not runtime config:
 
 | Variable | Effect |
 |----------|--------|
-| `BUDDY_CODESIGN_IDENTITY` | Developer ID Application identity used to sign the Darwin/arm64 binary (default: first match from `security find-identity -v -p codesigning`) |
-| `BUDDY_CODESIGN_IDENTIFIER` | Bundle identifier (default `virtualpete.buddy.cli`); must stay stable so Keychain ACLs survive rebuilds |
+| `BUDDY_CODESIGN_IDENTITY` | Developer ID Application identity used to sign the Darwin/arm64 helper and Buddy.app (default: first match from `security find-identity -v -p codesigning`) |
+| `BUDDY_CODESIGN_IDENTIFIER` | CLI helper identifier (default `virtualpete.buddy.cli`); must stay stable so Keychain ACLs survive rebuilds |
+| `BUDDY_APP_IDENTIFIER` | Buddy.app identifier (default `virtualpete.buddy`); `Contents/MacOS/Buddy` is reserved for a future GUI |
 | `BUDDY_PKG_SIGN_IDENTITY` | Optional Developer ID Installer identity for `make package` (branded product archive + Finder icon from `internal/serve/buddy.png`) |
 
 ---

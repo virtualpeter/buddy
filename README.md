@@ -40,12 +40,13 @@ New install: if there isn’t a released binary available and you have Go instal
 make buddy
 ```
 
-The binary is built to `./buddy` (`CGO_ENABLED=0`). On macOS the default binary stores the vault data key and recovery passphrase in Keychain via `security(1)` (service `buddy`).
+Build artefacts go under `dist/` (`DIST=dist` by default). The default binary is `dist/buddy` (`CGO_ENABLED=0`). On macOS that binary stores the vault data key in Keychain via `security(1)` (service `buddy`).
 
-The **signed release** (`make buddy-darwin-arm64`) uses Security.framework and a separate Keychain service (`virtualpete.buddy.cli`). Vault unlock prompts once per process (LocalAuthentication on Developer ID CLI; Keychain `userPresence` when entitled). Secrets stay in `secrets.enc`. See [docs/auth.md](docs/auth.md).
+The **signed release** (`make buddy-darwin-arm64` / `make app`) uses Security.framework and a separate Keychain service (`virtualpete.buddy.cli`). Vault unlock prompts once per process (LocalAuthentication on Developer ID CLI; Keychain `userPresence` when entitled). Secrets stay in `secrets.enc`. See [docs/auth.md](docs/auth.md).
 
 ```sh
 make buddy-darwin-arm64
+# or: make app
 # or: make install-signed
 # or: make package
 # Override: BUDDY_CODESIGN_IDENTITY='Developer ID Application: …' make buddy-darwin-arm64
@@ -53,10 +54,12 @@ make buddy-darwin-arm64
 
 | Target | Binary | Keychain | Notes |
 |--------|--------|----------|-------|
-| `make buddy` | `./buddy` | service `buddy` via `security(1)` | Default; no CGO; existing items keep working |
-| `make buddy-darwin-arm64` | `./buddy-darwin-arm64` | service `virtualpete.buddy.cli` (label Buddy) via Security.framework | Requires Darwin/arm64; signs with the first Developer ID Application from `security find-identity` (`BUDDY_CODESIGN_IDENTITY` overrides); identifier `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) must stay stable; store the recovery passphrase with `./buddy-darwin-arm64 cred set passphrase` |
-| `make install-signed` | `~/go/bin/buddy` | same as `buddy-darwin-arm64` | Builds the signed binary, then copies it over `~/go/bin/buddy` |
-| `make package` | `/usr/local/bin/buddy` (via pkg) | same as `buddy-darwin-arm64` | Branded `buddy-<version>.pkg` (installer UI + Finder icon); optional `BUDDY_PKG_SIGN_IDENTITY` (Developer ID Installer) |
+| `make buddy` | `dist/buddy` | service `buddy` via `security(1)` | Default; no CGO; existing items keep working |
+| `make buddy-darwin-arm64` | `dist/buddy-darwin-arm64` | service `virtualpete.buddy.cli` (label Buddy) via Security.framework | Requires Darwin/arm64; Hardened Runtime + Developer ID; identifier `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) must stay stable; unwrap a missing DEK with `dist/buddy-darwin-arm64 cred set passphrase` |
+| `make app` | `dist/Buddy.app` | same as helper | CLI at `Contents/Helpers/buddy`; `Contents/MacOS/Buddy` is a Finder stub (future GUI) |
+| `make install-signed` | `~/go/bin/buddy` → helper | same as `Buddy.app` | Copies `dist/Buddy.app` to `~/Applications`; **symlink** (not a copy) at `~/go/bin/buddy` |
+| `make package` | `dist/buddy-<version>.pkg` | same as `Buddy.app` | Branded pkg installs `/Applications/Buddy.app` and a **symlink** at `/usr/local/bin/buddy`; optional `BUDDY_PKG_SIGN_IDENTITY` (Developer ID Installer) |
+| `make release` | pkg + linux + windows under `dist/` | same as package | `clean` then `package` + `buddy-linux` + `buddy-windows` (macOS host) |
 
 `make buddy-darwin-arm64` fails if the host is not Darwin/arm64, the identity is missing, the signature is ad-hoc, or TeamIdentifier is unset. Each binary only sees its own DEK until you unwrap with `cred set passphrase` or restore a backup.
 

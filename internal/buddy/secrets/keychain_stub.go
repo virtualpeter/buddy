@@ -87,3 +87,16 @@ func (k *KeychainStore) Has(credName string, kind Kind) (bool, error) {
 func (k *KeychainStore) List() ([]Entry, error) {
 	return nil, keychainUnsupported()
 }
+
+// Has satisfies MasterStore on non-darwin (Keychain backends are unused here).
+func (KeychainMaster) Has() (bool, error) {
+	return false, keychainUnsupported()
+}
+
+func (KeychainDEK) Has() (bool, error) {
+	return false, keychainUnsupported()
+}
+
+func (KeychainTokenWrap) Has() (bool, error) {
+	return false, keychainUnsupported()
+}

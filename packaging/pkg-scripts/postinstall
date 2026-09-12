@@ -1,0 +1,15 @@
+#!/bin/bash
+# Point /usr/local/bin/buddy at the CLI helper inside Buddy.app.
+set -euo pipefail
+target="/Applications/Buddy.app/Contents/Helpers/buddy"
+dst="/usr/local/bin/buddy"
+if [[ ! -x "$target" ]]; then
+	echo "postinstall: missing $target" >&2
+	exit 1
+fi
+mkdir -p /usr/local/bin
+if [[ -e "$dst" || -L "$dst" ]]; then
+	rm -f "$dst"
+fi
+ln -s "$target" "$dst"
+exit 0

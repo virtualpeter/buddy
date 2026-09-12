@@ -13,12 +13,22 @@ const (
 	SecretPresenceStored  = "stored"
 	SecretPresenceInline  = "inline"
 	SecretPresenceNA      = "n/a"
+	// SecretPresenceLocked means vault-backed presence was not checked (no unlock).
+	SecretPresenceLocked = "locked"
 )
+
+// CoverageOpts controls BuildCoverageReport / AuthSecretPresence vault access.
+type CoverageOpts struct {
+	// UnlockSecrets opens the vault to classify SECRET as stored/missing.
+	// When false (default), vault-backed auths report SecretPresenceLocked
+	// without a Touch ID / Keychain prompt.
+	UnlockSecrets bool
+}
 
 // CoverageAuth is one auth covering a tenant×surface cell.
 type CoverageAuth struct {
 	Name   string `json:"name"`
-	Secret string `json:"secret"` // missing | stored | inline | n/a
+	Secret string `json:"secret"` // missing | stored | inline | n/a | locked
 	Live   string `json:"live"`   // never | ok | token-ok | token-fail | secret-missing
 }
 
@@ -53,7 +63,9 @@ func AuthCoversSurface(auth AuthEntry, surface string) bool {
 }
 
 // AuthSecretPresence reports whether the auth has a usable secret (presence only).
-func AuthSecretPresence(cfg *Config, authName string) string {
+// When unlock is false, vault-backed secrets are reported as SecretPresenceLocked
+// without opening the vault.
+func AuthSecretPresence(cfg *Config, authName string, unlock bool) string {
 	if cfg == nil {
 		return SecretPresenceMissing
 	}
@@ -71,6 +83,9 @@ func AuthSecretPresence(cfg *Config, authName string) string {
 		if strings.TrimSpace(auth.Password) != "" {
 			return SecretPresenceInline
 		}
+		if !unlock {
+			return SecretPresenceLocked
+		}
 		if ok, _ := HasCredentialSecret(authName, SecretKindPassword); ok {
 			return SecretPresenceStored
 		}
@@ -78,6 +93,9 @@ func AuthSecretPresence(cfg *Config, authName string) string {
 	case AuthTypeOAuth, AuthTypePlatform:
 		if strings.TrimSpace(auth.ClientSecret) != "" {
 			return SecretPresenceInline
+		}
+		if !unlock {
+			return SecretPresenceLocked
 		}
 		if ok, _ := HasCredentialSecret(authName, SecretKindClientSecret); ok {
 			return SecretPresenceStored
@@ -111,8 +129,15 @@ func loadCapsForCell(authName, tenantName, surface string, tenant TenantConfig) 
 	return LoadCaps(authName, tenantName, surface, tid)
 }
 
-// BuildCoverageReport walks tenants × surfaces using config, the secret store, and caps cache.
+// BuildCoverageReport walks tenants × surfaces using config and caps cache.
+// It does not open the vault; SECRET is locked for vault-backed auths.
+// Use BuildCoverageReportWith to classify stored/missing.
 func BuildCoverageReport(cfg *Config) CoverageReport {
+	return BuildCoverageReportWith(cfg, CoverageOpts{})
+}
+
+// BuildCoverageReportWith is BuildCoverageReport with optional vault unlock for SECRET.
+func BuildCoverageReportWith(cfg *Config, opts CoverageOpts) CoverageReport {
 	rep := CoverageReport{}
 	if cfg == nil {
 		return rep
@@ -143,7 +168,7 @@ func BuildCoverageReport(cfg *Config) CoverageReport {
 				}
 				cell.Auths = append(cell.Auths, CoverageAuth{
 					Name:   name,
-					Secret: AuthSecretPresence(cfg, name),
+					Secret: AuthSecretPresence(cfg, name, opts.UnlockSecrets),
 					Live:   live,
 				})
 			}
@@ -153,6 +178,7 @@ func BuildCoverageReport(cfg *Config) CoverageReport {
 			} else {
 				usable := false
 				for _, a := range cell.Auths {
+					// locked / stored / inline / n/a count as usable; only missing is a secret gap
 					if a.Secret != SecretPresenceMissing {
 						usable = true
 						break

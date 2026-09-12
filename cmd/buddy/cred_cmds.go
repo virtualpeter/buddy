@@ -403,18 +403,22 @@ func runCredSetChannel(cfg *buddy.Config, args []string) error {
 
 func runCredStatus(cfg *buddy.Config, args []string, log *slog.Logger) error {
 	test := false
+	unlock := false
 	for _, a := range args {
 		switch a {
 		case "--test":
 			test = true
+		case "--unlock":
+			unlock = true
 		case "-y":
 			// live tests do not prompt
 		default:
-			return fmt.Errorf("unknown argument %q; usage: buddy cred status [--test]", a)
+			return fmt.Errorf("unknown argument %q; usage: buddy cred status [--test] [--unlock]", a)
 		}
 	}
 	var testErr error
 	if test {
+		unlock = true // ForceRenew already opens the vault; keep SECRET consistent
 		results, err := buddy.AuthTestAll(cfg, log)
 		if len(results) > 0 {
 			buddy.PrintAuthTestAll(results)
@@ -422,7 +426,8 @@ func runCredStatus(cfg *buddy.Config, args []string, log *slog.Logger) error {
 		}
 		testErr = err
 	}
-	buddy.FormatCoverageReport(buddy.BuildCoverageReport(cfg), os.Stdout)
+	rep := buddy.BuildCoverageReportWith(cfg, buddy.CoverageOpts{UnlockSecrets: unlock})
+	buddy.FormatCoverageReport(rep, os.Stdout)
 	return testErr
 }
 

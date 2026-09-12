@@ -18,9 +18,10 @@ Human docs: [docs/index.md](docs/index.md) (About), [docs/getting-started.md](do
 | `internal/lsp/` | `buddy lsp` |
 | `stdlib/` | Reserved `load("stdlib/….buddy")` modules (currently empty) |
 | `docs/` | User-facing docs (`docs/generated/` is from `make gendocs`) |
+| `packaging/` | Buddy.app Info.plist, pkg postinstall (symlink `/usr/local/bin/buddy`) |
 | `.cursor/rules/` | CLI, builtins, and auth conventions |
 
-Build: `make buddy` → `./buddy` (`CGO_ENABLED=0`). Signed Darwin/arm64: `make buddy-darwin-arm64` → `./buddy-darwin-arm64`; `make install-signed` copies that to `~/go/bin/buddy`; `make package` wraps it in a branded pkg that installs `/usr/local/bin/buddy`. Tests: `go test ./...`. Docs UI: `make docs-serve`. Cross-compile: `make buddy-linux` / `make buddy-windows`. Lite tags: `make buddy-lite`.
+Build artefacts go under `dist/` (`DIST=dist` by default). `make buddy` → `dist/buddy` (`CGO_ENABLED=0`). Signed Darwin/arm64 helper: `make buddy-darwin-arm64` → `dist/buddy-darwin-arm64`. App bundle: `make app` → `dist/Buddy.app` (CLI at `Contents/Helpers/buddy`, Finder stub at `Contents/MacOS/Buddy`). `make install-signed` copies the app to `~/Applications/Buddy.app` and symlinks `~/go/bin/buddy` at the helper. `make package` writes `dist/buddy-<version>.pkg` (installs `/Applications/Buddy.app` + `/usr/local/bin/buddy` symlink). `make release` cleans `dist/` then builds package + linux + windows. Tests: `go test ./...`. Docs UI: `make docs-serve`. Cross-compile: `make buddy-linux` / `make buddy-windows`. Lite tags: `make buddy-lite`.
 
 Resource cookbooks: edit `internal/buddy/*_doc.go`, then `make gendocs` (writes `docs/generated/{human,agent}/*.md` + `internal/help/*_gen.go`). Do not hand-edit generated markdown. After `docs/` or generated changes: `make sync-docfs`. `AGENTS.md` and `.cursor/rules` are repo/editor only (not embedded for MCP). `BUDDY_DOCS_ROOT` is an optional live override.
 

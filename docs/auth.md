@@ -4,7 +4,7 @@ Buddy talks to Jamf using a **context** (a named workplace in config) plus an **
 
 First-time install: [Getting started](getting-started.md). With an empty config, any interactive Jamf command (or `buddy cred add`) runs the setup wizard. With an org MDM profile, use `buddy setup secrets` / `buddy cred add`. The docs UI **config** page edits context/auth metadata only — secrets stay in the terminal vault. YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
 
-Maintenance: `buddy cred status` shows each context × surface (instance URL vs platform identity), covering auths, whether a secret is **stored**, and the last `auth test` result. Gaps are contexts that have an identity but no covering auth (or no secret). Low-level `buddy cred set context|auth|secret` still works (`tenant` is a dual-read alias).
+Maintenance: `buddy cred status` shows each context × surface (instance URL vs platform identity), covering auths, whether a secret is **locked** / **stored** / missing, and the last `auth test` result. Default status does not open the vault (`SECRET=locked`); `--unlock` or `--test` classifies stored vs missing. Gaps are contexts that have an identity but no covering auth (or no secret after unlock). Low-level `buddy cred set context|auth|secret` still works (`tenant` is a dual-read alias).
 
 ---
 
@@ -186,14 +186,14 @@ Escape hatches (never written to disk as config):
 
 - Uses Security.framework so the ACL is buddy’s Developer ID
 - Upgrades keep working as long as the Team ID and identifier stay the same
-- Separate Keychain service (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) — never shares ACL or items with `./buddy`; the vault file is shared
+- Separate Keychain service (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) — never shares ACL or items with `dist/buddy`; the vault file is shared
 - **Presence unlock:** ideally Keychain `SecAccessControl` `userPresence`. A bare Developer ID CLI **cannot** store that ACL today (`errSecMissingEntitlement` — needs `keychain-access-groups` + provisioning profile / `.app` packaging). Buddy falls back to **LocalAuthentication** (`evaluatePolicy` device-owner) once per process before releasing the DEK into memory, then reads an `AfterFirstUnlockThisDeviceOnly` Keychain item
-- First vault use in a process loads the DEK into memory (**process session**): `buddy mcp` / `buddy serve` unlock at start; CLI unlocks lazily on the first vault-backed secret resolve. `cred status` / `cred store` alone do not unlock the vault
+- First vault use in a process loads the DEK into memory (**process session**): CLI, `buddy mcp`, and `buddy serve` unlock lazily on the first vault-backed secret resolve. A valid token cache skips the vault. `cred status` / `cred store` alone do not unlock the vault (`cred status --unlock` or `--test` does).
 - Escape: `BUDDY_VAULT_UNLOCK=after-first-unlock` skips the LocalAuthentication gate (and ACL attempts)
 - Recovery `master` item stays non-presence so vault writes do not prompt for every save
-- Unsigned `./buddy` cannot use a meaningful app ACL; presence prompts are a signed-release feature. An unlocked mcp/serve process still holds the DEK in RAM
+- Unsigned `dist/buddy` cannot use a meaningful app ACL; presence prompts are a signed-release feature. An unlocked mcp/serve process still holds the DEK in RAM
 
-A signed binary does not see a DEK stored by `./buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against `./buddy-darwin-arm64` (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. `make install-signed` copies that binary to `~/go/bin/buddy`. `buddy cred erase secrets` deletes the vault, the DEK, the recovery passphrase, the token-wrap key, token cache files, and leftover per-auth items from **both** Keychain services.
+A signed binary does not see a DEK stored by `dist/buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against `dist/buddy-darwin-arm64` (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. `make install-signed` puts Buddy.app in `~/Applications` and **symlinks** `~/go/bin/buddy` at `Contents/Helpers/buddy`. `buddy cred erase secrets` deletes the vault, the DEK, the recovery passphrase, the token-wrap key, token cache files, and leftover per-auth items from **both** Keychain services.
 
 **Codesign**
 
@@ -205,7 +205,8 @@ A signed binary does not see a DEK stored by `./buddy`. Use the same recovery pa
 Older vault files used PBKDF2 with the recovery passphrase as the wrapping secret. The first CLI run after upgrade migrates them to a DEK (PBKDF2 stays on backup files and on the optional DEK wrap inside `secrets.enc`). Older installs stored one Keychain/file/pass item per secret. `buddy cred migrate` copies those into the vault (and can delete the old items).
 
 ```sh
-buddy cred status                               # context × surface coverage (no Jamf call)
+buddy cred status                               # context × surface coverage (SECRET locked; no vault)
+buddy cred status --unlock                      # classify SECRET as stored/missing (may Touch ID)
 buddy cred add --context=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
 buddy cred set passphrase                        # create / rotate the recovery passphrase (backups)
 buddy cred set secret sandbox-admin                  # password (basic)

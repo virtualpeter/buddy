@@ -44,9 +44,6 @@ func Run(ctx context.Context, o Options) error {
 	if host != "127.0.0.1" && host != "localhost" && host != "::1" {
 		return fmt.Errorf("buddy serve binds localhost only (got %q)", host)
 	}
-	if err := buddy.UnlockVaultSession("Unlock Buddy vault for serve"); err != nil {
-		return fmt.Errorf("vault unlock: %w", err)
-	}
 
 	pages, docsSource, err := loadDocPages(o.DocsRoot)
 	if err != nil {

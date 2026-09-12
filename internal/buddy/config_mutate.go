@@ -412,7 +412,7 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 			Channels: append([]string{}, a.Channels...),
 			Username: a.Username,
 			ClientID: a.ClientID,
-			Secret:   AuthSecretPresence(cfg, n),
+			Secret:   AuthSecretPresence(cfg, n, false),
 			Managed:  cfg.AuthFromManagedPrefs(n),
 		})
 	}

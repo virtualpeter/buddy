@@ -6,7 +6,8 @@ Install buddy, connect to Jamf, and run a first command. New here? Start with th
 
 ```sh
 make buddy
-make install    # optional: ~/go/bin/buddy
+make install          # optional: copy unsigned CLI to ~/go/bin/buddy
+make install-signed   # macOS: ~/Applications/Buddy.app + symlink ~/go/bin/buddy
 ```
 
 ## 2. Connect to Jamf

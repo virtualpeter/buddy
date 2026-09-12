@@ -146,20 +146,20 @@ func TestBuildCoverageReportGaps(t *testing.T) {
 		},
 	}
 	rep := BuildCoverageReport(cfg)
-	var sawPlatGap, sawInstCovered, sawProd bool
+	var sawPlatGap, sawInstLocked, sawProd bool
 	for _, c := range rep.Cells {
 		if c.Tenant == "sandbox" && c.Surface == SurfacePlatform && c.Gap && c.GapReason == "no auth" {
 			sawPlatGap = true
 		}
-		if c.Tenant == "sandbox" && c.Surface == SurfaceInstance && !c.Gap && len(c.Auths) == 1 && c.Auths[0].Secret == SecretPresenceStored {
-			sawInstCovered = true
+		if c.Tenant == "sandbox" && c.Surface == SurfaceInstance && !c.Gap && len(c.Auths) == 1 && c.Auths[0].Secret == SecretPresenceLocked {
+			sawInstLocked = true
 		}
 		if c.Tenant == "prod" && c.Surface == SurfaceInstance && !c.Gap {
 			sawProd = true
 		}
 	}
-	if !sawPlatGap || !sawInstCovered || !sawProd {
-		t.Fatalf("cells=%+v gaps plat=%v inst=%v prod=%v", rep.Cells, sawPlatGap, sawInstCovered, sawProd)
+	if !sawPlatGap || !sawInstLocked || !sawProd {
+		t.Fatalf("cells=%+v gaps plat=%v inst=%v prod=%v", rep.Cells, sawPlatGap, sawInstLocked, sawProd)
 	}
 	if !rep.HasGaps {
 		t.Fatal("expected HasGaps")
@@ -174,9 +174,109 @@ func TestBuildCoverageReportGaps(t *testing.T) {
 	var b strings.Builder
 	FormatCoverageReport(rep, &b)
 	out := b.String()
-	if !strings.Contains(out, "GAP") || !strings.Contains(out, "sandbox") {
+	if !strings.Contains(out, "GAP") || !strings.Contains(out, "sandbox") || !strings.Contains(out, "locked") {
 		t.Fatalf("format:\n%s", out)
 	}
+
+	unlocked := BuildCoverageReportWith(cfg, CoverageOpts{UnlockSecrets: true})
+	for _, c := range unlocked.Cells {
+		if c.Tenant == "sandbox" && c.Surface == SurfaceInstance {
+			if len(c.Auths) != 1 || c.Auths[0].Secret != SecretPresenceStored {
+				t.Fatalf("unlocked SECRET want stored, got %+v", c.Auths)
+			}
+		}
+	}
+}
+
+func TestAuthSecretPresenceLockedVsUnlock(t *testing.T) {
+	hits := 0
+	secrets.SetStore(&countingHasStore{
+		mockSecretStore: mockSecretStore{values: map[string]string{
+			"vault-oauth/client-secret": "s",
+		}},
+		onHas: func() { hits++ },
+	})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	cfg := &Config{
+		Tenants: map[string]TenantConfig{
+			"sandbox": {URL: "https://example.jamfcloud.com"},
+		},
+		Auths: map[string]AuthEntry{
+			"vault-oauth": {Type: "oauth", ClientID: "cid", Tenants: []string{"sandbox"}},
+			"inline-oauth": {
+				Type: "oauth", ClientID: "cid", ClientSecret: "inline",
+				Tenants: []string{"sandbox"},
+			},
+			"missing-oauth": {Type: "oauth", ClientID: "cid", Tenants: []string{"sandbox"}},
+		},
+	}
+
+	if got := AuthSecretPresence(cfg, "vault-oauth", false); got != SecretPresenceLocked {
+		t.Fatalf("locked: got %q", got)
+	}
+	if hits != 0 {
+		t.Fatalf("locked path must not call Has, hits=%d", hits)
+	}
+	if got := AuthSecretPresence(cfg, "vault-oauth", true); got != SecretPresenceStored {
+		t.Fatalf("unlock stored: got %q", got)
+	}
+	if hits != 1 {
+		t.Fatalf("unlock should Has once, hits=%d", hits)
+	}
+	if got := AuthSecretPresence(cfg, "inline-oauth", false); got != SecretPresenceInline {
+		t.Fatalf("inline without unlock: got %q", got)
+	}
+	if got := AuthSecretPresence(cfg, "missing-oauth", true); got != SecretPresenceMissing {
+		t.Fatalf("missing: got %q", got)
+	}
+
+	gapCfg := &Config{
+		Tenants: map[string]TenantConfig{
+			"sandbox": {URL: "https://example.jamfcloud.com"},
+		},
+		Auths: map[string]AuthEntry{
+			"missing-oauth": {Type: "oauth", ClientID: "cid", Tenants: []string{"sandbox"}},
+		},
+	}
+	lockedRep := BuildCoverageReport(gapCfg)
+	unlockedRep := BuildCoverageReportWith(gapCfg, CoverageOpts{UnlockSecrets: true})
+	var lockedGap, unlockedGap bool
+	for _, c := range lockedRep.Cells {
+		if c.Tenant == "sandbox" && c.Surface == SurfaceInstance {
+			lockedGap = c.Gap
+			if c.Auths[0].Secret != SecretPresenceLocked {
+				t.Fatalf("want locked, got %q", c.Auths[0].Secret)
+			}
+		}
+	}
+	for _, c := range unlockedRep.Cells {
+		if c.Tenant == "sandbox" && c.Surface == SurfaceInstance {
+			unlockedGap = c.Gap && c.GapReason == "no secret"
+			if c.Auths[0].Secret != SecretPresenceMissing {
+				t.Fatalf("want missing, got %q", c.Auths[0].Secret)
+			}
+		}
+	}
+	if lockedGap {
+		t.Fatal("locked SECRET must not create a no-secret gap")
+	}
+	if !unlockedGap {
+		t.Fatal("unlocked missing SECRET should gap")
+	}
+}
+
+// countingHasStore wraps mockSecretStore and counts Has calls.
+type countingHasStore struct {
+	mockSecretStore
+	onHas func()
+}
+
+func (s *countingHasStore) Has(credName string, kind secrets.Kind) (bool, error) {
+	if s.onHas != nil {
+		s.onHas()
+	}
+	return s.mockSecretStore.Has(credName, kind)
 }
 
 func TestAuthCoversSurface(t *testing.T) {
