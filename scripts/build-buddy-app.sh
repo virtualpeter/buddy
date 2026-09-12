@@ -34,7 +34,8 @@ cp "$helper" "$helpers/buddy"
 chmod 755 "$helpers/buddy"
 
 echo "Building Buddy.app stub (version $version)..."
-CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o "$macos/Buddy" ./cmd/buddy-app
+# CGO + AppKit so Finder launch finishes (Dock bounce stops) while serve runs.
+CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o "$macos/Buddy" ./cmd/buddy-app
 chmod 755 "$macos/Buddy"
 
 sed \

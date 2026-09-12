@@ -137,7 +137,7 @@ install: $(BUILDTARGET)
 .PHONY: app
 app: $(APP_TARGET)
 
-$(APP_TARGET): $(SIGNED_TARGET) cmd/buddy-app/path.go cmd/buddy-app/main_darwin.go packaging/Info.plist.in scripts/build-buddy-app.sh | $(DIST)
+$(APP_TARGET): $(SIGNED_TARGET) cmd/buddy-app/*.go packaging/Info.plist.in scripts/build-buddy-app.sh | $(DIST)
 	@test "$$(uname -s)" = Darwin || { echo "make app is macOS-only"; exit 1; }
 	BUDDY_CODESIGN_IDENTIFIER="$(BUDDY_CODESIGN_IDENTIFIER)" BUDDY_APP_IDENTIFIER="$(BUDDY_APP_IDENTIFIER)" \
 		./scripts/build-buddy-app.sh "$(SIGNED_TARGET)" "$(APP_TARGET)" "$(PKG_VERSION)" "$(BUDDY_CODESIGN_IDENTITY)"

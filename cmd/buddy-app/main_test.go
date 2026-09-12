@@ -40,3 +40,18 @@ func TestHelperPathFromMacOSExecutable(t *testing.T) {
 		t.Fatalf("helperPath = %q, want %q", got, want)
 	}
 }
+
+func TestDefaultArgsServeOpenWhenEmpty(t *testing.T) {
+	old := os.Args
+	t.Cleanup(func() { os.Args = old })
+	os.Args = []string{"Buddy"}
+	got := defaultArgs()
+	if len(got) != 2 || got[0] != "serve" || got[1] != "--open" {
+		t.Fatalf("defaultArgs = %v", got)
+	}
+	os.Args = []string{"Buddy", "policy", "list"}
+	got = defaultArgs()
+	if len(got) != 2 || got[0] != "policy" || got[1] != "list" {
+		t.Fatalf("passthrough args = %v", got)
+	}
+}
