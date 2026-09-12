@@ -8,7 +8,7 @@ import (
 
 func TestChromeHeaderSlots(t *testing.T) {
 	h := chromeHeader("ide",
-		`<label>tenant <select id="tenant"></select></label><label>user <select id="auth"></select></label>`,
+		`<label>context <select id="context"></select></label><label>user <select id="auth"></select></label>`,
 		`<button id="btn-open">Open</button>`,
 		`<button id="btn-run" class="primary">Run</button>`)
 	for _, want := range []string{
@@ -23,7 +23,7 @@ func TestChromeHeaderSlots(t *testing.T) {
 		`window.name="buddy-ide"`,
 		`class="ver"`,
 		`class="active">ide</a>`,
-		`id="tenant"`,
+		`id="context"`,
 		`id="auth"`,
 		`id="btn-open"`,
 		`id="btn-run"`,
@@ -38,14 +38,14 @@ func TestChromeHeaderSlots(t *testing.T) {
 		t.Fatal("header should not link to /notebook")
 	}
 	idxNav := strings.Index(h, `class="app-nav"`)
-	idxTenant := strings.Index(h, `id="tenant"`)
+	idxContext := strings.Index(h, `id="context"`)
 	idxOpen := strings.Index(h, `id="btn-open"`)
 	idxSpacer := strings.Index(h, `class="spacer"`)
 	idxRun := strings.Index(h, `id="btn-run"`)
 	idxDark := strings.Index(h, `id="theme-dark"`)
-	if !(idxNav < idxTenant && idxTenant < idxOpen && idxOpen < idxSpacer && idxSpacer < idxRun && idxRun < idxDark) {
-		t.Fatalf("slot order wrong: nav=%d tenant=%d open=%d spacer=%d run=%d dark=%d",
-			idxNav, idxTenant, idxOpen, idxSpacer, idxRun, idxDark)
+	if !(idxNav < idxContext && idxContext < idxOpen && idxOpen < idxSpacer && idxSpacer < idxRun && idxRun < idxDark) {
+		t.Fatalf("slot order wrong: nav=%d context=%d open=%d spacer=%d run=%d dark=%d",
+			idxNav, idxContext, idxOpen, idxSpacer, idxRun, idxDark)
 	}
 }
 
@@ -110,7 +110,7 @@ func TestIDESharedChrome(t *testing.T) {
 		`class="app-nav"`,
 		`href="/config"`,
 		`src="/buddy.png?v=`,
-		`id="tenant"`,
+		`id="context"`,
 		`id="auth"`,
 		`data-theme`,
 		`id="btn-run"`,

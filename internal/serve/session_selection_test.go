@@ -36,8 +36,12 @@ func TestSessionSelectionJSON(t *testing.T) {
 	if len(tenants) != 2 || tenants[0] != "prod" || tenants[1] != "sandbox" {
 		t.Fatalf("tenants=%v", tenants)
 	}
-	if got["tenant"] != "sandbox" {
-		t.Fatalf("tenant=%v", got["tenant"])
+	contexts, _ := got["contexts"].([]string)
+	if len(contexts) != 2 || contexts[0] != "prod" || contexts[1] != "sandbox" {
+		t.Fatalf("contexts=%v", contexts)
+	}
+	if got["tenant"] != "sandbox" || got["context"] != "sandbox" {
+		t.Fatalf("tenant=%v context=%v", got["tenant"], got["context"])
 	}
 	if got["auth"] != "" {
 		t.Fatalf("auth=%v want empty auto", got["auth"])
@@ -51,8 +55,8 @@ func TestSessionSelectionJSON(t *testing.T) {
 	}
 
 	got2 := sessionSelectionJSON(buddy.ChannelIDE, "prod", "platform-ro")
-	if got2["tenant"] != "prod" || got2["auth"] != "platform-ro" {
-		t.Fatalf("override got tenant=%v auth=%v", got2["tenant"], got2["auth"])
+	if got2["tenant"] != "prod" || got2["context"] != "prod" || got2["auth"] != "platform-ro" {
+		t.Fatalf("override got tenant=%v context=%v auth=%v", got2["tenant"], got2["context"], got2["auth"])
 	}
 }
 
@@ -91,8 +95,8 @@ func TestSessionSelectionJSONChannelPolicy(t *testing.T) {
 	})
 
 	got := sessionSelectionJSON(buddy.ChannelMCP, "", "")
-	if got["tenant"] != "sandbox" {
-		t.Fatalf("tenant=%v", got["tenant"])
+	if got["tenant"] != "sandbox" || got["context"] != "sandbox" {
+		t.Fatalf("tenant=%v context=%v", got["tenant"], got["context"])
 	}
 	if got["channel_access"] != buddy.AccessReadonly {
 		t.Fatalf("channel_access=%v", got["channel_access"])
@@ -107,7 +111,7 @@ func TestSessionSelectionJSONChannelPolicy(t *testing.T) {
 
 	buddy.SetActiveSelection("", "")
 	ide := sessionSelectionJSON(buddy.ChannelIDE, "", "")
-	if ide["tenant"] != "prod" {
-		t.Fatalf("ide tenant=%v", ide["tenant"])
+	if ide["tenant"] != "prod" || ide["context"] != "prod" {
+		t.Fatalf("ide tenant=%v context=%v", ide["tenant"], ide["context"])
 	}
 }

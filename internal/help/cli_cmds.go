@@ -681,7 +681,7 @@ Notes:
 
   Every tool returns a JSON object {ok, value, error?, count?} — never a bare
   array (hosts require object structuredContent). buddy_info reports binary
-  version plus default context / auth pin (JSON fields tenant / tenants) for the
+  version plus default context / auth pin (JSON fields context / tenant, contexts / tenants) for the
   mcp channel (no Jamf call). Live auth: first buddyscript Jamf call or CLI
   buddy auth test.
 

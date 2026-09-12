@@ -132,7 +132,7 @@ Lean surface (5 tools). Call **`get_instructions` once** at session start before
 | Tool | Returns `value` | Notes |
 |------|-----------------|-------|
 | `get_instructions` | markdown playbook | Firm agent guidance (no Jamf call). Call once before other tools |
-| `buddy_info` | `{version, channel, tenant, auth, tenants, auths, channel_access, …}` | Binary version + mcp session selection (no Jamf call). Live auth: first `buddyscript` Jamf call or CLI `buddy auth test` |
+| `buddy_info` | `{version, channel, context, tenant, auth, contexts, tenants, auths, channel_access, …}` | Binary version + mcp session selection (`tenant`/`tenants` dual-read aliases of `context`/`contexts`; no Jamf call). Live auth: first `buddyscript` Jamf call or CLI `buddy auth test` |
 | `docs` | Catalog entries or page markdown | Embedded buddy docs (+ agent-tone generated pages); prefer `mcp-tools` for agent guidance |
 | `jamf_schema` | Operations catalog (+ optional docs) | Discovery; then prefer named builtins via `buddyscript` |
 | `buddyscript` | `{stdout, stderr, result, error}` | **Primary** automation surface; see below |

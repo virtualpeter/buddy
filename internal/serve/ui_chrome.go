@@ -287,7 +287,7 @@ const chromeSoftTabJS = `(function(){
 
 // chromeHeader builds the shared sticky top bar.
 // active is "docs" or "ide".
-// sessionHTML typically holds tenant/user selects; actionsHTML page controls;
+// sessionHTML typically holds context/user selects; actionsHTML page controls;
 // runHTML the primary run button (placed before the dark toggle).
 // Nav/brand links use named browsing contexts (target="buddy-*") so each
 // surface opens or focuses its own browser tab instead of replacing the current one.
