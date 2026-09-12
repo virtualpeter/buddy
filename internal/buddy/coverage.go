@@ -32,9 +32,10 @@ type CoverageAuth struct {
 	Live   string `json:"live"`   // never | ok | token-ok | token-fail | secret-missing
 }
 
-// CoverageCell is one tenant identity (instance or platform) and the auths that can use it.
+// CoverageCell is one context identity (instance or platform) and the auths that can use it.
 type CoverageCell struct {
-	Tenant    string         `json:"tenant"`
+	Context   string         `json:"context"`
+	Tenant    string         `json:"tenant"` // dual-read alias of context
 	Surface   string         `json:"surface"`
 	Gap       bool           `json:"gap"`
 	GapReason string         `json:"gap_reason,omitempty"`
@@ -153,7 +154,7 @@ func BuildCoverageReportWith(cfg *Config, opts CoverageOpts) CoverageReport {
 		linked := cfg.AuthsForTenant(tn)
 		sort.Strings(linked)
 		for _, surface := range tenantSurfaces(tenant) {
-			cell := CoverageCell{Tenant: tn, Surface: surface}
+			cell := CoverageCell{Context: tn, Tenant: tn, Surface: surface}
 			for _, name := range linked {
 				auth, err := cfg.ResolveAuth(name)
 				if err != nil {

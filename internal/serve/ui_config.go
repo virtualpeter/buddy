@@ -157,23 +157,23 @@ button:hover { filter: brightness(1.06); }
 ` + chromeHeader("config", "", "", "") + `
 <main>
   <h1>Config</h1>
-  <p class="hint">Edit tenants and auth <strong>metadata</strong> only. Passwords and client secrets stay in the terminal vault:
+  <p class="hint">Edit contexts and auth <strong>metadata</strong> only. Passwords and client secrets stay in the terminal vault:
     <code>buddy cred set secret &lt;auth&gt;</code> or <code>buddy cred add</code>.</p>
   <div id="banner" class="banner" style="display:none"></div>
   <div id="err" class="err"></div>
 
   <h2>Defaults</h2>
   <div class="form-grid" id="defaults-form">
-    <label>Default tenant
-      <select id="default-tenant"></select>
+    <label>Default context
+      <select id="default-context"></select>
     </label>
-    <label>CLI channel tenant
+    <label>CLI channel context
       <select id="ch-cli"></select>
     </label>
-    <label>MCP channel tenant
+    <label>MCP channel context
       <select id="ch-mcp"></select>
     </label>
-    <label>IDE channel tenant
+    <label>IDE channel context
       <select id="ch-ide"></select>
     </label>
     <div class="form-actions">
@@ -181,10 +181,10 @@ button:hover { filter: brightness(1.06); }
     </div>
   </div>
 
-  <h2>Tenants</h2>
+  <h2>Contexts</h2>
   <table>
     <thead><tr><th>Name</th><th>URL</th><th>Region</th><th>Scope</th><th></th></tr></thead>
-    <tbody id="tenants-body"></tbody>
+    <tbody id="contexts-body"></tbody>
   </table>
   <div class="form-grid">
     <label>Name <input id="t-name" autocomplete="off"></label>
@@ -193,13 +193,13 @@ button:hover { filter: brightness(1.06); }
     <label>Platform environment id <input id="t-eid" placeholder="preferred"></label>
     <label>Platform tenant id <input id="t-tid" placeholder="legacy single-product"></label>
     <div class="form-actions">
-      <button type="button" class="primary" id="btn-save-tenant">Add / update tenant</button>
+      <button type="button" class="primary" id="btn-save-context">Add / update context</button>
     </div>
   </div>
 
   <h2>Auths</h2>
   <table>
-    <thead><tr><th>Name</th><th>Type</th><th>Tenants</th><th>Access</th><th>Secret</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Type</th><th>Contexts</th><th>Access</th><th>Secret</th><th></th></tr></thead>
     <tbody id="auths-body"></tbody>
   </table>
   <div class="form-grid">
@@ -211,7 +211,7 @@ button:hover { filter: brightness(1.06); }
         <option value="platform">platform</option>
       </select>
     </label>
-    <label>Linked tenants (csv) <input id="a-tenants" placeholder="sandbox"></label>
+    <label>Linked contexts (csv) <input id="a-contexts" placeholder="sandbox"></label>
     <label>Access
       <select id="a-access">
         <option value="full">full</option>
@@ -228,7 +228,7 @@ button:hover { filter: brightness(1.06); }
 
   <h2>Coverage</h2>
   <table>
-    <thead><tr><th>Tenant</th><th>Surface</th><th>Status</th><th>Auths</th></tr></thead>
+    <thead><tr><th>Context</th><th>Surface</th><th>Status</th><th>Auths</th></tr></thead>
     <tbody id="cov-body"></tbody>
   </table>
 </main>
@@ -256,9 +256,21 @@ button:hover { filter: brightness(1.06); }
     if (!res.ok) throw new Error(data.error || (res.status + ' ' + res.statusText));
     return data;
   }
-  function tenantOptions(selected, includeBlank){
+  function workplaceRows(st){
+    return st.contexts || st.tenants || [];
+  }
+  function defaultContext(st){
+    return st.default_context || st.default_tenant || '';
+  }
+  function channelContexts(st){
+    return st.channel_contexts || st.channel_tenants || {};
+  }
+  function authContexts(a){
+    return a.contexts || a.tenants || [];
+  }
+  function contextOptions(selected, includeBlank){
     var html = includeBlank ? '<option value="">(from default)</option>' : '';
-    (state.tenants || []).forEach(function(t){
+    workplaceRows(state).forEach(function(t){
       html += '<option value="'+esc(t.name)+'"'+(t.name===selected?' selected':'')+'>'+esc(t.name)+'</option>';
     });
     return html;
@@ -269,22 +281,20 @@ button:hover { filter: brightness(1.06); }
     var banner = document.getElementById('banner');
     if (state.needs_setup) {
       banner.style.display = '';
-      banner.innerHTML = '<strong>Not configured yet.</strong> Add a tenant below, then an auth. Store secrets in a terminal: <code>buddy cred set secret &lt;auth&gt;</code>. See <a href="/docs/docs/getting-started" target="buddy-docs">Getting started</a>.';
+      banner.innerHTML = '<strong>Not configured yet.</strong> Add a context below, then an auth. Store secrets in a terminal: <code>buddy cred set secret &lt;auth&gt;</code>. See <a href="/docs/docs/getting-started" target="buddy-docs">Getting started</a>.';
     } else {
       banner.style.display = 'none';
     }
-    var def = state.default_tenant || '';
-    var ch = state.channel_tenants || {};
-    document.getElementById('default-tenant').innerHTML = tenantOptions(def, false);
-    document.getElementById('ch-cli').innerHTML = tenantOptions(ch.cli || '', true);
-    document.getElementById('ch-mcp').innerHTML = tenantOptions(ch.mcp || '', true);
-    document.getElementById('ch-ide').innerHTML = tenantOptions(ch.ide || '', true);
-    // Mark channel selects: if channel equals default, show blank option selected when policy uses default
-    // (effective value is still shown in options list)
+    var def = defaultContext(state);
+    var ch = channelContexts(state);
+    document.getElementById('default-context').innerHTML = contextOptions(def, false);
+    document.getElementById('ch-cli').innerHTML = contextOptions(ch.cli || '', true);
+    document.getElementById('ch-mcp').innerHTML = contextOptions(ch.mcp || '', true);
+    document.getElementById('ch-ide').innerHTML = contextOptions(ch.ide || '', true);
 
-    var tb = document.getElementById('tenants-body');
+    var tb = document.getElementById('contexts-body');
     tb.innerHTML = '';
-    (state.tenants || []).forEach(function(t){
+    workplaceRows(state).forEach(function(t){
       var tr = document.createElement('tr');
       tr.innerHTML = '<td><code>'+esc(t.name)+'</code>'+(t.managed?' <span class="badge">mdm</span>':'')+'</td>'+
         '<td>'+esc(t.url||'')+'</td><td>'+esc(t.region||'')+'</td><td>'+esc(t.environment_id||t.tenant_id||(t.region?'org':''))+'</td>'+
@@ -292,8 +302,8 @@ button:hover { filter: brightness(1.06); }
         '<button type="button" class="danger" data-del-t="'+esc(t.name)+'">Delete</button></td>';
       tb.appendChild(tr);
     });
-    if (!(state.tenants || []).length) {
-      tb.innerHTML = '<tr><td colspan="5" class="muted">No tenants</td></tr>';
+    if (!workplaceRows(state).length) {
+      tb.innerHTML = '<tr><td colspan="5" class="muted">No contexts</td></tr>';
     }
 
     var ab = document.getElementById('auths-body');
@@ -302,7 +312,7 @@ button:hover { filter: brightness(1.06); }
       var secretCls = a.secret === 'missing' ? 'gap' : 'ok';
       var tr = document.createElement('tr');
       tr.innerHTML = '<td><code>'+esc(a.name)+'</code>'+(a.managed?' <span class="badge">mdm</span>':'')+'</td>'+
-        '<td>'+esc(a.type)+'</td><td>'+esc((a.tenants||[]).join(', '))+'</td>'+
+        '<td>'+esc(a.type)+'</td><td>'+esc(authContexts(a).join(', '))+'</td>'+
         '<td>'+esc(a.access)+'</td><td><span class="badge '+secretCls+'">'+esc(a.secret)+'</span></td>'+
         '<td class="row-actions"><button type="button" data-edit-a="'+esc(a.name)+'">Edit</button>'+
         '<button type="button" class="danger" data-del-a="'+esc(a.name)+'">Delete</button></td>';
@@ -319,7 +329,7 @@ button:hover { filter: brightness(1.06); }
       var auths = (c.auths||[]).map(function(x){ return x.name+' ('+x.secret+')'; }).join(', ') || '—';
       var st = c.gap ? '<span class="badge gap">gap</span> '+esc(c.gap_reason||'') : '<span class="badge ok">ok</span>';
       var tr = document.createElement('tr');
-      tr.innerHTML = '<td>'+esc(c.tenant)+'</td><td>'+esc(c.surface)+'</td><td>'+st+'</td><td>'+esc(auths)+'</td>';
+      tr.innerHTML = '<td>'+esc(c.context||c.tenant)+'</td><td>'+esc(c.surface)+'</td><td>'+st+'</td><td>'+esc(auths)+'</td>';
       cb.appendChild(tr);
     });
     if (!cells.length) {
@@ -332,25 +342,24 @@ button:hover { filter: brightness(1.06); }
   }
   document.getElementById('btn-save-defaults').onclick = async function(){
     try {
-      var def = document.getElementById('default-tenant').value;
-      state = await api('PUT', '/api/config/selection', { default_tenant: def });
-      // channel tenants: set each when different from blank-as-default
+      var def = document.getElementById('default-context').value;
+      state = await api('PUT', '/api/config/selection', { default_context: def, default_tenant: def });
       async function setCh(ch, selId){
         var v = document.getElementById(selId).value;
-        state = await api('PUT', '/api/config/selection', { channel: ch, channel_tenant: v });
+        state = await api('PUT', '/api/config/selection', { channel: ch, channel_context: v, channel_tenant: v });
       }
       await setCh('cli', 'ch-cli');
       await setCh('mcp', 'ch-mcp');
       await setCh('ide', 'ch-ide');
-      if (def) state = await api('PUT', '/api/config/selection', { default_tenant: def });
+      if (def) state = await api('PUT', '/api/config/selection', { default_context: def, default_tenant: def });
       render();
     } catch (e) { showErr(e.message); }
   };
-  document.getElementById('btn-save-tenant').onclick = async function(){
+  document.getElementById('btn-save-context').onclick = async function(){
     try {
       var name = document.getElementById('t-name').value.trim();
-      if (!name) throw new Error('tenant name required');
-      state = await api('PUT', '/api/config/tenant/' + encodeURIComponent(name), {
+      if (!name) throw new Error('context name required');
+      state = await api('PUT', '/api/config/context/' + encodeURIComponent(name), {
         url: document.getElementById('t-url').value.trim(),
         region: document.getElementById('t-region').value.trim(),
         environment_id: document.getElementById('t-eid').value.trim(),
@@ -363,11 +372,12 @@ button:hover { filter: brightness(1.06); }
     try {
       var name = document.getElementById('a-name').value.trim();
       if (!name) throw new Error('auth name required');
-      var tenants = document.getElementById('a-tenants').value.split(',').map(function(s){return s.trim();}).filter(Boolean);
+      var contexts = document.getElementById('a-contexts').value.split(',').map(function(s){return s.trim();}).filter(Boolean);
       var channels = document.getElementById('a-channels').value.split(',').map(function(s){return s.trim();}).filter(Boolean);
       state = await api('PUT', '/api/config/auth/' + encodeURIComponent(name), {
         type: document.getElementById('a-type').value,
-        tenants: tenants,
+        contexts: contexts,
+        tenants: contexts,
         access: document.getElementById('a-access').value,
         channels: channels,
         username: document.getElementById('a-user').value.trim(),
@@ -376,10 +386,10 @@ button:hover { filter: brightness(1.06); }
       render();
     } catch (e) { showErr(e.message); }
   };
-  document.getElementById('tenants-body').onclick = async function(ev){
+  document.getElementById('contexts-body').onclick = async function(ev){
     var t = ev.target;
     if (t.dataset.editT) {
-      var row = (state.tenants||[]).find(function(x){return x.name===t.dataset.editT;});
+      var row = workplaceRows(state).find(function(x){return x.name===t.dataset.editT;});
       if (!row) return;
       document.getElementById('t-name').value = row.name;
       document.getElementById('t-url').value = row.url || '';
@@ -388,9 +398,9 @@ button:hover { filter: brightness(1.06); }
       document.getElementById('t-tid').value = row.tenant_id || '';
     }
     if (t.dataset.delT) {
-      if (!confirm('Delete tenant '+t.dataset.delT+'? Linked sole auths and their secrets will be removed.')) return;
+      if (!confirm('Delete context '+t.dataset.delT+'? Linked sole auths and their secrets will be removed.')) return;
       try {
-        state = await api('DELETE', '/api/config/tenant/' + encodeURIComponent(t.dataset.delT));
+        state = await api('DELETE', '/api/config/context/' + encodeURIComponent(t.dataset.delT));
         render();
       } catch (e) { showErr(e.message); }
     }
@@ -402,7 +412,7 @@ button:hover { filter: brightness(1.06); }
       if (!row) return;
       document.getElementById('a-name').value = row.name;
       document.getElementById('a-type').value = row.type || 'oauth';
-      document.getElementById('a-tenants').value = (row.tenants||[]).join(', ');
+      document.getElementById('a-contexts').value = authContexts(row).join(', ');
       document.getElementById('a-access').value = row.access || 'full';
       document.getElementById('a-channels').value = (row.channels||[]).join(', ');
       document.getElementById('a-user').value = row.username || '';

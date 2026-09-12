@@ -24,8 +24,10 @@ func handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "" && r.Method == http.MethodGet:
 		handleConfigGet(w, r)
-	case strings.HasPrefix(path, "tenant/") && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
+	case strings.HasPrefix(path, "tenant/") && (r.Method == http.MethodPut || r.Method == http.MethodDelete),
+		strings.HasPrefix(path, "context/") && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
 		name := strings.TrimPrefix(path, "tenant/")
+		name = strings.TrimPrefix(name, "context/")
 		if r.Method == http.MethodPut {
 			handleConfigPutTenant(w, r, name)
 		} else {
@@ -60,7 +62,7 @@ type tenantPutBody struct {
 func handleConfigPutTenant(w http.ResponseWriter, r *http.Request, name string) {
 	name = strings.TrimSpace(name)
 	if name == "" || strings.Contains(name, "/") {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid tenant name"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid context name"})
 		return
 	}
 	var body tenantPutBody
@@ -122,6 +124,7 @@ func handleConfigDeleteTenant(w http.ResponseWriter, r *http.Request, name strin
 type authPutBody struct {
 	Type     string   `json:"type"`
 	Tenants  []string `json:"tenants"`
+	Contexts []string `json:"contexts"`
 	Access   string   `json:"access"`
 	Channels []string `json:"channels"`
 	Username string   `json:"username"`
@@ -141,12 +144,13 @@ func handleConfigPutAuth(w http.ResponseWriter, r *http.Request, name string) {
 	}
 	cfg := buddy.GetActiveConfig()
 	if cfg == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no config — create a tenant first"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no config — create a context first"})
 		return
 	}
 	_, err := buddy.SetAuthMetadata(cfg, name, buddy.SetAuthMetadataOpts{
 		Type:        body.Type,
 		Tenants:     body.Tenants,
+		Contexts:    body.Contexts,
 		Access:      body.Access,
 		Channels:    body.Channels,
 		ChannelsSet: true,
@@ -198,9 +202,40 @@ func handleConfigDeleteAuth(w http.ResponseWriter, r *http.Request, name string)
 }
 
 type selectionPutBody struct {
-	DefaultTenant string `json:"default_tenant"`
-	Channel       string `json:"channel"`
-	ChannelTenant string `json:"channel_tenant"`
+	DefaultTenant string
+	Channel       string
+	ChannelTenant string
+}
+
+func (c *selectionPutBody) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	take := func(keys ...string) (string, error) {
+		var s string
+		for _, k := range keys {
+			v, ok := raw[k]
+			if !ok {
+				continue
+			}
+			if err := json.Unmarshal(v, &s); err != nil {
+				return "", err
+			}
+		}
+		return s, nil
+	}
+	var err error
+	if c.DefaultTenant, err = take("default_tenant", "default_context"); err != nil {
+		return err
+	}
+	if c.Channel, err = take("channel"); err != nil {
+		return err
+	}
+	if c.ChannelTenant, err = take("channel_tenant", "channel_context"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func handleConfigPutSelection(w http.ResponseWriter, r *http.Request) {

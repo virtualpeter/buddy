@@ -39,7 +39,7 @@ func TestConfigAPIRoundTrip(t *testing.T) {
 
 	body := `{"url":"https://example.jamfcloud.com"}`
 	rec = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/config/tenant/sandbox", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/config/context/sandbox", bytes.NewBufferString(body))
 	handleConfigAPI(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT tenant status %d body %s", rec.Code, rec.Body.String())
@@ -47,7 +47,7 @@ func TestConfigAPIRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
 		t.Fatal(err)
 	}
-	if snap.NeedsSetup || len(snap.Tenants) != 1 {
+	if snap.NeedsSetup || len(snap.Tenants) != 1 || len(snap.Contexts) != 1 {
 		t.Fatalf("after tenant: %+v", snap)
 	}
 
@@ -80,6 +80,23 @@ func TestConfigAPIRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSelectionPutBodyContextDualRead(t *testing.T) {
+	var body selectionPutBody
+	if err := json.Unmarshal([]byte(`{"default_context":"sandbox","channel":"mcp","channel_context":"prod"}`), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.DefaultTenant != "sandbox" || body.Channel != "mcp" || body.ChannelTenant != "prod" {
+		t.Fatalf("%+v", body)
+	}
+	body = selectionPutBody{}
+	if err := json.Unmarshal([]byte(`{"default_tenant":"old","default_context":"new"}`), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.DefaultTenant != "new" {
+		t.Fatalf("context should win, got %q", body.DefaultTenant)
+	}
+}
+
 func TestServeConfigHTML(t *testing.T) {
 	rec := httptest.NewRecorder()
 	serveConfigHTML(rec, httptest.NewRequest(http.MethodGet, "/config", nil))
@@ -91,7 +108,9 @@ func TestServeConfigHTML(t *testing.T) {
 		`class="active">config</a>`,
 		`/api/config`,
 		`buddy cred set secret`,
-		`id="tenants-body"`,
+		`id="contexts-body"`,
+		`id="default-context"`,
+		`<h2>Contexts</h2>`,
 	} {
 		if !bytes.Contains([]byte(body), []byte(want)) {
 			t.Fatalf("missing %q", want)

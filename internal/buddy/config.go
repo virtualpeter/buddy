@@ -1316,8 +1316,72 @@ func parseAndMigrateUserYAML(data []byte) (*Config, []string, error) {
 	if migrateAuthSurfaceIntoType(&cfg) {
 		notes = append(notes, "auth surface into type (platform oauth → type: platform)")
 	}
+	if configYAMLUsesLegacyWorkplaceKeys(data) {
+		notes = append(notes, "tenant/tenants keys → context/contexts")
+	}
 	normalizeAuthChannels(&cfg)
 	return &cfg, notes, nil
+}
+
+// configYAMLUsesLegacyWorkplaceKeys reports tenant:/tenants: (top-level),
+// auths.*.tenants, or channels.*.tenant/tenants. tenantId is not a workplace key.
+func configYAMLUsesLegacyWorkplaceKeys(data []byte) bool {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return false
+	}
+	m := yamlMappingRoot(&root)
+	if m == nil {
+		return false
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		k := m.Content[i].Value
+		v := m.Content[i+1]
+		switch k {
+		case "tenant", "tenants":
+			return true
+		case "auths", "channels":
+			if nestedMappingsHaveKey(v, "tenant", "tenants") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func yamlMappingRoot(n *yaml.Node) *yaml.Node {
+	if n == nil {
+		return nil
+	}
+	if n.Kind == yaml.DocumentNode && len(n.Content) > 0 {
+		n = n.Content[0]
+	}
+	if n.Kind != yaml.MappingNode {
+		return nil
+	}
+	return n
+}
+
+func nestedMappingsHaveKey(n *yaml.Node, keys ...string) bool {
+	if n == nil || n.Kind != yaml.MappingNode {
+		return false
+	}
+	want := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		want[k] = true
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		entry := n.Content[i+1]
+		if entry == nil || entry.Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(entry.Content); j += 2 {
+			if want[entry.Content[j].Value] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func rejectRemovedConfigKeys(data []byte) error {

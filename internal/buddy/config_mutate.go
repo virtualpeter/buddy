@@ -309,7 +309,7 @@ func SetSelection(cfg *Config, opts SetSelectionOpts) error {
 	}
 	if name := strings.TrimSpace(opts.DefaultTenant); name != "" {
 		if _, ok := cfg.Tenants[name]; !ok {
-			return fmt.Errorf("tenant %q not found", name)
+			return fmt.Errorf("context %q not found", name)
 		}
 		cfg.SetDefaultTenant(name)
 	}
@@ -325,7 +325,7 @@ func SetSelection(cfg *Config, opts SetSelectionOpts) error {
 	tenant := strings.TrimSpace(opts.ChannelTenant)
 	if tenant != "" {
 		if _, ok := cfg.Tenants[tenant]; !ok {
-			return fmt.Errorf("tenant %q not found", tenant)
+			return fmt.Errorf("context %q not found", tenant)
 		}
 	}
 	return cfg.SetChannelPolicy(ch, "", tenant, nil, false, true, false, nil, false, nil, false)
@@ -333,22 +333,25 @@ func SetSelection(cfg *Config, opts SetSelectionOpts) error {
 
 // ConfigSnapshot is the JSON-friendly view for GET /api/config.
 type ConfigSnapshot struct {
-	NeedsSetup     bool              `json:"needs_setup"`
-	ConfigFile     bool              `json:"config_file"` // user config.yaml exists
-	DefaultTenant  string            `json:"default_tenant"`
-	ChannelTenants map[string]string `json:"channel_tenants"` // cli/mcp/ide → effective default
-	Tenants        []TenantSnapshot  `json:"tenants"`
-	Auths          []AuthSnapshot    `json:"auths"`
-	Coverage       CoverageReport    `json:"coverage"`
+	NeedsSetup      bool              `json:"needs_setup"`
+	ConfigFile      bool              `json:"config_file"` // user config.yaml exists
+	DefaultContext  string            `json:"default_context"`
+	DefaultTenant   string            `json:"default_tenant"`   // dual-read alias of default_context
+	ChannelContexts map[string]string `json:"channel_contexts"` // cli/mcp/ide → effective default
+	ChannelTenants  map[string]string `json:"channel_tenants"`  // dual-read alias of channel_contexts
+	Contexts        []TenantSnapshot  `json:"contexts"`
+	Tenants         []TenantSnapshot  `json:"tenants"` // dual-read alias of contexts
+	Auths           []AuthSnapshot    `json:"auths"`
+	Coverage        CoverageReport    `json:"coverage"`
 }
 
-// TenantSnapshot is one tenant row for the config UI.
+// TenantSnapshot is one context row for the config UI.
 type TenantSnapshot struct {
 	Name          string `json:"name"`
 	URL           string `json:"url,omitempty"`
 	Region        string `json:"region,omitempty"`
 	EnvironmentID string `json:"environment_id,omitempty"`
-	TenantID      string `json:"tenant_id,omitempty"`
+	TenantID      string `json:"tenant_id,omitempty"` // Jamf Pro product tenant UUID
 	Managed       bool   `json:"managed,omitempty"`
 }
 
@@ -356,7 +359,8 @@ type TenantSnapshot struct {
 type AuthSnapshot struct {
 	Name     string   `json:"name"`
 	Type     string   `json:"type"`
-	Tenants  []string `json:"tenants"`
+	Contexts []string `json:"contexts"`
+	Tenants  []string `json:"tenants"` // dual-read alias of contexts
 	Access   string   `json:"access"`
 	Channels []string `json:"channels,omitempty"`
 	Username string   `json:"username,omitempty"`
@@ -368,8 +372,9 @@ type AuthSnapshot struct {
 // BuildConfigSnapshot builds the serve/API view of config (no secret values).
 func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 	snap := ConfigSnapshot{
-		NeedsSetup:     ConfigNeedsSetup(cfg),
-		ChannelTenants: map[string]string{},
+		NeedsSetup:      ConfigNeedsSetup(cfg),
+		ChannelContexts: map[string]string{},
+		ChannelTenants:  map[string]string{},
 	}
 	if exists, err := ConfigFileExists(); err == nil {
 		snap.ConfigFile = exists
@@ -377,9 +382,12 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 	if cfg == nil {
 		return snap
 	}
+	snap.DefaultContext = cfg.Tenant.Default
 	snap.DefaultTenant = cfg.Tenant.Default
 	for _, ch := range []string{ChannelCLI, ChannelMCP, ChannelIDE} {
-		snap.ChannelTenants[ch] = cfg.DefaultTenant(ch)
+		d := cfg.DefaultTenant(ch)
+		snap.ChannelContexts[ch] = d
+		snap.ChannelTenants[ch] = d
 	}
 	tnames := make([]string, 0, len(cfg.Tenants))
 	for n := range cfg.Tenants {
@@ -397,6 +405,7 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 			Managed:       cfg.TenantFromManagedPrefs(n),
 		})
 	}
+	snap.Contexts = snap.Tenants
 	anames := make([]string, 0, len(cfg.Auths))
 	for n := range cfg.Auths {
 		anames = append(anames, n)
@@ -407,6 +416,7 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 		snap.Auths = append(snap.Auths, AuthSnapshot{
 			Name:     n,
 			Type:     a.Type,
+			Contexts: append([]string{}, a.Tenants...),
 			Tenants:  append([]string{}, a.Tenants...),
 			Access:   a.EffectiveAccess(),
 			Channels: append([]string{}, a.Channels...),

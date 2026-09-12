@@ -1,6 +1,8 @@
 package buddy
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -471,6 +473,70 @@ auths:
 	}
 	if strings.Contains(s, "\ntenants:") || strings.Contains(s, "\ntenant:") {
 		t.Fatalf("must not keep old top-level keys:\n%s", s)
+	}
+}
+
+func TestLoadConfigRewritesLegacyWorkplaceKeys(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	path := filepath.Join(dir, "buddy", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := []byte(`tenant:
+  default: sandbox
+tenants:
+  sandbox:
+    url: https://example.jamfcloud.com
+auths:
+  sandgod:
+    type: oauth
+    tenants: [sandbox]
+    clientId: cid
+`)
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, notes, err := parseAndMigrateUserYAML(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, n := range notes {
+		if strings.Contains(n, "context/contexts") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("notes=%v", notes)
+	}
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Tenants["sandbox"].URL != "https://example.jamfcloud.com" {
+		t.Fatalf("loaded=%+v", loaded.Tenants["sandbox"])
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "context:") || !strings.Contains(s, "contexts:") {
+		t.Fatalf("rewrite missing new keys:\n%s", s)
+	}
+	if strings.Contains(s, "\ntenants:") || strings.Contains(s, "\ntenant:") {
+		t.Fatalf("old keys still on disk:\n%s", s)
+	}
+	_, notes2, err := parseAndMigrateUserYAML(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes2 {
+		if strings.Contains(n, "context/contexts") {
+			t.Fatalf("second pass should not migrate workplace keys: %v", notes2)
+		}
 	}
 }
 

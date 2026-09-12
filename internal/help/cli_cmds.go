@@ -261,7 +261,8 @@ Notes:
   A platform clientId may list multiple contexts under --contexts.
   credentials: / string tenant: / defaults: / allow_auths: and the notebook
   / serve client names are removed — use contexts:/auths: and channels.<cli|mcp|ide>.
-  Dual-read tenants: / tenant.default / --tenant / tenant= for one release.
+  Dual-read tenants: / tenant.default / --tenant / tenant= for one release;
+  loading config rewrites those keys to context: / contexts: on disk.
   macOS managed preferences (domain virtualpete.buddy.cli) overlay as org
   defaults; config.yaml wins per name. 'buddy cred list' notes managed sources.
   Deleting a managed context/auth warns; it returns on next load until the MDM

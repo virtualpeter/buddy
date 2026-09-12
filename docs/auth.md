@@ -40,7 +40,7 @@ Optional auth fields:
 
 `type` encodes the Jamf surface: `basic` / `oauth` / `command` are instance; `platform` is the API Gateway. An OAuth client is never valid on both. Legacy `surface: platform` on `type: oauth` migrates to `type: platform` on load.
 
-`credentials:`, a bare string `tenant:`/`context:`, `defaults:`, and `allow_auths:` are rejected. Dual-read `tenants:` / `tenant.default` / auth `tenants:` for one release; saves write `contexts:` / `context.default` / `jamfpro:` / `contexts:` + `scope:`.
+`credentials:`, a bare string `tenant:`/`context:`, `defaults:`, and `allow_auths:` are rejected. Dual-read `tenants:` / `tenant.default` / auth `tenants:` for one release. Loading config rewrites those keys to `contexts:` / `context.default` / `jamfpro:` / auth `contexts:` + `scope:`.
 
 Instance-only example:
 

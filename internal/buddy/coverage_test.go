@@ -148,6 +148,9 @@ func TestBuildCoverageReportGaps(t *testing.T) {
 	rep := BuildCoverageReport(cfg)
 	var sawPlatGap, sawInstLocked, sawProd bool
 	for _, c := range rep.Cells {
+		if c.Tenant != c.Context {
+			t.Fatalf("coverage cell dual-read: tenant=%q context=%q", c.Tenant, c.Context)
+		}
 		if c.Tenant == "sandbox" && c.Surface == SurfacePlatform && c.Gap && c.GapReason == "no auth" {
 			sawPlatGap = true
 		}
