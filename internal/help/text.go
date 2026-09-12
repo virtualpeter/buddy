@@ -161,13 +161,14 @@ mutates (policy_set, policy_put_xml, computer_reboot). Subject resource uses
 id= / ids= on load and mutate. Related IDs stay typed (category_id, script_id
 on policy create, computer_ids on static-group membership). Pass either id=
 or a natural key (trigger=/name=/name=+version=), not both. Resource IDs first;
-payload/options next; tenant?/surface?/auth? always last (source session).
-Auth alone soft-switches tenant. A pin that cannot serve the call's required
+payload/options next; tenant?/context?/surface?/auth? always last (source session).
+Auth alone soft-switches context. context? is a dual-read alias of tenant?.
+A pin that cannot serve the call's required
 surface (Classic -> instance only while classic_instance_only is on; ACS and
 undocumented Pro GET /api/v1/policies -> always instance; Platform
-product APIs -> platform) auto-picks another linked auth on the same tenant.
+product APIs -> platform) auto-picks another linked auth on the same context.
 Dual-session copy builtins add
-to_tenant?/to_surface?/to_auth? for destination (omit = same as source).
+to_tenant?/to_context?/to_surface?/to_auth? for destination (omit = same as source).
 *_copy is canonical; *_clone / *_migrate are aliases (migrate ⇒ upsert=True).
 Versioned release bumps use change batches (step_clone_policy), not a
 policy_clone builtin.

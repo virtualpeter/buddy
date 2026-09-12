@@ -62,6 +62,6 @@ load("re", "match")
 - Jamf and offline helpers — [Function index](/docs/builtins)
 - `error(*args)` — like `print` but to stderr
 - `confirm(…)` — interactive yes/no (skipped with global `-y`)
-- Session kwargs `tenant` / `surface` / `auth` on builtins
+- Session kwargs `context` / `tenant` / `surface` / `auth` on builtins (`tenant` is a dual-read alias of `context`)
 
 Next: [Stdlib](buddyscript-stdlib.md) · [Function index](/docs/builtins) · [Overview](buddyscript.md)

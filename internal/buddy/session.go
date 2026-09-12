@@ -173,7 +173,7 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 
 	// Auto-pick for tenant.
 	if tenantName == "" {
-		return nil, fmt.Errorf("no tenant selected — set default with 'buddy cred use <tenant>' or pass --tenant / --user")
+		return nil, fmt.Errorf("no context selected — set default with 'buddy cred use <context>' or pass --context / --user")
 	}
 	if !cfg.TenantAllowedOnChannel(channel, tenantName) {
 		return nil, fmt.Errorf("tenant %q is not allowed for %s (see channels.%s.tenants in config)", tenantName, channel, channel)
@@ -212,7 +212,7 @@ func (cfg *Config) autoPickSession(tenantName string, tenant TenantConfig, op Op
 // either instance or platform is valid (published Pro JSON / generic read-mutate).
 //
 // features.classic_instance_only (default false) can force Classic /JSSResource
-// onto instance. When off, Classic may use /api/proclassic/. It does not apply
+// onto instance. When off, Classic may use /proclassic/. It does not apply
 // to ACS, schema, or undocumented Pro GET /api/v1/policies — those are
 // instance-only because they are not published on the Platform gateway.
 func requiredSurfaceForOp(cfg *Config, op OpClass) string {
@@ -235,8 +235,8 @@ func requiredSurfaceForOp(cfg *Config, op OpClass) string {
 // either surface. A locked Classic (classic_instance_only), ACS, undocumented
 // Pro policy list, schema, or Platform-product surface is not overridden —
 // otherwise a platform pin plus surface=platform would send Classic through
-// /api/proclassic/ while the instance lock is on, ACS to the gateway (404),
-// or GET /api/v1/policies through /api/pro/ (403).
+// /proclassic/ while the instance lock is on, ACS to the gateway (404),
+// or GET /api/v1/policies through /pro/ (403).
 func overlaySurfacePref(cfg *Config, op OpClass, auth AuthEntry, tenant TenantConfig, surface, channel string) string {
 	pref := SurfacePreference()
 	if pref != SurfacePlatform && pref != SurfaceInstance {
@@ -307,7 +307,7 @@ func checkAuthForOp(cfg *Config, auth AuthEntry, tenant TenantConfig, op OpClass
 	switch surface {
 	case SurfacePlatform:
 		if !tenant.HasPlatform() {
-			return fmt.Errorf("tenant has no platform tenantId/region")
+			return fmt.Errorf("this context has no Account environment / platform auth")
 		}
 		if auth.EffectiveSurface() == SurfaceInstance {
 			return surfaceIncompatible("surface=instance cannot be used for platform operations")
@@ -426,7 +426,7 @@ func scoreAuth(cfg *Config, authName string, auth AuthEntry, tenantName string, 
 	}
 	tid := ""
 	if surface == SurfacePlatform {
-		tid = tenant.EffectiveTenantID()
+		tid = tenant.PlatformScopeKey()
 	}
 	rec := LoadCaps(authName, tenantName, surface, tid)
 	if capsTokenOK(rec) {

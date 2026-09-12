@@ -126,7 +126,7 @@ Subcommands:
 
 Notes:
   Platform Devices API (not Jamf Pro computer inventory). Use 'buddy computer' for Pro/MDM.
-  Requires Platform API Gateway tenant+auth. Actions need execute:pro:device-actions.
+  Requires Platform API Gateway context+auth. Actions need execute:pro:device-actions.
   --filter bare term → name=="*term*"; or full RSQL.
 
 Examples:

@@ -86,7 +86,7 @@ func TestEnglishCatalogComplete(t *testing.T) {
 		MsgCmdSetup, MsgCmdServe, MsgCmdMCP,
 		MsgCmdLSP, MsgCmdVersion,
 		MsgGFlagVersion, MsgGFlagEval, MsgGFlagSkipConfirm, MsgGFlagVerbose,
-		MsgGFlagTrace, MsgGFlagScriptTrace, MsgGFlagTenant, MsgGFlagUser, MsgGFlagAuth,
+		MsgGFlagTrace, MsgGFlagScriptTrace, MsgGFlagContext, MsgGFlagTenant, MsgGFlagUser, MsgGFlagAuth,
 	}
 	seen := map[string]bool{}
 	for _, id := range ids {

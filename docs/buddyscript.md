@@ -19,7 +19,7 @@ Scripts use the **`.buddy`** extension (editor language id + `buddy lsp`).
 - **Bare returns:** builtins return values and **raise** on failure (no `{ok, value}` inside scripts). MCP wraps `{ok, value}` only at the tool boundary.
 - **`main()`:** after loading a file (CLI/IDE/MCP), buddy calls `main` if present. Do not call `main()` yourself at top level.
 - **Control flow:** put `if` / `for` inside functions — Starlark rejects them at top level in file dialect.
-- **Session:** globals `tenant` and `auth`; override per call with `tenant=` / `surface=` / `auth=`.
+- **Session:** globals `tenant` and `auth` (the workplace name still appears as `tenant`); override per call with `context=` / `tenant=` / `surface=` / `auth=` (`tenant=` is a dual-read alias of `context=`).
 - **I/O:** `print()` → stdout; buddy’s `error()` → stderr (same signature as `print`).
 
 ```python

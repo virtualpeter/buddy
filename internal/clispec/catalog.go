@@ -61,6 +61,7 @@ const (
 	MsgGFlagTrace       = "cli.gflag.trace"
 	MsgGFlagScriptTrace = "cli.gflag.script_trace"
 	MsgGFlagTenant      = "cli.gflag.tenant"
+	MsgGFlagContext     = "cli.gflag.context"
 	MsgGFlagUser        = "cli.gflag.user"
 	MsgGFlagAuth        = "cli.gflag.auth"
 )
@@ -122,7 +123,8 @@ var en = map[string]string{
 	MsgGFlagVerbose:     "Verbose output",
 	MsgGFlagTrace:       "Trace HTTP requests and responses to stderr (headers and bodies; Authorization/Cookie and token-shaped values redacted)",
 	MsgGFlagScriptTrace: "Trace buddyscript builtin calls and print() in scripts and the interactive shell",
-	MsgGFlagTenant:      "Tenant from config (default: config.tenant); auto-picks auth",
+	MsgGFlagTenant:      "Alias of --context (dual-read)",
+	MsgGFlagContext:     "Context from config (auto-picks auth); --tenant is a dual-read alias",
 	MsgGFlagUser:        "Pin an auth name (--auth alias)",
 	MsgGFlagAuth:        "Pin an auth name (same as --user)",
 }

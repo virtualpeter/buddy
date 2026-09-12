@@ -87,8 +87,14 @@ func TestMarshalConfig_OmitsEmptyAuthFields(t *testing.T) {
 	if strings.Contains(s, "credentials:") {
 		t.Fatalf("must not write credentials:\n%s", s)
 	}
-	if !strings.Contains(s, "tenants:") || !strings.Contains(s, "auths:") {
-		t.Fatalf("expected tenants/auths:\n%s", s)
+	if !strings.Contains(s, "contexts:") || !strings.Contains(s, "auths:") {
+		t.Fatalf("expected contexts/auths:\n%s", s)
+	}
+	if !strings.Contains(s, "jamfpro:") {
+		t.Fatalf("instance auths should write jamfpro:\n%s", s)
+	}
+	if strings.Contains(s, "\ntenants:") {
+		t.Fatalf("must write contexts: not tenants:\n%s", s)
 	}
 
 	var got Config
@@ -140,7 +146,7 @@ auths:
 	if err != nil {
 		t.Fatal(err)
 	}
-	order := yamlMapKeyOrder(data, "tenants")
+	order := yamlMapKeyOrder(data, "contexts")
 	want := []string{"zebra", "alpha", "beta"}
 	if len(order) != len(want) {
 		t.Fatalf("order = %v, want %v\n%s", order, want, data)
@@ -157,7 +163,7 @@ func TestMigrateCredentialsToTenantsAuths(t *testing.T) {
 		Cred: "gw",
 		Credentials: map[string]CredentialConfig{
 			"gw": {
-				URL: "https://us.apigw.jamf.com",
+				URL: "https://us.api.jamfcloud.com",
 				Auth: AuthConfig{
 					Type:     "oauth",
 					ClientID: "cid",
@@ -373,5 +379,109 @@ func TestMigrateAuthSurfaceIntoType(t *testing.T) {
 	}
 	if migrateAuthSurfaceIntoType(cfg) {
 		t.Fatal("second pass should be a no-op")
+	}
+}
+
+func TestUnmarshalCanonicalContexts(t *testing.T) {
+	data := []byte(`
+context:
+  default: sandbox
+contexts:
+  sandbox:
+    id: 11111111-1111-1111-1111-111111111111
+    region: us
+    jamfpro:
+      url: https://example.jamfcloud.com
+      tenantId: 22222222-2222-2222-2222-222222222222
+auths:
+  sandgod:
+    type: oauth
+    jamfpro: sandbox
+    clientId: cid
+  sandbox-platform:
+    type: platform
+    scope: environment
+    contexts: [sandbox]
+    clientId: pid
+`)
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tenant.Default != "sandbox" {
+		t.Fatalf("default=%q", cfg.Tenant.Default)
+	}
+	tc := cfg.Tenants["sandbox"]
+	if tc.URL != "https://example.jamfcloud.com" || tc.EnvironmentID != "11111111-1111-1111-1111-111111111111" || tc.TenantID != "22222222-2222-2222-2222-222222222222" {
+		t.Fatalf("context=%+v", tc)
+	}
+	if err := tc.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	inst := cfg.Auths["sandgod"]
+	if !inst.LinkedTo("sandbox") || inst.JamfPro != "sandbox" {
+		t.Fatalf("sandgod=%+v", inst)
+	}
+	plat := cfg.Auths["sandbox-platform"]
+	if plat.EffectiveScope() != PlatformScopeEnvironment || !plat.LinkedTo("sandbox") {
+		t.Fatalf("platform=%+v", plat)
+	}
+	cred := ComposeCredential(tc, plat, SurfacePlatform)
+	if cred.EnvironmentID != tc.EnvironmentID || cred.TenantID != "" {
+		t.Fatalf("env-scoped compose=%+v", cred)
+	}
+	tenantScoped := plat
+	tenantScoped.Scope = PlatformScopeTenant
+	cred = ComposeCredential(tc, tenantScoped, SurfacePlatform)
+	if cred.TenantID != tc.TenantID || cred.EnvironmentID != "" {
+		t.Fatalf("tenant-scoped compose=%+v", cred)
+	}
+}
+
+func TestUnmarshalLegacyTenants(t *testing.T) {
+	data := []byte(`
+tenant:
+  default: sandbox
+tenants:
+  sandbox:
+    url: https://example.jamfcloud.com
+auths:
+  sandgod:
+    type: oauth
+    tenants: [sandbox]
+    clientId: cid
+`)
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tenant.Default != "sandbox" || cfg.Tenants["sandbox"].URL != "https://example.jamfcloud.com" {
+		t.Fatalf("%+v %+v", cfg.Tenant, cfg.Tenants["sandbox"])
+	}
+	if !cfg.Auths["sandgod"].LinkedTo("sandbox") {
+		t.Fatal("legacy tenants: link")
+	}
+	out, err := marshalConfig(&cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "context:") || !strings.Contains(s, "contexts:") || !strings.Contains(s, "jamfpro:") {
+		t.Fatalf("rewrite should write new keys:\n%s", s)
+	}
+	if strings.Contains(s, "\ntenants:") || strings.Contains(s, "\ntenant:") {
+		t.Fatalf("must not keep old top-level keys:\n%s", s)
+	}
+}
+
+func TestTenantConfig_BothIDsValid(t *testing.T) {
+	tcfg := TenantConfig{
+		URL:           "https://example.jamfcloud.com",
+		Region:        "us",
+		EnvironmentID: "env-1",
+		TenantID:      "tid-1",
+	}
+	if err := tcfg.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }

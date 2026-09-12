@@ -6,11 +6,11 @@
 buddy mcp
 ```
 
-Uses **stdio** JSON-RPC (the first-class product path). The active tenant/auth comes from `~/.config/buddy/config.yaml` (override with `--tenant=<name>` and/or `--user=<auth>` on the command in the host’s MCP config). MCP inherits that session’s Jamf privileges—treat it like the CLI.
+Uses **stdio** JSON-RPC (the first-class product path). The active context/auth comes from `~/.config/buddy/config.yaml` (override with `--context=<name>` and/or `--user=<auth>` on the command in the host’s MCP config; `--tenant` is a dual-read alias). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 
-**Not configured yet?** If no tenants are in config, `buddy mcp` starts with **zero tools** and server instructions that point at `buddy cred add` (or the interactive CLI setup wizard). Secrets are never collected over MCP. After you add a tenant and auth, reload/restart the MCP host so tools appear.
+**Not configured yet?** If no contexts are in config, `buddy mcp` starts with **zero tools** and server instructions that point at `buddy cred add` (or the interactive CLI setup wizard). Secrets are never collected over MCP. After you add a context and auth, reload/restart the MCP host so tools appear.
 
-A Platform-capable tenant (`region`/`url` + `tenantId`) with a linked oauth auth works the same way: Platform product builtins (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) route through the gateway via `buddyscript`.
+A Platform-capable buddy context (`region` plus Jamf Account environment `id`, optional `jamfpro.tenantId`) with a linked platform auth works the same way: Platform product builtins (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) route through the gateway via `buddyscript`.
 
 Streamable HTTP MCP under `buddy serve` is **not** offered today. Hosts (Cursor, Claude Desktop) spawn `buddy mcp` over stdio; keep that as the supported setup. A localhost streamable endpoint may be revisited later for HTTP-only clients or long-lived debug workflows — not as a replacement for stdio.
 
@@ -107,19 +107,19 @@ Restart or refresh MCP in your client so it picks up the new server. The server 
 Ask in natural language; the agent calls tools for you:
 
 - “How should I use buddy MCP?” (`get_instructions`)
-- “What buddy version / tenant is MCP using?” (`buddy_info`)
+- “What buddy version / context is MCP using?” (`buddy_info`; JSON still uses `tenant` / `tenants`)
 - “List Jamf smart groups via buddyscript” / “Bump the version criterion on smart group X”
 - “List computers in static group Y” / “Add computer 42 to static group Y”
 - “Patch the Chrome payload in profile Z”
 - “Find computer IDs where name contains lab”
-- “Load policy details for trigger install-foo-1.0” / “Copy policy 12 to tenant sandbox as New Name”
+- “Load policy details for trigger install-foo-1.0” / “Copy policy 12 to context sandbox as New Name”
 - “Migrate policy 12 to prod (upsert by name)”
 - “List Platform blueprints” (via `buddyscript` + `blueprints`; needs a gateway credential)
 - “Show MCP tool priority / groups vs profiles via docs” (`docs` → `mcp-tools`)
 
-Optional tool arguments `tenant`, `surface` (`instance`|`platform`), and `auth` select the session for a call (tenant-first; `auth` pins like CLI `--user`). `cred` was removed.
+Optional tool arguments `context` / `tenant`, `surface` (`instance`|`platform`), and `auth` select the session for a call (context-first; `tenant` is a dual-read alias; `auth` pins like CLI `--user`). `cred` was removed.
 
-MCP denies `jamf_*` builtins by default on the **channel** layer (override with `channels.mcp.allow_builtins`; `["*"]` unblocks that layer). Tenants and auths may have their own `deny_builtins` / `allow_builtins`; a builtin is blocked if any layer blocks it. Buddy also refuses `file_read` of buddy config/secrets/token cache files.
+MCP denies `jamf_*` builtins by default on the **channel** layer (override with `channels.mcp.allow_builtins`; `["*"]` unblocks that layer). Contexts and auths may have their own `deny_builtins` / `allow_builtins`; a builtin is blocked if any layer blocks it. Buddy also refuses `file_read` of buddy config/secrets/token cache files.
 
 **Tool priority for agents:** call `get_instructions` once first, then `docs` → `buddyscript` with named builtins → `jamf_get`/`jamf_put` only if no helper exists. See [mcp-tools.md](mcp-tools.md) for the lean scorecard, smart vs static vs Platform groups, the profile payload cookbook, and how buddy relates to Jamf’s hosted MCP (`developer.jamf.com/mcp`). The MCP server also advertises that split in Initialize `instructions` and via the `get_instructions` tool.
 
@@ -204,7 +204,7 @@ Reports the buddy binary version (same as the MCP handshake `Implementation.Vers
 }
 ```
 
-`tenant` / `auth` reflect the process default (`--tenant` / `--user`, or `channels.mcp.tenant` / `tenant.default`). Empty `auth` means auto-pick. `auths` is filtered by each auth’s `channels:` list (omit = all). `channel_access` / `channel_tenants` come from top-level `channels.mcp` policy. MCP **always** includes `jamf_*` in `deny_builtins` (channel layer, union with any extra YAML denials). `allow_builtins` overrides **that layer only**. Process-default tenant/auth lists appear as `tenant_deny_builtins` / `auth_deny_builtins` (and matching allow keys) when set. A builtin is blocked when **any** layer matches deny and that layer’s allow does not — treat that raise as a coverage gap, not a cue to invent HTTP. Live Jamf auth is proven by the first `buddyscript` Jamf call, or CLI `buddy auth test`.
+`tenant` / `auth` reflect the process default (`--context` / `--tenant` / `--user`, or `channels.mcp.context` / `context.default`). Empty `auth` means auto-pick. `auths` is filtered by each auth’s `channels:` list (omit = all). `channel_access` / `channel_tenants` come from top-level `channels.mcp` policy. MCP **always** includes `jamf_*` in `deny_builtins` (channel layer, union with any extra YAML denials). `allow_builtins` overrides **that layer only**. Process-default context/auth lists appear as `tenant_deny_builtins` / `auth_deny_builtins` (and matching allow keys) when set. A builtin is blocked when **any** layer matches deny and that layer’s allow does not — treat that raise as a coverage gap, not a cue to invent HTTP. Live Jamf auth is proven by the first `buddyscript` Jamf call, or CLI `buddy auth test`.
 
 ### `jamf_schema` tips
 
@@ -218,7 +218,7 @@ Learn endpoints from the Jamf host schemas plus the embedded Platform specs:
 | `classic` | `GET /classicapi/doc/swagger.yaml` (Swagger 2, live) |
 | `platform` | Embedded Platform API Gateway specs (no credential needed) |
 
-- The Platform API Gateway has no live schema endpoint (developer.jamf.com documents the APIs and the Jamf MCP can query them, but neither hosts downloadable OAS). Specs (blueprints, devices, device-groups, device-actions, ddm/report, compliance-benchmarks) are vendored from jamf-cli into the binary. Platform paths appear with their gateway base, e.g. `/api/blueprints/v1/tenant/{tenantId}/blueprints`.
+- The Platform API Gateway has no live schema endpoint (developer.jamf.com documents the APIs and the Jamf MCP can query them, but neither hosts downloadable OAS). Specs (blueprints, devices, device-groups, device-actions, ddm/report, compliance-benchmarks) are vendored from jamf-cli into the binary. Platform paths appear with their gateway base, e.g. `/blueprints/v1/blueprints`.
 - No schema requires authentication: the Pro/Classic schema documents are served publicly by the Jamf host (only data endpoints need a bearer token), and Platform specs are embedded. buddy sends no `Authorization` header for these fetches — the credential is used only to resolve the host URL for `pro`/`classic`, so discovery works even with a secret-less credential.
 - Prefer `filter` (e.g. `"blueprints deploy"`, `"policy delete"`) — space-separated terms are AND-matched against path, method, tags, summary, operationId, description.
 - Default return is a compact `operations` list (`path`, `method`, `summary`, `api`, …). Set `full: true` only when you need parameter/response schemas.
@@ -245,7 +245,7 @@ Read embedded buddy documentation (same data as `buddy://docs/...` resources):
 
 ### Platform builtins (via `buddyscript`)
 
-- Platform product builtins (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) require a **Platform API Gateway credential** (`region`/`url` + `tenantId`); they return `{ok:false, error}` otherwise.
+- Platform product builtins (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) require a **Platform API Gateway credential** on a buddy context (`region`/`url` plus Account environment `id` and/or `jamfpro.tenantId`); they return `{ok:false, error}` otherwise.
 - Mutating calls **do not** prompt for confirmation in MCP (no interactive stdin) — the host’s tool-call approval is the guard. Treat them like `-y`. Readonly auths are rejected for mutates.
 - `blueprint_create` / `blueprint_set` take a JSON `body` object; `blueprint_set` is a merge-patch.
 

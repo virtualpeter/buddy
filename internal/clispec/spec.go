@@ -112,6 +112,7 @@ func GlobalFlags() []GlobalFlag {
 		{Name: FlagVerbose, Short: ShortVerbose, Summary: MsgGFlagVerbose},
 		{Name: FlagTrace, Short: ShortTrace, Summary: MsgGFlagTrace},
 		{Name: FlagScriptTrace, Summary: MsgGFlagScriptTrace},
+		{Name: FlagContext, Arg: "<name>", Summary: MsgGFlagContext},
 		{Name: FlagTenant, Arg: "<name>", Summary: MsgGFlagTenant},
 		{Name: FlagUser, Arg: "<name>", Summary: MsgGFlagUser},
 		{Name: FlagAuth, Arg: "<name>", Summary: MsgGFlagAuth},

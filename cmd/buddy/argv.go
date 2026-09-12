@@ -69,6 +69,13 @@ func extractGlobalFlags(argv []string) (globalCLI, []string) {
 				i++
 				g.tenant = argv[i]
 			}
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagContext)):
+			g.tenant = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagContext))
+		case a == clispec.Flag(clispec.FlagContext):
+			if i+1 < len(argv) {
+				i++
+				g.tenant = argv[i]
+			}
 		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagUser)):
 			g.user = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagUser))
 		case a == clispec.Flag(clispec.FlagUser):
@@ -150,12 +157,14 @@ func positionalPath(argv []string) []string {
 
 func sessionFlagTakesNext(a string) (isSession bool, takesValue bool) {
 	if a == clispec.Short(clispec.ShortEval) || a == clispec.Flag(clispec.FlagEval) ||
-		a == clispec.Flag(clispec.FlagTenant) || a == clispec.Flag(clispec.FlagUser) ||
+		a == clispec.Flag(clispec.FlagTenant) || a == clispec.Flag(clispec.FlagContext) ||
+		a == clispec.Flag(clispec.FlagUser) ||
 		a == clispec.Flag(clispec.FlagAuth) || a == "--cred" {
 		return true, true
 	}
 	if strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagEval)) ||
 		strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagTenant)) ||
+		strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagContext)) ||
 		strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagUser)) ||
 		strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)) ||
 		strings.HasPrefix(a, "--cred=") {
@@ -182,10 +191,12 @@ func ownedSessionFlags(path []string) map[string]bool {
 		switch sub {
 		case clispec.SubAdd:
 			out[clispec.FlagTenant] = true
+			out[clispec.FlagContext] = true
 		case clispec.SubSet:
 			if len(path) >= 3 {
 				if item, _ := clispec.MatchToken(path[2], []string{"channel"}); item == "channel" {
 					out[clispec.FlagTenant] = true
+					out[clispec.FlagContext] = true
 				}
 			}
 		}
@@ -196,6 +207,7 @@ func ownedSessionFlags(path []string) map[string]bool {
 		sub, _ := clispec.MatchToken(path[1], []string{"basic-setup", "store-oauth"})
 		if sub == "basic-setup" || sub == "store-oauth" {
 			out[clispec.FlagTenant] = true
+			out[clispec.FlagContext] = true
 			out[clispec.FlagUser] = true
 			out[clispec.FlagAuth] = true
 		}

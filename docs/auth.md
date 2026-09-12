@@ -1,24 +1,36 @@
 # Auth, secrets, and tokens
 
-Buddy talks to Jamf using a **tenant** (which environment) plus an **auth** (which principal). Passwords and OAuth client secrets belong in the encrypted vault, not in `config.yaml`. Tokens are cached and refreshed automatically.
+Buddy talks to Jamf using a **context** (a named workplace in config) plus an **auth** (which principal). Passwords and OAuth client secrets belong in the encrypted vault, not in `config.yaml`. Tokens are cached and refreshed automatically.
 
-First-time install: [Getting started](getting-started.md). With an empty config, any interactive Jamf command (or `buddy cred add`) runs the setup wizard. With an org MDM profile, use `buddy setup secrets` / `buddy cred add`. The docs UI **config** page edits tenant/auth metadata only — secrets stay in the terminal vault. YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
+First-time install: [Getting started](getting-started.md). With an empty config, any interactive Jamf command (or `buddy cred add`) runs the setup wizard. With an org MDM profile, use `buddy setup secrets` / `buddy cred add`. The docs UI **config** page edits context/auth metadata only — secrets stay in the terminal vault. YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
 
-Maintenance: `buddy cred status` shows each tenant × surface (instance URL vs platform identity), covering auths, whether a secret is **stored**, and the last `auth test` result. Gaps are tenants that have an identity but no covering auth (or no secret). Low-level `buddy cred set tenant|auth|secret` still works.
+Maintenance: `buddy cred status` shows each context × surface (instance URL vs platform identity), covering auths, whether a secret is **stored**, and the last `auth test` result. Gaps are contexts that have an identity but no covering auth (or no secret). Low-level `buddy cred set context|auth|secret` still works (`tenant` is a dual-read alias).
 
 ---
 
-## Tenants and auths
+## Contexts and auths
 
-A **tenant** is a Jamf environment: an instance `url` and/or Platform `region` + `tenantId`.
+A **context** is a named buddy workplace (e.g. `sandbox`). The default path is **instance-only**: a Jamf Pro `jamfpro.url` and an `oauth`/`basic` auth. No Account environment, region, or platform auth is required.
 
-An **auth** is a secret-bearing principal linked to one or more tenants (`tenants: […]`). Types:
+When you adopt Jamf Account / Platform, add fields on the **same name**:
+
+| YAML | Header | What it is |
+|------|--------|------------|
+| `contexts.<name>.id` (or `environmentId`) | `X-Environment-Id` | Jamf Account **platform environment** — a group of product tenants. Prefer this for GA integrations (blueprints, devices, …). |
+| `contexts.<name>.jamfpro.tenantId` | `X-Tenant-Id` | One Jamf Pro / School / Protect / Security Cloud product tenant. Used when a platform auth’s `scope` is `tenant`. |
+| `auths.<name>.scope: organization` | *(none)* | Organization-scoped Account APIs; product builtins need an environment or product tenant id. |
+
+`id` and `jamfpro.tenantId` may both be set — they are different objects. Scope lives on the **auth** (`organization` / `environment` / `tenant`), not XOR’d onto the workplace row.
+
+Copy ids from Jamf Account → Integrations. Do not use the jamfcloud.com hostname or the buddy context name. Beta `*.apigw.jamf.com` hosts are refused; use `https://{region}.api.jamfcloud.com`. Beta credentials cannot be migrated — register a new integration.
+
+An **auth** is a secret-bearing principal. Instance auths attach with `jamfpro: sandbox`. Platform auths use `type: platform`, `scope:`, and `contexts: [sandbox]` (environment) or `jamfpro:` (tenant-scoped). Types:
 
 | Type | What you configure | How buddy authenticates |
 |------|--------------------|-------------------------|
 | `basic` | `username`; password in the secret store (or inline for tests) | Username/password → instance `POST /api/v1/auth/token` |
 | `oauth` | `clientId`; client secret in the store | Client credentials → instance `/api/oauth/token` |
-| `platform` | `clientId`; client secret in the store | Client credentials → Platform `{gateway}/auth/token` |
+| `platform` | `clientId`; client secret in the store; `scope:` | Client credentials → Platform `{gateway}/auth/token` |
 | `command` | `runCommand` | Runs the command each time; its stdout is the bearer token |
 
 Optional auth fields:
@@ -28,7 +40,44 @@ Optional auth fields:
 
 `type` encodes the Jamf surface: `basic` / `oauth` / `command` are instance; `platform` is the API Gateway. An OAuth client is never valid on both. Legacy `surface: platform` on `type: oauth` migrates to `type: platform` on load.
 
-`credentials:`, a bare string `tenant:`, `defaults:`, and `allow_auths:` are rejected — use `tenants:` / `auths:` / `tenant.default` / `channels.`.
+`credentials:`, a bare string `tenant:`/`context:`, `defaults:`, and `allow_auths:` are rejected. Dual-read `tenants:` / `tenant.default` / auth `tenants:` for one release; saves write `contexts:` / `context.default` / `jamfpro:` / `contexts:` + `scope:`.
+
+Instance-only example:
+
+```yaml
+context:
+  default: sandbox
+contexts:
+  sandbox:
+    jamfpro:
+      url: https://example.jamfcloud.com
+auths:
+  sandgod:
+    type: oauth
+    jamfpro: sandbox
+    clientId: …
+```
+
+Same name after adding Platform:
+
+```yaml
+contexts:
+  sandbox:
+    id: 11111111-1111-1111-1111-111111111111
+    region: us
+    jamfpro:
+      url: https://example.jamfcloud.com
+      tenantId: 22222222-2222-2222-2222-222222222222
+auths:
+  sandgod:
+    type: oauth
+    jamfpro: sandbox
+  sandbox-platform:
+    type: platform
+    scope: environment
+    contexts: [sandbox]
+    clientId: …
+```
 
 ---
 
@@ -36,11 +85,11 @@ Optional auth fields:
 
 | Mechanism | Effect |
 |-----------|--------|
-| `tenant.default` | Global fallback tenant |
-| `channels.<cli\|mcp\|ide>.tenant` | Per-client default |
-| `--tenant` | Select tenant (auto-picks an auth for the operation) |
+| `context.default` | Global fallback context |
+| `channels.<cli\|mcp\|ide>.context` | Per-client default |
+| `--context` | Select context (auto-picks an auth for the operation); `--tenant` is a dual-read alias |
 | `--user` / `--auth` | Pin a specific auth |
-| buddyscript / MCP `tenant=` / `surface=` / `auth=` | Per-call override (`cred=` was removed) |
+| buddyscript / MCP `context=` / `tenant=` / `surface=` / `auth=` | Per-call override (`cred=` was removed) |
 
 When auto-picking, buddy:
 
@@ -49,17 +98,17 @@ When auto-picking, buddy:
 - Uses **platform** for blueprints and other Platform product APIs
 - Uses **instance** for Classic / schema work
 
-You can keep a platform-readonly auth and an instance-full auth on the **same tenant** — reads use the pin; mutates fall over to the full auth.
+You can keep a platform-readonly auth and an instance-full auth on the **same context** — reads use the pin; mutates fall over to the full auth.
 
 `--user` / `--auth` (and buddyscript `auth=`) is a **preference**, not a lock:
 
 - Classic (while `classic_instance_only` is on), ACS, schema, and undocumented Pro `GET /api/v1/policies` need an instance auth
 - Platform product APIs need platform oauth
-- If the pin cannot serve that surface, or the pin is **readonly** and the op mutates, buddy auto-picks another linked auth on the **same tenant**
+- If the pin cannot serve that surface, or the pin is **readonly** and the op mutates, buddy auto-picks another linked auth on the **same context**
 - Channel `access: readonly` is the hard clamp (MCP/IDE will not mutate)
 - `surface=` biases published Pro/JSON calls that can use either surface, and Classic when `classic_instance_only` is off; it never sends ACS or `GET /api/v1/policies` through the gateway (clone/copy destination sessions included)
 
-Direct one-off flags (`--url`, `--tenant-id`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for a single command.
+Direct one-off flags (`--url`, `--environment-id`, `--tenant-id`, `--username`, `--password`, `--client-id`, `--client-secret`) bypass config for a single command.
 
 ---
 
@@ -68,19 +117,19 @@ Direct one-off flags (`--url`, `--tenant-id`, `--username`, `--password`, `--cli
 Top-level `channels.<client>` can clamp what that client is allowed to do:
 
 - `access`: `readonly` or `full` — the most restrictive of channel vs auth wins for mutates.
-- `tenant` / `tenants` — default and allowlist for that client.
-- `deny_builtins` / `allow_builtins` — also valid on **tenants.** and **auths.** (same list/glob form). Each layer is independent: a builtin is blocked if **any** layer matches deny and that layer’s allow does not match. Channel allow cannot unblock a tenant deny.
+- `context` / `contexts` — default and allowlist for that client (`tenant` / `tenants` dual-read).
+- `deny_builtins` / `allow_builtins` — also valid on **contexts.** and **auths.** (same list/glob form). Each layer is independent: a builtin is blocked if **any** layer matches deny and that layer’s allow does not match. Channel allow cannot unblock a context deny.
 
 MCP already denies `jamf_*` on the channel layer even when the YAML list is empty. `deny_builtins: ["*"]` is deny-all at that layer (explicit allowlist when paired with `allow_builtins`). Quote `"*"` so YAML does not treat it as an alias. Blocked builtins raise; they are a gap, not a cue to invent HTTP from the schema.
 
 The IDE uses the `ide` client channel (there is no `serve` or `notebook` channel).
 
 ```sh
-buddy cred set channel mcp --access=readonly --tenant=sandbox
+buddy cred set channel mcp --access=readonly --context=sandbox
 buddy cred set channel mcp --deny-builtins=computer_erase
 buddy cred set channel mcp --allow-builtins=*
-buddy cred set tenant prod --deny-builtins=* --allow-builtins=policies,policy
-buddy cred set auth mcp-ro --type=oauth --tenants=prod --client-id=… --deny-builtins=computer_erase
+buddy cred set context prod --deny-builtins=* --allow-builtins=policies,policy
+buddy cred set auth mcp-ro --type=oauth --jamfpro=prod --client-id=… --deny-builtins=computer_erase
 buddy cred use --mcp sandbox
 ```
 
@@ -88,7 +137,7 @@ buddy cred use --mcp sandbox
 
 ## Org defaults (macOS managed preferences)
 
-Buddy can load config from a Jamf Application & Custom Settings (or MCX) payload for preference domain **`virtualpete.buddy.cli`** (the same reverse-DNS as the signed binary / Keychain service). This is org **defaults**, not enforced policy: `~/.config/buddy/config.yaml` overlays and wins per tenant, auth, and channel name.
+Buddy can load config from a Jamf Application & Custom Settings (or MCX) payload for preference domain **`virtualpete.buddy.cli`** (the same reverse-DNS as the signed binary / Keychain service). This is org **defaults**, not enforced policy: `~/.config/buddy/config.yaml` overlays and wins per context, auth, and channel name.
 
 Search order:
 
@@ -96,11 +145,11 @@ Search order:
 2. Else on macOS: `/Library/Managed Preferences/virtualpete.buddy.cli.plist`, then `~/Library/Managed Preferences/virtualpete.buddy.cli.plist` (user-managed overlays computer)
 3. User `config.yaml`
 
-Typical profile content: `tenant.default`, `tenants`, and `channels` policy. Auths (`clientId`, usernames, secrets, even auth *names*) are per-user: **accepted** if present in the plist, but `buddy setup managed-plist` omits the whole `auths` map. Prefer `buddy setup secrets` for client IDs and secrets (managed plists are typically world-readable).
+Typical profile content: `context.default`, `contexts`, and `channels` policy. Auths (`clientId`, usernames, secrets, even auth *names*) are per-user: **accepted** if present in the plist, but `buddy setup managed-plist` omits the whole `auths` map. Prefer `buddy setup secrets` for client IDs and secrets (managed plists are typically world-readable).
 
-`buddy setup secrets` creates an auth for any tenant that has none, fills instance/platform coverage gaps (instance URL with no instance auth, or platform identity with no platform oauth), then prompts for missing client IDs and store secrets. `buddy cred add` is the one-shot guided path for a named tenant+auth. `buddy setup managed-plist [path]` dumps tenants and channel policy as XML plist for Jamf ACS.
+`buddy setup secrets` creates an auth for any context that has none, fills instance/platform coverage gaps (instance URL with no instance auth, or platform identity with no platform oauth), then prompts for missing client IDs and store secrets. `buddy cred add` is the one-shot guided path for a named context+auth. `buddy setup managed-plist [path]` dumps contexts and channel policy as XML plist for Jamf ACS.
 
-`buddy cred list` prints a `managed: …` line when prefs contributed. `buddy cred status` is the coverage matrix. Deleting a managed tenant or auth from YAML warns: it comes back on the next load until the profile changes or you keep a local override.
+`buddy cred list` prints a `managed: …` line when prefs contributed. `buddy cred status` is the coverage matrix. Deleting a managed context or auth from YAML warns: it comes back on the next load until the profile changes or you keep a local override.
 
 ---
 
@@ -156,8 +205,8 @@ A signed binary does not see a DEK stored by `./buddy`. Use the same recovery pa
 Older vault files used PBKDF2 with the recovery passphrase as the wrapping secret. The first CLI run after upgrade migrates them to a DEK (PBKDF2 stays on backup files and on the optional DEK wrap inside `secrets.enc`). Older installs stored one Keychain/file/pass item per secret. `buddy cred migrate` copies those into the vault (and can delete the old items).
 
 ```sh
-buddy cred status                               # tenant × surface coverage (no Jamf call)
-buddy cred add --tenant=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
+buddy cred status                               # context × surface coverage (no Jamf call)
+buddy cred add --context=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
 buddy cred set passphrase                        # create / rotate the recovery passphrase (backups)
 buddy cred set secret sandbox-admin                  # password (basic)
 buddy cred set secret sandbox-admin --client-secret  # OAuth
@@ -171,7 +220,7 @@ buddy cred delete auth sandbox-admin                 # also clears vault secrets
 
 `buddy cred get secret` and the SECRET column on `cred status` are **presence only**. `buddy auth test` discards any cached token and mints a new one: missing secret / token POST failure is an error; probe 403 after a good token is `live=token-ok` (the secret works, the role lacks that probe).
 
-`buddy cred backup` / `restore` encrypt tenants, auths (including vault secrets), and channel policy with a **recovery passphrase** (AES-256-GCM, PBKDF2-SHA256). The DEK and any biometric/Keychain material are never written into `buddy.creds`. Backup defaults to the stored recovery passphrase (`--passphrase=` overrides). Restore applies tenants and channels, then prompts once per auth unless `-y` (Enter/y writes that auth from the backup; `n` leaves the existing config entry). Auths not in the backup are kept. Secrets go back to the vault under a **new** local DEK. If no recovery passphrase is stored yet, restore saves the backup passphrase as the recovery phrase.
+`buddy cred backup` / `restore` encrypt contexts, auths (including vault secrets), and channel policy with a **recovery passphrase** (AES-256-GCM, PBKDF2-SHA256). The DEK and any biometric/Keychain material are never written into `buddy.creds`. Backup defaults to the stored recovery passphrase (`--passphrase=` overrides). Restore applies contexts and channels, then prompts once per auth unless `-y` (Enter/y writes that auth from the backup; `n` leaves the existing config entry). Auths not in the backup are kept. Secrets go back to the vault under a **new** local DEK. If no recovery passphrase is stored yet, restore saves the backup passphrase as the recovery phrase.
 
 Config and tokens live under `~/.config/buddy` on macOS/Linux (`$XDG_CONFIG_HOME/buddy` when set), and `%APPDATA%\buddy` on Windows.
 
@@ -195,10 +244,10 @@ Tokens are also written under `~/.config/buddy/tokens/` (mode `0600`) so later C
 Debug logs, `--trace`, and `--script-trace` pass through a redaction filter (JWTs, `Bearer` values, and fields such as `access_token`, `token`, and `client_secret`). `buddy auth token show --raw` still prints the bearer to stdout.
 
 ```sh
-buddy auth test                         # ForceRenew + probe the active tenant/auth
-buddy auth test --all                   # every covering auth × tenant × surface
+buddy auth test                         # ForceRenew + probe the active context/auth
+buddy auth test --all                   # every covering auth × context × surface
 buddy auth authorization [--all]        # cached GET /api/v1/auth details (privileges, access level)
-buddy auth token show [--raw] [--tenant=T] [--user=A]
+buddy auth token show [--raw] [--context=C] [--user=A]
 buddy auth token status [--all]         # disk cache metadata (no bearer)
 buddy auth token drop [--all]           # invalidate cache (including still-valid files)
 buddy auth token refresh [--raw]        # obtain / keep-alive / replace from cache state
@@ -206,7 +255,7 @@ buddy token direct --url=… --username=… --password=…   # one-shot mint, no
 buddy cred clean tokens                 # delete expired or corrupt disk cache files
 ```
 
-`auth token refresh` uses the derived session (`--tenant` / `--user`) and the on-disk cache: **obtain** if there is no usable token, **refresh** (Jamf keep-alive) for basic when a cached token is still usable, **replace** for oauth/platform (client credentials) and command (`runCommand`). `--raw` on `auth token refresh` or `auth token show` prints only the bearer. `token drop` removes still-valid files; `cred clean tokens` only sweeps expired or corrupt leftovers. One-shot mint without config is `buddy token direct`.
+`auth token refresh` uses the derived session (`--context` / `--user`) and the on-disk cache: **obtain** if there is no usable token, **refresh** (Jamf keep-alive) for basic when a cached token is still usable, **replace** for oauth/platform (client credentials) and command (`runCommand`). `--raw` on `auth token refresh` or `auth token show` prints only the bearer. `token drop` removes still-valid files; `cred clean tokens` only sweeps expired or corrupt leftovers. One-shot mint without config is `buddy token direct`.
 
 Last `auth test` results (token ok / probe, and Jamf authorization details when `GET /api/v1/auth` succeeded: access level, privilege set, privileges) are cached under `~/.config/buddy/caps/` with the same 0600 + compiled-in obfuscation style (not the token wrap key). Buddy uses that cache when auto-picking among auths. Missing or stale cache is ignored (fail open). Legacy `type: oauth` + `surface: platform` migrates to `type: platform` on load.
 
@@ -214,11 +263,11 @@ Last `auth test` results (token ok / probe, and Jamf authorization details when 
 
 ## Instance vs Platform
 
-Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`). When the session is on a **platform** surface, buddy rewrites them (Pro → `/api/pro/vN/tenant/{id}/…`, Classic → `/api/proclassic/tenant/{id}/…` with the `/JSSResource` prefix stripped, Platform product APIs inject `/tenant/{id}` after the version).
+Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`). When the session is on a **platform** surface, buddy rewrites them (Pro → `/pro/vN/…`, Classic → `/proclassic/…` with the `/JSSResource` prefix stripped, Platform product APIs drop `/api`) and sends `X-Environment-Id` or `X-Tenant-Id`.
 
-Classic follows a platform pin / auto-pick by default (`OpClassic` / `OpClassicWrite` → `/api/proclassic/tenant/{id}/…`, no `/JSSResource`). Auto-pick among mixed auths still prefers an instance auth when one is linked. Set `features.classic_instance_only: true` (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force **Classic `/JSSResource` only** onto instance even when the pin is platform. A gateway `403` means the OAuth client lacks Classic scopes.
+Classic follows a platform pin / auto-pick by default (`OpClassic` / `OpClassicWrite` → `/proclassic/…`, no `/JSSResource`). Auto-pick among mixed auths still prefers an instance auth when one is linked. Set `features.classic_instance_only: true` (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force **Classic `/JSSResource` only** onto instance even when the pin is platform. A gateway `403` means the OAuth client lacks Classic scopes.
 
-That toggle does **not** apply to surfaces that are never published on the gateway. These always use the instance URL (a platform pin auto-picks an instance auth on the same tenant):
+That toggle does **not** apply to surfaces that are never published on the gateway. These always use the instance URL (a platform pin auto-picks an instance auth on the same context):
 
 - **ACS** `/api/config-profiles/…` — Jamf Pro UI API; gateway POST is `404 page not found`
 - **Undocumented Pro policy list** `GET /api/v1/policies` — not in published OpenAPI; gateway is `403`. Policy writes and detail stay Classic XML (`/JSSResource/policies`)
@@ -226,9 +275,9 @@ That toggle does **not** apply to surfaces that are never published on the gatew
 
 ```yaml
 features:
-  classic_instance_only: true    # optional lock; default false = Classic may use /api/proclassic/
+  classic_instance_only: true    # optional lock; default false = Classic may use /proclassic/
 ```
 
-Platform product commands (`buddy blueprint`, `device`, `device-group`, `ddm`, `benchmark`, and the matching builtins) need a platform-capable tenant + auth.
+Platform product commands (`buddy blueprint`, `device`, `device-group`, `ddm`, `benchmark`, and the matching builtins) need a platform-capable context + auth (`id`/`region` plus `type: platform`).
 
 See [API endpoints](api-endpoints.md) for the rewrite table, schema discovery, and which Pro versions buddy uses (computer inventory is **v4**; computer groups stay **v3**).

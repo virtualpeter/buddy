@@ -183,14 +183,15 @@ button:hover { filter: brightness(1.06); }
 
   <h2>Tenants</h2>
   <table>
-    <thead><tr><th>Name</th><th>URL</th><th>Region</th><th>Tenant ID</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>URL</th><th>Region</th><th>Scope</th><th></th></tr></thead>
     <tbody id="tenants-body"></tbody>
   </table>
   <div class="form-grid">
     <label>Name <input id="t-name" autocomplete="off"></label>
     <label>Instance URL <input id="t-url" placeholder="https://… (blank ok)"></label>
     <label>Platform region <input id="t-region" placeholder="us|eu|apac"></label>
-    <label>Platform tenant id <input id="t-tid"></label>
+    <label>Platform environment id <input id="t-eid" placeholder="preferred"></label>
+    <label>Platform tenant id <input id="t-tid" placeholder="legacy single-product"></label>
     <div class="form-actions">
       <button type="button" class="primary" id="btn-save-tenant">Add / update tenant</button>
     </div>
@@ -286,7 +287,7 @@ button:hover { filter: brightness(1.06); }
     (state.tenants || []).forEach(function(t){
       var tr = document.createElement('tr');
       tr.innerHTML = '<td><code>'+esc(t.name)+'</code>'+(t.managed?' <span class="badge">mdm</span>':'')+'</td>'+
-        '<td>'+esc(t.url||'')+'</td><td>'+esc(t.region||'')+'</td><td>'+esc(t.tenant_id||'')+'</td>'+
+        '<td>'+esc(t.url||'')+'</td><td>'+esc(t.region||'')+'</td><td>'+esc(t.environment_id||t.tenant_id||(t.region?'org':''))+'</td>'+
         '<td class="row-actions"><button type="button" data-edit-t="'+esc(t.name)+'">Edit</button>'+
         '<button type="button" class="danger" data-del-t="'+esc(t.name)+'">Delete</button></td>';
       tb.appendChild(tr);
@@ -352,6 +353,7 @@ button:hover { filter: brightness(1.06); }
       state = await api('PUT', '/api/config/tenant/' + encodeURIComponent(name), {
         url: document.getElementById('t-url').value.trim(),
         region: document.getElementById('t-region').value.trim(),
+        environment_id: document.getElementById('t-eid').value.trim(),
         tenant_id: document.getElementById('t-tid').value.trim()
       });
       render();
@@ -382,6 +384,7 @@ button:hover { filter: brightness(1.06); }
       document.getElementById('t-name').value = row.name;
       document.getElementById('t-url').value = row.url || '';
       document.getElementById('t-region').value = row.region || '';
+      document.getElementById('t-eid').value = row.environment_id || '';
       document.getElementById('t-tid').value = row.tenant_id || '';
     }
     if (t.dataset.delT) {

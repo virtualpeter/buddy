@@ -55,27 +55,27 @@ On macOS, org defaults may also come from managed preferences (`virtualpete.budd
 
 Config is split into four maps:
 
-- **Tenant selection** — `tenant.default`.
-- **Channel policies** — `channels.cli|mcp|ide` with optional `access` / `tenant` / `tenants` / `deny_builtins` / `allow_builtins`. MCP defaults deny `jamf_*`.
-- **Tenants** — instance URL and/or Platform `region`+`tenantId`, optional deny/allow builtins.
-- **Auths** — command/basic/oauth/platform principals linked to one or more tenants, optional deny/allow. Optional auth `channels:` (`cli`/`mcp`/`ide`; omit = all) limits which buddy clients may use that auth.
+- **Context selection** — `context.default` (dual-read `tenant.default` for one release).
+- **Channel policies** — `channels.cli|mcp|ide` with optional `access` / `context` / `contexts` / `deny_builtins` / `allow_builtins`. MCP defaults deny `jamf_*`.
+- **Contexts** — named workplaces. Default is instance-only (`jamfpro.url`). Platform is additive (`id` + `region`, optional `jamfpro.tenantId`). The config name is not a Jamf environment UUID; see [Auth](auth.md#contexts-and-auths).
+- **Auths** — command/basic/oauth/platform principals. Instance auths use `jamfpro:`; platform auths use `scope:` plus `contexts:` or `jamfpro:`. Optional auth `channels:` (`cli`/`mcp`/`ide`; omit = all) limits which buddy clients may use that auth.
 
-Builtin deny/allow is per layer (channel allow cannot unblock a tenant deny). `deny_builtins: ["*"]` is an allowlist at that layer. `credentials:` / string `tenant:` / `defaults:` / `allow_auths:` and the `serve` / `notebook` client names are removed (use `tenants:` / `auths:` and `channels.ide`).
+Builtin deny/allow is per layer (channel allow cannot unblock a context deny). `deny_builtins: ["*"]` is an allowlist at that layer. `credentials:` / string `tenant:` / `defaults:` / `allow_auths:` and the `serve` / `notebook` client names are removed (use `contexts:` / `auths:` and `channels.ide`). Dual-read `tenants:` / `--tenant` / `tenant=` for one release.
 
 Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, secrets, and tokens](auth.md)**.
 
-- `buddy cred help` — set/list/get/delete tenants, auths, and channel policies; manage secrets; `cred use` / `cred set channel`
-- `buddy cred status` — tenant × surface coverage (gaps, secret presence, last live check); `--test` runs `auth test --all` first
-- `buddy cred add` — guided tenant + auth + secret (optional live test)
+- `buddy cred help` — set/list/get/delete contexts, auths, and channel policies; manage secrets; `cred use` / `cred set channel`
+- `buddy cred status` — context × surface coverage (gaps, secret presence, last live check); `--test` runs `auth test --all` first
+- `buddy cred add` — guided context + auth + secret (optional live test)
 - `buddy cred set secret <auth>` — store password/client secret in the vault
 - `buddy cred set passphrase` — create or rotate the recovery passphrase (backups; does not wrap the live vault)
-- `buddy cred delete auth|tenant <name>` — remove auth (+store secrets) or tenant (cascades sole-linked auths)
+- `buddy cred delete auth|context <name>` — remove auth (+store secrets) or context (cascades sole-linked auths)
 - `buddy cred clean secrets` — review secret-store entries and prompt to delete orphans
 - `buddy cred erase secrets` — wipe the vault, data key, recovery passphrase, token-wrap key, token cache files, and leftover Keychain items
 - `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`
 - `buddy cred migrate` — move inline YAML secrets and old per-auth store items into the vault
-- `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of tenants, auths (with secrets), and channels; restore prompts once per auth (Enter restores, or `-y`)
-- `buddy setup secrets` — create missing tenant auths and surface-coverage gaps; store missing passwords / client secrets
+- `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of contexts, auths (with secrets), and channels; restore prompts once per auth (Enter restores, or `-y`)
+- `buddy setup secrets` — create missing context auths and surface-coverage gaps; store missing passwords / client secrets
 - `buddy auth test` — ForceRenew + probe the active session (`--all` for every cell)
 - `buddy auth token refresh` — obtain, keep-alive, or replace the session token from cache state (`--raw` prints the bearer)
 - `buddy auth authorization` — cached Jamf authorization details from `GET /api/v1/auth` (access level, privilege set, privileges); `--all` dumps every cache entry
@@ -83,18 +83,18 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy auth token status` — disk cache metadata (no bearer); `--all` lists every `tokens/` file
 - `buddy auth token drop` — invalidate the session cache (including still-valid files); `--all` drops every file
 - `buddy token direct` — one-shot bearer mint (no config/vault; `--url`/`--region` plus basic or oauth flags)
-- `buddy --tenant <name> ...` — select tenant (auto-picks auth); `--user`/`--auth` pins an auth
+- `buddy --context <name> ...` — select context (auto-picks auth); `--tenant` is a dual-read alias; `--user`/`--auth` pins an auth
 
 For `basic` auth, buddy exchanges username/password for a Bearer token via Jamf’s `POST /api/v1/auth/token`.
 
-**Platform API Gateway:** put `region` + `tenantId` on the **tenant**, and link an auth with `type: platform`. Auth types are `basic` / `oauth` (instance) or `platform` (gateway oauth). Example:
+**Platform API Gateway:** put `region` + `id` (Account environment UUID) on the **context**, optional `jamfpro.tenantId`, and link an auth with `type: platform` and `scope: environment` (or `tenant` / `organization`). Instance-only users skip those fields. Auth types are `basic` / `oauth` (instance) or `platform` (gateway oauth). Example:
 
 ```sh
-buddy cred set tenant gateway --region=us --tenant-id=<tenant-id>
-buddy cred set auth gateway --type=platform --client-id=<client-id> --tenants=gateway
+buddy cred set context gateway --region=us --environment-id=<environment-id>
+buddy cred set auth gateway --type=platform --client-id=<client-id> --contexts=gateway --scope=environment
 ```
 
-Classic (`/JSSResource/…`) calls are rewritten to `/api/proclassic/tenant/{id}/…` (the `/JSSResource` prefix is stripped). Classic follows a platform pin by default (`features.classic_instance_only`, false). Set it true (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force Classic onto instance. ACS (`/api/config-profiles/…`) and undocumented Pro `GET /api/v1/policies` are always instance; they are not on the gateway and are **not** gated by that flag.
+Classic (`/JSSResource/…`) calls are rewritten to `/proclassic/…` (the `/JSSResource` prefix is stripped). Classic follows a platform pin by default (`features.classic_instance_only`, false). Set it true (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force Classic onto instance. ACS (`/api/config-profiles/…`) and undocumented Pro `GET /api/v1/policies` are always instance; they are not on the gateway and are **not** gated by that flag.
 
 **Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate`). Secrets live in `secrets.enc` under a random data key (Keychain account `dek` on macOS, or `~/.config/buddy/dek` on Linux). `buddy cred set passphrase` stores a recovery passphrase (account `master` / `~/.config/buddy/master`) used for `cred backup` / `restore`, not for every CLI invoke. `BUDDY_SECRET_STORE=file|pass|keychain` selects where those keys live. Never commit `secrets.enc`, `dek`, or `master` to source control.
 
@@ -104,7 +104,7 @@ Full YAML shape and field descriptions are in the [README](../README.md#configur
 
 ## First-time API setup
 
-If you have **no tenants yet**, the preferred path is the interactive wizard (same as `buddy cred add`):
+If you have **no contexts yet**, the preferred path is the interactive wizard (same as `buddy cred add`):
 
 ```sh
 buddy policy list                     # prompts when config is empty
@@ -112,16 +112,16 @@ buddy policy list                     # prompts when config is empty
 buddy auth test
 ```
 
-You will be asked for a tenant name, optional Jamf Pro instance URL, optional Platform region + tenant id, then auth type and credentials (secrets go in the vault).
+You will be asked for a context name (buddy config name), optional Jamf Pro instance URL, optional Platform region + environment id (and optional product tenant id), then auth type and credentials (secrets go in the vault).
 
 `buddy setup basic-setup` remains for **instance URL + basic auth only**:
 
 ```sh
-buddy setup basic-setup               # prompts for tenant, URL, username, password
+buddy setup basic-setup               # prompts for context, URL, username, password
 buddy --user <admin-auth> auth test
 ```
 
-If an MDM profile already provides tenants (preference domain `virtualpete.buddy.cli`), run `buddy setup secrets` instead to create missing auths (including instance/platform coverage gaps) and store client secrets. `buddy cred status` shows remaining holes. In `buddy serve`, **config** (`/config`) edits tenant/auth metadata only — not vault secrets.
+If an MDM profile already provides contexts (preference domain `virtualpete.buddy.cli`), run `buddy setup secrets` instead to create missing auths (including instance/platform coverage gaps) and store client secrets. `buddy cred status` shows remaining holes. In `buddy serve`, **config** (`/config`) edits context/auth metadata only — not vault secrets.
 
 Then (optional) create a Jamf Pro **instance** API role/client and store oauth (Platform gateway oauth cannot manage roles/integrations):
 
@@ -147,7 +147,7 @@ buddy [global-flags] <command> [subcommand] [args...]
 buddy help [command] [subcommand]
 ```
 
-Global flags may appear anywhere before `--`. Long flags accept a single dash (`-tenant` is `--tenant`); short flags are not combinable (`-vt` is not `-v -t`). Command and subcommand names accept a unique prefix (`buddy ico list`).
+Global flags may appear anywhere before `--`. Long flags accept a single dash (`-context` is `--context`); short flags are not combinable (`-vt` is not `-v -t`). Command and subcommand names accept a unique prefix (`buddy ico list`).
 
 **Global flags**
 
@@ -157,7 +157,7 @@ Global flags may appear anywhere before `--`. Long flags accept a single dash (`
 | `-y` | Skip confirmation prompts (destructive MDM actions still use extra checks where required) |
 | `-v`, `--verbose` | Verbose output |
 | `-t`, `--trace` | Trace HTTP to stderr (headers and bodies; Authorization/Cookie and token-shaped values redacted) |
-| `--tenant <name>` | Tenant from config (auto-picks auth) |
+| `--context <name>` | Context from config (auto-picks auth); `--tenant` is a dual-read alias |
 | `--user <name>` | Pin an auth (`--auth` alias) |
 
 **Commands** (high level)
@@ -166,7 +166,7 @@ Global flags may appear anywhere before `--`. Long flags accept a single dash (`
 |---------|------|
 | `auth` | Test auth; print session token material |
 | `token` | One-shot bearer mint without config (`token direct`) |
-| `cred` | Manage `config.yaml` tenants, auths, and platform secrets |
+| `cred` | Manage `config.yaml` contexts, auths, and platform secrets |
 | *(path)* | Execute a script: `buddy script.buddy` |
 | `policy` | Policies (list/get/set/create/delete/logs) |
 | `group` | Smart/static computer groups (list/get/create/delete; smart/static membership) |
@@ -182,7 +182,7 @@ Global flags may appear anywhere before `--`. Long flags accept a single dash (`
 | `role` | API roles |
 | `client` | API integrations / OAuth clients |
 | `script` | Jamf script objects |
-| `blueprint` | Platform API Blueprints (list/get/create/set/delete/deploy/status; Platform tenant+auth required) |
+| `blueprint` | Platform API Blueprints (list/get/create/set/delete/deploy/status; Platform context+auth required) |
 | `device` | Platform API devices (inventory + check-in/restart/erase/…; not Pro `computer`) |
 | `device-group` | Platform API device groups (not Pro computer groups) |
 | `ddm` | Platform DDM declaration reporting (read-only) |
@@ -217,7 +217,7 @@ buddy serve --addr=127.0.0.1:8742
 
 - Binds **localhost only** (default `127.0.0.1:8742`).
 - `/docs/` — Curated user guides (overview, reference, builtins, API, MCP, examples). Contributor/agent material (AGENTS, Cursor rules) is MCP-only.
-- `/config` — View/edit tenant and auth **metadata** (defaults, coverage gaps). Vault secrets stay CLI-only (`buddy cred set secret`).
+- `/config` — View/edit context and auth **metadata** (defaults, coverage gaps). Vault secrets stay CLI-only (`buddy cred set secret`).
 - `/ide` — Single-buffer script runner with open/save, args, optional `--script-trace`-style builtin tracing, Run (file dialect + call `main()` if present), resizable output, copy/save/stash, and a Variables | Libraries sidebar. Open/save is limited to the process cwd or `BUDDY_IDE_ROOT`. Matches CLI file semantics.
 - Line breakpoints and stepping are **not** available (Starlark-go has no pause/step API). A soft `breakpoint()` builtin that only stops when the script calls it may be added later.
 - Optional `--docs-root` / `BUDDY_DOCS_ROOT` to override embedded markdown with live files while editing.
@@ -245,7 +245,7 @@ Add a `mcpServers.buddy` entry (absolute `command` path, `args: ["mcp"]`) to you
 
 Curated MCP tools: `get_instructions`, `buddy_info`, `docs`, `jamf_schema`, `buddyscript` (primary automation). Call `get_instructions` once at session start. Pro groups, profiles, policies, package READY/download, Platform CRUD, and related helpers run as **named builtins inside `buddyscript`**. Full table and agent priority: [`docs/mcp.md`](mcp.md) and [`docs/mcp-tools.md`](mcp-tools.md). Resources under `buddy://docs/...` (agents should prefer the `docs` tool).
 
-Uses the active tenant/auth (`--tenant` / `--user` to override). MCP inherits that session’s Jamf privileges—treat it like the CLI. With **no tenants** configured, `buddy mcp` registers **no tools** and points the host at `buddy cred add` / the interactive CLI wizard (secrets never over MCP).
+Uses the active context/auth (`--context` / `--user` to override; `--tenant` dual-read). MCP inherits that session’s Jamf privileges—treat it like the CLI. With **no contexts** configured, `buddy mcp` registers **no tools** and points the host at `buddy cred add` / the interactive CLI wizard (secrets never over MCP).
 
 ---
 
@@ -262,7 +262,7 @@ buddy [global-flags] [--trace] <script.buddy> [-- args...]
 - Scripts are **buddyscript** (Starlark-based — a deterministic Python-like language). See **Language** below.
 - Scripts use **`.buddy`** (Cursor/VS Code language id + `buddy lsp`). `load("stdlib/<name>.buddy", …)` is reserved (no modules yet).
 - `args` after `--` are available as the global list `args`.
-- The active tenant and auth pin are available as `tenant` and `auth` (override per builtin with `tenant=` / `surface=` / `auth=`).
+- The active context and auth pin are available as `tenant` and `auth` (override per builtin with `context=` / `tenant=` / `surface=` / `auth=`; `tenant` is the dual-read name of the context).
 - The regex module is exposed as `re` (see `buddy help starlark` for what Starlark provides globally).
 - If the script defines `main`, buddy invokes it after load (same as MCP `buddyscript`). Do not call `main()` yourself at top level.
 - **`print()`** writes to stdout; buddy adds **`error(*args, ...)`** for stderr (same signature as `print`). Prefer **`error`** for progress, skips, and failures so stdout stays free for machine-readable output; reserve **`print`** for lines meant to be piped or captured as the script’s primary result.
@@ -322,8 +322,8 @@ That output lists every builtin with parameter names, types, and return shapes. 
 
 - **Grammar:** plural nouns enumerate (`policies`, `smart_groups`, `computers`); singular nouns load one (`policy(id=…)` or `policy(trigger=…)`, `smart_group(name=…)`); singular_verb mutates (`policy_set`, `computer_reboot`).
 - **Notebook:** Libraries drawer shows Getting started / Advanced; bare builtin names print help; `policies()` lists all.
-- Resource IDs come first (`id=` / `ids=` for the subject resource; related IDs stay typed); singular loaders also use `id=` or a natural key; then options; optional `tenant?` / `surface?` / `auth?` last.
-- Use `tenant="name"` and/or `auth="name"` (and optional `surface="instance"|"platform"`) to override session selection for a single call. `cred=` was removed.
+- Resource IDs come first (`id=` / `ids=` for the subject resource; related IDs stay typed); singular loaders also use `id=` or a natural key; then options; optional `context?` / `tenant?` / `surface?` / `auth?` last (`tenant?` dual-read).
+- Use `context="name"` (or `tenant="name"`) and/or `auth="name"` (and optional `surface="instance"|"platform"`) to override session selection for a single call. `cred=` was removed.
 - Paginated list builtins take `page?` (0-based) and `page_size?` (default 200). **Omit `page`** to walk every page and return the full list.
 - Plural lists return summary dicts `{id, name, …}`; use `ids=True` on `policies` / `computers` when you need bare ID lists.
 

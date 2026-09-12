@@ -3023,7 +3023,8 @@ func runTokenDirect(args []string, log *slog.Logger) error {
 	fs := flag.NewFlagSet("token direct", flag.ContinueOnError)
 	baseURL := fs.String("url", "", "Jamf Pro or Platform API Gateway base URL")
 	region := fs.String("region", "", "Platform API Gateway region (builds URL when --url omitted)")
-	tenantID := fs.String("tenant-id", "", "Platform API Gateway tenant id")
+	environmentID := fs.String("environment-id", "", "Platform environment id (preferred)")
+	tenantID := fs.String("tenant-id", "", "Platform tenant id (legacy single-product scope)")
 	username := fs.String("username", "", "Username for basic auth")
 	password := fs.String("password", "", "Password for basic auth")
 	clientID := fs.String("client-id", "", "OAuth2 client ID")
@@ -3036,6 +3037,7 @@ func runTokenDirect(args []string, log *slog.Logger) error {
 	direct := buddy.DirectAuthOpts{
 		BaseURL:         *baseURL,
 		Region:          *region,
+		EnvironmentID:   *environmentID,
 		TenantID:        *tenantID,
 		Username:        *username,
 		Password:        *password,
@@ -3102,7 +3104,7 @@ func movedDirectAuthFlags(args []string) bool {
 	for _, a := range args {
 		name, _, _ := strings.Cut(a, "=")
 		switch name {
-		case "--url", "--region", "--tenant-id", "--username", "--password",
+		case "--url", "--region", "--environment-id", "--tenant-id", "--username", "--password",
 			"--client-id", "--client-secret", "--oauth2-creds-file":
 			return true
 		}

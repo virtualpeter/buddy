@@ -8,7 +8,7 @@
 
 Day-to-day work can follow several different styles - you can work with **buddyscript** (an extended version of Starlark) via an interactive shell, `.buddy` script files, or via a local docs UI with script IDE (`buddy serve`). Alternatively, connect it as an MCP server for AI hosts (`buddy mcp`) and let the agent learn how to use buddyscript.
 
-The only required config is to define tenants + auths; passwords or oauth secrets get stored in the encrypted vault (`secrets.enc`), with a random Keychain data key and a recovery passphrase for backups — [docs/auth.md](docs/auth.md).
+The only required config is a **context** plus an **auth**; passwords or oauth secrets get stored in the encrypted vault (`secrets.enc`), with a random Keychain data key and a recovery passphrase for backups — [docs/auth.md](docs/auth.md). Instance-only (Jamf Pro URL + oauth/basic) is enough; Platform is optional.
 
 New install: if there isn’t a released binary available and you have Go installed you can `make install-signed` (preferred) or `make install` (if you don’t have a signing cert), then run any Jamf command (e.g. `buddy policy list`) for the interactive setup wizard, or [`buddy cred add`](docs/getting-started.md). 
 
@@ -71,51 +71,54 @@ make help         # show all targets
 
 Config file: `~/.config/buddy/config.yaml` (macOS/Linux; `$XDG_CONFIG_HOME/buddy` when set). On Windows: `%APPDATA%\buddy\config.yaml`.
 
-On macOS, a Jamf **Application & Custom Settings** profile for preference domain `virtualpete.buddy.cli` can ship org defaults (tenants, channel policy). User YAML overlays and wins per name. Auths in the plist are accepted if present; `buddy setup managed-plist` omits them (names and client IDs are per-user). Prefer `buddy setup secrets` to store secrets locally. Override the plist path with `BUDDY_MANAGED_PLIST`.
+On macOS, a Jamf **Application & Custom Settings** profile for preference domain `virtualpete.buddy.cli` can ship org defaults (contexts, channel policy). User YAML overlays and wins per name. Auths in the plist are accepted if present; `buddy setup managed-plist` omits them (names and client IDs are per-user). Prefer `buddy setup secrets` to store secrets locally. Override the plist path with `BUDDY_MANAGED_PLIST`.
 
 ```yaml
-tenant:
+context:
   default: sandbox                 # global fallback
 
 channels:
   mcp:
     access: readonly               # clamp mutates on this client
-    tenant: sandbox                # optional per-client default
-    tenants: [sandbox]             # optional allowlist
+    context: sandbox               # optional per-client default
+    contexts: [sandbox]            # optional allowlist
     # jamf_* is denied on MCP by default; extra denials union with that
     deny_builtins: [computer_erase]
     # allow_builtins: ["*"]        # cowboy: unblock all denials (including jamf_*)
   ide:
-    tenant: sandbox
-  # cli omitted → full access; default tenant = tenant.default
+    context: sandbox
+  # cli omitted → full access; default context = context.default
 
-tenants:
+contexts:
   sandbox:
-    url: https://your-instance.jamfcloud.com   # instance (Pro/Classic)
-    region: us                                  # Platform gateway (us, eu, apac, …; list may grow)
-    tenantId: e77c1408-10c8-4007-b177-abc9157fbcaa
-    # deny_builtins: ["*"]         # tenant-layer allowlist
+    jamfpro:
+      url: https://example.jamfcloud.com   # instance-only is enough
+      # tenantId: 22222222-…               # product tenant; only if a tenant-scoped platform auth needs it
+    # id: e77c1408-10c8-4007-b177-abc9157fbcaa  # Account environment UUID (optional)
+    # region: us                                 # Platform gateway (us, eu, apac, …)
+    # deny_builtins: ["*"]         # context-layer allowlist
     # allow_builtins: [policies, policy]
 
 auths:
   sandbox-admin:
     type: oauth
     clientId: your_client_id
-    tenants: [sandbox]
+    jamfpro: sandbox
     channels: [cli, ide]           # omit = all (cli/mcp/ide)
     # clientSecret: buddy cred set secret sandbox-admin --client-secret
   sandbox-platform-ro:
     type: platform
+    scope: environment
     clientId: your_integration_client_id
-    tenants: [sandbox]
+    contexts: [sandbox]
     access: readonly
     channels: [mcp, ide]           # restrict MCP/IDE to this readonly auth
 
 features:
-  classic_instance_only: true      # optional: force Classic onto instance. Default false lets Classic use /api/proclassic. ACS and GET /api/v1/policies are always instance.
+  classic_instance_only: true      # optional: force Classic onto instance. Default false lets Classic use /proclassic. ACS and GET /api/v1/policies are always instance.
 ```
 
-**Storage:** Tenants hold host identity; auths hold type/username/clientId and link to tenants. Passwords and OAuth client secrets can stay inline for **dev/test**, or live in the encrypted vault (`secrets.enc`, keyed by **auth name**). The vault data key is one Keychain item (macOS) or `dek` (Linux/Windows); backups use a recovery passphrase (`master`):
+**Storage:** Contexts hold workplace identity (Jamf Pro `jamfpro.url` and/or Platform `id` + `region` + optional `jamfpro.tenantId` — the YAML key `sandbox` is not that UUID). Auths hold type/username/clientId and link with `jamfpro:` or `contexts:`. Passwords and OAuth client secrets can stay inline for **dev/test**, or live in the encrypted vault (`secrets.enc`, keyed by **auth name**). The vault data key is one Keychain item (macOS) or `dek` (Linux/Windows); backups use a recovery passphrase (`master`):
 
 | Platform | Vault | Data key / recovery (`BUDDY_SECRET_STORE`) |
 |----------|-------|--------------------------------------------|
@@ -127,13 +130,13 @@ features:
 `BUDDY_VAULT_PASSPHRASE` overrides the recovery passphrase (never written).
 
 ```sh
-buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=us --tenant-id=…
-buddy cred set auth sandbox-admin --type=oauth --client-id=abc --tenants=sandbox --channels=cli,ide
-buddy cred set auth sandbox-platform-ro --type=platform --client-id=… --tenants=sandbox --access=readonly --channels=mcp,ide
-buddy cred set channel mcp --access=readonly --tenant=sandbox
+buddy cred set context sandbox --url=https://example.jamfcloud.com --region=us --environment-id=…
+buddy cred set auth sandbox-admin --type=oauth --client-id=abc --jamfpro=sandbox --channels=cli,ide
+buddy cred set auth sandbox-platform-ro --type=platform --client-id=… --contexts=sandbox --scope=environment --access=readonly --channels=mcp,ide
+buddy cred set channel mcp --access=readonly --context=sandbox
 buddy cred set channel mcp --deny-builtins=computer_erase
 buddy cred set channel mcp --allow-builtins=*
-buddy cred set tenant sandbox --deny-builtins=* --allow-builtins=policies,policy
+buddy cred set context sandbox --deny-builtins=* --allow-builtins=policies,policy
 buddy cred set passphrase
 buddy cred set secret sandbox-admin --client-secret
 buddy cred backup ./buddy.creds
@@ -147,10 +150,11 @@ buddy cred erase secrets               # wipe vault + DEK + recovery passphrase 
 buddy cred clean tokens                # delete expired/corrupt disk token cache files
 ```
 
-Config is `tenant.default` + `tenants:` + `auths:` + optional `channels:`. Older `credentials:`, a bare string `tenant:`, `defaults:`, and `allow_auths:` are rejected. Inline secrets: `buddy cred migrate`. Selection: `--tenant` (auto-pick auth by operation) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all). Per-client policy lives under top-level `channels:` (`access` / `tenant` / `tenants` / `deny_builtins` / `allow_builtins`; MCP defaults deny `jamf_*`). The same deny/allow lists may be set on tenants and auths (per-layer; channel allow cannot unblock a tenant deny). `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` clients are removed.
+Config is `context.default` + `contexts:` + `auths:` + optional `channels:`. Dual-read `tenant.default` / `tenants:` / `--tenant` / `tenant=` for one release. Older `credentials:`, a bare string `tenant:`, `defaults:`, and `allow_auths:` are rejected. Inline secrets: `buddy cred migrate`. Selection: `--context` (auto-pick auth by operation; `--tenant` alias) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all). Per-client policy lives under top-level `channels:` (`access` / `context` / `contexts` / `deny_builtins` / `allow_builtins`; MCP defaults deny `jamf_*`). The same deny/allow lists may be set on contexts and auths (per-layer; channel allow cannot unblock a context deny). `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` clients are removed.
+
 ### Setting up a role and client for buddy
 
-If you have **no tenants yet**, run any interactive Jamf command (or `buddy cred add`) for the setup wizard — tenant name, instance URL and/or platform region+id, then auth + vault secret:
+If you have **no contexts yet**, run any interactive Jamf command (or `buddy cred add`) for the setup wizard — context name, instance URL and/or platform region+id, then auth + vault secret:
 
 ```sh
 buddy policy list                     # prompts when config is empty
@@ -158,7 +162,7 @@ buddy policy list                     # prompts when config is empty
 buddy auth test
 ```
 
-`buddy setup basic-setup` is still available for instance URL + basic auth only. If an MDM profile already provides tenants, run `buddy setup secrets` instead (creates missing auths and fills instance/platform coverage gaps). `buddy cred status` shows remaining holes. The docs UI **config** page (`buddy serve` → `/config`) edits tenant/auth metadata; secrets stay in the terminal vault.
+`buddy setup basic-setup` is still available for instance URL + basic auth only. If an MDM profile already provides contexts, run `buddy setup secrets` instead (creates missing auths and fills instance/platform coverage gaps). `buddy cred status` shows remaining holes. The docs UI **config** page (`buddy serve` → `/config`) edits context/auth metadata; secrets stay in the terminal vault.
 
 Then (optional) create a Jamf Pro **instance** API role/client and store oauth (Platform gateway oauth cannot manage roles/integrations):
 
@@ -189,7 +193,7 @@ buddy [flags] <command> <subcommand> [args...]
 |-----------------|---------------------------------|
 | `-y`            | Skip confirmation prompts       |
 | `-v, --verbose` | Verbose output (show payloads)  |
-| `--tenant <name>` | Tenant from config (auto-picks auth) |
+| `--context <name>` | Context from config (auto-picks auth); `--tenant` is a dual-read alias |
 | `--user <name>` | Pin an auth (`--auth` alias) |
 | `--script-trace` | Trace buddyscript builtin calls in scripts and the shell |
 
@@ -246,7 +250,7 @@ buddy <script.buddy> [-- args...]
 
 Scripts use **`.buddy`**. Editor support: [docs/editor.md](docs/editor.md) (`buddy lsp`; VSIX in sibling `buddy-extension`).
 
-**Built-in functions:** plural nouns enumerate (`policies`, `packages`, …); singular nouns load one resource (`policy(id=…)` / `policy(trigger=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). Optional `tenant=` / `surface=` / `auth=` last (`cred=` removed). Jamf-related builtins return **bare values** and **raise** on failure (MCP tools still wrap `{ok, value}` at the tool boundary). Canonical list: `buddy help builtins`; grammar overview: [docs/reference-manual.md](docs/reference-manual.md#built-in-functions).
+**Built-in functions:** plural nouns enumerate (`policies`, `packages`, …); singular nouns load one resource (`policy(id=…)` / `policy(trigger=…)`); singular_verb mutates (`policy_set`, `computer_reboot`). Optional `context=` / `tenant=` / `surface=` / `auth=` last (`tenant=` is a dual-read alias; `cred=` removed). Jamf-related builtins return **bare values** and **raise** on failure (MCP tools still wrap `{ok, value}` at the tool boundary). Canonical list: `buddy help builtins`; grammar overview: [docs/reference-manual.md](docs/reference-manual.md#built-in-functions).
 
 ```sh
 buddy help starlark   # language subset

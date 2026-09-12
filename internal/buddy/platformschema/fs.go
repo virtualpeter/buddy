@@ -2,16 +2,16 @@
 // specs so `jamf_schema(api="platform")` works offline.
 //
 // Unlike Jamf Pro (/api/schema) and Classic (/classicapi/doc/swagger.yaml),
-// the Platform API Gateway does not serve a single live schema document. Each
-// platform service publishes its own OpenAPI 3.x spec. Official docs and the
-// Jamf MCP (developer.jamf.com) can query those APIs but do not host
-// downloadable OAS; we vendor the JSON from Jamf-Concepts/jamf-cli (MIT)
-// under specs/ and refresh with `make sync-platform-schema`
+// the Platform API Gateway does not serve a single live schema document
+// (authenticated GETs of /schema and /openapi.json are 404; per-service
+// guesses are 403 BAD_PERMISSIONS). Official docs and the Jamf MCP
+// (developer.jamf.com) can query those APIs but do not host downloadable
+// OAS; we vendor the JSON from Jamf-Concepts/jamfplatform-go-sdk api/
+// (MIT) under specs/ and refresh with `make sync-platform-schema`
 // (scripts/sync-platform-schema.sh).
 //
-// TODO: After Platform API Gateway is GA, re-check for a live schema URL
-// and consider dropping jamf-cli vendoring. Findings: AGENTS.md
-// ("Platform schema vendoring").
+// Re-check for a live schema URL if Jamf publishes {gateway}/schema or a
+// portal openapi.json. Findings: AGENTS.md ("Platform schema vendoring").
 package platformschema
 
 import (

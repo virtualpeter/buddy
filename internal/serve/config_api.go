@@ -51,9 +51,10 @@ func handleConfigGet(w http.ResponseWriter, r *http.Request) {
 }
 
 type tenantPutBody struct {
-	URL      string `json:"url"`
-	Region   string `json:"region"`
-	TenantID string `json:"tenant_id"`
+	URL           string `json:"url"`
+	Region        string `json:"region"`
+	EnvironmentID string `json:"environment_id"`
+	TenantID      string `json:"tenant_id"`
 }
 
 func handleConfigPutTenant(w http.ResponseWriter, r *http.Request, name string) {
@@ -73,10 +74,11 @@ func handleConfigPutTenant(w http.ResponseWriter, r *http.Request, name string) 
 		buddy.SetActiveConfig(cfg)
 	}
 	_, err := buddy.SetTenantMetadata(cfg, name, buddy.SetTenantOpts{
-		URL:       body.URL,
-		Region:    body.Region,
-		TenantID:  body.TenantID,
-		Overwrite: true,
+		URL:           body.URL,
+		Region:        body.Region,
+		EnvironmentID: body.EnvironmentID,
+		TenantID:      body.TenantID,
+		Overwrite:     true,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

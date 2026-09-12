@@ -139,6 +139,6 @@ def main():
 ```
 
 ```python
-./buddy --tenant=sandbox --user=sandbox-admin scripts/integration_test.buddy
+./buddy --context=sandbox --user=sandbox-admin scripts/integration_test.buddy
 # or: make integration-test
 ```

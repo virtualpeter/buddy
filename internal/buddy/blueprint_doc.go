@@ -19,14 +19,14 @@ var BlueprintsTopic = docspec.Topic{
 		`undeploy`,
 		`platform`,
 	},
-	Summary: "Platform API Gateway blueprints — CRUD, deploy/undeploy/status, components. Requires a **platform-capable** tenant + auth (`region`/`url` + `tenantId`).",
+	Summary: "Platform API Gateway blueprints — CRUD, deploy/undeploy/status, components. Requires a **platform-capable** buddy context + auth (`region`/`url` plus Account environment `id` and/or `jamfpro.tenantId`).",
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / load", BuddyScript: "`blueprints(search=…)` / `blueprint(id=…)`", CLI: "`buddy blueprint list` / `get`", Notes: ""},
 		{Action: "Create / patch", BuddyScript: "`blueprint_create(body)` / `blueprint_set(id, body)`", CLI: "`buddy blueprint create` / `set`", Notes: "`blueprint_set` is merge-patch"},
 		{Action: "Lifecycle", BuddyScript: "`blueprint_deploy` / undeploy / status …", CLI: "`buddy blueprint deploy|undeploy|status`", Notes: "See builtins catalog"},
 	},
 	Notes: []string{
-		"Requires a **platform-capable** tenant + auth (`region`/`url` + `tenantId`).",
+		"Requires a **platform-capable** buddy context + auth (`region`/`url` plus Account environment `id` and/or `jamfpro.tenantId`).",
 	},
 	AgentNotes: []string{
 		"Do not call blueprint builtins with an instance-only session — you need Platform surface credentials.",
@@ -127,8 +127,8 @@ Flags for 'list':
   --sort=<field:dir>            Sort (default created:desc)
 
 Notes:
-  Requires a Platform API Gateway credential (region like us, or url like https://us.apigw.jamf.com
-  and tenantId). See 'buddy cred help'.
+  Requires a Platform API Gateway credential (region like us, or url like https://us.api.jamfcloud.com
+  plus Account environment id, preferred, and/or jamfpro.tenantId). See 'buddy cred help'.
 
 Examples:
   buddy blueprint list

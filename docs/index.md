@@ -8,16 +8,16 @@
 
 Day-to-day work can follow several different styles — you can work with **buddyscript** (an extended version of Starlark) via an interactive shell, `.buddy` script files, or via this local docs UI with script IDE (`buddy serve`). Alternatively, connect it as an MCP server for AI hosts (`buddy mcp`) and let the agent learn how to use buddyscript.
 
-The only required config is to define tenants + auths; passwords or oauth secrets get stored in the encrypted vault (`secrets.enc`), with a random Keychain data key and a recovery passphrase for backups — [Auth, secrets, and tokens](auth.md).
+The only required config is a **context** plus an **auth**; passwords or oauth secrets get stored in the encrypted vault (`secrets.enc`), with a random Keychain data key and a recovery passphrase for backups — [Auth, secrets, and tokens](auth.md). Instance-only (Jamf Pro URL + oauth/basic) is enough; Platform is optional.
 
 ## Start here
 
 <ul class="about-jump">
 <li><a href="/docs/docs/getting-started">Getting started</a><span>Install, setup wizard / <code>buddy cred add</code>, and your first commands</span></li>
-<li><a href="/config">Config</a><span>View and edit tenants / auths (metadata; secrets stay in the CLI)</span></li>
+<li><a href="/config">Config</a><span>View and edit contexts / auths (metadata; secrets stay in the CLI)</span></li>
 <li><a href="/ide">Script IDE</a><span>Open, edit, and run <code>.buddy</code> scripts in the browser</span></li>
-<li><a href="/docs/docs/auth">Auth, secrets, and tokens</a><span>Tenants, vault, channel policy, token cache</span></li>
-<li><a href="/docs/docs/reference-manual">Reference manual</a><span>Config, CLI, buddyscript, environment</span></li>
+<li><a href="/docs/docs/auth">Auth, secrets, and tokens</a><span>Contexts, vault, channel policy, token cache</span></li>
+<li><a href="/docs/docs/reference-manual">Reference manual</a><span>Config, CLI, buddyscript, env vars</span></li>
 <li><a href="/docs/docs/mcp">MCP for AI tools</a><span>Use buddy from Cursor, Claude Desktop, and other hosts</span></li>
 <li><a href="/docs/builtins">Function index</a><span>Every buddyscript builtin</span></li>
 <li><a href="/docs/cli">Command index</a><span>Every <code>buddy</code> CLI command</span></li>

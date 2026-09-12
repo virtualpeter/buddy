@@ -331,7 +331,7 @@ func wrapDeniedBuiltins(dict starlark.StringDict) {
 		}
 		bName := name
 		dict[bName] = starlark.NewBuiltin(bName, func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-			if err := buddy.CheckBuiltinAllowed(bName, kwString(kwargs, "tenant"), kwString(kwargs, "auth"), kwString(kwargs, "to_tenant"), kwString(kwargs, "to_auth")); err != nil {
+			if err := buddy.CheckBuiltinAllowed(bName, firstNonEmpty(kwString(kwargs, "context"), kwString(kwargs, "tenant")), kwString(kwargs, "auth"), firstNonEmpty(kwString(kwargs, "to_context"), kwString(kwargs, "to_tenant")), kwString(kwargs, "to_auth")); err != nil {
 				return nil, err
 			}
 			return orig.CallInternal(thread, args, kwargs)
@@ -350,6 +350,15 @@ func kwString(kwargs []starlark.Tuple, key string) string {
 		}
 		s, _ := starlark.AsString(kv[1])
 		return strings.TrimSpace(s)
+	}
+	return ""
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
 	}
 	return ""
 }

@@ -83,6 +83,7 @@ const (
 	FlagTrigger     = "trigger"
 	FlagGroupIDs    = "group-ids"
 	FlagTenant      = "tenant"
+	FlagContext     = "context"
 	FlagUser        = "user"
 	FlagAuth        = "auth"
 	FlagEval        = "eval"

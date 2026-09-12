@@ -19,12 +19,12 @@ var BenchmarksTopic = docspec.Topic{
 		`baseline`,
 		`baselines`,
 	},
-	Summary: `Platform compliance benchmarks — baselines, catalog rules, reports. Requires platform-capable tenant + auth.`,
+	Summary: `Platform compliance benchmarks — baselines, catalog rules, reports. Requires platform-capable context + auth.`,
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / load / mutate", BuddyScript: "`benchmark*` builtins", CLI: "`buddy benchmark …`", Notes: "Baselines, catalog rules, reports"},
 	},
 	Notes: []string{
-		"Platform compliance benchmarks. Requires platform-capable tenant + auth.",
+		"Platform compliance benchmarks. Requires platform-capable context + auth.",
 	},
 	AgentNotes: []string{
 		"Do not invent benchmark HTTP from schema alone when builtins exist.",
@@ -111,7 +111,7 @@ Subcommands:
   report-rules <benchmark-id>            Rules stats for a benchmark
 
 Notes:
-  Beta Platform API. Requires Platform gateway tenant+auth and
+  Platform API. Requires Platform gateway context+auth and
   read|create|delete:pro:compliance-benchmarks as applicable.
 
 Examples:

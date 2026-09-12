@@ -18,12 +18,12 @@ var DDMTopic = docspec.Topic{
 		`declarations`,
 		`declarative`,
 	},
-	Summary: `Platform Declarative Device Management (DDM) **declaration reporting** — read-oriented devices / declarations / channels. Requires platform-capable tenant + auth.`,
+	Summary: `Platform Declarative Device Management (DDM) **declaration reporting** — read-oriented devices / declarations / channels. Requires platform-capable context + auth.`,
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "Report", BuddyScript: "`ddm_*` builtins", CLI: "`buddy ddm declaration|device …`", Notes: "Devices / declarations / channels"},
 	},
 	Notes: []string{
-		"Read-oriented Platform DDM declaration reporting. Requires platform-capable tenant + auth.",
+		"Read-oriented Platform DDM declaration reporting. Requires platform-capable context + auth.",
 	},
 	AgentNotes: []string{
 		"Do not treat DDM reporting as a substitute for blueprint deploy or configuration profile push.",
@@ -76,7 +76,7 @@ Subcommands:
       List channels available for a device
 
 Notes:
-  Requires Platform API Gateway tenant+auth and read:pro:declaration-reporting.
+  Requires Platform API Gateway context+auth and read:pro:declaration-reporting.
   Useful alongside 'buddy blueprint status' for deployment verification.
   --filter bare term → name=="*term*"; or full RSQL.
 

@@ -8,20 +8,21 @@ import (
 
 // CredAddOpts controls buddy cred add. Empty fields are prompted when stdin is a TTY.
 type CredAddOpts struct {
-	AuthName     string
-	TenantName   string
-	URL          string
-	Region       string
-	TenantID     string
-	Surface      string
-	Type         string
-	ClientID     string
-	Username     string
-	Password     string
-	ClientSecret string
-	SkipConfirm  bool
-	Test         bool
-	NoTest       bool
+	AuthName      string
+	TenantName    string
+	URL           string
+	Region        string
+	EnvironmentID string
+	TenantID      string
+	Surface       string
+	Type          string
+	ClientID      string
+	Username      string
+	Password      string
+	ClientSecret  string
+	SkipConfirm   bool
+	Test          bool
+	NoTest        bool
 }
 
 // CredAddResult summarizes a successful cred add.
@@ -43,14 +44,14 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 
 	tenantName := strings.TrimSpace(opts.TenantName)
 	if tenantName == "" && interactive {
-		line, err := PromptSecretLine("Tenant name")
+		line, err := PromptSecretLine("Tenant name (buddy config name)")
 		if err != nil {
 			return nil, err
 		}
 		tenantName = strings.TrimSpace(line)
 	}
 	if tenantName == "" {
-		return nil, fmt.Errorf("tenant name required — pass --tenant=<name> (or run without -y in a terminal)")
+		return nil, fmt.Errorf("context name required — pass --context=<name> (or --tenant=; or run without -y in a terminal)")
 	}
 	res.TenantName = tenantName
 
@@ -58,6 +59,7 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 	if !tenantExists {
 		url := strings.TrimSpace(opts.URL)
 		region := strings.TrimSpace(opts.Region)
+		eid := strings.TrimSpace(opts.EnvironmentID)
 		tid := strings.TrimSpace(opts.TenantID)
 		if interactive {
 			if url == "" {
@@ -74,8 +76,13 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 				}
 				region = strings.TrimSpace(line)
 			}
-			if region != "" && tid == "" {
-				line, err := PromptSecretLine("Platform tenant id")
+			if region != "" && eid == "" && tid == "" {
+				line, err := PromptSecretLine("Platform environment id (Account environment UUID; blank to skip)")
+				if err != nil {
+					return nil, err
+				}
+				eid = strings.TrimSpace(line)
+				line, err = PromptSecretLine("Jamf Pro product tenant id (optional; blank to skip)")
 				if err != nil {
 					return nil, err
 				}
@@ -89,7 +96,7 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 			}
 			region = norm
 		}
-		tenant = TenantConfig{URL: url, Region: region, TenantID: tid}
+		tenant = TenantConfig{URL: url, Region: region, EnvironmentID: eid, TenantID: tid}
 		if err := tenant.Validate(); err != nil {
 			return nil, fmt.Errorf("tenant: %w", err)
 		}
@@ -144,7 +151,7 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 		return nil, fmt.Errorf("auth type must be oauth, basic, or platform (got %q)", typ)
 	}
 	if typ == AuthTypePlatform && !tenant.HasPlatform() {
-		return nil, fmt.Errorf("type=platform requires the tenant to have region + tenantId")
+		return nil, fmt.Errorf("type=platform requires the tenant to have region (and usually environmentId)")
 	}
 
 	authName := strings.TrimSpace(opts.AuthName)
@@ -286,7 +293,7 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 		}
 		tid := ""
 		if surface == SurfacePlatform {
-			tid = tenant.EffectiveTenantID()
+			tid = tenant.PlatformScopeKey()
 		}
 		if rec := LoadCaps(authName, tenantName, surface, tid); rec != nil {
 			res.Live = rec.Live

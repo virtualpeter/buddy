@@ -83,6 +83,7 @@ type CapsRecord struct {
 	Auth           string    `json:"auth"`
 	Tenant         string    `json:"tenant"`
 	Surface        string    `json:"surface"`
+	EnvironmentID  string    `json:"environmentId,omitempty"`
 	TenantID       string    `json:"tenantId,omitempty"`
 	CheckedAt      time.Time `json:"checkedAt"`
 	ExpiresAt      time.Time `json:"expiresAt"`
@@ -158,7 +159,8 @@ func sanitizeCapsKey(key string) string {
 	return replacer.Replace(key)
 }
 
-// CapsCacheKey is auth@tenant, or auth@tenant@platform:{tenantId} on platform.
+// CapsCacheKey is auth@tenant, or auth@tenant@platform:{scope} on platform
+// (environment id, tenant id, or "org").
 func CapsCacheKey(authName, tenantName, surface, tenantID string) string {
 	authName = strings.TrimSpace(authName)
 	tenantName = strings.TrimSpace(tenantName)
@@ -273,7 +275,14 @@ func SaveCaps(rec CapsRecord) error {
 	} else {
 		rec.ExpiresAt = rec.ExpiresAt.UTC()
 	}
-	pathKey := CapsCacheKey(rec.Auth, rec.Tenant, rec.Surface, rec.TenantID)
+	scope := strings.TrimSpace(rec.EnvironmentID)
+	if scope == "" {
+		scope = strings.TrimSpace(rec.TenantID)
+	}
+	if scope == "" && strings.EqualFold(strings.TrimSpace(rec.Surface), SurfacePlatform) {
+		scope = "org"
+	}
+	pathKey := CapsCacheKey(rec.Auth, rec.Tenant, rec.Surface, scope)
 	path, err := capsCachePath(pathKey)
 	if err != nil {
 		return err
@@ -330,7 +339,7 @@ func invalidateCapsForSession(sess *Session) {
 	if sess == nil {
 		return
 	}
-	InvalidateCaps(sess.AuthName, sess.TenantName, sess.Surface, sess.Credential.EffectiveTenantID())
+	InvalidateCaps(sess.AuthName, sess.TenantName, sess.Surface, sess.Credential.PlatformScopeKey())
 }
 
 // CapsCacheCleanResult summarizes a caps/ directory sweep.

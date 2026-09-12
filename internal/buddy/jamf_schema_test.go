@@ -91,12 +91,12 @@ func TestFetchPlatformSchemaEmbedded(t *testing.T) {
 		if op.API != "platform" {
 			t.Fatalf("api field %q", op.API)
 		}
-		if strings.HasPrefix(op.Path, "/api/blueprints/") {
+		if strings.HasPrefix(op.Path, "/blueprints/") || strings.HasPrefix(op.Path, "/api/blueprints/") {
 			sawBlueprintsPath = true
 		}
 	}
 	if !sawBlueprintsPath {
-		t.Fatalf("expected a /api/blueprints/ path; ops=%+v", res.Operations)
+		t.Fatalf("expected a /blueprints/ path; ops=%+v", res.Operations)
 	}
 
 	full, err := FetchJamfSchema("", "platform", "blueprints", true)

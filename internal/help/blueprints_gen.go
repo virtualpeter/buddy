@@ -70,8 +70,8 @@ Flags for 'list':
   --sort=<field:dir>            Sort (default created:desc)
 
 Notes:
-  Requires a Platform API Gateway credential (region like us, or url like https://us.apigw.jamf.com
-  and tenantId). See 'buddy cred help'.
+  Requires a Platform API Gateway credential (region like us, or url like https://us.api.jamfcloud.com
+  plus Account environment id, preferred, and/or jamfpro.tenantId). See 'buddy cred help'.
 
 Examples:
   buddy blueprint list

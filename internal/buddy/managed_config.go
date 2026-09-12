@@ -296,6 +296,7 @@ func cloneConfig(c *Config) *Config {
 
 func cloneAuthEntry(a AuthEntry) AuthEntry {
 	a.Tenants = append([]string(nil), a.Tenants...)
+	a.Contexts = append([]string(nil), a.Contexts...)
 	a.Channels = append([]string(nil), a.Channels...)
 	a.DenyBuiltins = append([]string(nil), a.DenyBuiltins...)
 	a.AllowBuiltins = append([]string(nil), a.AllowBuiltins...)
@@ -403,6 +404,7 @@ func userOverlayForSave(cfg *Config) *Config {
 func tenantConfigEqual(a, b TenantConfig) bool {
 	return strings.TrimSpace(a.URL) == strings.TrimSpace(b.URL) &&
 		strings.TrimSpace(a.Region) == strings.TrimSpace(b.Region) &&
+		strings.TrimSpace(a.EnvironmentID) == strings.TrimSpace(b.EnvironmentID) &&
 		strings.TrimSpace(a.TenantID) == strings.TrimSpace(b.TenantID) &&
 		stringSliceEqual(a.DenyBuiltins, b.DenyBuiltins) &&
 		stringSliceEqual(a.AllowBuiltins, b.AllowBuiltins)

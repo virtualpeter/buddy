@@ -10,6 +10,7 @@ import (
 type SetTenantOpts struct {
 	URL           string
 	Region        string
+	EnvironmentID string
 	TenantID      string
 	DenyBuiltins  []string
 	AllowBuiltins []string
@@ -21,7 +22,7 @@ type SetTenantOpts struct {
 // ErrExists is returned when Overwrite is false and the named entry already exists.
 var ErrExists = fmt.Errorf("already exists")
 
-// SetTenantMetadata creates or updates a tenant (url / region / tenantId / builtins).
+// SetTenantMetadata creates or updates a tenant (url / region / scope ids / builtins).
 // Does not prompt. Caller must SaveConfig.
 func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bool, err error) {
 	if cfg == nil {
@@ -38,6 +39,7 @@ func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bo
 	t := TenantConfig{
 		URL:           strings.TrimSpace(opts.URL),
 		Region:        strings.TrimSpace(opts.Region),
+		EnvironmentID: strings.TrimSpace(opts.EnvironmentID),
 		TenantID:      strings.TrimSpace(opts.TenantID),
 		DenyBuiltins:  opts.DenyBuiltins,
 		AllowBuiltins: opts.AllowBuiltins,
@@ -48,6 +50,9 @@ func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bo
 		}
 		if t.Region == "" {
 			t.Region = prev.Region
+		}
+		if t.EnvironmentID == "" {
+			t.EnvironmentID = prev.EnvironmentID
 		}
 		if t.TenantID == "" {
 			t.TenantID = prev.TenantID
@@ -86,6 +91,9 @@ type SetAuthMetadataOpts struct {
 	ClientID      string
 	RunCommand    string
 	Tenants       []string
+	JamfPro       string
+	Contexts      []string
+	Scope         string
 	Access        string
 	Channels      []string
 	ChannelsSet   bool
@@ -119,7 +127,10 @@ func SetAuthMetadata(cfg *Config, name string, opts SetAuthMetadataOpts) (create
 	}
 	entry := AuthEntry{
 		Type:          typ,
-		Tenants:       append([]string{}, opts.Tenants...),
+		Tenants:       mergeAuthLinks(opts.Tenants, opts.Contexts, opts.JamfPro),
+		JamfPro:       strings.TrimSpace(opts.JamfPro),
+		Contexts:      append([]string{}, opts.Contexts...),
+		Scope:         strings.TrimSpace(opts.Scope),
 		Access:        strings.TrimSpace(opts.Access),
 		Channels:      append([]string{}, opts.Channels...),
 		DenyBuiltins:  opts.DenyBuiltins,
@@ -142,6 +153,11 @@ func SetAuthMetadata(cfg *Config, name string, opts SetAuthMetadataOpts) (create
 		entry.ClientSecret = prev.ClientSecret
 		if len(entry.Tenants) == 0 {
 			entry.Tenants = append([]string{}, prev.Tenants...)
+			entry.JamfPro = prev.JamfPro
+			entry.Contexts = append([]string{}, prev.Contexts...)
+		}
+		if entry.Scope == "" {
+			entry.Scope = prev.Scope
 		}
 		if entry.Access == "" {
 			entry.Access = prev.Access
@@ -210,6 +226,16 @@ func DeleteTenantMetadata(cfg *Config, name string) (DeleteTenantResult, error) 
 	res.DeletedAuths = deleteAuths
 	for _, an := range unlinkAuths {
 		a := cfg.Auths[an]
+		if a.JamfPro == name {
+			a.JamfPro = ""
+		}
+		var keptCtx []string
+		for _, t := range a.Contexts {
+			if t != name {
+				keptCtx = append(keptCtx, t)
+			}
+		}
+		a.Contexts = keptCtx
 		var kept []string
 		for _, t := range a.Tenants {
 			if t != name {
@@ -318,11 +344,12 @@ type ConfigSnapshot struct {
 
 // TenantSnapshot is one tenant row for the config UI.
 type TenantSnapshot struct {
-	Name     string `json:"name"`
-	URL      string `json:"url,omitempty"`
-	Region   string `json:"region,omitempty"`
-	TenantID string `json:"tenant_id,omitempty"`
-	Managed  bool   `json:"managed,omitempty"`
+	Name          string `json:"name"`
+	URL           string `json:"url,omitempty"`
+	Region        string `json:"region,omitempty"`
+	EnvironmentID string `json:"environment_id,omitempty"`
+	TenantID      string `json:"tenant_id,omitempty"`
+	Managed       bool   `json:"managed,omitempty"`
 }
 
 // AuthSnapshot is one auth row for the config UI (metadata + secret presence).
@@ -362,11 +389,12 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 	for _, n := range tnames {
 		t := cfg.Tenants[n]
 		snap.Tenants = append(snap.Tenants, TenantSnapshot{
-			Name:     n,
-			URL:      t.URL,
-			Region:   t.Region,
-			TenantID: t.TenantID,
-			Managed:  cfg.TenantFromManagedPrefs(n),
+			Name:          n,
+			URL:           t.URL,
+			Region:        t.Region,
+			EnvironmentID: t.EnvironmentID,
+			TenantID:      t.TenantID,
+			Managed:       cfg.TenantFromManagedPrefs(n),
 		})
 	}
 	anames := make([]string, 0, len(cfg.Auths))

@@ -210,7 +210,7 @@ func fetchOneJamfSchema(credName, api, filter string, full bool) (*SchemaResult,
 // The Platform API Gateway has no single live schema document (docs/MCP query
 // only), so each service's OpenAPI spec is vendored from jamf-cli (see
 // internal/buddy/platformschema). Path keys are prefixed with each spec's
-// server base (e.g. /api/blueprints) so they match the real gateway paths, and
+// server base (e.g. /blueprints) so they match the real gateway paths, and
 // the service segment is added as a tag for filtering.
 func fetchPlatformSchema(filter string, full bool) (*SchemaResult, error) {
 	specs, err := platformschema.All()
@@ -229,6 +229,9 @@ func fetchPlatformSchema(filter string, full bool) (*SchemaResult, error) {
 		}
 		base := schemaServerBasePath(doc)
 		service := strings.TrimPrefix(base, "/api/")
+		if service == base {
+			service = strings.TrimPrefix(base, "/")
+		}
 		prefixed := prefixDocPaths(doc, base)
 		sops := listSchemaOperations(prefixed, filter)
 		for i := range sops {
@@ -258,7 +261,7 @@ func fetchPlatformSchema(filter string, full bool) (*SchemaResult, error) {
 	})
 	out := &SchemaResult{
 		API:        "platform",
-		Source:     "embedded: Jamf-Concepts/jamf-cli specs/platform",
+		Source:     "embedded: Jamf-Concepts/jamfplatform-go-sdk api/",
 		Title:      "Jamf Platform API",
 		Spec:       "openapi 3.x",
 		Count:      len(ops),
@@ -271,7 +274,7 @@ func fetchPlatformSchema(filter string, full bool) (*SchemaResult, error) {
 }
 
 // schemaServerBasePath returns the path portion of the first server URL, e.g.
-// "https://{region}.apigw.jamf.com/api/blueprints" → "/api/blueprints".
+// "https://{region}.api.jamfcloud.com/blueprints" → "/blueprints".
 func schemaServerBasePath(doc map[string]interface{}) string {
 	servers, _ := doc["servers"].([]interface{})
 	if len(servers) == 0 {

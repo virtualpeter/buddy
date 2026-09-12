@@ -108,7 +108,7 @@ Subcommands:
 
 Notes:
   Distinct from Jamf Pro computer groups ('buddy group' / smart_group / static_group).
-  Requires Platform API Gateway tenant+auth.
+  Requires Platform API Gateway context+auth.
 
 Examples:
   buddy device-group list

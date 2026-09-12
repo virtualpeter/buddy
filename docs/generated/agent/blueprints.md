@@ -14,7 +14,7 @@ keywords:
 
 # Blueprints
 
-Platform API Gateway blueprints — CRUD, deploy/undeploy/status, components. Requires a **platform-capable** tenant + auth (`region`/`url` + `tenantId`).
+Platform API Gateway blueprints — CRUD, deploy/undeploy/status, components. Requires a **platform-capable** buddy context + auth (`region`/`url` plus Account environment `id` and/or `jamfpro.tenantId`).
 
 ## Agent rules
 
@@ -27,7 +27,7 @@ Platform API Gateway blueprints — CRUD, deploy/undeploy/status, components. Re
 - List / load: `blueprints(search=…)` / `blueprint(id=…)` · `buddy blueprint list` / `get`
 - Create / patch: `blueprint_create(body)` / `blueprint_set(id, body)` · `buddy blueprint create` / `set` — `blueprint_set` is merge-patch
 - Lifecycle: `blueprint_deploy` / undeploy / status … · `buddy blueprint deploy|undeploy|status` — See builtins catalog
-- Requires a **platform-capable** tenant + auth (`region`/`url` + `tenantId`).
+- Requires a **platform-capable** buddy context + auth (`region`/`url` plus Account environment `id` and/or `jamfpro.tenantId`).
 
 ## Builtins
 
