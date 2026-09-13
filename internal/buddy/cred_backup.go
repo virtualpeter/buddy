@@ -25,6 +25,7 @@ type credBackupEnvelope = secrets.Envelope
 type credBackupPayload struct {
 	Tenant   TenantSelection          `json:"tenant"`
 	Tenants  map[string]TenantConfig  `json:"tenants"`
+	Orgs     map[string]OrgConfig     `json:"orgs,omitempty"`
 	Auths    map[string]AuthEntry     `json:"auths"`
 	Channels map[string]ChannelPolicy `json:"channels,omitempty"`
 }
@@ -63,7 +64,7 @@ func BackupCreds(cfg *Config, opts CredBackupOpts) (*CredBackupResult, error) {
 	if path == "" {
 		return nil, fmt.Errorf("backup path is required")
 	}
-	if len(cfg.Tenants) == 0 && len(cfg.Auths) == 0 {
+	if len(cfg.Tenants) == 0 && len(cfg.Orgs) == 0 && len(cfg.Auths) == 0 {
 		return nil, fmt.Errorf("nothing to backup (no tenants or auths)")
 	}
 	prevIter := secrets.EnvelopeIter
@@ -148,7 +149,7 @@ func RestoreCreds(cfg *Config, opts CredBackupOpts) (*CredRestoreResult, error) 
 	if err := json.Unmarshal(plain, &payload); err != nil {
 		return nil, fmt.Errorf("parse backup: %w", err)
 	}
-	if len(payload.Tenants) == 0 && len(payload.Auths) == 0 {
+	if len(payload.Tenants) == 0 && len(payload.Orgs) == 0 && len(payload.Auths) == 0 {
 		return nil, fmt.Errorf("backup %s has no tenants or auths", path)
 	}
 	if !opts.SkipConfirm && !StdinIsTerminal() && currentConfirmAsk() == nil {
@@ -190,6 +191,13 @@ func RestoreCreds(cfg *Config, opts CredBackupOpts) (*CredRestoreResult, error) 
 	for n, t := range payload.Tenants {
 		cfg.Tenants[n] = cloneTenantConfig(t)
 	}
+	cfg.Orgs = nil
+	if len(payload.Orgs) > 0 {
+		cfg.Orgs = make(map[string]OrgConfig, len(payload.Orgs))
+		for n, o := range payload.Orgs {
+			cfg.Orgs[n] = cloneOrgConfig(o)
+		}
+	}
 	cfg.Channels = map[string]ChannelPolicy{}
 	for n, p := range payload.Channels {
 		cfg.Channels[n] = cloneChannelPolicy(p)
@@ -222,6 +230,9 @@ func RestoreCreds(cfg *Config, opts CredBackupOpts) (*CredRestoreResult, error) 
 		stored += n
 	}
 
+	if err := expandOrgs(cfg); err != nil {
+		return nil, fmt.Errorf("restored config: %w", err)
+	}
 	if err := cfg.ValidateTenantSelectionAndChannels(); err != nil {
 		return nil, fmt.Errorf("restored config: %w", err)
 	}
@@ -323,6 +334,12 @@ func collectCredBackup(cfg *Config) (credBackupPayload, []string) {
 	}
 	for n, t := range cfg.Tenants {
 		out.Tenants[n] = cloneTenantConfig(t)
+	}
+	if len(cfg.Orgs) > 0 {
+		out.Orgs = make(map[string]OrgConfig, len(cfg.Orgs))
+		for n, o := range cfg.Orgs {
+			out.Orgs[n] = cloneOrgConfig(o)
+		}
 	}
 	if len(cfg.Channels) > 0 {
 		out.Channels = map[string]ChannelPolicy{}

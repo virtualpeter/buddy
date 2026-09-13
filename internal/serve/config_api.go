@@ -55,6 +55,7 @@ func handleConfigGet(w http.ResponseWriter, r *http.Request) {
 type tenantPutBody struct {
 	URL           string `json:"url"`
 	Region        string `json:"region"`
+	Org           string `json:"org"`
 	EnvironmentID string `json:"environment_id"`
 	TenantID      string `json:"tenant_id"`
 }
@@ -78,6 +79,8 @@ func handleConfigPutTenant(w http.ResponseWriter, r *http.Request, name string) 
 	_, err := buddy.SetTenantMetadata(cfg, name, buddy.SetTenantOpts{
 		URL:           body.URL,
 		Region:        body.Region,
+		Org:           body.Org,
+		SetOrg:        true,
 		EnvironmentID: body.EnvironmentID,
 		TenantID:      body.TenantID,
 		Overwrite:     true,
@@ -129,6 +132,7 @@ type authPutBody struct {
 	Channels []string `json:"channels"`
 	Username string   `json:"username"`
 	ClientID string   `json:"client_id"`
+	Scope    string   `json:"scope"`
 }
 
 func handleConfigPutAuth(w http.ResponseWriter, r *http.Request, name string) {
@@ -156,6 +160,7 @@ func handleConfigPutAuth(w http.ResponseWriter, r *http.Request, name string) {
 		ChannelsSet: true,
 		Username:    body.Username,
 		ClientID:    body.ClientID,
+		Scope:       body.Scope,
 		Overwrite:   true,
 	})
 	if err != nil {

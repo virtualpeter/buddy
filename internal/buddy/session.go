@@ -122,25 +122,32 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 		if err != nil {
 			return nil, err
 		}
-		if tenantName == "" || !auth.LinkedTo(tenantName) {
+		if tenantName == "" || !cfg.AuthAvailableOnTenant(auth, tenantName) {
 			if len(auth.Tenants) == 0 {
 				return nil, fmt.Errorf("auth %q has no linked tenants", authName)
 			}
-			if explicitTenant && tenantName != "" && !auth.LinkedTo(tenantName) {
+			if explicitTenant && tenantName != "" && !cfg.AuthAvailableOnTenant(auth, tenantName) {
+				if auth.EffectiveScope() == PlatformScopeOrganization {
+					return nil, fmt.Errorf("auth %q is organization-scoped; use --context on the organization workplace (linked: %s)", authName, strings.Join(auth.Tenants, ", "))
+				}
 				return nil, fmt.Errorf("auth %q is not linked to tenant %q (linked: %s)", authName, tenantName, strings.Join(auth.Tenants, ", "))
 			}
 			// Soft-switch: implicit tenant mismatch → first channel-allowed linked tenant.
 			tenantName = ""
 			for _, t := range auth.Tenants {
-				if cfg.TenantAllowedOnChannel(channel, t) {
-					tenantName = t
-					break
+				if !cfg.TenantAllowedOnChannel(channel, t) {
+					continue
 				}
+				if !cfg.AuthAvailableOnTenant(auth, t) {
+					continue
+				}
+				tenantName = t
+				break
 			}
 			if tenantName == "" {
 				tenantName = auth.Tenants[0]
 			}
-			if selTenant != "" && auth.LinkedTo(selTenant) && cfg.TenantAllowedOnChannel(channel, selTenant) {
+			if selTenant != "" && cfg.AuthAvailableOnTenant(auth, selTenant) && cfg.TenantAllowedOnChannel(channel, selTenant) {
 				tenantName = selTenant
 			}
 		}
@@ -306,6 +313,9 @@ func checkAuthForOp(cfg *Config, auth AuthEntry, tenant TenantConfig, op OpClass
 	}
 	switch surface {
 	case SurfacePlatform:
+		if auth.EffectiveScope() == PlatformScopeOrganization && !tenant.IsOrganizationWorkplace() {
+			return surfaceIncompatible("organization-scoped auth can only be used on an organization workplace")
+		}
 		if !tenant.HasPlatform() {
 			return fmt.Errorf("this context has no Account environment / platform auth")
 		}
@@ -406,6 +416,20 @@ func scoreAuth(cfg *Config, authName string, auth AuthEntry, tenantName string, 
 		}
 		if op == OpPlatformWrite && access == AccessFull {
 			score += 30
+		}
+		switch auth.EffectiveScope() {
+		case PlatformScopeOrganization:
+			if tenant.IsOrganizationWorkplace() {
+				score += 80
+			}
+		case PlatformScopeEnvironment:
+			if tenant.EffectiveEnvironmentID() != "" {
+				score += 80
+			}
+		case PlatformScopeTenant:
+			if tenant.EffectiveTenantID() != "" {
+				score += 80
+			}
 		}
 	case OpClassic, OpClassicWrite, OpACS, OpACSWrite, OpSchema, OpProUI, OpProUIWrite:
 		if surf == SurfaceInstance {

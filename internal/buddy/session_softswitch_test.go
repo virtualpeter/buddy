@@ -489,3 +489,43 @@ func TestResolveSession_ReadonlyPinChannelStillClamps(t *testing.T) {
 		t.Fatalf("channel readonly must not fall back, got %v", err)
 	}
 }
+
+func TestResolveSession_OrgScopeOnlyOnOrgWorkplace(t *testing.T) {
+	cfg := &Config{
+		Tenant: TenantSelection{Default: "commercial"},
+		Tenants: map[string]TenantConfig{
+			"acme":       {},
+			"commercial": {Region: "us", EnvironmentID: "11111111-1111-1111-1111-111111111111", Org: "acme"},
+		},
+		Auths: map[string]AuthEntry{
+			"orgadmin": {
+				Type: AuthTypePlatform, Scope: PlatformScopeOrganization,
+				ClientID: "c", ClientSecret: "s",
+				Tenants: []string{"acme"},
+			},
+			"envplat": {
+				Type: AuthTypePlatform, Scope: PlatformScopeEnvironment,
+				ClientID: "e", ClientSecret: "s",
+				Tenants: []string{"commercial"},
+			},
+		},
+	}
+	sess, err := cfg.ResolveSession("commercial", "", OpPlatform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.AuthName != "envplat" {
+		t.Fatalf("auto-pick on env got %s", sess.AuthName)
+	}
+	_, err = cfg.ResolveSession("commercial", "orgadmin", OpPlatform)
+	if err == nil || !strings.Contains(err.Error(), "organization-scoped") {
+		t.Fatalf("pin orgadmin on env: %v", err)
+	}
+	sess, err = cfg.ResolveSession("acme", "", OpPlatform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.AuthName != "orgadmin" {
+		t.Fatalf("org workplace got %s", sess.AuthName)
+	}
+}

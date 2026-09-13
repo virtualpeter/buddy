@@ -440,6 +440,82 @@ auths:
 	}
 }
 
+func TestUnmarshalOrganizationWorkplace(t *testing.T) {
+	data := []byte(`
+context:
+  default: acme
+contexts:
+  acme: {}
+  sandbox:
+    org: acme
+    id: 11111111-1111-1111-1111-111111111111
+    region: us
+    jamfpro:
+      url: https://example.jamfcloud.com
+auths:
+  acme-org:
+    type: platform
+    scope: organization
+    contexts: [acme]
+    clientId: oid
+  sandbox-platform:
+    type: platform
+    scope: environment
+    contexts: [sandbox]
+    clientId: pid
+`)
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	org := cfg.Tenants["acme"]
+	if !org.IsOrganizationWorkplace() || org.Region != "" || org.URL != "" {
+		t.Fatalf("org workplace=%+v", org)
+	}
+	if err := org.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	child := cfg.Tenants["sandbox"]
+	if child.Org != "acme" {
+		t.Fatalf("child org parent=%q", child.Org)
+	}
+	if err := cfg.ValidateTenantSelectionAndChannels(); err != nil {
+		t.Fatal(err)
+	}
+	names := cfg.AuthsForTenant("sandbox")
+	got := map[string]bool{}
+	for _, n := range names {
+		got[n] = true
+	}
+	if !got["sandbox-platform"] {
+		t.Fatalf("sandbox should keep env auth: %v", names)
+	}
+	if got["acme-org"] {
+		t.Fatalf("org-scoped auth must not apply to child workplaces: %v", names)
+	}
+	if orgNames := cfg.AuthsForTenant("acme"); len(orgNames) != 1 || orgNames[0] != "acme-org" {
+		t.Fatalf("acme auths=%v", orgNames)
+	}
+	cred := ComposeCredential(org, cfg.Auths["acme-org"], SurfacePlatform)
+	if cred.URL != OrgPlatformGatewayURL || cred.Region != OrgPlatformRegion {
+		t.Fatalf("org compose=%+v", cred)
+	}
+}
+
+func TestValidateContextOrgMustBeWorkplace(t *testing.T) {
+	cfg := &Config{
+		Tenant: TenantSelection{Default: "sandbox"},
+		Tenants: map[string]TenantConfig{
+			"sandbox": {URL: "https://example.jamfcloud.com"},
+			"prod":    {URL: "https://prod.example.jamfcloud.com", Org: "sandbox"},
+		},
+	}
+	err := cfg.ValidateTenantSelectionAndChannels()
+	if err == nil || !strings.Contains(err.Error(), "organization workplace") {
+		t.Fatalf("expected org workplace error, got %v", err)
+	}
+}
+
 func TestUnmarshalLegacyTenants(t *testing.T) {
 	data := []byte(`
 tenant:
@@ -549,5 +625,84 @@ func TestTenantConfig_BothIDsValid(t *testing.T) {
 	}
 	if err := tcfg.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFormatWorkplaceLabels(t *testing.T) {
+	org := TenantConfig{}
+	if FormatWorkplaceKind(org) != "organization" {
+		t.Fatalf("org kind=%q", FormatWorkplaceKind(org))
+	}
+	if !strings.Contains(FormatWorkplaceAccount(org), "no X-Environment-Id/X-Tenant-Id") {
+		t.Fatalf("org account=%q", FormatWorkplaceAccount(org))
+	}
+	env := TenantConfig{Region: "us", EnvironmentID: "11111111-1111-1111-1111-111111111111", Org: "acme"}
+	if FormatWorkplaceKind(env) != "environment" {
+		t.Fatalf("env kind=%q", FormatWorkplaceKind(env))
+	}
+	acc := FormatWorkplaceAccount(env)
+	if !strings.Contains(acc, "X-Environment-Id=11111111-1111-1111-1111-111111111111") || !strings.Contains(acc, "org=acme") {
+		t.Fatalf("env account=%q", acc)
+	}
+	ten := TenantConfig{
+		URL:           "https://example.jamfcloud.com",
+		Region:        "us",
+		EnvironmentID: "11111111-1111-1111-1111-111111111111",
+		TenantID:      "22222222-2222-2222-2222-222222222222",
+	}
+	if FormatWorkplaceKind(ten) != "product-tenant" {
+		t.Fatalf("tenant kind=%q", FormatWorkplaceKind(ten))
+	}
+	tacc := FormatWorkplaceAccount(ten)
+	if !strings.Contains(tacc, "X-Tenant-Id=") || !strings.Contains(tacc, "https://example.jamfcloud.com") {
+		t.Fatalf("tenant account=%q", tacc)
+	}
+	inst := TenantConfig{URL: "https://example.jamfcloud.com"}
+	if FormatWorkplaceKind(inst) != "instance" {
+		t.Fatalf("instance kind=%q", FormatWorkplaceKind(inst))
+	}
+	if FormatWorkplaceAccount(inst) != "https://example.jamfcloud.com" {
+		t.Fatalf("instance account=%q", FormatWorkplaceAccount(inst))
+	}
+	if FormatAuthScope(AuthEntry{Type: AuthTypePlatform}) != PlatformScopeEnvironment {
+		t.Fatalf("platform default scope=%q", FormatAuthScope(AuthEntry{Type: AuthTypePlatform}))
+	}
+	if FormatAuthScope(AuthEntry{Type: AuthTypeOAuth}) != "-" {
+		t.Fatalf("oauth scope=%q", FormatAuthScope(AuthEntry{Type: AuthTypeOAuth}))
+	}
+	if !strings.Contains(FormatAuthScopeDetail(AuthEntry{Type: AuthTypePlatform, Scope: PlatformScopeEnvironment}), "X-Environment-Id") {
+		t.Fatal("environment scope detail")
+	}
+}
+
+func TestWorkplaceTreeOrder(t *testing.T) {
+	tenants := map[string]TenantConfig{
+		"jamf":       {URL: "https://example.jamfcloud.com"},
+		"prod":       {URL: "https://prod.example.jamfcloud.com", Region: "us", EnvironmentID: "e1", TenantID: "t1", Org: "acme"},
+		"lab":        {URL: "https://lab.example.jamfcloud.com", Region: "us", EnvironmentID: "e2", TenantID: "t2", Org: "acme"},
+		"staging":    {Region: "us", EnvironmentID: "e2", Org: "acme"},
+		"commercial": {Region: "us", EnvironmentID: "e1", Org: "acme"},
+		"acme":       {},
+		"beta":       {},
+		"beta-env":   {Region: "eu", EnvironmentID: "e3", Org: "beta"},
+	}
+	got := WorkplaceTreeOrder(tenants)
+	want := []string{"acme", "commercial", "prod", "staging", "lab", "beta", "beta-env", "jamf"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	rows := WorkplaceTree(tenants)
+	byName := map[string]WorkplaceTreeRow{}
+	for _, r := range rows {
+		byName[r.Name] = r
+	}
+	if byName["prod"].Org != "acme" || byName["prod"].Environment != "commercial" || byName["prod"].Kind != "product-tenant" {
+		t.Fatalf("prod row=%+v", byName["prod"])
+	}
+	if byName["lab"].Environment != "staging" {
+		t.Fatalf("lab row=%+v", byName["lab"])
+	}
+	if byName["acme"].Org != "acme" || byName["acme"].Environment != "" {
+		t.Fatalf("acme row=%+v", byName["acme"])
 	}
 }

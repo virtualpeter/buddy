@@ -34,12 +34,15 @@ type CoverageAuth struct {
 
 // CoverageCell is one context identity (instance or platform) and the auths that can use it.
 type CoverageCell struct {
-	Context   string         `json:"context"`
-	Tenant    string         `json:"tenant"` // dual-read alias of context
-	Surface   string         `json:"surface"`
-	Gap       bool           `json:"gap"`
-	GapReason string         `json:"gap_reason,omitempty"`
-	Auths     []CoverageAuth `json:"auths,omitempty"`
+	Context     string         `json:"context"`
+	Tenant      string         `json:"tenant"` // dual-read alias of context
+	Org         string         `json:"org,omitempty"`
+	Environment string         `json:"environment,omitempty"` // parent environment workplace name
+	Kind        string         `json:"kind,omitempty"`
+	Surface     string         `json:"surface"`
+	Gap         bool           `json:"gap"`
+	GapReason   string         `json:"gap_reason,omitempty"`
+	Auths       []CoverageAuth `json:"auths,omitempty"`
 }
 
 // CoverageReport is the cred-status view of config + store + last live check.
@@ -61,6 +64,21 @@ func AuthCoversSurface(auth AuthEntry, surface string) bool {
 	default:
 		return false
 	}
+}
+
+// AuthFitsWorkplace reports whether auth may be used on this workplace.
+// Organization-scoped platform auths are org-level only (not environments or
+// product tenants). Other scopes keep their YAML links.
+func AuthFitsWorkplace(auth AuthEntry, tenant TenantConfig) bool {
+	if auth.EffectiveScope() == PlatformScopeOrganization {
+		return tenant.IsOrganizationWorkplace()
+	}
+	return true
+}
+
+// AuthCoversCell is coverage/session: right surface and right workplace kind.
+func AuthCoversCell(auth AuthEntry, tenant TenantConfig, surface string) bool {
+	return AuthCoversSurface(auth, surface) && AuthFitsWorkplace(auth, tenant)
 }
 
 // AuthSecretPresence reports whether the auth has a usable secret (presence only).
@@ -143,24 +161,26 @@ func BuildCoverageReportWith(cfg *Config, opts CoverageOpts) CoverageReport {
 	if cfg == nil {
 		return rep
 	}
-	tnames := make([]string, 0, len(cfg.Tenants))
-	for n := range cfg.Tenants {
-		tnames = append(tnames, n)
-	}
-	sort.Strings(tnames)
-
-	for _, tn := range tnames {
+	tree := WorkplaceTree(cfg.Tenants)
+	for _, row := range tree {
+		tn := row.Name
 		tenant := cfg.Tenants[tn]
-		linked := cfg.AuthsForTenant(tn)
-		sort.Strings(linked)
+		linked := OrderNamesByWorkplaceTree(cfg.Tenants, cfg.AuthsForTenant(tn))
 		for _, surface := range tenantSurfaces(tenant) {
-			cell := CoverageCell{Context: tn, Tenant: tn, Surface: surface}
+			cell := CoverageCell{
+				Context:     tn,
+				Tenant:      tn,
+				Org:         row.Org,
+				Environment: row.Environment,
+				Kind:        row.Kind,
+				Surface:     surface,
+			}
 			for _, name := range linked {
 				auth, err := cfg.ResolveAuth(name)
 				if err != nil {
 					continue
 				}
-				if !AuthCoversSurface(auth, surface) {
+				if !AuthCoversCell(auth, tenant, surface) {
 					continue
 				}
 				live := LiveNever
@@ -175,7 +195,7 @@ func BuildCoverageReportWith(cfg *Config, opts CoverageOpts) CoverageReport {
 			}
 			if len(cell.Auths) == 0 {
 				cell.Gap = true
-				cell.GapReason = "no auth"
+				cell.GapReason = coverageNoAuthReason(tenant, surface)
 			} else {
 				usable := false
 				for _, a := range cell.Auths {
@@ -224,23 +244,44 @@ func BuildCoverageReportWith(cfg *Config, opts CoverageOpts) CoverageReport {
 	return rep
 }
 
-// FormatCoverageReport prints the tenant × surface matrix for buddy cred status.
+func coverageNoAuthReason(tenant TenantConfig, surface string) string {
+	if surface != SurfacePlatform {
+		return "no auth"
+	}
+	switch tenant.WorkplaceKind() {
+	case "organization":
+		return "no platform auth (scope=organization)"
+	case "environment":
+		return "no platform auth (scope=environment)"
+	case "tenant":
+		return "no platform auth (scope=tenant)"
+	default:
+		return "no auth"
+	}
+}
+
+// FormatCoverageReport prints the workplace KIND × SURFACE matrix for buddy cred status.
 func FormatCoverageReport(rep CoverageReport, w io.Writer) {
 	if len(rep.Cells) == 0 && len(rep.UnlinkedAuths) == 0 {
-		fmt.Fprintln(w, "No tenants configured. Use 'buddy cred add' or 'buddy cred set tenant' (see 'buddy cred help').")
+		fmt.Fprintln(w, "No workplaces configured. Use 'buddy setup' or 'buddy cred add' (see 'buddy setup help').")
 		return
 	}
-	fmt.Fprintf(w, "%-16s  %-10s  %-20s  %-8s  %-14s  %s\n", "TENANT", "SURFACE", "AUTH", "SECRET", "LIVE", "NOTES")
-	fmt.Fprintf(w, "%-16s  %-10s  %-20s  %-8s  %-14s  %s\n",
-		"----------------", "----------", "--------------------", "--------", "--------------", "-----")
+	fmt.Fprintf(w, "%-14s  %-16s  %-16s  %-15s  %-10s  %-20s  %-8s  %-14s  %s\n", "ORG", "ENVIRONMENT", "CONTEXT", "KIND", "SURFACE", "AUTH", "SECRET", "LIVE", "NOTES")
+	fmt.Fprintf(w, "%-14s  %-16s  %-16s  %-15s  %-10s  %-20s  %-8s  %-14s  %s\n",
+		"--------------", "----------------", "----------------", "---------------", "----------", "--------------------", "--------", "--------------", "-----")
 	for _, cell := range rep.Cells {
+		kind := cell.Kind
+		if kind == "" {
+			kind = "-"
+		}
+		org, env := cell.Org, cell.Environment
 		if len(cell.Auths) == 0 {
 			note := ""
 			if cell.Gap {
 				note = "GAP (" + cell.GapReason + ")"
 			}
-			fmt.Fprintf(w, "%-16s  %-10s  %-20s  %-8s  %-14s  %s\n",
-				cell.Tenant, cell.Surface, "—", "—", LiveNever, note)
+			fmt.Fprintf(w, "%-14s  %-16s  %-16s  %-15s  %-10s  %-20s  %-8s  %-14s  %s\n",
+				org, env, cell.Tenant, kind, cell.Surface, "—", "—", LiveNever, note)
 			continue
 		}
 		for i, a := range cell.Auths {
@@ -252,13 +293,15 @@ func FormatCoverageReport(rep CoverageReport, w io.Writer) {
 			if live == "" {
 				live = LiveNever
 			}
-			fmt.Fprintf(w, "%-16s  %-10s  %-20s  %-8s  %-14s  %s\n",
-				cell.Tenant, cell.Surface, a.Name, a.Secret, live, note)
+			fmt.Fprintf(w, "%-14s  %-16s  %-16s  %-15s  %-10s  %-20s  %-8s  %-14s  %s\n",
+				org, env, cell.Tenant, kind, cell.Surface, a.Name, a.Secret, live, note)
 		}
 	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Rows are org → environment → product-tenant. SURFACE is instance vs Platform gateway (not Account scope).")
 	if len(rep.UnlinkedAuths) > 0 {
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "UNLINKED AUTHS (no tenants:)")
+		fmt.Fprintln(w, "UNLINKED AUTHS (no contexts:)")
 		for _, n := range rep.UnlinkedAuths {
 			fmt.Fprintf(w, "  %s\n", n)
 		}

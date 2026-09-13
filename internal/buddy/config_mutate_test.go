@@ -53,6 +53,9 @@ func TestSetTenantAndAuthMetadata(t *testing.T) {
 	if snap.DefaultContext != "sandbox" || snap.DefaultTenant != "sandbox" {
 		t.Fatalf("default context = %q / %q", snap.DefaultContext, snap.DefaultTenant)
 	}
+	if snap.Tenants[0].Kind != "instance" {
+		t.Fatalf("kind = %q", snap.Tenants[0].Kind)
+	}
 	if len(snap.Auths[0].Contexts) != 1 || snap.Auths[0].Contexts[0] != "sandbox" {
 		t.Fatalf("auth contexts = %v", snap.Auths[0].Contexts)
 	}

@@ -10,12 +10,14 @@ import (
 type SetTenantOpts struct {
 	URL           string
 	Region        string
+	Org           string
 	EnvironmentID string
 	TenantID      string
 	DenyBuiltins  []string
 	AllowBuiltins []string
 	SetDeny       bool // when true, DenyBuiltins replaces previous (even if empty)
 	SetAllow      bool
+	SetOrg        bool // when true, Org replaces previous (even if empty)
 	Overwrite     bool // when false and tenant exists, return ErrExists
 }
 
@@ -39,6 +41,7 @@ func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bo
 	t := TenantConfig{
 		URL:           strings.TrimSpace(opts.URL),
 		Region:        strings.TrimSpace(opts.Region),
+		Org:           strings.TrimSpace(opts.Org),
 		EnvironmentID: strings.TrimSpace(opts.EnvironmentID),
 		TenantID:      strings.TrimSpace(opts.TenantID),
 		DenyBuiltins:  opts.DenyBuiltins,
@@ -50,6 +53,9 @@ func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bo
 		}
 		if t.Region == "" {
 			t.Region = prev.Region
+		}
+		if !opts.SetOrg {
+			t.Org = prev.Org
 		}
 		if t.EnvironmentID == "" {
 			t.EnvironmentID = prev.EnvironmentID
@@ -72,6 +78,9 @@ func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bo
 		t.Region = norm
 	}
 	if err := t.Validate(); err != nil {
+		return false, err
+	}
+	if err := cfg.validateContextOrg(name, t); err != nil {
 		return false, err
 	}
 	if cfg.Tenants == nil {
@@ -350,8 +359,12 @@ type TenantSnapshot struct {
 	Name          string `json:"name"`
 	URL           string `json:"url,omitempty"`
 	Region        string `json:"region,omitempty"`
+	Org           string `json:"org,omitempty"`
+	Env           string `json:"env,omitempty"` // parent environment workplace name (not UUID)
 	EnvironmentID string `json:"environment_id,omitempty"`
 	TenantID      string `json:"tenant_id,omitempty"` // Jamf Pro product tenant UUID
+	Kind          string `json:"kind,omitempty"`      // organization | environment | product-tenant | instance
+	Organization  bool   `json:"organization,omitempty"`
 	Managed       bool   `json:"managed,omitempty"`
 }
 
@@ -362,6 +375,7 @@ type AuthSnapshot struct {
 	Contexts []string `json:"contexts"`
 	Tenants  []string `json:"tenants"` // dual-read alias of contexts
 	Access   string   `json:"access"`
+	Scope    string   `json:"scope,omitempty"` // platform: organization|environment|tenant
 	Channels []string `json:"channels,omitempty"`
 	Username string   `json:"username,omitempty"`
 	ClientID string   `json:"client_id,omitempty"`
@@ -389,20 +403,23 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 		snap.ChannelContexts[ch] = d
 		snap.ChannelTenants[ch] = d
 	}
-	tnames := make([]string, 0, len(cfg.Tenants))
-	for n := range cfg.Tenants {
-		tnames = append(tnames, n)
-	}
-	sort.Strings(tnames)
-	for _, n := range tnames {
-		t := cfg.Tenants[n]
+	for _, row := range WorkplaceTree(cfg.Tenants) {
+		t := cfg.Tenants[row.Name]
+		org := row.Org
+		if t.WorkplaceKind() == "organization" {
+			org = row.Name
+		}
 		snap.Tenants = append(snap.Tenants, TenantSnapshot{
-			Name:          n,
+			Name:          row.Name,
 			URL:           t.URL,
 			Region:        t.Region,
+			Org:           org,
+			Env:           row.Environment,
 			EnvironmentID: t.EnvironmentID,
 			TenantID:      t.TenantID,
-			Managed:       cfg.TenantFromManagedPrefs(n),
+			Kind:          row.Kind,
+			Organization:  t.IsOrganizationWorkplace(),
+			Managed:       cfg.TenantFromManagedPrefs(row.Name),
 		})
 	}
 	snap.Contexts = snap.Tenants
@@ -419,6 +436,7 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 			Contexts: append([]string{}, a.Tenants...),
 			Tenants:  append([]string{}, a.Tenants...),
 			Access:   a.EffectiveAccess(),
+			Scope:    a.EffectiveScope(),
 			Channels: append([]string{}, a.Channels...),
 			Username: a.Username,
 			ClientID: a.ClientID,
