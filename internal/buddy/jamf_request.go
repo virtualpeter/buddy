@@ -69,7 +69,7 @@ func opClassForPath(method, path string) OpClass {
 		}
 		return OpProUIWrite
 	}
-	// Vendored Platform product APIs (blueprints, devices, device-groups, …).
+	// Vendored and Account Platform product APIs (blueprints, devices, licensing, …).
 	if isPlatformProductPath(path) {
 		if method == http.MethodGet || method == http.MethodHead {
 			return OpPlatform

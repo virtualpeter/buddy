@@ -21,6 +21,22 @@ func requirePlatformCred(credName string) error {
 	return nil
 }
 
+// requireOrgPlatformCred ensures a platform session with no environment or
+// product-tenant header (Account organization APIs such as licensing).
+func requireOrgPlatformCred(credName string) error {
+	sess, err := ResolveSessionForCred(credName, OpPlatform)
+	if err != nil {
+		return fmt.Errorf("Account licensing requires a platform auth on an organization workplace (no X-Environment-Id / X-Tenant-Id); see 'buddy cred help': %w", err)
+	}
+	if sess.Surface != SurfacePlatform {
+		return fmt.Errorf("Account licensing requires a platform auth on an organization workplace (no X-Environment-Id / X-Tenant-Id); see 'buddy cred help'")
+	}
+	if sess.Credential.EffectiveEnvironmentID() != "" || sess.Credential.EffectiveTenantID() != "" {
+		return fmt.Errorf("Account licensing is organization-scoped; use --context on an organization workplace (no environment or product tenant id)")
+	}
+	return nil
+}
+
 // requirePlatformMutate is like requirePlatformCred but rejects readonly auths / channel policy.
 func requirePlatformMutate(credName string) error {
 	if _, err := ResolveSessionForCred(credName, OpPlatformWrite); err != nil {

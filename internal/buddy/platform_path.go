@@ -16,7 +16,7 @@ var (
 	proVersionPathRE = regexp.MustCompile(`^(/api)/(v\d+)(/.*)$`)
 	// platformProductPathRE matches Platform product APIs (logical /api/{service}/vN/…).
 	// Service may include a slash (ddm/report).
-	platformProductPathRE = regexp.MustCompile(`^(/api/(?:blueprints|devices|device-groups|device-actions|compliance-benchmarks|ddm/report))/(v\d+)(/.*)$`)
+	platformProductPathRE = regexp.MustCompile(`^(/api/(?:blueprints|devices|device-groups|device-actions|compliance-benchmarks|ddm/report|licensing|sso))/(v\d+)(/.*)$`)
 	tenantSegmentRE       = regexp.MustCompile(`/tenant/[^/]+`)
 )
 
@@ -34,6 +34,10 @@ var platformProductPrefixes = []string{
 	"/compliance-benchmarks",
 	"/api/ddm/report",
 	"/ddm/report",
+	"/api/licensing",
+	"/licensing",
+	"/api/sso",
+	"/sso",
 }
 
 // isPlatformProductPath reports whether path targets a vendored Platform product API
@@ -76,7 +80,7 @@ func stripTenantSegment(path string) string {
 //   - /api/vN/rest…           → /pro/vN/rest…
 //   - /JSSResource/…          → /proclassic/…  (JSSResource prefix stripped)
 //   - /api/{product}/vN/…     → /{service}/vN/…
-//     (blueprints, devices, device-groups, device-actions, compliance-benchmarks, ddm/report)
+//     (blueprints, devices, device-groups, device-actions, compliance-benchmarks, ddm/report, licensing, sso)
 //   - already rewritten /pro/… or /proclassic/… → strip leftover /tenant/{id} and /api
 //   - /api/schema, /classicapi, /api/config-profiles, GET /api/v1/policies → error (not supported via gateway)
 func RewriteJamfPath(platform bool, path string) (string, error) {

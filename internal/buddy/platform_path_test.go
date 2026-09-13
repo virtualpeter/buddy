@@ -79,6 +79,8 @@ func TestRewriteJamfPath_PlatformProducts(t *testing.T) {
 		{"/api/device-actions/v1/devices/x/restart", "/device-actions/v1/devices/x/restart"},
 		{"/api/compliance-benchmarks/v1/benchmarks", "/compliance-benchmarks/v1/benchmarks"},
 		{"/api/ddm/report/v1/devices/x/declarations", "/ddm/report/v1/devices/x/declarations"},
+		{"/api/licensing/v1/licenses", "/licensing/v1/licenses"},
+		{"/api/sso/v1/domains", "/sso/v1/domains"},
 		{"/api/devices/v1/devices?page=0", "/devices/v1/devices?page=0"},
 	}
 	for _, tc := range cases {
@@ -107,6 +109,15 @@ func TestOpClassForPath_PlatformProducts(t *testing.T) {
 	}
 	if got := opClassForPath("GET", "/pro/v1/buildings"); got != OpPlatform {
 		t.Fatalf("GET rewritten pro → %q", got)
+	}
+	if got := opClassForPath("GET", "/api/licensing/v1/licenses"); got != OpPlatform {
+		t.Fatalf("GET licensing → %q", got)
+	}
+	if got := opClassForPath("GET", "/licensing/v1/licenses"); got != OpPlatform {
+		t.Fatalf("GET rewritten licensing → %q", got)
+	}
+	if got := opClassForPath("GET", "/api/sso/v1/domains"); got != OpPlatform {
+		t.Fatalf("GET sso → %q", got)
 	}
 }
 
@@ -257,6 +268,19 @@ func TestCredentialValidate_BothScopeIDsRefused(t *testing.T) {
 	}
 }
 
+func TestTenantValidate_OrganizationWorkplace(t *testing.T) {
+	tcfg := TenantConfig{}
+	if err := tcfg.Validate(); err != nil {
+		t.Fatalf("empty context is an org workplace: %v", err)
+	}
+	if !tcfg.IsOrganizationWorkplace() || !tcfg.HasPlatform() {
+		t.Fatal("org workplace should HasPlatform with no region")
+	}
+	if tcfg.GatewayBaseURL() != OrgPlatformGatewayURL {
+		t.Fatalf("GatewayBaseURL = %q", tcfg.GatewayBaseURL())
+	}
+}
+
 func TestTenantValidate_OrgOK(t *testing.T) {
 	tcfg := TenantConfig{Region: "us"}
 	if err := tcfg.Validate(); err != nil {
@@ -386,6 +410,22 @@ func TestLooksLikePlatformGateway(t *testing.T) {
 	}
 }
 
+func TestComposeCredential_OrganizationUsesUSGateway(t *testing.T) {
+	tenant := TenantConfig{
+		URL:           "https://example.jamfcloud.com",
+		Region:        "apac",
+		EnvironmentID: "11111111-1111-1111-1111-111111111111",
+	}
+	auth := AuthEntry{Type: AuthTypePlatform, Scope: PlatformScopeOrganization, ClientID: "c", Tenants: []string{"sandbox"}}
+	cred := ComposeCredential(tenant, auth, SurfacePlatform)
+	if cred.URL != OrgPlatformGatewayURL || cred.Region != OrgPlatformRegion || cred.EnvironmentID != "" || cred.TenantID != "" {
+		t.Fatalf("org compose should use us.api.jamfcloud.com with no env/tenant headers: %+v", cred)
+	}
+	if err := cred.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestUsesPlatformAuth(t *testing.T) {
 	gwOnly := CredentialConfig{URL: "https://apac.api.jamfcloud.com", Auth: AuthConfig{Type: "oauth"}}
 	if !gwOnly.UsesPlatformAuth() {
@@ -419,7 +459,7 @@ func TestEffectiveTenantID_FromAuthMisplaced(t *testing.T) {
 
 func TestPlatformAuthTestHint(t *testing.T) {
 	hint := platformAuthTestHint(`{"errors":[{"code":"REQUEST_CONTEXT_NOT_PROVIDED"}]}`, CredentialConfig{})
-	if hint == "" || !strings.Contains(hint, "environmentId") {
+	if hint == "" || !strings.Contains(hint, "organization") {
 		t.Fatalf("got %q", hint)
 	}
 	hint = platformAuthTestHint(`OWNERSHIP_FORBIDDEN`, CredentialConfig{EnvironmentID: "env-1"})

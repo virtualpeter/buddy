@@ -609,8 +609,11 @@ func authTestEnvelope(sess *Session, live string, extra map[string]interface{}) 
 
 // AuthTestValue tests authentication and returns a JSON-friendly object.
 // Always ForceRenews basic/oauth tokens so a disk-cached bearer cannot mask a
-// bad secret. Instance probes GET /api/v1/auth; platform probes buildings.
-// Token success with a 401/403 probe is live=token-ok (exit 0).
+// bad secret. Instance probes GET /api/v1/auth; platform probes buildings when
+// the workplace has an environment or product-tenant id. Organization workplaces
+// probe GET /licensing/v1/licenses (no X-Environment-Id / X-Tenant-Id). Token
+// success with a 401/403 probe is live=token-ok (exit 0); licenses 401 after
+// ForceRenew is a token failure.
 func AuthTestValue(credName string, log *slog.Logger) (map[string]interface{}, error) {
 	sess, err := ResolveSessionForCred(credName, OpAny)
 	if err != nil {
@@ -653,15 +656,21 @@ func authTestSession(sess *Session, log *slog.Logger) (map[string]interface{}, e
 	probeName := "auth"
 	op := OpRead
 	if platform {
-		probePath = "/api/v1/buildings"
-		probeName = "buildings"
-		op = OpPlatform
+		if platformAuthTestHasProductScope(sess) {
+			probePath = "/api/v1/buildings"
+			probeName = "buildings"
+			op = OpPlatform
+		} else {
+			probePath = uriLicenses
+			probeName = "licenses"
+			op = OpPlatform
+		}
 	}
 	endpoint, err := ResolveEndpointOp(sess.AuthName, probePath, op)
 	if err != nil {
 		return nil, err
 	}
-	if platform {
+	if platform && probeName == "buildings" {
 		endpoint += "?page=0&page-size=1"
 	}
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
@@ -701,14 +710,30 @@ func authTestSession(sess *Session, log *slog.Logger) (map[string]interface{}, e
 		return authTestEnvelope(sess, LiveOK, extra), nil
 	}
 
-	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+	if resp.StatusCode == http.StatusForbidden || (resp.StatusCode == http.StatusUnauthorized && probeName != "licenses") {
 		if log != nil {
 			log.Debug("auth probe not permitted; token acquired", "status", resp.StatusCode, "probe", probeName)
 		}
 		note := "Bearer token acquired; probe not permitted (privilege, not a bad secret)"
-		if platform {
+		if platform && probeName == "licenses" {
+			note = "Bearer token acquired; licenses probe not permitted (need licensing privilege on the org integration for a full probe)"
+		} else if platform {
 			note = "Bearer token acquired; buildings probe not permitted (need read:pro:buildings for a full probe)"
 		}
+		persistCaps(sess, CapsRecord{
+			Live: LiveTokenOK, TokenOk: true, ProbeOk: false,
+			Probe: probeName, ProbeStatus: resp.StatusCode,
+		})
+		return authTestEnvelope(sess, LiveTokenOK, map[string]interface{}{
+			"tokenAcquired": true,
+			"probe":         probeName,
+			"probeStatus":   resp.StatusCode,
+			"note":          note,
+		}), nil
+	}
+
+	if platform && strings.Contains(string(body), "REQUEST_CONTEXT_NOT_PROVIDED") && !platformAuthTestHasProductScope(sess) {
+		note := "Bearer token acquired; probe needs X-Environment-Id or X-Tenant-Id (organization workplace sends none). Account licensing does not need a scope header; use --context on an environment or product tenant for a Pro probe."
 		persistCaps(sess, CapsRecord{
 			Live: LiveTokenOK, TokenOk: true, ProbeOk: false,
 			Probe: probeName, ProbeStatus: resp.StatusCode,
@@ -727,6 +752,15 @@ func authTestSession(sess *Session, log *slog.Logger) (map[string]interface{}, e
 		}
 	}
 	return nil, fmt.Errorf("auth test returned %d: %s", resp.StatusCode, string(body))
+}
+
+// platformAuthTestHasProductScope is true when a buildings (Pro) probe can send
+// X-Environment-Id or X-Tenant-Id. Organization workplaces send neither.
+func platformAuthTestHasProductScope(sess *Session) bool {
+	if sess == nil {
+		return false
+	}
+	return sess.Credential.EffectiveEnvironmentID() != "" || sess.Credential.EffectiveTenantID() != ""
 }
 
 func platformAuthTestHint(body string, cred CredentialConfig) string {
@@ -748,7 +782,7 @@ func platformAuthTestHint(body string, cred CredentialConfig) string {
 		return "the gateway does not know this environment-id (a tenant id in the environment field reads as ENVIRONMENT_NOT_FOUND)"
 	case strings.Contains(body, "REQUEST_CONTEXT_NOT_PROVIDED"):
 		if eid == "" && tid == "" {
-			return "no scope header was sent; set environmentId (preferred) or tenantId on the tenant, or use an organization-scoped integration only for Jamf Account APIs"
+			return "no scope header was sent; organization workplaces probe licensing without X-Environment-Id (use --context on an environment or product tenant to probe Pro)"
 		}
 		id := eid
 		if id == "" {
