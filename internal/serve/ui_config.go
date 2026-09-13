@@ -37,7 +37,7 @@ body {
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-main { padding: 1.5rem 2rem 3rem; max-width: 56rem; }
+main { padding: 1.5rem 2rem 3rem; max-width: 68rem; }
 main h1 { margin: 0 0 1rem; font-size: 1.45rem; }
 main h2 {
   margin: 1.75rem 0 .75rem;
@@ -54,6 +54,22 @@ main h2 {
 }
 .banner code { font-family: var(--mono); font-size: .88em; }
 .hint { color: var(--muted); font-size: .9rem; margin: 0 0 1rem; }
+.hint a { color: var(--accent); }
+.section-note {
+  color: var(--muted);
+  font-size: .86rem;
+  margin: -.35rem 0 1rem;
+  max-width: 48rem;
+}
+.section-note code { font-family: var(--mono); font-size: .88em; }
+ul.section-note { padding-left: 1.2rem; margin-top: .15rem; }
+.section-note li { margin: .22rem 0; }
+.form-grid label .why {
+  font-size: .75rem;
+  font-weight: 400;
+  color: var(--muted);
+  line-height: 1.35;
+}
 .err {
   display: none;
   margin: 0 0 1rem;
@@ -157,8 +173,10 @@ button:hover { filter: brightness(1.06); }
 ` + chromeHeader("config", "", "", "") + `
 <main>
   <h1>Config</h1>
-  <p class="hint">Edit contexts and auth <strong>metadata</strong> only. Passwords and client secrets stay in the terminal vault:
-    <code>buddy cred set secret &lt;auth&gt;</code> or <code>buddy cred add</code>.</p>
+  <p class="hint">First-run identity lives in the terminal: <code>buddy setup</code> or <code>buddy cred add</code>
+    (instance JSON/basic, Platform curl, quickstart import, or MDM + secrets). This page edits workplace and auth
+    <strong>metadata</strong> only. Passwords and client secrets stay in the vault:
+    <code>buddy cred set secret &lt;auth&gt;</code> / <code>buddy setup secrets</code>.</p>
   <div id="banner" class="banner" style="display:none"></div>
   <div id="err" class="err"></div>
 
@@ -182,24 +200,55 @@ button:hover { filter: brightness(1.06); }
   </div>
 
   <h2>Contexts</h2>
+  <p class="section-note">A context is a <strong>workplace name</strong> (<code>--context</code>), not a Jamf UUID.
+    Jamf Account <strong>scope</strong> lives on the <em>auth</em>.
+    See <a href="/docs/docs/auth#contexts-and-auths">Auth: contexts and auths</a>.</p>
+  <ul class="section-note">
+    <li><strong>Instance</strong> — Jamf Pro URL only. No region or Account ids.</li>
+    <li><strong>Organization</strong> — name only. US gateway, <em>no</em> <code>X-Environment-Id</code> / <code>X-Tenant-Id</code>.</li>
+    <li><strong>Environment</strong> — <code>region</code> + Account <em>environment</em> UUID. Pair with a <code>platform</code> auth whose scope is <code>environment</code> (sends <code>X-Environment-Id</code>). This is the usual GA path for blueprints/devices.</li>
+    <li><strong>Product tenant</strong> — same region + environment id, plus Jamf Pro <em>tenant</em> UUID (optional instance URL). Auth scope <code>tenant</code> sends <code>X-Tenant-Id</code>.</li>
+  </ul>
   <table>
-    <thead><tr><th>Name</th><th>URL</th><th>Region</th><th>Scope</th><th></th></tr></thead>
+    <thead><tr><th>Org</th><th>Environment</th><th>Context</th><th>Kind</th><th>URL</th><th></th></tr></thead>
     <tbody id="contexts-body"></tbody>
   </table>
   <div class="form-grid">
-    <label>Name <input id="t-name" autocomplete="off"></label>
-    <label>Instance URL <input id="t-url" placeholder="https://… (blank ok)"></label>
-    <label>Platform region <input id="t-region" placeholder="us|eu|apac"></label>
-    <label>Platform environment id <input id="t-eid" placeholder="preferred"></label>
-    <label>Platform tenant id <input id="t-tid" placeholder="legacy single-product"></label>
+    <label>Name <input id="t-name" autocomplete="off" placeholder="sandbox"></label>
+    <label>Instance URL
+      <span class="why">Jamf Pro host. Blank for org or environment-only workplaces.</span>
+      <input id="t-url" placeholder="https://example.jamfcloud.com">
+    </label>
+    <label>Region
+      <span class="why">Required for environment / product-tenant (us, eu, apac). Omit on org workplaces.</span>
+      <input id="t-region" placeholder="us">
+    </label>
+    <label>Environment id
+      <span class="why">Account environment UUID from Jamf Account → Integrations. Becomes <code>X-Environment-Id</code>.</span>
+      <input id="t-eid" placeholder="11111111-1111-1111-1111-111111111111">
+    </label>
+    <label>Product tenant id
+      <span class="why">Jamf Pro product-tenant UUID. Only for a tenant workplace / <code>scope: tenant</code>.</span>
+      <input id="t-tid" placeholder="leave blank for environment">
+    </label>
+    <label>Parent org
+      <span class="why">Optional workplace name of the organization (nested <code>orgs:</code>).</span>
+      <input id="t-org" placeholder="acme">
+    </label>
     <div class="form-actions">
       <button type="button" class="primary" id="btn-save-context">Add / update context</button>
     </div>
   </div>
 
   <h2>Auths</h2>
+  <p class="section-note"><code>oauth</code> / <code>basic</code> talk to Jamf Pro (instance).
+    <code>platform</code> talks to the Account gateway; <strong>scope</strong> chooses the header:
+    <code>environment</code> → <code>X-Environment-Id</code> from the linked environment workplace;
+    <code>organization</code> → none (link the org workplace only; not inherited by env/tenant);
+    <code>tenant</code> → <code>X-Tenant-Id</code>.
+    Product APIs (blueprints, devices) want an environment-scoped platform auth.</p>
   <table>
-    <thead><tr><th>Name</th><th>Type</th><th>Contexts</th><th>Access</th><th>Secret</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Type</th><th>Scope</th><th>Contexts</th><th>Access</th><th>Secret</th><th></th></tr></thead>
     <tbody id="auths-body"></tbody>
   </table>
   <div class="form-grid">
@@ -212,6 +261,15 @@ button:hover { filter: brightness(1.06); }
       </select>
     </label>
     <label>Linked contexts (csv) <input id="a-contexts" placeholder="sandbox"></label>
+    <label>Platform scope
+      <span class="why">Only for type platform. environment is the GA default.</span>
+      <select id="a-scope">
+        <option value="">(instance — omit)</option>
+        <option value="organization">organization — no env/tenant header</option>
+        <option value="environment">environment — X-Environment-Id</option>
+        <option value="tenant">tenant — X-Tenant-Id</option>
+      </select>
+    </label>
     <label>Access
       <select id="a-access">
         <option value="full">full</option>
@@ -227,8 +285,10 @@ button:hover { filter: brightness(1.06); }
   </div>
 
   <h2>Coverage</h2>
+  <p class="section-note">Each row is a workplace × <em>surface</em> (instance URL vs Platform gateway) — not Jamf Account scope.
+    An environment workplace needs a <code>platform</code> auth with scope <code>environment</code>.</p>
   <table>
-    <thead><tr><th>Context</th><th>Surface</th><th>Status</th><th>Auths</th></tr></thead>
+    <thead><tr><th>Org</th><th>Environment</th><th>Context</th><th>Kind</th><th>Surface</th><th>Status</th><th>Auths</th></tr></thead>
     <tbody id="cov-body"></tbody>
   </table>
 </main>
@@ -256,6 +316,17 @@ button:hover { filter: brightness(1.06); }
     if (!res.ok) throw new Error(data.error || (res.status + ' ' + res.statusText));
     return data;
   }
+  function workplaceKind(t){
+    if (t.kind) return t.kind;
+    if (t.organization) return 'organization';
+    if (t.tenant_id) return 'tenant';
+    if (t.environment_id || (t.region && !t.url)) return 'environment';
+    return 'instance';
+  }
+  function workplaceKindLabel(k){
+    if (k === 'tenant' || k === 'product-tenant') return 'product tenant';
+    return k || '';
+  }
   function workplaceRows(st){
     return st.contexts || st.tenants || [];
   }
@@ -281,7 +352,7 @@ button:hover { filter: brightness(1.06); }
     var banner = document.getElementById('banner');
     if (state.needs_setup) {
       banner.style.display = '';
-      banner.innerHTML = '<strong>Not configured yet.</strong> Add a context below, then an auth. Store secrets in a terminal: <code>buddy cred set secret &lt;auth&gt;</code>. See <a href="/docs/docs/getting-started" target="buddy-docs">Getting started</a>.';
+      banner.innerHTML = '<strong>Not configured yet.</strong> Run <code>buddy setup</code> or <code>buddy cred add</code> in a terminal (instance JSON/basic, Platform curl, <code>setup import</code>, or MDM + <code>setup secrets</code>). This page does not collect secrets. See <a href="/docs/docs/getting-started">Getting started</a>.';
     } else {
       banner.style.display = 'none';
     }
@@ -295,15 +366,21 @@ button:hover { filter: brightness(1.06); }
     var tb = document.getElementById('contexts-body');
     tb.innerHTML = '';
     workplaceRows(state).forEach(function(t){
+      var kind = workplaceKind(t);
+      var org = t.org || (kind === 'organization' ? t.name : '');
+      var env = t.env || (kind === 'environment' ? t.name : '');
+      var url = (kind === 'instance' || kind === 'tenant' || kind === 'product-tenant') ? (t.url || '') : '';
       var tr = document.createElement('tr');
-      tr.innerHTML = '<td><code>'+esc(t.name)+'</code>'+(t.managed?' <span class="badge">mdm</span>':'')+'</td>'+
-        '<td>'+esc(t.url||'')+'</td><td>'+esc(t.region||'')+'</td><td>'+esc(t.environment_id||t.tenant_id||(t.region?'org':''))+'</td>'+
+      tr.innerHTML = '<td>'+esc(org)+'</td><td>'+esc(env)+'</td>'+
+        '<td><code>'+esc(t.name)+'</code>'+(t.managed?' <span class="badge">mdm</span>':'')+'</td>'+
+        '<td><span class="badge">'+esc(workplaceKindLabel(kind))+'</span></td>'+
+        '<td>'+esc(url)+'</td>'+
         '<td class="row-actions"><button type="button" data-edit-t="'+esc(t.name)+'">Edit</button>'+
         '<button type="button" class="danger" data-del-t="'+esc(t.name)+'">Delete</button></td>';
       tb.appendChild(tr);
     });
     if (!workplaceRows(state).length) {
-      tb.innerHTML = '<tr><td colspan="5" class="muted">No contexts</td></tr>';
+      tb.innerHTML = '<tr><td colspan="6" class="muted">No contexts</td></tr>';
     }
 
     var ab = document.getElementById('auths-body');
@@ -312,14 +389,14 @@ button:hover { filter: brightness(1.06); }
       var secretCls = a.secret === 'missing' ? 'gap' : 'ok';
       var tr = document.createElement('tr');
       tr.innerHTML = '<td><code>'+esc(a.name)+'</code>'+(a.managed?' <span class="badge">mdm</span>':'')+'</td>'+
-        '<td>'+esc(a.type)+'</td><td>'+esc(authContexts(a).join(', '))+'</td>'+
+        '<td>'+esc(a.type)+'</td><td>'+esc(a.scope||'')+'</td><td>'+esc(authContexts(a).join(', '))+'</td>'+
         '<td>'+esc(a.access)+'</td><td><span class="badge '+secretCls+'">'+esc(a.secret)+'</span></td>'+
         '<td class="row-actions"><button type="button" data-edit-a="'+esc(a.name)+'">Edit</button>'+
         '<button type="button" class="danger" data-del-a="'+esc(a.name)+'">Delete</button></td>';
       ab.appendChild(tr);
     });
     if (!(state.auths || []).length) {
-      ab.innerHTML = '<tr><td colspan="6" class="muted">No auths</td></tr>';
+      ab.innerHTML = '<tr><td colspan="7" class="muted">No auths</td></tr>';
     }
 
     var cb = document.getElementById('cov-body');
@@ -329,11 +406,12 @@ button:hover { filter: brightness(1.06); }
       var auths = (c.auths||[]).map(function(x){ return x.name+' ('+x.secret+')'; }).join(', ') || '—';
       var st = c.gap ? '<span class="badge gap">gap</span> '+esc(c.gap_reason||'') : '<span class="badge ok">ok</span>';
       var tr = document.createElement('tr');
-      tr.innerHTML = '<td>'+esc(c.context||c.tenant)+'</td><td>'+esc(c.surface)+'</td><td>'+st+'</td><td>'+esc(auths)+'</td>';
+      tr.innerHTML = '<td>'+esc(c.org||'')+'</td><td>'+esc(c.environment||'')+'</td>'+
+        '<td>'+esc(c.context||c.tenant)+'</td><td>'+esc(c.kind||'')+'</td><td>'+esc(c.surface)+'</td><td>'+st+'</td><td>'+esc(auths)+'</td>';
       cb.appendChild(tr);
     });
     if (!cells.length) {
-      cb.innerHTML = '<tr><td colspan="4" class="muted">No coverage rows</td></tr>';
+      cb.innerHTML = '<tr><td colspan="7" class="muted">No coverage rows</td></tr>';
     }
   }
   async function load(){
@@ -363,7 +441,8 @@ button:hover { filter: brightness(1.06); }
         url: document.getElementById('t-url').value.trim(),
         region: document.getElementById('t-region').value.trim(),
         environment_id: document.getElementById('t-eid').value.trim(),
-        tenant_id: document.getElementById('t-tid').value.trim()
+        tenant_id: document.getElementById('t-tid').value.trim(),
+        org: document.getElementById('t-org').value.trim()
       });
       render();
     } catch (e) { showErr(e.message); }
@@ -376,6 +455,7 @@ button:hover { filter: brightness(1.06); }
       var channels = document.getElementById('a-channels').value.split(',').map(function(s){return s.trim();}).filter(Boolean);
       state = await api('PUT', '/api/config/auth/' + encodeURIComponent(name), {
         type: document.getElementById('a-type').value,
+        scope: document.getElementById('a-scope').value,
         contexts: contexts,
         tenants: contexts,
         access: document.getElementById('a-access').value,
@@ -396,6 +476,7 @@ button:hover { filter: brightness(1.06); }
       document.getElementById('t-region').value = row.region || '';
       document.getElementById('t-eid').value = row.environment_id || '';
       document.getElementById('t-tid').value = row.tenant_id || '';
+      document.getElementById('t-org').value = row.org || '';
     }
     if (t.dataset.delT) {
       if (!confirm('Delete context '+t.dataset.delT+'? Linked sole auths and their secrets will be removed.')) return;
@@ -412,6 +493,7 @@ button:hover { filter: brightness(1.06); }
       if (!row) return;
       document.getElementById('a-name').value = row.name;
       document.getElementById('a-type').value = row.type || 'oauth';
+      document.getElementById('a-scope').value = row.scope || '';
       document.getElementById('a-contexts').value = authContexts(row).join(', ');
       document.getElementById('a-access').value = row.access || 'full';
       document.getElementById('a-channels').value = (row.channels||[]).join(', ');

@@ -108,8 +108,13 @@ func TestServeConfigHTML(t *testing.T) {
 		`class="active">config</a>`,
 		`/api/config`,
 		`buddy cred set secret`,
+		`buddy setup`,
 		`id="contexts-body"`,
 		`id="default-context"`,
+		`id="a-scope"`,
+		`id="t-org"`,
+		`X-Environment-Id`,
+		`Environment</strong>`,
 		`<h2>Contexts</h2>`,
 	} {
 		if !bytes.Contains([]byte(body), []byte(want)) {
