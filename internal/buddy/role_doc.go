@@ -19,34 +19,33 @@ var RolesTopic = docspec.Topic{
 		`privileges`,
 		`privilege`,
 	},
-	Summary: "Jamf Pro API roles — list, get, create, put, and privilege catalog. Used when bootstrapping least-privilege API clients (`buddy setup` flows).",
+	Summary: "Jamf Pro API roles — list, get, create, put, and privilege catalog. Pair with API clients for least-privilege instance oauth.",
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / load", BuddyScript: "`roles(...)` / `role(id=…)`", CLI: "`buddy role list` / `get`", Notes: ""},
 		{Action: "Create / update", BuddyScript: "`role_create` / `role_put`", CLI: "`buddy role create` / `update`", Notes: "Privilege helpers in builtins"},
-		{Action: "Bootstrap", BuddyScript: "", CLI: "`buddy setup write-script` → `setup_buddy_role.buddy`", Notes: "Idempotent role + client; trim privileges after"},
 	},
 	AgentNotes: []string{
 		"Do not grant destructive MDM privileges to day-to-day automation clients without review.",
 		"Do not confuse API roles with Jamf account UI roles — this is the Pro API roles API.",
 	},
 	Builtins: []docspec.Builtin{
-			{
-				Name: `roles`,
-				Summary: `List API roles`,
-				Returns: `list`,
-				Params: []docspec.Param{
-					{Name: `filter`, Type: `string`, Required: false, Description: `filter`},
-				},
-			},
-			{
-				Name: `role`,
-				Summary: `Load one role`,
-				Returns: `dict`,
-				Params: []docspec.Param{
-					{Name: `id`, Type: `string`, Required: true, Description: `id`},
-				},
+		{
+			Name:    `roles`,
+			Summary: `List API roles`,
+			Returns: `list`,
+			Params: []docspec.Param{
+				{Name: `filter`, Type: `string`, Required: false, Description: `filter`},
 			},
 		},
+		{
+			Name:    `role`,
+			Summary: `Load one role`,
+			Returns: `dict`,
+			Params: []docspec.Param{
+				{Name: `id`, Type: `string`, Required: true, Description: `id`},
+			},
+		},
+	},
 	ExamplesBuddy: []string{
 		`def main():
     return roles(filter="Buddy")`,

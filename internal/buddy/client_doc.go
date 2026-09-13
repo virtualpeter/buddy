@@ -20,11 +20,10 @@ var ClientsTopic = docspec.Topic{
 		`oauth`,
 		`api client`,
 	},
-	Summary: "Jamf Pro API integrations (OAuth clients) — list, get, create, put. Pair with [API roles](/docs/docs/api-roles) and `buddy setup store-oauth` for instance-surface oauth auths.",
+	Summary: "Jamf Pro API integrations (OAuth clients) — list, get, create, put. Pair with [API roles](/docs/docs/api-roles). Store the client secret with `buddy cred add --paste` or `buddy cred set secret`.",
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / load", BuddyScript: "`clients(...)` / `client(id=…)`", CLI: "`buddy client list` / `get`", Notes: ""},
 		{Action: "Create / update", BuddyScript: "`client_create` / `client_put`", CLI: "`buddy client create` / `update`", Notes: ""},
-		{Action: "Store secret", BuddyScript: "", CLI: "`buddy setup store-oauth`", Notes: "Instance API client → buddy oauth auth (`surface=instance`)"},
 	},
 	Notes: []string{
 		"Pair with [API roles](/docs/docs/api-roles). Platform gateway oauth cannot manage API roles/integrations.",

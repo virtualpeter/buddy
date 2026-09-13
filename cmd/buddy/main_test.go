@@ -405,12 +405,12 @@ func TestExtractGlobalFlags(t *testing.T) {
 		t.Fatalf("rest = %v, want %v", rest, want)
 	}
 
-	argv = []string{"buddy", "setup", "store-oauth", "--user=admin", "--tenant=prod"}
+	argv = []string{"buddy", "setup", "import", "./quickstart.yaml"}
 	g, rest = extractGlobalFlags(argv)
 	if g.user != "" || g.tenant != "" {
-		t.Fatalf("setup store-oauth flags stolen user=%q tenant=%q", g.user, g.tenant)
+		t.Fatalf("setup import flags stolen user=%q tenant=%q", g.user, g.tenant)
 	}
-	want = []string{"buddy", "setup", "store-oauth", "--user=admin", "--tenant=prod"}
+	want = []string{"buddy", "setup", "import", "./quickstart.yaml"}
 	if !reflect.DeepEqual(rest, want) {
 		t.Fatalf("rest = %v, want %v", rest, want)
 	}

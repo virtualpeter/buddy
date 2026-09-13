@@ -201,16 +201,7 @@ func ownedSessionFlags(path []string) map[string]bool {
 			}
 		}
 	case clispec.CmdSetup:
-		if len(path) < 2 {
-			return out
-		}
-		sub, _ := clispec.MatchToken(path[1], []string{"basic-setup", "store-oauth"})
-		if sub == "basic-setup" || sub == "store-oauth" {
-			out[clispec.FlagTenant] = true
-			out[clispec.FlagContext] = true
-			out[clispec.FlagUser] = true
-			out[clispec.FlagAuth] = true
-		}
+		return out
 	}
 	return out
 }

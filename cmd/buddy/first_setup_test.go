@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"buddy/internal/clispec"
@@ -15,7 +16,7 @@ func TestShouldOfferFirstTimeSetup(t *testing.T) {
 		{[]string{}, true},
 		{[]string{clispec.CmdHelp}, false},
 		{[]string{clispec.CmdVersion}, false},
-		{[]string{clispec.CmdSetup, "basic-setup"}, false},
+		{[]string{clispec.CmdSetup, "secrets"}, false},
 		{[]string{clispec.CmdCred, "list"}, false},
 		{[]string{clispec.CmdAuth, "test"}, false},
 		{[]string{clispec.CmdToken, "direct"}, false},
@@ -30,6 +31,17 @@ func TestShouldOfferFirstTimeSetup(t *testing.T) {
 		got := shouldOfferFirstTimeSetup(tc.args)
 		if got != tc.want {
 			t.Errorf("shouldOfferFirstTimeSetup(%v) = %v want %v", tc.args, got, tc.want)
+		}
+	}
+}
+
+func TestSetupRemovedSubcommandsUnknown(t *testing.T) {
+	cands := []string{"import", "export", "secrets", "managed-plist", clispec.SubHelp}
+	for _, sub := range []string{"basic-setup", "write-script", "store-oauth"} {
+		args := []string{sub}
+		err := resolveArg0("setup", args, cands)
+		if err == nil || !strings.Contains(err.Error(), "unknown") {
+			t.Errorf("%s: want unknown subcommand, got %v", sub, err)
 		}
 	}
 }

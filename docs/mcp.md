@@ -8,7 +8,7 @@ buddy mcp
 
 Uses **stdio** JSON-RPC (the first-class product path). The active context/auth comes from `~/.config/buddy/config.yaml` (override with `--context=<name>` and/or `--user=<auth>` on the command in the host’s MCP config; `--tenant` is a dual-read alias). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 
-**Not configured yet?** If no contexts are in config, `buddy mcp` starts with **zero tools** and server instructions that point at `buddy cred add` (or the interactive CLI setup wizard). Secrets are never collected over MCP. After you add a context and auth, reload/restart the MCP host so tools appear.
+**Not configured yet?** If no contexts are in config, `buddy mcp` starts with **zero tools** and server instructions that point at `buddy setup` / `buddy cred add` (CLI first-run chooser). Secrets are never collected over MCP. After you add a context and auth, reload/restart the MCP host so tools appear.
 
 A Platform-capable buddy context (`region` plus Jamf Account environment `id`, optional `jamfpro.tenantId`) with a linked platform auth works the same way: Platform product builtins (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) route through the gateway via `buddyscript`.
 

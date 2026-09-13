@@ -229,6 +229,8 @@ func main() {
 		exitOnErr(logger, "DDM command failed", runDDM(credName, opts, args[1:], logger))
 	case clispec.CmdBenchmark:
 		exitOnErr(logger, "Benchmark command failed", runBenchmark(credName, opts, args[1:], logger))
+	case clispec.CmdLicense:
+		exitOnErr(logger, "License command failed", runLicense(credName, opts, args[1:], logger))
 	case clispec.CmdSetup:
 		exitOnErr(logger, "Setup command failed", runSetup(cfg, opts, credName, args[1:], logger))
 	case clispec.CmdServe:
@@ -1104,9 +1106,12 @@ func printAppScanSource(res buddy.AppScanResult) {
 		if res.Cache.Stale {
 			fmt.Println("  Pass --refresh to rebuild, or: buddy app cache refresh")
 		}
-		return
+	} else {
+		fmt.Println("  Scanned live policy list. Faster next time: buddy app scan --refresh")
 	}
-	fmt.Println("  Scanned live policy list. Faster next time: buddy app scan --refresh")
+	if res.IndexContext != "" {
+		fmt.Printf("  Policy index via product tenant %s\n", res.IndexContext)
+	}
 }
 
 func runApp(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
@@ -3175,124 +3180,64 @@ func runAuthTokenRefresh(credName string, args []string, log *slog.Logger) error
 }
 
 func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string, log *slog.Logger) error {
-	if err := resolveArg0("setup", args, []string{"basic-setup", "write-script", "store-oauth", "secrets", "managed-plist", clispec.SubHelp}); err != nil {
+	setupSubs := []string{"import", "export", "secrets", "managed-plist", clispec.SubHelp}
+	if err := resolveArg0("setup", args, setupSubs); err != nil {
 		return err
 	}
-	if len(args) == 0 || args[0] == clispec.SubHelp {
+	if len(args) == 0 {
+		if buddy.ConfigNeedsSetup(cfg) {
+			_, err := buddy.RunFirstTimeSetup(cfg, opts, log)
+			return err
+		}
+		fmt.Print(helpSetup)
+		return nil
+	}
+	if args[0] == clispec.SubHelp {
 		fmt.Print(helpSetup)
 		return nil
 	}
 	subcommand := args[0]
 	args = args[1:]
 	switch subcommand {
-	case "basic-setup":
-		bopts := buddy.BasicSetupOpts{SkipConfirm: opts.SkipConfirm}
-		for _, a := range args {
-			switch {
-			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagTenant)):
-				bopts.TenantName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagTenant)))
-			case strings.HasPrefix(a, "--url="):
-				bopts.URL = strings.TrimSpace(strings.TrimPrefix(a, "--url="))
-			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagName)), strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)), strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagUser)):
-				// --user here means the new auth name (not API pin); setup is bootstrapping.
-				if strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagName)) {
-					bopts.AuthName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagName)))
-				} else if strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)) {
-					bopts.AuthName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)))
-				} else {
-					bopts.AuthName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagUser)))
-				}
-			case strings.HasPrefix(a, "--username="):
-				bopts.Username = strings.TrimSpace(strings.TrimPrefix(a, "--username="))
-			case strings.HasPrefix(a, "--password="):
-				bopts.Password = strings.TrimPrefix(a, "--password=")
-			case a == clispec.Short(clispec.ShortSkipConfirm):
-				bopts.SkipConfirm = true
-			}
+	case "import":
+		if len(args) == 0 {
+			return fmt.Errorf("setup import requires a YAML or plist path")
 		}
-		fmt.Println("buddy setup basic-setup")
+		path := args[0]
+		if err := buddy.ImportQuickstart(cfg, path); err != nil {
+			return err
+		}
+		fmt.Printf("Imported identity from %s\n", path)
 		fmt.Println()
-		fmt.Println("This configures your first Jamf Pro *instance* tenant and a basic")
-		fmt.Println("(username/password) auth in ~/.config/buddy/config.yaml.")
-		fmt.Println("The password is stored in the encrypted vault (secrets.enc),")
-		fmt.Println("not inline in config. type=oauth (instance; not Platform gateway).")
+		fmt.Println("Creates a missing auth for any workplace that has none, then stores")
+		fmt.Println("missing passwords / OAuth client secrets in the vault.")
 		fmt.Println()
-		fmt.Println("Afterward you can auth test with basic, and optionally create a Jamf")
-		fmt.Println("API role/client and store instance oauth (buddy setup write-script /")
-		fmt.Println("store-oauth).")
-		fmt.Println()
-		res, err := buddy.SetupBasic(cfg, bopts)
+		res, err := buddy.SetupSecrets(cfg, buddy.SetupSecretsOpts{SkipConfirm: opts.SkipConfirm})
+		printSetupSecrets(res)
 		if err != nil {
 			return err
 		}
-		if res == nil {
-			return nil
-		}
-		fmt.Printf("Configured tenant %q (%s) and basic auth %q (user %s, type=basic).\n",
-			res.TenantName, res.URL, res.AuthName, res.Username)
-		fmt.Printf("Password stored in the vault. Default tenant is %q.\n", cfg.Tenant.Default)
 		fmt.Println()
-		fmt.Println("Try:")
-		fmt.Printf("  buddy --user %s auth test\n", res.AuthName)
-		fmt.Println()
-		fmt.Println("Optional — create a Jamf Pro instance API role/client and store oauth:")
-		fmt.Println("  buddy setup write-script")
-		fmt.Printf("  buddy setup_buddy_role.buddy -y   # uses auth %q\n", res.AuthName)
-		fmt.Println("  buddy setup store-oauth")
-		fmt.Println("  buddy --user <oauth-auth> auth test")
+		fmt.Println("Try: buddy auth test")
 		return nil
-	case "write-script":
-		path := "setup_buddy_role.buddy"
+	case "export":
+		path := ""
 		if len(args) > 0 {
 			path = args[0]
 		}
-		if err := buddy.WriteSetupScript(path); err != nil {
-			return fmt.Errorf("write setup script: %w", err)
-		}
-		fmt.Printf("Wrote %s\n", path)
-		fmt.Printf("Run with: ./%s -y   (or: buddy %s -y)\n", path, path)
-		return nil
-	case "store-oauth":
-		apiAuth := credName
-		clientDisplayName := "buddy-cli"
-		var authName, tenantName string
-		configureOpts := opts
-		for _, a := range args {
-			switch {
-			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagUser)):
-				apiAuth = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagUser))
-			case strings.HasPrefix(a, "--client-name="):
-				clientDisplayName = strings.TrimPrefix(a, "--client-name=")
-			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagName)):
-				authName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagName)))
-			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)):
-				authName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagAuth)))
-			case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagTenant)):
-				tenantName = strings.TrimSpace(strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagTenant)))
-			case a == clispec.Short(clispec.ShortSkipConfirm):
-				configureOpts.SkipConfirm = true
-			}
-		}
-		res, err := buddy.SetupStoreOAuth(cfg, buddy.StoreOAuthOpts{
-			APIAuth:           apiAuth,
-			ClientDisplayName: clientDisplayName,
-			AuthName:          authName,
-			TenantName:        tenantName,
-			Opts:              configureOpts,
-		}, log)
+		data, err := buddy.MarshalQuickstartYAML(cfg)
 		if err != nil {
+			return fmt.Errorf("quickstart yaml: %w", err)
+		}
+		if path == "" {
+			_, err := os.Stdout.Write(data)
 			return err
 		}
-		if res == nil {
-			return nil // user declined
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			return err
 		}
-		if res.Updated {
-			fmt.Printf("Updated instance oauth auth %q on tenant %q (type=oauth; secret in platform store). Use: buddy --user %s ...\n",
-				res.AuthName, res.TenantName, res.AuthName)
-		} else {
-			fmt.Printf("Created instance oauth auth %q on tenant %q (type=oauth; secret in platform store). Use: buddy --user %s ...\n",
-				res.AuthName, res.TenantName, res.AuthName)
-		}
+		fmt.Printf("Wrote %s\n", path)
+		fmt.Println("Secrets-free identity (orgs/contexts/channels; no auths). Recipients: buddy setup import")
 		return nil
 	case "secrets":
 		fmt.Println("buddy setup secrets")
@@ -3302,22 +3247,9 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		fmt.Println("MDM profiles can include client IDs or secrets; this command fills gaps.")
 		fmt.Println()
 		res, err := buddy.SetupSecrets(cfg, buddy.SetupSecretsOpts{SkipConfirm: opts.SkipConfirm})
-		if res != nil {
-			for _, name := range res.CreatedAuths {
-				fmt.Printf("Created auth %q\n", name)
-			}
-			for _, name := range res.UpdatedAuths {
-				fmt.Printf("Updated auth %q\n", name)
-			}
-			for _, s := range res.StoredSecrets {
-				fmt.Printf("Stored %s\n", s)
-			}
-		}
+		printSetupSecrets(res)
 		if err != nil {
 			return err
-		}
-		if res != nil && len(res.CreatedAuths) == 0 && len(res.StoredSecrets) == 0 && len(res.UpdatedAuths) == 0 {
-			fmt.Println("All tenants have an auth and required secrets are stored.")
 		}
 		fmt.Println()
 		fmt.Println("Try: buddy auth test")
@@ -3343,7 +3275,28 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		fmt.Println("Auths omitted (per-user); tenants and channel policy are included.")
 		return nil
 	default:
-		return errUnknownSubcommand("setup", subcommand, []string{"basic-setup", "write-script", "store-oauth", "secrets", "managed-plist"})
+		return errUnknownSubcommand("setup", subcommand, setupSubs)
+	}
+}
+
+func printSetupSecrets(res *buddy.SetupSecretsResult) {
+	if res == nil {
+		return
+	}
+	for _, name := range res.CreatedAuths {
+		fmt.Printf("Created auth %q\n", name)
+	}
+	for _, name := range res.UpdatedAuths {
+		fmt.Printf("Updated auth %q\n", name)
+	}
+	for _, s := range res.StoredSecrets {
+		fmt.Printf("Stored %s\n", s)
+	}
+	if len(res.Missing) > 0 {
+		return
+	}
+	if len(res.CreatedAuths) == 0 && len(res.StoredSecrets) == 0 && len(res.UpdatedAuths) == 0 {
+		fmt.Println("All tenants have an auth and required secrets are stored.")
 	}
 }
 
