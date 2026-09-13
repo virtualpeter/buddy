@@ -13,11 +13,17 @@ const uriLicenses = "/api/licensing/v1/licenses"
 
 // LicenseListValues lists Jamf Account licenses for the organization on the
 // access token. Not paginated; empty org is 200 with an empty results list.
+// Environment and product-tenant sessions climb to TenantConfig.Org.
 func LicenseListValues(credName string, logger *slog.Logger) ([]map[string]interface{}, error) {
-	if err := requireOrgPlatformCred(credName); err != nil {
+	restore, pin, err := beginOrgAccountSession(credName, logger)
+	if err != nil {
 		return nil, err
 	}
-	body, err := jamfGET(credName, uriLicenses)
+	defer restore()
+	if err := requireOrgPlatformCred(pin); err != nil {
+		return nil, err
+	}
+	body, err := jamfGET(pin, uriLicenses)
 	if err != nil {
 		return nil, err
 	}

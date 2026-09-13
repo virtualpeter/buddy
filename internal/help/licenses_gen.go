@@ -8,8 +8,8 @@ const LicensesBuiltinsSection = `LICENSE (Account API; organization workplace)
   licenses(tenant?, context?, surface?, auth?)
       Does: List Jamf Account licenses for the organization on the access token.
       → value: list of dicts (productName, sku, licenseType, purchasedSeats, startDate, endDate, …)
-      Params: tenant? / context?: organization workplace; surface? / auth?: omit for process defaults.
-      Notes: Not paginated. Empty org returns []. Requires platform auth with no X-Environment-Id / X-Tenant-Id.
+      Params: tenant? / context?: workplace (climbs to org: parent); surface? / auth?: omit for process defaults.
+      Notes: Not paginated. Empty org returns []. Uses the parent organization workplace when the current context is an environment or product tenant.
 
 `
 
@@ -25,9 +25,11 @@ Subcommands:
 
 Notes:
   Organization-scoped Account API. Requires a platform auth on an organization
-  workplace (no X-Environment-Id / X-Tenant-Id). Privilege: licensing on the
-  org integration. Empty org still returns 200 with no rows. The same GET is
-  the 'buddy auth test' probe on an organization workplace.
+  workplace (no X-Environment-Id / X-Tenant-Id). When the current context is an
+  environment or product tenant, the parent org: workplace is used automatically.
+  Privilege: licensing on the org integration. Empty org still returns 200 with
+  no rows. The same GET is the 'buddy auth test' probe on an organization
+  workplace (auth test does not climb).
 
 Examples:
   buddy license list

@@ -18,15 +18,15 @@ Jamf Account licenses (organization workplace) — read-only list from `GET /lic
 
 ## Agent rules
 
-- Do not call `licenses()` with an environment or product-tenant session — it will raise. Use `--context` / `tenant=` on the organization workplace.
+- From an environment or product-tenant child, `licenses()` uses the parent organization workplace (`org:`). It raises only when there is no org parent. `buddy auth test` does not climb.
 - Do not invent SSO, Partners, Audit, or AI Governance calls from this page. Licensing is read-only; there is no `license_set`.
 - Do not rewrite `/api/licensing/…` to `/pro/…`. It stays on the org gateway as `/licensing/v1/licenses`.
 
 ## Facts
 
 - List: `licenses()` · `buddy license list` — Not paginated; empty org is still 200
-- Organization-scoped Account API. Requires a **platform** auth on an **organization** workplace (no environment or product tenant id).
-- Privilege: licensing on the org integration. The same GET is the `buddy auth test` probe on an organization workplace (403 → `live=token-ok`).
+- Organization-scoped Account API. Requires a **platform** auth on an **organization** workplace (no environment or product tenant id). From an environment or product-tenant child, the parent `org:` workplace is used automatically.
+- Privilege: licensing on the org integration. The same GET is the `buddy auth test` probe on an organization workplace (403 → `live=token-ok`). `auth test` stays on the selected workplace; it does not climb.
 - Do not send `orgs.*.id` as a header. Environment / product-tenant Platform APIs (blueprints, devices, …) cannot run on an org workplace.
 
 ## Builtins
@@ -48,7 +48,7 @@ Returns: list
       "type": "string"
     },
     "context": {
-      "description": "organization workplace",
+      "description": "workplace; Account APIs climb to the parent org",
       "type": "string"
     },
     "surface": {
@@ -56,7 +56,7 @@ Returns: list
       "type": "string"
     },
     "tenant": {
-      "description": "organization workplace (dual-read of context)",
+      "description": "workplace (dual-read of context); Account APIs climb to org:",
       "type": "string"
     }
   },

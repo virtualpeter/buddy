@@ -115,6 +115,94 @@ func TestLicenseList_EmptyResults(t *testing.T) {
 	}
 }
 
+func orgChildLicensesTestConfig() *Config {
+	return &Config{
+		Tenant: TenantSelection{Default: "prod"},
+		Tenants: map[string]TenantConfig{
+			"sandbox": {},
+			"prod": {
+				Region:        "us",
+				EnvironmentID: "11111111-1111-1111-1111-111111111111",
+				Org:           "sandbox",
+			},
+			"prod-pro": {
+				URL:           "https://example.jamfcloud.com",
+				Region:        "us",
+				EnvironmentID: "11111111-1111-1111-1111-111111111111",
+				TenantID:      "22222222-2222-2222-2222-222222222222",
+				Org:           "sandbox",
+			},
+		},
+		Auths: map[string]AuthEntry{
+			"sandbox-org": {
+				Type: AuthTypePlatform, Scope: PlatformScopeOrganization,
+				ClientID: "cid", ClientSecret: "sec",
+				Tenants: []string{"sandbox"}, Access: AccessFull,
+			},
+			"prod-plat": {
+				Type: AuthTypePlatform, Scope: PlatformScopeEnvironment,
+				ClientID: "cid2", ClientSecret: "sec2",
+				Tenants: []string{"prod"}, Access: AccessFull,
+			},
+			"prod-admin": {
+				Type: "basic", Username: "a", Password: "b",
+				Tenants: []string{"prod-pro"}, Access: AccessFull, Surface: SurfaceInstance,
+			},
+		},
+	}
+}
+
+func TestLicenseList_ClimbsFromDefaultEnvironment(t *testing.T) {
+	var sawPath string
+	var sawEnv, sawTenant string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"access_token": "tok",
+			"expires_in":   900,
+		})
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		sawPath = r.URL.Path
+		sawEnv = r.Header.Get(HeaderEnvironmentID)
+		sawTenant = r.Header.Get(HeaderTenantID)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"totalCount": 0,
+			"results":    []map[string]interface{}{},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	t.Cleanup(SetOrgPlatformGatewayURLForTest(srv.URL))
+	SetActiveConfig(orgChildLicensesTestConfig())
+	SetActiveSelection("prod", "")
+	clearCredAuthCache()
+	t.Cleanup(func() {
+		clearCredAuthCache()
+		SetActiveConfig(nil)
+		SetActiveSelection("", "")
+	})
+
+	items, err := LicenseListValues("", slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("items = %+v", items)
+	}
+	if sawPath != "/licensing/v1/licenses" {
+		t.Fatalf("path = %q want /licensing/v1/licenses", sawPath)
+	}
+	if sawEnv != "" || sawTenant != "" {
+		t.Fatalf("scope headers env=%q tenant=%q", sawEnv, sawTenant)
+	}
+	selT, selA := ActiveSelection()
+	if selT != "prod" || selA != "" {
+		t.Fatalf("selection leaked: %s/%s", selT, selA)
+	}
+}
+
 func TestLicenseList_RejectsEnvironmentWorkplace(t *testing.T) {
 	SetActiveConfig(ConfigFromCredentialMap("gw", map[string]CredentialConfig{
 		"gw": {

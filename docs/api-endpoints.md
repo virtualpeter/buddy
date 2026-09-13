@@ -124,7 +124,7 @@ CLI: `buddy license list`. buddyscript: `licenses()`. `buddy auth test` on an or
 |--------|----------|---------|---------|
 | `GET` | `/api/licensing/v1/licenses` | `LicenseList`, `licenses`, `auth test` | List licenses for the organization |
 
-Do not rewrite this path to `/pro/…`. Environment / product-tenant Platform APIs (blueprints, devices, …) cannot run on an org workplace.
+When the current context is an environment or product tenant with `org:`, `buddy license list` / `licenses()` use that parent organization workplace automatically. `buddy auth test` stays on the selected workplace. Do not rewrite this path to `/pro/…`. Environment / product-tenant Platform APIs (blueprints, devices, …) cannot run on an org workplace.
 
 ---
 

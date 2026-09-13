@@ -11,9 +11,9 @@ Jamf Account licenses (organization workplace) — read-only list from `GET /lic
 
 ## Notes
 
-Organization-scoped Account API. Requires a **platform** auth on an **organization** workplace (no environment or product tenant id).
+Organization-scoped Account API. Requires a **platform** auth on an **organization** workplace (no environment or product tenant id). From an environment or product-tenant child, the parent `org:` workplace is used automatically.
 
-Privilege: licensing on the org integration. The same GET is the `buddy auth test` probe on an organization workplace (403 → `live=token-ok`).
+Privilege: licensing on the org integration. The same GET is the `buddy auth test` probe on an organization workplace (403 → `live=token-ok`). `auth test` stays on the selected workplace; it does not climb.
 
 Do not send `orgs.*.id` as a header. Environment / product-tenant Platform APIs (blueprints, devices, …) cannot run on an org workplace.
 
