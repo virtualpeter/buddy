@@ -11,7 +11,7 @@ Call get_instructions first (firm playbook). Then: docs → buddyscript named bu
 Prefer one buddyscript def main() over many tiny round-trips (host timeouts); do not micro-batch “just in case.”
 
 Tools: get_instructions, buddy_info, docs, jamf_schema (discovery only), buddyscript (primary).
-Before resource work: docs query the object noun (e.g. smart_groups, policies, packages, profile-payloads, blueprints) then get that page. Do not docs-get builtins (too large); buddyscript a bare name (no parentheses) to print one signature.
+Before resource work: docs query the object noun (e.g. smart_groups, policies, packages, profile-payloads, blueprints, licenses) then get that page. Do not docs-get builtins (too large); buddyscript a bare name (no parentheses) to print one signature.
 MCP defaults deny jamf_*. Respect buddy_info.deny_builtins / allow_builtins (channel layer) plus tenant_deny_builtins / auth_deny_builtins. Allow follows deny per layer; deny ["*"] is an allowlist. Blocked builtins raise — treat as a gap, do not invent schema HTTP.
 Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic PUT from schema. profile_xml is the Classic envelope; list with payloads_list_identifiers then identifier= (Identifier, unique Type, or unique UUID). MCX helpers only for ManagedClient / mcx_preference_settings.
 Packages/JCDS: package_ready / package_wait_ready / package_download.
@@ -20,7 +20,7 @@ buddyscript: prefer def main(): … return …; Starlark has no while/try/class 
 Jamf remote MCP (developer.jamf.com/mcp) is useful for product schemas; prefer buddy builtins for tenant changes.`
 
 // ServerInstructionsUnconfigured is used when no tenants are configured — no tools are registered.
-const ServerInstructionsUnconfigured = `buddy MCP is not configured. Add a tenant and auth with ` + "`buddy cred add`" + ` (or run any buddy CLI command interactively for the setup wizard). Secrets stay in the terminal vault, not in the browser. After setup, reload/restart the MCP host so tools appear.`
+const ServerInstructionsUnconfigured = `buddy MCP is not configured. Add a workplace and auth with ` + "`buddy cred add`" + ` (or run any buddy CLI command interactively for the first-run chooser). Secrets stay in the terminal vault, not in the browser. After setup, reload/restart the MCP host so tools appear.`
 
 // AgentPlaybook is the firm guidance returned by get_instructions.
 const AgentPlaybook = `# buddy MCP agent playbook

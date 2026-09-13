@@ -43,6 +43,9 @@ Notes:
   auth test always discards the cached token and mints a new one. Exit 0 if the
   secret works (probe 403 is live=token-ok, not a bad secret). Exit non-zero if
   the secret is missing or the token POST fails. cred get secret is presence only.
+  Organization workplaces probe GET /licensing/v1/licenses (no buildings
+  probe; no X-Environment-Id). 403 is live=token-ok (missing licensing
+  privilege, not a bad secret).
 
   auth authorization prints the last Jamf authorization details cached after
   auth test (GET /api/v1/auth: accessLevel, privilegeSet, privileges, username).
@@ -115,8 +118,8 @@ Subcommands:
   set context <name> [args...]      Add or update a context (instance URL and/or Platform gateway)
   set auth <name> [args...]         Add or update an auth (the --user name)
   set secret <auth> [args...]       Store password / client secret in the vault
-  status [--test] [--unlock]        Context × surface coverage
-  list                              List contexts, auths, and channel policies
+  status [--test] [--unlock]        Workplace coverage (org → env → tenant)
+  list                              List contexts as org → environment → tenant
   get context|auth|channel|secret   Show one item (secrets redacted / presence only)
   use [context]                     Show or set context.default
   help                              Full flags, channel policy, backup, vault, migrate, clean, erase
@@ -127,6 +130,7 @@ Notes:
 
 Examples:
   buddy cred add --context=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
+  buddy cred add --paste --context=sandbox
   buddy cred set context sandbox --url=https://example.jamfcloud.com
   buddy cred set auth sandbox-admin --type=basic --username=admin --jamfpro=sandbox
   buddy cred set secret sandbox-admin --password
@@ -151,8 +155,8 @@ Subcommands:
   set context <name> [args...]      Add or update a context (tenant is a dual-read alias)
   set auth <name> [args...]         Add or update an auth (the --user name; link to contexts)
   set secret <auth> [args...]       Store password / client secret in the vault
-  status [--test] [--unlock]        Context × surface coverage (gaps, secret presence, last live check)
-  list                              List contexts, auths, and channel policies
+  status [--test] [--unlock]        Workplace coverage, org → env → tenant (gaps, secret presence, last live check)
+  list                              List contexts as org → environment → tenant
   get context <name>                Show context details (tenant is a dual-read alias)
   get auth <name>                   Show auth details (secrets redacted)
   get channel <cli|mcp|ide>
@@ -185,17 +189,25 @@ Flags for 'add':
   --environment-id=<environment-id> Account environment UUID (context id)
   --tenant-id=<tenant-id>           Jamf Pro product tenant UUID (jamfpro.tenantId)
   --type=oauth|basic|platform       Auth type (default oauth; platform-only context → platform)
+  --scope=organization|environment|tenant
+                                    Platform auth Account scope (org: no region)
   --client-id=<client-id>           OAuth client id
   --username=<user>                 Basic username
   --client-secret=<secret>          OAuth secret (non-interactive)
   --password=<password>             Basic password (non-interactive)
+  --paste                           Read Jamf client JSON or curl (prompt, or stdin when piped)
+  --paste=<blob>                    Same, from a one-line JSON/curl string (- = stdin)
+  --from=<file>                     Import secrets-free YAML or ACS plist, then fill secrets
+  --org=<name>                      Parent organization workplace (nested orgs: on platform add)
+  --environment-name=<name>         Environment workplace when creating a product tenant
   --test                            Force a live auth test after save
   --no-test                         Skip the live test (default when -y / non-TTY)
   -y                                Non-interactive; fail if required fields are missing
 
 Flags for 'set context' (alias: set tenant):
   --url=<url>                       Jamf Pro instance URL (and/or platform gateway URL)
-  --region=<region>                 Platform API Gateway region (us|eu|apac|…)
+  --region=<region>                 Platform API Gateway region (us|eu|apac|…); omit on org workplaces
+  --org=<context-name>              Parent organization workplace (environment/instance contexts)
   --environment-id=<environment-id> Account environment UUID (written as context id)
   --tenant-id=<tenant-id>           Jamf Pro product tenant UUID (jamfpro.tenantId)
   --deny-builtins=<a,b>             Block builtins on this context (* = deny all; empty clears)
@@ -252,8 +264,13 @@ Notes for 'backup' / 'restore':
   restore stores the backup passphrase as the recovery phrase.
 
 Notes:
-  cred status is the maintenance view (context × surface coverage). cred list is
-  the raw dump. Default SECRET is locked (does not open the vault / Touch ID).
+  cred status is the maintenance view (org → environment → product-tenant,
+  then SURFACE). SURFACE is instance vs Platform gateway — not Jamf Account
+  scope (that lives on the auth as SCOPE=organization|environment|tenant).
+  cred list prints the same tree (ORG / ENVIRONMENT / CONTEXT); Account
+  UUIDs stay on cred get. Organization-scoped auths only cover the
+  organization workplace (not environments or product tenants). Default SECRET is locked
+  (does not open the vault / Touch ID).
   cred status --unlock or --test classifies stored/missing. cred get secret
   is presence only — 'buddy auth test' proves the secret (ForceRenew). Last
   authorization details from GET /api/v1/auth live in ~/.config/buddy/caps/
@@ -263,6 +280,11 @@ Notes:
   / serve client names are removed — use contexts:/auths: and channels.<cli|mcp|ide>.
   Dual-read tenants: / tenant.default / --tenant / tenant= for one release;
   loading config rewrites those keys to context: / contexts: on disk.
+  Optional orgs: YAML (organization → environments → product tenants) expands
+  into those same workplaces; --context still picks a workplace name. Nested
+  orgs.*.environments.*.tenants is Jamf's product-tenant list, not the root
+  tenants: dual-read. cred add --paste with a US curl and blank env id still
+  creates an org workplace under the name you passed (same object as orgs.<name>).
   macOS managed preferences (domain virtualpete.buddy.cli) overlay as org
   defaults; config.yaml wins per name. 'buddy cred list' notes managed sources.
   Deleting a managed context/auth warns; it returns on next load until the MDM
@@ -294,10 +316,26 @@ Notes:
   (channel allow cannot unblock a context deny). deny_builtins: ["*"] is an allowlist at that layer.
   Extra deny_builtins (exact or trailing-* glob) still block named builtins so MCP
   agents cannot fall back to generic jamf_get/jamf_put; treat raises as coverage gaps.
+  cred add --paste accepts the JSON Jamf Pro shows when creating an API client,
+  or the curl sample from a Platform API client. Organization-admin is the US
+  gateway (us.api.jamfcloud.com) with no environment/tenant header — leave
+  environment id blank. There is no api.jamfcloud.com host (NXDOMAIN); paste
+  still maps that sample URL to org-against-US. A curl plus --environment-id=
+  (any region) is environment-scoped. Interactive cred add offers a paste step
+  first. buddy cred set context acme (no --region) defines an organization
+  workplace (same object as orgs.acme). Environment/instance contexts may set
+  --org=acme. Auth scope: is organization|environment|tenant; --context is only
+  the workplace name.
 
 Examples:
   buddy cred add --context=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
-  buddy cred set context sandbox --url=https://example.jamfcloud.com --region=us --environment-id=…
+  buddy cred add --context=sandbox --url=https://example.jamfcloud.com --type=basic --username=… --password=…
+  buddy cred add --paste --context=sandbox
+  pbpaste | buddy cred add --paste --context=sandbox -y
+  buddy cred add --from=./quickstart.yaml
+  buddy cred set context acme
+  buddy cred set auth org --type=platform --client-id=… --contexts=acme --scope=organization
+  buddy cred set context sandbox --url=https://example.jamfcloud.com --region=us --environment-id=… --org=acme
   buddy cred set auth sandbox-admin --type=basic --username=admin --jamfpro=sandbox --channels=cli,ide
   buddy cred set auth platform-ro --type=platform --client-id=… --contexts=sandbox --scope=environment --access=readonly --channels=mcp,ide
   buddy cred set secret platform-ro --client-secret
@@ -486,81 +524,53 @@ Examples:
   buddy policy delete 42
   buddy policy delete 42 43 44
 `
-const Setup = `buddy setup - Bootstrap instance config; Jamf Pro role/client + instance oauth
+const Setup = `buddy setup - First-run chooser, quickstart import/export, secrets, MDM plist
 
 Usage:
-  buddy [global-flags] setup basic-setup [--context=] [--url=] [--name=] [--username=] [--password=] [-y]
+  buddy [global-flags] setup
+  buddy [global-flags] setup import <file>
+  buddy [global-flags] setup export [path]
   buddy [global-flags] setup secrets [-y]
   buddy [global-flags] setup managed-plist [path]
-  buddy [global-flags] setup write-script [path]
-  buddy [global-flags] setup store-oauth [--user=<auth>] [--context=<context>] [--client-name=buddy-cli] [--name=<auth>] [-y]
 
 Subcommands:
-  basic-setup [args...]     First context + basic instance auth (vault password)
-  secrets [-y]              Fill missing auths and secrets for existing contexts
-  managed-plist [path]      Write org MDM plist (contexts + channels; no auths)
-  write-script [path]       Generate role+client buddyscript (default setup_buddy_role.buddy)
-  store-oauth [args...]     Rotate instance client secret into a buddy oauth auth
-
-Flags for 'basic-setup':
-  --context=<name>    Context name (--tenant alias; default: prompt, or "default")
-  --url=<url>         Jamf Pro instance URL
-  --name=<auth>       Basic auth name (--auth= / --user= aliases; default <context>-admin)
-  --username=<user>   Jamf username
-  --password=<pass>   Jamf password (prefer interactive prompt)
-  -y                  Overwrite existing context/auth without confirming
+  import <file>             Merge secrets-free YAML or ACS plist; then fill secrets
+  export [path]             Write secrets-free identity YAML (stdout if path omitted)
+  secrets [-y]              Fill missing auths and secrets for existing workplaces
+  managed-plist [path]      Write org MDM plist (same identity as export; no auths)
 
 Flags for 'secrets':
-  -y                  Do not prompt; print missing auths/secrets and exit non-zero
-
-Flags for 'store-oauth':
-  --user=<auth>         Instance-capable auth used to call Jamf (rotate credentials)
-  --context=<context>   Context to link the oauth auth to (--tenant alias; default: session context)
-  --client-name=<name>  Jamf Pro API integration display name (default: buddy-cli)
-  --name=<auth>         Buddy auth to create/update (--auth= alias)
-  -y                    Skip confirmation when rotating the Jamf client secret
+  -y                        Do not prompt; print missing auths/secrets and exit non-zero
 
 Notes:
-  write-script and store-oauth target the Jamf Pro *instance* (API roles and
-  integrations). Platform gateway oauth cannot create roles or clients.
-  If you have no contexts yet, prefer any interactive Jamf command or
-  'buddy cred add' (context name, URL and/or platform region+id, auth + secret).
-  'setup basic-setup' is the instance URL + basic auth shortcut.
-  If an MDM profile already provides contexts, run setup secrets instead.
+  Empty config: any interactive Jamf command, or 'buddy setup' / 'buddy cred add',
+  asks how to start: Jamf Pro instance (API-client JSON, or URL + basic), Jamf
+  Account / Platform (paste curl), a quickstart file, or an org MDM profile.
+  --context is a workplace name; auth scope: is organization|environment|tenant.
+  Optional orgs: YAML expands into those workplaces. A US curl with blank env id
+  is an org workplace (same object as orgs.<name>).
 
-  basic-setup stores the password in the vault and sets the context as default
-  when appropriate, then prints next steps (auth test, optional write-script →
-  store-oauth). Non-interactive: pass --context, --url, --username, and
-  --password (and optionally --name; default <context>-admin).
+  From a working install, setup export writes the mail-around YAML (orgs: /
+  leftover contexts: / context.default / channels; no auths). Recipients run
+  setup import. managed-plist is the same identity as ACS XML for domain
+  virtualpete.buddy.cli. import and cred add --from= accept either file.
+  Then setup secrets stores passwords and client secrets in the vault.
 
-  secrets: for each context with no linked auth, prompt to create one (oauth by
-  default), then fill instance/platform coverage gaps, then store missing
-  passwords or OAuth client secrets. Org MDM profiles typically ship contexts
-  and channel policy; auths in the plist are accepted if present, but prefer
-  this command so they stay in the local store. managed-plist omits auths.
-  Non-interactive / -y reports gaps and exits non-zero.
+  If managed preferences already provide workplaces (domain virtualpete.buddy.cli),
+  run setup secrets. User config.yaml overlays managed prefs (user wins per name).
 
-  managed-plist writes contexts and channel policy as XML plist (stdout if path
-  omitted). Upload as Jamf Application & Custom Settings for preference domain
-  virtualpete.buddy.cli. User config.yaml overlays managed prefs (user wins per
-  name).
-
-  write-script is idempotent for role "Buddy" and client "buddy-cli". Run it
-  with the active session, then rotate the secret with store-oauth (type=oauth,
-  not type=platform). Review the role in Jamf and drop destructive privileges
-  you do not need. If role creation fails, run "buddy role privileges" and edit
-  the script. store-oauth updates an existing oauth auth with the same clientId
-  in place, otherwise prompts for a name (default <context>-oauth).
+  Instance basic auth: cred add --type=basic --url= --username= --password=.
+  Instance oauth: paste the JSON Jamf Pro shows when creating an API client.
 
 Examples:
-  buddy setup basic-setup
+  buddy setup
+  buddy cred add --paste --context=sandbox
+  buddy cred add --context=sandbox --url=https://example.jamfcloud.com --type=basic --username=admin --password=…
+  buddy setup export ./quickstart.yaml
+  buddy setup import ./quickstart.yaml
   buddy setup secrets
   buddy setup managed-plist /tmp/buddy.plist
-  buddy --user <admin-auth> auth test
-  buddy setup write-script
-  buddy setup_buddy_role.buddy -y
-  buddy setup store-oauth
-  buddy setup store-oauth --context=sandbox --name=sandbox-oauth -y
+  buddy auth test
 `
 const ScriptGet = `buddy script get - Retrieve script information
 
@@ -631,7 +641,8 @@ Flags for 'serve':
 
 Notes:
   Serves a curated user docs UI (guides, builtins, examples) plus:
-  /config — Tenant/auth metadata editor (defaults, coverage). Secrets stay CLI.
+  /config — Workplace/auth metadata editor (defaults, coverage). First-run is
+            the CLI chooser (buddy setup / cred add); secrets stay in the vault.
   /ide — Single-buffer script runner (open/save, args, trace, Run as file,
          Variables/Libraries sidebar, copy/save/stash output)
   AGENTS.md and Cursor rules stay in the repo for contributors; they are not
@@ -678,7 +689,8 @@ Notes:
   Uses the active context/auth from config (override with --context / --user;
   --tenant is a dual-read alias).
   With no contexts configured, buddy mcp registers no tools and instructs the
-  host to run CLI setup first (buddy cred add / interactive Jamf command).
+  With no contexts configured, buddy mcp registers no tools and instructs the
+  host to run CLI setup first (buddy setup / buddy cred add).
 
   Every tool returns a JSON object {ok, value, error?, count?} — never a bare
   array (hosts require object structuredContent). buddy_info reports binary

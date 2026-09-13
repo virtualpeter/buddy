@@ -2,7 +2,7 @@
 
 <img src="internal/serve/buddy.png" alt="buddy" width="128" height="128">
 
-**buddy** for Jamf Pro is a multipurpose tool with CLI, MCP, and its own scripting language. It covers Classic and Pro api functions (policies, computer groups, configuration profiles, packages/JCDS, scripts, computers and MDM, API roles and clients) and newer features only found via the Platform API (blueprints, devices, device groups, DDM reporting, compliance benchmarks).
+**buddy** for Jamf Pro is a multipurpose tool with CLI, MCP, and its own scripting language. It covers Classic and Pro api functions (policies, computer groups, configuration profiles, packages/JCDS, scripts, computers and MDM, API roles and clients) and newer features only found via the Platform API (blueprints, devices, device groups, DDM reporting, compliance benchmarks, Account licenses).
 
 **buddy** is independent open-source software (MIT). It talks to [Jamf Pro](https://www.jamf.com/) and Jamf Platform **APIs**. It is not affiliated with, endorsed by, or sponsored by Jamf. Jamf, Jamf Pro, and related names are trademarks of Jamf.
 
@@ -10,7 +10,7 @@ Day-to-day work can follow several different styles - you can work with **buddys
 
 The only required config is a **context** plus an **auth**; passwords or oauth secrets get stored in the encrypted vault (`secrets.enc`), with a random Keychain data key and a recovery passphrase for backups — [docs/auth.md](docs/auth.md). Instance-only (Jamf Pro URL + oauth/basic) is enough; Platform is optional.
 
-New install: if there isn’t a released binary available and you have Go installed you can `make install-signed` (preferred) or `make install` (if you don’t have a signing cert), then run any Jamf command (e.g. `buddy policy list`) for the interactive setup wizard, or [`buddy cred add`](docs/getting-started.md). 
+New install: if there isn’t a released binary available and you have Go installed you can `make install-signed` (preferred) or `make install` (if you don’t have a signing cert), then run any Jamf command (e.g. `buddy policy list`) for the first-run chooser, or [`buddy cred add`](docs/getting-started.md). 
 
 ## Documentation
 
@@ -92,13 +92,28 @@ channels:
     context: sandbox
   # cli omitted → full access; default context = context.default
 
+# Optional orgs: tree expands into the same workplace names (--context).
+# orgs:
+#   acme:
+#     environments:
+#       commercial:
+#         id: …                      # Account environment UUID
+#         region: us
+#         tenants:
+#           sandbox:
+#             tenantId: …            # product tenant UUID
+#             url: https://example.jamfcloud.com
+
 contexts:
+  acme: {}                         # organization workplace: no region (flat form; orgs.acme is the same object)
+
   sandbox:
+    org: acme                      # this environment sits in that org
     jamfpro:
       url: https://example.jamfcloud.com   # instance-only is enough
       # tenantId: 22222222-…               # product tenant; only if a tenant-scoped platform auth needs it
     # id: e77c1408-10c8-4007-b177-abc9157fbcaa  # Account environment UUID (optional)
-    # region: us                                 # Platform gateway (us, eu, apac, …)
+    # region: us                                 # Platform gateway (us, eu, apac, …); omit on org workplaces
     # deny_builtins: ["*"]         # context-layer allowlist
     # allow_builtins: [policies, policy]
 
@@ -116,12 +131,17 @@ auths:
     contexts: [sandbox]
     access: readonly
     channels: [mcp, ide]           # restrict MCP/IDE to this readonly auth
+  acme-org:
+    type: platform
+    scope: organization
+    clientId: your_org_client_id
+    contexts: [acme]
 
 features:
   classic_instance_only: true      # optional: force Classic onto instance. Default false lets Classic use /proclassic. ACS and GET /api/v1/policies are always instance.
 ```
 
-**Storage:** Contexts hold workplace identity (Jamf Pro `jamfpro.url` and/or Platform `id` + `region` + optional `jamfpro.tenantId` — the YAML key `sandbox` is not that UUID). Auths hold type/username/clientId and link with `jamfpro:` or `contexts:`. Passwords and OAuth client secrets can stay inline for **dev/test**, or live in the encrypted vault (`secrets.enc`, keyed by **auth name**). The vault data key is one Keychain item (macOS) or `dek` (Linux/Windows); backups use a recovery passphrase (`master`):
+**Storage:** Contexts hold workplace identity: an organization (`{}`, no region), and/or Platform `id` + `region`, and/or Jamf Pro `jamfpro.url` (optional `jamfpro.tenantId`). Optional nested `orgs:` YAML (organization → environment → product tenant) expands into those same names; `--context` is only a workplace name, and Jamf `scope:` stays on the auth. The YAML key is not a Jamf UUID. Child `org:` is derived from the tree when present. Auths hold type/username/clientId and link with `jamfpro:` or `contexts:`. Passwords and OAuth client secrets can stay inline for **dev/test**, or live in the encrypted vault (`secrets.enc`, keyed by **auth name**). The vault data key is one Keychain item (macOS) or `dek` (Linux/Windows); backups use a recovery passphrase (`master`):
 
 | Platform | Vault | Data key / recovery (`BUDDY_SECRET_STORE`) |
 |----------|-------|--------------------------------------------|
@@ -133,7 +153,8 @@ features:
 `BUDDY_VAULT_PASSPHRASE` overrides the recovery passphrase (never written).
 
 ```sh
-buddy cred set context sandbox --url=https://example.jamfcloud.com --region=us --environment-id=…
+buddy cred set context acme
+buddy cred set context sandbox --url=https://example.jamfcloud.com --region=us --environment-id=… --org=acme
 buddy cred set auth sandbox-admin --type=oauth --client-id=abc --jamfpro=sandbox --channels=cli,ide
 buddy cred set auth sandbox-platform-ro --type=platform --client-id=… --contexts=sandbox --scope=environment --access=readonly --channels=mcp,ide
 buddy cred set channel mcp --access=readonly --context=sandbox
@@ -155,32 +176,29 @@ buddy cred clean tokens                # delete expired/corrupt disk token cache
 
 Config is `context.default` + `contexts:` + `auths:` + optional `channels:`. Dual-read `tenant.default` / `tenants:` / `--tenant` / `tenant=` for one release; loading config rewrites those keys on disk. Older `credentials:`, a bare string `tenant:`, `defaults:`, and `allow_auths:` are rejected. Inline secrets: `buddy cred migrate`. Selection: `--context` (auto-pick auth by operation; `--tenant` alias) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all). Per-client policy lives under top-level `channels:` (`access` / `context` / `contexts` / `deny_builtins` / `allow_builtins`; MCP defaults deny `jamf_*`). The same deny/allow lists may be set on contexts and auths (per-layer; channel allow cannot unblock a context deny). `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` clients are removed.
 
-### Setting up a role and client for buddy
+### First-time setup
 
-If you have **no contexts yet**, run any interactive Jamf command (or `buddy cred add`) for the setup wizard — context name, instance URL and/or platform region+id, then auth + vault secret:
+If you have **no workplaces yet**, run any interactive Jamf command (or `buddy setup` / `buddy cred add`). Buddy asks how to start: Jamf Pro instance (API-client JSON, or URL + basic), Jamf Account / Platform (paste curl), a secrets-free quickstart YAML/plist, or an org MDM profile.
 
 ```sh
-buddy policy list                     # prompts when config is empty
-# or: buddy cred add
+buddy policy list                     # chooser when config is empty
+buddy cred add --paste --context=sandbox
+buddy cred add --context=sandbox --url=https://example.jamfcloud.com --type=basic --username=admin
+buddy setup import ./quickstart.yaml
+pbpaste | buddy cred add --paste --context=sandbox -y
 buddy auth test
 ```
 
-`buddy setup basic-setup` is still available for instance URL + basic auth only. If an MDM profile already provides contexts, run `buddy setup secrets` instead (creates missing auths and fills instance/platform coverage gaps). `buddy cred status` shows remaining holes. The docs UI **config** page (`buddy serve` → `/config`) edits context/auth metadata; secrets stay in the terminal vault.
-
-Then (optional) create a Jamf Pro **instance** API role/client and store oauth (Platform gateway oauth cannot manage roles/integrations):
+From a working install, share identity without secrets:
 
 ```sh
-buddy setup write-script              # writes setup_buddy_role.buddy (or specify a path)
-buddy setup_buddy_role.buddy -y       # idempotent: reuses role "Buddy" and client "buddy-cli"
-buddy setup store-oauth               # rotate instance client secret; store/update oauth auth (surface=instance)
-buddy --user <auth-name> auth test
+buddy setup export ./quickstart.yaml
+buddy setup managed-plist /tmp/buddy.plist
 ```
 
-Alternatively, after the script you can run `buddy client credentials <id>` to get the client secret (shown once) and add an auth manually with `buddy cred set auth …`.
+If an MDM profile already provides workplaces, run `buddy setup secrets`. `buddy cred status` shows remaining holes. The docs UI **config** page (`buddy serve` → `/config`) edits metadata after CLI setup; it is not first-run. Secrets stay in the terminal vault.
 
-The generated script fetches privilege names from your Jamf instance at runtime and reuses an existing role named "Buddy" (and client "buddy-cli") if present.
-
-The role the script targets may include **destructive or high-impact privileges** (for example wiping a computer, sending erase MDM commands, or similar Jamf permissions buddy can use in automation). That keeps a single setup path flexible, but it is **not** always appropriate to grant every such privilege to the API client: for day-to-day or production use, review the role in Jamf and **remove privileges you do not actually need**, then narrow the role before distributing credentials.
+Instance oauth is the JSON Jamf Pro shows when creating an API client. Instance basic is `--type=basic`. API roles and integrations are ordinary `role` / `client` commands — not a setup product path. Review privileges in Jamf before using a wide API role in production.
 
 ## Usage
 

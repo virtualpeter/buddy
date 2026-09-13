@@ -2,7 +2,7 @@
 
 **buddy** is a command-line tool for [Jamf Pro](https://www.jamf.com/products/jamf-pro/) automation: policies, computer groups, configuration profiles, packages, scripts, computers / MDM, API roles, and API clients. It includes a **buddyscript** runtime (built on [Starlark](https://github.com/google/starlark-go)) so multi-step workflows can live in `.buddy` scripts.
 
-**New install?** Start with [Getting started](getting-started.md) (interactive wizard / `buddy cred add`, or [`buddy setup basic-setup`](#first-time-api-setup)), then come back here for the full picture.
+**New install?** Start with [Getting started](getting-started.md) (chooser / `buddy cred add` / `buddy setup import`), then come back here for the full picture.
 
 This manual describes how the pieces fit together. For behavior that must stay in lockstep with the code, buddy exposes the same text via `buddy help` (see [CLI help](#cli-help)).
 
@@ -53,19 +53,20 @@ Default config path: `~/.config/buddy/config.yaml` (override config root with `X
 
 On macOS, org defaults may also come from managed preferences (`virtualpete.buddy.cli`); user YAML overlays them. See [Auth, secrets, and tokens](auth.md#org-defaults-macos-managed-preferences).
 
-Config is split into four maps:
+Config is split into:
 
 - **Context selection** — `context.default` (dual-read `tenant.default` for one release).
 - **Channel policies** — `channels.cli|mcp|ide` with optional `access` / `context` / `contexts` / `deny_builtins` / `allow_builtins`. MCP defaults deny `jamf_*`.
-- **Contexts** — named workplaces. Default is instance-only (`jamfpro.url`). Platform is additive (`id` + `region`, optional `jamfpro.tenantId`). The config name is not a Jamf environment UUID; see [Auth](auth.md#contexts-and-auths).
+- **Orgs** (optional) — nested Jamf organization → environment → product tenant sugar. Load expands it into `contexts:`; `--context` still picks a workplace name. See [Auth](auth.md#contexts-and-auths).
+- **Contexts** — named workplaces. Default is instance-only (`jamfpro.url`). Platform is additive (`id` + `region`, optional `jamfpro.tenantId`). The config name is not a Jamf environment UUID.
 - **Auths** — command/basic/oauth/platform principals. Instance auths use `jamfpro:`; platform auths use `scope:` plus `contexts:` or `jamfpro:`. Optional auth `channels:` (`cli`/`mcp`/`ide`; omit = all) limits which buddy clients may use that auth.
 
-Builtin deny/allow is per layer (channel allow cannot unblock a context deny). `deny_builtins: ["*"]` is an allowlist at that layer. `credentials:` / string `tenant:` / `defaults:` / `allow_auths:` and the `serve` / `notebook` client names are removed (use `contexts:` / `auths:` and `channels.ide`). Dual-read `tenants:` / `--tenant` / `tenant=` for one release.
+Builtin deny/allow is per layer (channel allow cannot unblock a context deny). `deny_builtins: ["*"]` is an allowlist at that layer. `credentials:` / string `tenant:` / `defaults:` / `allow_auths:` and the `serve` / `notebook` client names are removed (use `contexts:` / `auths:` and `channels.ide`). Dual-read `tenants:` / `--tenant` / `tenant=` for one release (root `tenants:` means workplaces; nested `orgs.*.environments.*.tenants` is Jamf’s product-tenant list).
 
 Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, secrets, and tokens](auth.md)**.
 
 - `buddy cred help` — set/list/get/delete contexts, auths, and channel policies; manage secrets; `cred use` / `cred set channel`
-- `buddy cred status` — context × surface coverage (gaps, last live check); SECRET is locked unless `--unlock` or `--test` (`--test` runs `auth test --all` first)
+- `buddy cred status` — org → environment → product-tenant coverage (gaps, last live check); SECRET is locked unless `--unlock` or `--test` (`--test` runs `auth test --all` first). SURFACE is instance vs gateway, not Account scope.
 - `buddy cred add` — guided context + auth + secret (optional live test)
 - `buddy cred set secret <auth>` — store password/client secret in the vault
 - `buddy cred set passphrase` — create or rotate the recovery passphrase (backups; does not wrap the live vault)
@@ -75,7 +76,11 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`
 - `buddy cred migrate` — move inline YAML secrets and old per-auth store items into the vault
 - `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of contexts, auths (with secrets), and channels; restore prompts once per auth (Enter restores, or `-y`)
+- `buddy setup` — first-run chooser when config is empty (instance, Platform, quickstart file, or MDM)
+- `buddy setup import <file>` — merge secrets-free YAML or ACS plist identity, then fill secrets
+- `buddy setup export [path]` — write secrets-free identity YAML (stdout if omitted); recipients `setup import`
 - `buddy setup secrets` — create missing context auths and surface-coverage gaps; store missing passwords / client secrets
+- `buddy setup managed-plist [path]` — same identity as ACS XML plist (no auths)
 - `buddy auth test` — ForceRenew + probe the active session (`--all` for every cell)
 - `buddy auth token refresh` — obtain, keep-alive, or replace the session token from cache state (`--raw` prints the bearer)
 - `buddy auth authorization` — cached Jamf authorization details from `GET /api/v1/auth` (access level, privilege set, privileges); `--all` dumps every cache entry
@@ -104,37 +109,22 @@ Full YAML shape and field descriptions are in the [README](../README.md#configur
 
 ## First-time API setup
 
-If you have **no contexts yet**, the preferred path is the interactive wizard (same as `buddy cred add`):
+If you have **no workplaces yet**, the preferred path is the interactive chooser (same as `buddy setup` / `buddy cred add`):
 
 ```sh
 buddy policy list                     # prompts when config is empty
-# or: buddy cred add
+# or: buddy setup
+buddy cred add --paste --context=sandbox
+buddy cred add --context=sandbox --url=https://example.jamfcloud.com --type=basic --username=admin
+buddy setup import ./quickstart.yaml
 buddy auth test
 ```
 
-You will be asked for a context name (buddy config name), optional Jamf Pro instance URL, optional Platform region + environment id (and optional product tenant id), then auth type and credentials (secrets go in the vault).
+You will be asked how to start: Jamf Pro instance (API-client JSON, or URL + basic), Jamf Account / Platform (paste curl), a secrets-free quickstart YAML/plist, or an org MDM profile. `--context` is a workplace name; `scope:` is on the auth. A US curl with blank env id is an org workplace (same object as `orgs.<name>`).
 
-`buddy setup basic-setup` remains for **instance URL + basic auth only**:
+If an MDM profile already provides workplaces (preference domain `virtualpete.buddy.cli`), run `buddy setup secrets` instead. `buddy cred status` shows remaining holes. In `buddy serve`, **config** (`/config`) edits metadata only — not vault secrets.
 
-```sh
-buddy setup basic-setup               # prompts for context, URL, username, password
-buddy --user <admin-auth> auth test
-```
-
-If an MDM profile already provides contexts (preference domain `virtualpete.buddy.cli`), run `buddy setup secrets` instead to create missing auths (including instance/platform coverage gaps) and store client secrets. `buddy cred status` shows remaining holes. In `buddy serve`, **config** (`/config`) edits context/auth metadata only — not vault secrets.
-
-Then (optional) create a Jamf Pro **instance** API role/client and store oauth (Platform gateway oauth cannot manage roles/integrations):
-
-```sh
-buddy setup write-script              # writes setup_buddy_role.buddy (or pass a path)
-buddy setup_buddy_role.buddy -y       # idempotent: reuses role "Buddy" and client "buddy-cli"
-buddy setup store-oauth               # rotate instance client secret; store/update oauth auth (surface=instance)
-buddy --user <auth-name> auth test
-```
-
-See `buddy setup help` for options. After creation, `buddy client credentials <id>` can reveal the client secret once for manual `buddy cred set auth` setup.
-
-The generated automation may request a **wide privilege set** so all buddy features are available. That does **not** mean your organization should keep every privilege on the production API client—especially **destructive** capabilities (wipe computer, erase device, or other Jamf permissions you only need occasionally). Review the **Buddy** (or equivalent) API role in Jamf after setup and **drop privileges** that are not justified for how you will use buddy.
+Admins share identity without secrets as YAML (`buddy setup export` / `import`) or ACS (`buddy setup managed-plist`). Instance oauth is the JSON Jamf Pro shows when creating an API client; instance basic is `--type=basic` plus username/password. Role/client helpers are ordinary builtins (`roles` / `clients`), not a setup product path.
 
 ---
 
@@ -187,7 +177,8 @@ Global flags may appear anywhere before `--`. Long flags accept a single dash (`
 | `device-group` | Platform API device groups (not Pro computer groups) |
 | `ddm` | Platform DDM declaration reporting (read-only) |
 | `benchmark` | Platform compliance benchmarks |
-| `setup` | Generate setup scripts and OAuth config helpers |
+| `license` | Jamf Account licenses (organization workplace; list) |
+| `setup` | First-run chooser, quickstart import/export, secrets, MDM plist |
 | `serve` | Local docs browser + config + script IDE |
 | `mcp` | MCP stdio server for AI tools (`mcp setup` writes host configs) |
 | `lsp` | Language server for the Cursor/VS Code buddy extension |
@@ -217,7 +208,7 @@ buddy serve --addr=127.0.0.1:8742
 
 - Binds **localhost only** (default `127.0.0.1:8742`).
 - `/docs/` — Curated user guides (overview, reference, builtins, API, MCP, examples). Contributor/agent material (AGENTS, Cursor rules) is MCP-only.
-- `/config` — View/edit context and auth **metadata** (defaults, coverage gaps). Vault secrets stay CLI-only (`buddy cred set secret`).
+- `/config` — View/edit workplace and auth **metadata** (defaults, coverage gaps). First-run identity is the CLI chooser (`buddy setup` / `cred add`); vault secrets stay CLI-only (`buddy cred set secret` / `setup secrets`).
 - `/ide` — Single-buffer script runner with open/save, args, optional `--script-trace`-style builtin tracing, Run (file dialect + call `main()` if present), resizable output, copy/save/stash, and a Variables | Libraries sidebar. Open/save is limited to the process cwd or `BUDDY_IDE_ROOT`. Matches CLI file semantics.
 - Line breakpoints and stepping are **not** available (Starlark-go has no pause/step API). A soft `breakpoint()` builtin that only stops when the script calls it may be added later.
 - Optional `--docs-root` / `BUDDY_DOCS_ROOT` to override embedded markdown with live files while editing.
@@ -245,7 +236,7 @@ Add a `mcpServers.buddy` entry (absolute `command` path, `args: ["mcp"]`) to you
 
 Curated MCP tools: `get_instructions`, `buddy_info`, `docs`, `jamf_schema`, `buddyscript` (primary automation). Call `get_instructions` once at session start. Pro groups, profiles, policies, package READY/download, Platform CRUD, and related helpers run as **named builtins inside `buddyscript`**. Full table and agent priority: [`docs/mcp.md`](mcp.md) and [`docs/mcp-tools.md`](mcp-tools.md). Resources under `buddy://docs/...` (agents should prefer the `docs` tool).
 
-Uses the active context/auth (`--context` / `--user` to override; `--tenant` dual-read). MCP inherits that session’s Jamf privileges—treat it like the CLI. With **no contexts** configured, `buddy mcp` registers **no tools** and points the host at `buddy cred add` / the interactive CLI wizard (secrets never over MCP).
+Uses the active context/auth (`--context` / `--user` to override; `--tenant` dual-read). MCP inherits that session’s Jamf privileges—treat it like the CLI. With **no contexts** configured, `buddy mcp` registers **no tools** and points the host at `buddy setup` / `buddy cred add` (secrets never over MCP).
 
 ---
 

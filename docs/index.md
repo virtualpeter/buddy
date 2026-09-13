@@ -2,7 +2,7 @@
 
 <p class="about-hero"><img src="/buddy.png" width="168" height="168" alt="buddy"></p>
 
-**buddy** for Jamf Pro is a multipurpose tool with CLI, MCP, and its own scripting language. It covers Classic and Pro api functions (policies, computer groups, configuration profiles, packages/JCDS, scripts, computers and MDM, API roles and clients) and newer features only found via the Platform API (blueprints, devices, device groups, DDM reporting, compliance benchmarks).
+**buddy** for Jamf Pro is a multipurpose tool with CLI, MCP, and its own scripting language. It covers Classic and Pro api functions (policies, computer groups, configuration profiles, packages/JCDS, scripts, computers and MDM, API roles and clients) and newer features only found via the Platform API (blueprints, devices, device groups, DDM reporting, compliance benchmarks, Account licenses).
 
 **buddy** is independent open-source software (MIT). It talks to [Jamf Pro](https://www.jamf.com/) and Jamf Platform **APIs**. It is not affiliated with, endorsed by, or sponsored by Jamf. Jamf, Jamf Pro, and related names are trademarks of Jamf.
 
@@ -13,8 +13,8 @@ The only required config is a **context** plus an **auth**; passwords or oauth s
 ## Start here
 
 <ul class="about-jump">
-<li><a href="/docs/docs/getting-started">Getting started</a><span>Install, setup wizard / <code>buddy cred add</code>, and your first commands</span></li>
-<li><a href="/config">Config</a><span>View and edit contexts / auths (metadata; secrets stay in the CLI)</span></li>
+<li><a href="/docs/docs/getting-started">Getting started</a><span>Install, first-run chooser / <code>buddy cred add</code>, and your first commands</span></li>
+<li><a href="/config">Config</a><span>View and edit workplaces / auths (metadata after CLI setup; secrets stay in the terminal)</span></li>
 <li><a href="/ide">Script IDE</a><span>Open, edit, and run <code>.buddy</code> scripts in the browser</span></li>
 <li><a href="/docs/docs/auth">Auth, secrets, and tokens</a><span>Contexts, vault, channel policy, token cache</span></li>
 <li><a href="/docs/docs/reference-manual">Reference manual</a><span>Config, CLI, buddyscript, env vars</span></li>
@@ -60,6 +60,7 @@ The only required config is a **context** plus an **auth**; passwords or oauth s
 | [Device groups](device-groups.md) | Platform device groups |
 | [DDM reporting](ddm.md) | Declaration reporting |
 | [Compliance benchmarks](benchmarks.md) | Benchmarks |
+| [Licenses](licenses.md) | Account licenses (organization workplace) |
 
 ## Guides
 
