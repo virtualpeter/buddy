@@ -37,7 +37,7 @@ Classic **Mac App Store** records are separate — use [`macapp` / `macapps`](/d
 - Do not invent Classic PUTs for app upgrades — use `app_reconcile` / `app_upgrade` (or policy package / Self Service helpers).
 - Wait until the target package is READY in Jamf (`package_wait_ready` / `package_ready`) before reconcile apply or `app_upgrade`.
 - Prefer `docs/apps` then named builtins via `buddyscript`; Classic Mac App Store is `macapp` / `macapps`, not `app` / `apps`.
-- Platform-only auth cannot list/scan apps: undocumented Pro `GET /api/v1/policies` is instance-only (gateway 403; not gated by classic_instance_only). Use an instance-surface auth.
+- On an environment workplace, app scan and the policy payload cache (`app_scan`, `app_cache_refresh`, `buddy app cache refresh`) relocate to a Jamf Pro product-tenant child that has instance auth so undocumented `GET /api/v1/policies` can run. No such child → Classic-on-gateway (same as `buddy policy list`).
 
 ## Facts
 
@@ -157,7 +157,7 @@ Returns: dict (summary + linked install/cache/uninstall policies)
 
 `app_scan(filter?, refresh?)` or `buddy app scan [--filter=…] [--refresh]`
 
-Returns: dict {apps: list of summaries, source: cache|live, cache: {exists, stale, fetched_at, …}}
+Returns: dict {apps: list of summaries, source: cache|live, cache: {exists, stale, fetched_at, …}, context?}
 
 #### Parameters (JSON Schema)
 
@@ -193,6 +193,7 @@ Returns: dict {apps: list of summaries, source: cache|live, cache: {exists, stal
 
 - Onboarding aid — approximate. Prefer `apps()` after import.
 - Uses ~/.config/buddy/policy-cache/ when present. Missing cache falls back to a live policy list.
+- Environment workplace: relocates to a Jamf Pro product-tenant child with instance auth when one exists (v1 policy index). Otherwise Classic-on-gateway.
 
 ### app_import
 
@@ -310,6 +311,7 @@ Returns: dict {exists, stale, fetched_at, age_seconds, count, tenant, dir}
 ```
 
 - No Jamf call. fetched_at is RFC3339 UTC when the cache exists.
+- Environment workplace: same Jamf Pro child relocation as app_scan.
 
 ### app_cache_refresh
 
@@ -342,6 +344,7 @@ Returns: dict {exists, stale, fetched_at, age_seconds, count, tenant, dir} after
 ```
 
 - GETs every Classic policy XML into ~/.config/buddy/policy-cache/. Local files only (not a Jamf mutate).
+- Environment workplace: relocates to a Jamf Pro product-tenant child with instance auth when one exists (same as app_scan).
 
 ### app_upgrade
 
@@ -499,6 +502,7 @@ buddy [global-flags] app scan [--filter=<keyword>] [--refresh]
 
 - Uses ~/.config/buddy/policy-cache/ when present (prints fetched date). No Jamf list call.
 - Missing cache falls back to a live policy list. --refresh rebuilds the cache first (same as app cache refresh).
+- On an environment workplace, relocates to a Jamf Pro product-tenant child with instance auth when one exists.
 - Approximate; use import to curate real bindings.
 
 ### app get
@@ -587,6 +591,7 @@ buddy [global-flags] app cache <status|refresh>
 
 - status prints fetched date, age, tenant, and dir.
 - refresh prints the current fetched date, then rebuilds.
+- On an environment workplace, uses a Jamf Pro product-tenant child with instance auth when one exists (same as app scan).
 
 ### app upgrade
 

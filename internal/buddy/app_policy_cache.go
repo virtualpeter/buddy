@@ -80,6 +80,10 @@ func PolicyCacheTenantDir(credName string) (string, error) {
 
 // LoadPolicyCacheManifest loads manifest.json; missing → nil, nil.
 func LoadPolicyCacheManifest(credName string) (*PolicyCacheManifest, error) {
+	restore, pin, _ := beginAppPolicyIndexSession(credName, nil)
+	defer restore()
+	credName = pin
+
 	dir, err := PolicyCacheTenantDir(credName)
 	if err != nil {
 		return nil, err
@@ -111,6 +115,10 @@ func PolicyCacheNeedsRefresh(m *PolicyCacheManifest, now time.Time) bool {
 
 // GetPolicyCacheStatus returns status for the active session's policy cache.
 func GetPolicyCacheStatus(credName string) (PolicyCacheStatus, error) {
+	restore, pin, _ := beginAppPolicyIndexSession(credName, nil)
+	defer restore()
+	credName = pin
+
 	dir, err := PolicyCacheTenantDir(credName)
 	if err != nil {
 		return PolicyCacheStatus{}, err
@@ -208,6 +216,10 @@ func PrintPolicyCacheStatus(credName string) error {
 
 // LoadPolicyCacheSummaries loads summaries.json; missing → empty slice.
 func LoadPolicyCacheSummaries(credName string) ([]PolicyCacheSummary, error) {
+	restore, pin, _ := beginAppPolicyIndexSession(credName, nil)
+	defer restore()
+	credName = pin
+
 	dir, err := PolicyCacheTenantDir(credName)
 	if err != nil {
 		return nil, err
@@ -231,6 +243,10 @@ func PolicyCacheGet(credName string, policyID int, logger *slog.Logger) (*resour
 	if policyID <= 0 {
 		return nil, fmt.Errorf("policy id is required")
 	}
+	restore, pin, _ := beginAppPolicyIndexSession(credName, logger)
+	defer restore()
+	credName = pin
+
 	dir, err := PolicyCacheTenantDir(credName)
 	if err == nil {
 		path := filepath.Join(dir, strconv.Itoa(policyID)+".xml")
@@ -249,6 +265,10 @@ func PolicyCacheGet(credName string, policyID int, logger *slog.Logger) (*resour
 
 // PolicyCacheRefresh rebuilds the full Classic policy payload cache for the session.
 func PolicyCacheRefresh(credName string, logger *slog.Logger) error {
+	restore, pin, indexCtx := beginAppPolicyIndexSession(credName, logger)
+	defer restore()
+	credName = pin
+
 	dir, err := PolicyCacheTenantDir(credName)
 	if err != nil {
 		return err
@@ -322,6 +342,9 @@ func PolicyCacheRefresh(credName string, logger *slog.Logger) error {
 		return err
 	}
 	fmt.Printf("Policy cache refreshed: %d policies → %s (fetched %s)\n", okCount, dir, manifest.FetchedAt.UTC().Format(time.RFC3339))
+	if indexCtx != "" {
+		fmt.Printf("  Policy index via product tenant %s\n", indexCtx)
+	}
 	return nil
 }
 

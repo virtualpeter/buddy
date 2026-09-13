@@ -98,6 +98,9 @@ func appScanBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 		d := new(starlark.Dict)
 		_ = d.SetKey(starlark.String("apps"), starlark.NewList(list))
 		_ = d.SetKey(starlark.String("source"), starlark.String(res.Source))
+		if res.IndexContext != "" {
+			_ = d.SetKey(starlark.String("context"), starlark.String(res.IndexContext))
+		}
 		cacheVal, err := jsonResult(res.Cache.Info(), nil)
 		if err != nil {
 			return resultErr(err.Error())
