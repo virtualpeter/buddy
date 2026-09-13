@@ -30,7 +30,7 @@ func (cfg *Config) HasManagedPrefs() bool {
 		return false
 	}
 	m := cfg.mdm
-	return strings.TrimSpace(m.Tenant.Default) != "" || len(m.Tenants) > 0 || len(m.Auths) > 0 || len(m.Channels) > 0
+	return strings.TrimSpace(m.Tenant.Default) != "" || len(m.Tenants) > 0 || len(m.Orgs) > 0 || len(m.Auths) > 0 || len(m.Channels) > 0
 }
 
 // TenantFromManagedPrefs reports whether name is supplied by managed preferences.
@@ -180,7 +180,7 @@ func unwrapManagedPlist(raw map[string]any) map[string]any {
 }
 
 func hasManagedConfigKeys(raw map[string]any) bool {
-	for _, k := range []string{"tenant", "tenants", "auths", "channels"} {
+	for _, k := range []string{"tenant", "tenants", "context", "contexts", "orgs", "auths", "channels"} {
 		if _, ok := raw[k]; ok {
 			return true
 		}
@@ -264,6 +264,14 @@ func overlayConfig(base, overlay *Config) *Config {
 	if overlay.Features.ClassicInstanceOnly != nil {
 		out.Features.ClassicInstanceOnly = cloneBoolPtr(overlay.Features.ClassicInstanceOnly)
 	}
+	if len(overlay.Orgs) > 0 {
+		if out.Orgs == nil {
+			out.Orgs = map[string]OrgConfig{}
+		}
+		for name, o := range overlay.Orgs {
+			out.Orgs[name] = cloneOrgConfig(o)
+		}
+	}
 	return out
 }
 
@@ -288,6 +296,12 @@ func cloneConfig(c *Config) *Config {
 		out.Channels = make(map[string]ChannelPolicy, len(c.Channels))
 		for k, v := range c.Channels {
 			out.Channels[k] = cloneChannelPolicy(v)
+		}
+	}
+	if c.Orgs != nil {
+		out.Orgs = make(map[string]OrgConfig, len(c.Orgs))
+		for k, v := range c.Orgs {
+			out.Orgs[k] = cloneOrgConfig(v)
 		}
 	}
 	out.Features.ClassicInstanceOnly = cloneBoolPtr(c.Features.ClassicInstanceOnly)
@@ -398,16 +412,32 @@ func userOverlayForSave(cfg *Config) *Config {
 		userFeat.ClassicInstanceOnly != nil {
 		out.Features.ClassicInstanceOnly = cloneBoolPtr(cfg.Features.ClassicInstanceOnly)
 	}
+
+	userOrgs := map[string]struct{}{}
+	if cfg.user != nil {
+		for n := range cfg.user.Orgs {
+			userOrgs[n] = struct{}{}
+		}
+	}
+	for name, o := range cfg.Orgs {
+		_, inUser := userOrgs[name]
+		var mdmO OrgConfig
+		inMDM := false
+		if cfg.mdm.Orgs != nil {
+			mdmO, inMDM = cfg.mdm.Orgs[name]
+		}
+		if inUser || !inMDM || !orgConfigEqual(o, mdmO) {
+			if out.Orgs == nil {
+				out.Orgs = map[string]OrgConfig{}
+			}
+			out.Orgs[name] = cloneOrgConfig(o)
+		}
+	}
 	return out
 }
 
 func tenantConfigEqual(a, b TenantConfig) bool {
-	return strings.TrimSpace(a.URL) == strings.TrimSpace(b.URL) &&
-		strings.TrimSpace(a.Region) == strings.TrimSpace(b.Region) &&
-		strings.TrimSpace(a.EnvironmentID) == strings.TrimSpace(b.EnvironmentID) &&
-		strings.TrimSpace(a.TenantID) == strings.TrimSpace(b.TenantID) &&
-		stringSliceEqual(a.DenyBuiltins, b.DenyBuiltins) &&
-		stringSliceEqual(a.AllowBuiltins, b.AllowBuiltins)
+	return workplaceIdentityEqual(a, b)
 }
 
 func authEntryEqual(a, b AuthEntry) bool {
@@ -447,16 +477,29 @@ func stringSliceEqual(a, b []string) bool {
 	return true
 }
 
-// MarshalManagedPlist encodes cfg as XML plist for Jamf ACS preference domain
-// ManagedPrefsDomain. Auths are omitted (names, client IDs, and secrets are
-// per-user). They are still accepted if present when loading managed prefs.
-func MarshalManagedPlist(cfg *Config) ([]byte, error) {
+// MarshalQuickstartYAML encodes cfg as secrets-free identity YAML (orgs: /
+// leftover contexts: / context.default / channels / features). Auths are omitted.
+func MarshalQuickstartYAML(cfg *Config) ([]byte, error) {
+	return shareableIdentityYAML(cfg)
+}
+
+func shareableIdentityYAML(cfg *Config) ([]byte, error) {
 	if cfg == nil {
 		cfg = &Config{}
 	}
 	stripped := cloneConfig(cfg)
 	stripped.Auths = nil
-	data, err := marshalConfigWith(stripped, nil, marshalConfigOptions{fillDefault: strings.TrimSpace(stripped.Tenant.Default) != "", omitEmptyMaps: true})
+	return marshalConfigWith(stripped, nil, marshalConfigOptions{
+		fillDefault:   strings.TrimSpace(stripped.Tenant.Default) != "",
+		omitEmptyMaps: true,
+	})
+}
+
+// MarshalManagedPlist encodes cfg as XML plist for Jamf ACS preference domain
+// ManagedPrefsDomain. Auths are omitted (names, client IDs, and secrets are
+// per-user). They are still accepted if present when loading managed prefs.
+func MarshalManagedPlist(cfg *Config) ([]byte, error) {
+	data, err := shareableIdentityYAML(cfg)
 	if err != nil {
 		return nil, err
 	}

@@ -452,19 +452,23 @@ func runCredAdd(cfg *buddy.Config, opts buddy.Opts, args []string, log *slog.Log
 func parseCredAddArgs(args []string, skipConfirm bool) (buddy.CredAddOpts, error) {
 	out := buddy.CredAddOpts{SkipConfirm: skipConfirm}
 	stringFlags := map[string]*string{
-		"name":           &out.AuthName,
-		"context":        &out.TenantName,
-		"tenant":         &out.TenantName,
-		"url":            &out.URL,
-		"region":         &out.Region,
-		"environment-id": &out.EnvironmentID,
-		"tenant-id":      &out.TenantID,
-		"surface":        &out.Surface,
-		"type":           &out.Type,
-		"client-id":      &out.ClientID,
-		"username":       &out.Username,
-		"password":       &out.Password,
-		"client-secret":  &out.ClientSecret,
+		"name":             &out.AuthName,
+		"context":          &out.TenantName,
+		"tenant":           &out.TenantName,
+		"url":              &out.URL,
+		"region":           &out.Region,
+		"environment-id":   &out.EnvironmentID,
+		"tenant-id":        &out.TenantID,
+		"surface":          &out.Surface,
+		"type":             &out.Type,
+		"scope":            &out.Scope,
+		"client-id":        &out.ClientID,
+		"username":         &out.Username,
+		"password":         &out.Password,
+		"client-secret":    &out.ClientSecret,
+		"from":             &out.FromFile,
+		"org":              &out.OrgName,
+		"environment-name": &out.EnvironmentName,
 	}
 	pos := ""
 	posSet := false
@@ -480,6 +484,9 @@ func parseCredAddArgs(args []string, skipConfirm bool) (buddy.CredAddOpts, error
 		case "--no-test":
 			out.NoTest = true
 			continue
+		case "--paste":
+			out.WantPaste = true
+			continue
 		}
 		if !strings.HasPrefix(a, "-") {
 			if posSet {
@@ -491,6 +498,13 @@ func parseCredAddArgs(args []string, skipConfirm bool) (buddy.CredAddOpts, error
 		fname, val, hasVal, err := parseFlag(a)
 		if err != nil {
 			return buddy.CredAddOpts{}, err
+		}
+		if fname == "paste" {
+			out.WantPaste = true
+			if hasVal && val != "-" {
+				out.PasteBlob = val
+			}
+			continue
 		}
 		dest, ok := stringFlags[fname]
 		if !ok {
@@ -516,51 +530,25 @@ func parseCredAddArgs(args []string, skipConfirm bool) (buddy.CredAddOpts, error
 
 func runCredList(cfg *buddy.Config) error {
 	if len(cfg.Tenants) == 0 && len(cfg.Auths) == 0 {
-		fmt.Printf("No tenants/auths configured. Use 'buddy cred add' (or any Jamf command interactively) — see '%s'.\n", clispec.UsageHelp(clispec.CmdCred))
+		fmt.Printf("No workplaces configured. Use 'buddy setup' / 'buddy cred add' (or any Jamf command interactively) — see '%s'.\n", clispec.UsageHelp(clispec.CmdSetup))
 		return nil
 	}
 	fmt.Println("CONTEXTS")
-	fmt.Printf("%-18s  %-36s  %-8s  %s\n", "NAME", "URL", "REGION", "SCOPE")
-	fmt.Printf("%-18s  %-36s  %-8s  %s\n", "------------------", "------------------------------------", "--------", "---------")
-	tnames := make([]string, 0, len(cfg.Tenants))
-	for n := range cfg.Tenants {
-		tnames = append(tnames, n)
-	}
-	sort.Strings(tnames)
-	for _, name := range tnames {
-		t := cfg.Tenants[name]
+	fmt.Printf("%-14s  %-16s  %-16s  %-15s  %s\n", "ORG", "ENVIRONMENT", "CONTEXT", "KIND", "URL")
+	fmt.Printf("%-14s  %-16s  %-16s  %-15s  %s\n", "--------------", "----------------", "----------------", "---------------", "---")
+	for _, row := range buddy.WorkplaceTree(cfg.Tenants) {
+		t := cfg.Tenants[row.Name]
 		marker := ""
-		if name == cfg.Tenant.Default {
+		if row.Name == cfg.Tenant.Default {
 			marker = " *"
 		}
 		url := t.InstanceBaseURL()
-		if url == "" {
-			url = t.GatewayBaseURL()
-		}
-		if url == "" {
-			url = "-"
-		}
-		region := t.EffectiveRegion()
-		if region == "" {
-			region = "-"
-		}
-		tid := "-"
-		if e := t.EffectiveEnvironmentID(); e != "" {
-			tid = "env:" + e
-			if id := t.EffectiveTenantID(); id != "" {
-				tid += " tenant:" + id
-			}
-		} else if id := t.EffectiveTenantID(); id != "" {
-			tid = "tenant:" + id
-		} else if t.HasPlatform() {
-			tid = "org"
-		}
-		fmt.Printf("%-18s  %-36s  %-8s  %s%s\n", name, url, region, tid, marker)
+		fmt.Printf("%-14s  %-16s  %-16s  %-15s  %s%s\n", row.Org, row.Environment, row.Name, row.Kind, url, marker)
 	}
-	fmt.Printf("\n* = default context\n\n")
+	fmt.Printf("\n* = default context (--context is CONTEXT)\n\n")
 	fmt.Println("AUTHS")
-	fmt.Printf("%-18s  %-10s  %-10s  %-14s  %s\n", "NAME", "TYPE", "ACCESS", "CHANNELS", "CONTEXTS")
-	fmt.Printf("%-18s  %-10s  %-10s  %-14s  %s\n", "------------------", "----------", "----------", "--------------", "-------")
+	fmt.Printf("%-18s  %-10s  %-12s  %-10s  %-14s  %s\n", "NAME", "TYPE", "SCOPE", "ACCESS", "CHANNELS", "CONTEXTS")
+	fmt.Printf("%-18s  %-10s  %-12s  %-10s  %-14s  %s\n", "------------------", "----------", "------------", "----------", "--------------", "-------")
 	anames := make([]string, 0, len(cfg.Auths))
 	for n := range cfg.Auths {
 		anames = append(anames, n)
@@ -572,8 +560,13 @@ func runCredList(cfg *buddy.Config) error {
 		if len(a.Channels) > 0 {
 			ch = strings.Join(a.Channels, ",")
 		}
-		fmt.Printf("%-18s  %-10s  %-10s  %-14s  %s\n", name, a.Type, a.EffectiveAccess(), ch, strings.Join(a.Tenants, ","))
+		ctxs := strings.Join(buddy.OrderNamesByWorkplaceTree(cfg.Tenants, a.Tenants), ",")
+		if ctxs == "" {
+			ctxs = "-"
+		}
+		fmt.Printf("%-18s  %-10s  %-12s  %-10s  %-14s  %s\n", name, a.Type, buddy.FormatAuthScope(a), a.EffectiveAccess(), ch, ctxs)
 	}
+	fmt.Printf("\nRows are org → environment → product-tenant. Auth SCOPE is organization|environment|tenant (instance auths: -).\n")
 	sel := cfg.Channels
 	if len(sel) > 0 {
 		fmt.Printf("\nCHANNEL POLICIES\n")
@@ -586,10 +579,10 @@ func runCredList(cfg *buddy.Config) error {
 			p := sel[n]
 			parts := []string{"access=" + p.EffectiveAccess()}
 			if t := strings.TrimSpace(p.Tenant); t != "" {
-				parts = append(parts, "tenant="+t)
+				parts = append(parts, "context="+t)
 			}
 			if len(p.Tenants) > 0 {
-				parts = append(parts, "tenants="+strings.Join(p.Tenants, ","))
+				parts = append(parts, "contexts="+strings.Join(p.Tenants, ","))
 			}
 			fmt.Printf("  %-10s  %s\n", n, strings.Join(parts, "  "))
 		}
@@ -618,7 +611,11 @@ func runCredShowTenant(cfg *buddy.Config, name string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("tenant:   %s\n", name)
+	fmt.Printf("context:  %s\n", name)
+	fmt.Printf("kind:     %s\n", buddy.FormatWorkplaceKind(t))
+	if o := strings.TrimSpace(t.Org); o != "" {
+		fmt.Printf("org:      %s\n", o)
+	}
 	if u := t.InstanceBaseURL(); u != "" {
 		fmt.Printf("url:      %s\n", u)
 	}
@@ -629,10 +626,13 @@ func runCredShowTenant(cfg *buddy.Config, name string) error {
 		fmt.Printf("gateway:  %s\n", gw)
 	}
 	if eid := t.EffectiveEnvironmentID(); eid != "" {
-		fmt.Printf("environmentId: %s\n", eid)
+		fmt.Printf("environmentId: %s  (X-Environment-Id)\n", eid)
 	}
 	if tid := t.EffectiveTenantID(); tid != "" {
-		fmt.Printf("tenantId: %s\n", tid)
+		fmt.Printf("tenantId: %s  (X-Tenant-Id)\n", tid)
+	}
+	if t.WorkplaceKind() == "organization" {
+		fmt.Printf("account:  no X-Environment-Id / X-Tenant-Id\n")
 	}
 	printBuiltinLists(t.DenyBuiltins, t.AllowBuiltins)
 	fmt.Printf("default:  %v\n", name == cfg.Tenant.Default)
@@ -668,13 +668,21 @@ func runCredShowAuth(cfg *buddy.Config, name string) error {
 	}
 	fmt.Printf("auth:     %s\n", name)
 	fmt.Printf("type:     %s\n", a.Type)
+	fmt.Printf("scope:    %s\n", buddy.FormatAuthScope(a))
+	if d := buddy.FormatAuthScopeDetail(a); d != "" {
+		fmt.Printf("          %s\n", d)
+	}
 	fmt.Printf("access:   %s\n", a.EffectiveAccess())
 	if len(a.Channels) == 0 {
 		fmt.Printf("channels: all\n")
 	} else {
 		fmt.Printf("channels: %s\n", strings.Join(a.Channels, ", "))
 	}
-	fmt.Printf("tenants:  %s\n", strings.Join(a.Tenants, ", "))
+	ctxs := strings.Join(a.Tenants, ", ")
+	if ctxs == "" {
+		ctxs = "-"
+	}
+	fmt.Printf("contexts: %s\n", ctxs)
 	printBuiltinLists(a.DenyBuiltins, a.AllowBuiltins)
 	storeAvailable := buddy.SecretStoreAvailable()
 	inlineWarn := false
@@ -742,12 +750,14 @@ func runCredSetTenant(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	created, err := buddy.SetTenantMetadata(cfg, parsed.Name, buddy.SetTenantOpts{
 		URL:           parsed.Tenant.URL,
 		Region:        parsed.Tenant.Region,
+		Org:           parsed.Tenant.Org,
 		EnvironmentID: parsed.Tenant.EnvironmentID,
 		TenantID:      parsed.Tenant.TenantID,
 		DenyBuiltins:  parsed.Tenant.DenyBuiltins,
 		AllowBuiltins: parsed.Tenant.AllowBuiltins,
 		SetDeny:       parsed.SetDeny,
 		SetAllow:      parsed.SetAllow,
+		SetOrg:        parsed.SetOrg,
 		Overwrite:     true,
 	})
 	if err != nil {
@@ -872,11 +882,12 @@ type tenantSetParsed struct {
 	SkipConfirm bool
 	SetDeny     bool
 	SetAllow    bool
+	SetOrg      bool
 }
 
 func parseCredSetTenantArgs(args []string, skipConfirm bool) (tenantSetParsed, error) {
-	var name, url, region, environmentID, tenantID, denyCSV, allowCSV string
-	var setDeny, setAllow bool
+	var name, url, region, org, environmentID, tenantID, denyCSV, allowCSV string
+	var setDeny, setAllow, setOrg bool
 	flags := map[string]*string{
 		"url":            &url,
 		"region":         &region,
@@ -931,6 +942,20 @@ func parseCredSetTenantArgs(args []string, skipConfirm bool) (tenantSetParsed, e
 			}
 			continue
 		}
+		if fname == "org" || fname == "organization" {
+			setOrg = true
+			if !hasVal {
+				if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+					i++
+					org = args[i]
+				} else {
+					org = ""
+				}
+			} else {
+				org = val
+			}
+			continue
+		}
 		dest, ok := flags[fname]
 		if !ok {
 			return tenantSetParsed{}, fmt.Errorf("unknown flag --%s", fname)
@@ -952,7 +977,7 @@ func parseCredSetTenantArgs(args []string, skipConfirm bool) (tenantSetParsed, e
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return tenantSetParsed{}, fmt.Errorf("context name required; usage: buddy cred set context <name> [--url=…] [--region=…] [--environment-id=…] [--tenant-id=…]")
+		return tenantSetParsed{}, fmt.Errorf("context name required; usage: buddy cred set context <name> [--url=…] [--region=…] [--org=…] [--environment-id=…] [--tenant-id=…]")
 	}
 	region = strings.TrimSpace(region)
 	if region != "" {
@@ -967,6 +992,7 @@ func parseCredSetTenantArgs(args []string, skipConfirm bool) (tenantSetParsed, e
 		Tenant: buddy.TenantConfig{
 			URL:           strings.TrimSpace(url),
 			Region:        region,
+			Org:           strings.TrimSpace(org),
 			EnvironmentID: strings.TrimSpace(environmentID),
 			TenantID:      strings.TrimSpace(tenantID),
 			DenyBuiltins:  splitCSV(denyCSV),
@@ -975,6 +1001,7 @@ func parseCredSetTenantArgs(args []string, skipConfirm bool) (tenantSetParsed, e
 		SkipConfirm: skipConfirm,
 		SetDeny:     setDeny,
 		SetAllow:    setAllow,
+		SetOrg:      setOrg,
 	}, nil
 }
 
