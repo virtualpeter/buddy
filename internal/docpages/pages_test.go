@@ -14,7 +14,7 @@ func TestLoadHumanEmbedded(t *testing.T) {
 		t.Fatalf("source=%q", res.Source)
 	}
 	for _, id := range []string{
-		"docs/index", "docs/getting-started", "docs/policies", "docs/smart-groups", "docs/static-groups",
+		"docs/index", "docs/getting-started", "docs/releases", "docs/policies", "docs/smart-groups", "docs/static-groups",
 		"docs/profiles", "docs/packages", "docs/icons", "docs/scripts", "docs/categories",
 		"docs/extension-attributes", "docs/mobile-extension-attributes",
 		"docs/computers", "docs/computer-searches", "docs/mdm", "docs/mobile-devices", "docs/mobile-searches", "docs/mobile-groups", "docs/mobile-profiles",
@@ -87,7 +87,7 @@ func TestLoadAgentEmbedded(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{
-		"docs/index", "docs/getting-started", "docs/policies", "docs/packages", "docs/blueprints",
+		"docs/index", "docs/getting-started", "docs/releases", "docs/policies", "docs/packages", "docs/blueprints",
 		"docs/change-batches", "docs/mcp", "docs/mcp-tools", "docs/profile-payloads", "docs/editor",
 		"docs/apps", "readme", "builtins", "cli",
 		"help/root", "examples/bump-release.buddy",

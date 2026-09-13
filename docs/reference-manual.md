@@ -382,6 +382,7 @@ These are Makefile variables, not runtime config:
 - [README](../README.md) — quick start, configuration table, command cheat sheet
 - [`docs/index.md`](index.md) — About (landing page + docs map)
 - [`docs/getting-started.md`](getting-started.md) — Install, `buddy setup`, first commands
+- [`docs/releases.md`](releases.md) — Notable changes per tagged version
 - [Auth, secrets, and tokens](auth.md) — tenants, auths, channel policy, secret stores, token cache
 - [Change batches howto](/docs/docs/change-batches) — plan / approve / apply for change records
 - [Editor / LSP](editor.md) — VS Code/Cursor extension and `buddy lsp`

@@ -68,6 +68,7 @@ In the IDE, open **Libraries** → **Getting started** for a short list of built
 | Guide | What it’s for |
 |-------|----------------|
 | [About](index.md) | Docs map: resources, Platform, guides |
+| [Release notes](releases.md) | Notable changes per tagged version |
 | [Auth, secrets, and tokens](auth.md) | Contexts, vault, channel policy |
 | [Reference manual](reference-manual.md) | Config, CLI, buddyscript, env vars |
 | [Script IDE](/ide) | Single-buffer runner |

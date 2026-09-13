@@ -19,6 +19,7 @@ New install: if there isn’t a released binary available and you have Go instal
 | [AGENTS.md](AGENTS.md) | Contributor notes for AI agents (layout, conventions) |
 | [docs/index.md](docs/index.md) | About: landing page and docs map |
 | [docs/getting-started.md](docs/getting-started.md) | Install, `buddy setup`, first commands |
+| [docs/releases.md](docs/releases.md) | Notable changes per tagged version |
 | [docs/auth.md](docs/auth.md) | Tenants, auths, secrets, and token caching |
 | [docs/reference-manual.md](docs/reference-manual.md) | Full reference: config, CLI, scripting, builtins overview, API doc link |
 | [docs/change-batches.md](docs/change-batches.md) | Plan → approve → apply change-record workflows |

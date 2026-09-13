@@ -14,6 +14,7 @@ The only required config is a **context** plus an **auth**; passwords or oauth s
 
 <ul class="about-jump">
 <li><a href="/docs/docs/getting-started">Getting started</a><span>Install, first-run chooser / <code>buddy cred add</code>, and your first commands</span></li>
+<li><a href="/docs/docs/releases">Release notes</a><span>Notable changes per tagged version</span></li>
 <li><a href="/config">Config</a><span>View and edit workplaces / auths (metadata after CLI setup; secrets stay in the terminal)</span></li>
 <li><a href="/ide">Script IDE</a><span>Open, edit, and run <code>.buddy</code> scripts in the browser</span></li>
 <li><a href="/docs/docs/auth">Auth, secrets, and tokens</a><span>Contexts, vault, channel policy, token cache</span></li>

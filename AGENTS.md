@@ -2,7 +2,7 @@
 
 **buddy** is a Go CLI for Jamf Pro automation: policies, groups, profiles, packages, Platform API, buddyscript, and MCP. It is independent MIT software that calls Jamf APIs; it is not affiliated with or endorsed by Jamf. Config lives at `~/.config/buddy/config.yaml`.
 
-Human docs: [docs/index.md](docs/index.md) (About), [docs/getting-started.md](docs/getting-started.md). Auth/secrets/tokens: [docs/auth.md](docs/auth.md). MCP: [docs/mcp.md](docs/mcp.md). Endpoints: [docs/api-endpoints.md](docs/api-endpoints.md).
+Human docs: [docs/index.md](docs/index.md) (About), [docs/getting-started.md](docs/getting-started.md). Auth/secrets/tokens: [docs/auth.md](docs/auth.md). MCP: [docs/mcp.md](docs/mcp.md). Endpoints: [docs/api-endpoints.md](docs/api-endpoints.md). Releases: [docs/releases.md](docs/releases.md).
 
 ## Layout
 
