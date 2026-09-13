@@ -213,15 +213,16 @@ const uriPoliciesV1 = "/api/v1/policies"
 // GET /api/v1/policies when an instance session can be resolved (paginated;
 // instance-only — not on the Platform gateway and not gated by
 // features.classic_instance_only). Environment-only workplaces skip that
-// probe. Otherwise falls back to Classic GET /JSSResource/policies (which
+// probe unless a Jamf Pro product-tenant child can serve OpProUI.
+// Otherwise falls back to Classic GET /JSSResource/policies (which
 // may still succeed on the gateway as /proclassic/policies).
 func policyFetchList(credName string) ([]policyListItem, error) {
 	return policyFetchListHybrid(credName, nil)
 }
 
 // policyListV1Session resolves an instance session for undocumented
-// GET /api/v1/policies. Environment-only workplaces (no Jamf Pro URL) and
-// platform-only auths fail here; Classic-on-gateway still works.
+// GET /api/v1/policies. Environment-only workplaces (no Jamf Pro URL and no
+// Pro child) and platform-only auths fail here; Classic-on-gateway still works.
 func policyListV1Session(credName string) error {
 	_, err := ResolveSessionForCred(credName, OpProUI)
 	return err

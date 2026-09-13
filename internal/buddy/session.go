@@ -92,6 +92,13 @@ func ActiveChannel() string {
 // surface, or the auth is readonly and the op mutates — buddy auto-picks another
 // linked auth on the same tenant. Channel access=readonly is a hard clamp (no
 // fallback). Platform product writes still need a platform + full auth.
+//
+// When the selected workplace is an environment that cannot serve the op
+// (no platform auth, classic_instance_only, or an instance-only path such as
+// ACS / undocumented policy list / schema), ResolveSession uses the first Jamf
+// Pro product-tenant child with an instance URL and instance auth. Classic and
+// published Pro stay on the environment when a platform auth can serve them.
+// OpPlatform and OpAny (auth test) do not walk down.
 func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Session, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("internal error: config is nil")
@@ -163,7 +170,17 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 		if err := checkAuthForOp(cfg, auth, tenant, op, surface, channel); err != nil {
 			if isPinFallback(err) {
 				// Pin cannot serve this op — pick a compatible auth on the tenant.
-				return cfg.autoPickSession(tenantName, tenant, op, channel)
+				sess, aerr := cfg.autoPickSession(tenantName, tenant, op, channel)
+				if aerr == nil {
+					return sess, nil
+				}
+				if child, cerr := cfg.resolveViaJamfProChild(tenantName, tenant, authName, op, channel); cerr == nil {
+					return child, nil
+				}
+				return nil, aerr
+			}
+			if child, cerr := cfg.resolveViaJamfProChild(tenantName, tenant, authName, op, channel); cerr == nil {
+				return child, nil
 			}
 			return nil, fmt.Errorf("auth %q: %w", authName, err)
 		}
@@ -189,7 +206,80 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 	if err != nil {
 		return nil, err
 	}
-	return cfg.autoPickSession(tenantName, tenant, op, channel)
+	sess, err := cfg.autoPickSession(tenantName, tenant, op, channel)
+	if err == nil {
+		return sess, nil
+	}
+	if child, cerr := cfg.resolveViaJamfProChild(tenantName, tenant, "", op, channel); cerr == nil {
+		return child, nil
+	}
+	return nil, err
+}
+
+// jamfProChildFallbackOp reports Classic/Pro/instance ops that may use a Jamf
+// Pro product-tenant child when the selected workplace is an environment that
+// cannot serve the call. Platform product APIs and OpAny (auth test) stay put.
+func jamfProChildFallbackOp(op OpClass) bool {
+	switch op {
+	case OpPlatform, OpPlatformWrite, OpAny:
+		return false
+	default:
+		return true
+	}
+}
+
+// resolveViaJamfProChild picks the first product-tenant child under envName
+// that has an instance URL and an auth that can serve op. The process auth pin
+// is not inherited; an explicit pin is tried on the child, then auto-pick.
+func (cfg *Config) resolveViaJamfProChild(envName string, env TenantConfig, pin string, op OpClass, channel string) (*Session, error) {
+	if cfg == nil || env.WorkplaceKind() != "environment" || !jamfProChildFallbackOp(op) {
+		return nil, fmt.Errorf("no Jamf Pro child")
+	}
+	pin = strings.TrimSpace(pin)
+	for _, name := range ProductTenantsUnderEnvironment(cfg.Tenants, envName) {
+		child := cfg.Tenants[name]
+		if !child.HasInstanceURL() {
+			continue
+		}
+		if !cfg.TenantAllowedOnChannel(channel, name) {
+			continue
+		}
+		if pin != "" {
+			if sess, err := cfg.ResolveSession(name, pin, op); err == nil {
+				return sess, nil
+			}
+		}
+		if sess, err := cfg.autoPickSession(name, child, op, channel); err == nil {
+			return sess, nil
+		}
+	}
+	return nil, fmt.Errorf("no Jamf Pro child")
+}
+
+// jamfProIndexContext is the product-tenant workplace used for undocumented
+// Pro policy list when the selected context is an environment. Empty when the
+// op stays on the selected workplace (or there is no usable child).
+func jamfProIndexContext(credName string) string {
+	cfg := GetActiveConfig()
+	if cfg == nil {
+		return ""
+	}
+	sel, _ := ActiveSelection()
+	if sel == "" {
+		sel = cfg.DefaultTenant(ActiveChannel())
+	}
+	t, err := cfg.ResolveTenant(sel)
+	if err != nil || t.WorkplaceKind() != "environment" {
+		return ""
+	}
+	sess, err := ResolveSessionForCred(credName, OpProUI)
+	if err != nil || sess == nil {
+		return ""
+	}
+	if sess.TenantName != "" && sess.TenantName != sel {
+		return sess.TenantName
+	}
+	return ""
 }
 
 func (cfg *Config) autoPickSession(tenantName string, tenant TenantConfig, op OpClass, channel string) (*Session, error) {

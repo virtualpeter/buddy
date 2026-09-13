@@ -52,7 +52,7 @@ func TestProductTenantsUnderEnvironment(t *testing.T) {
 	}
 }
 
-func TestPickAppScanProUISession_UsesJamfProChild(t *testing.T) {
+func TestResolveSession_EnvProUIUsesJamfProChild(t *testing.T) {
 	t.Setenv(EnvClassicInstanceOnly, "false")
 	cfg := envWithJamfProChildConfig()
 	SetActiveConfig(cfg)
@@ -62,26 +62,49 @@ func TestPickAppScanProUISession_UsesJamfProChild(t *testing.T) {
 		SetActiveSelection("", "")
 	})
 
-	tenant, auth, ok := pickAppPolicyIndexSession("")
-	if !ok || tenant != "sandbox-pro" || auth != "sandbox-admin" {
-		t.Fatalf("got tenant=%q auth=%q ok=%v", tenant, auth, ok)
+	sess, err := cfg.ResolveSession("sandbox", "", OpClassic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.TenantName != "sandbox" || sess.AuthName != "sandbox-platform" || sess.Surface != SurfacePlatform {
+		t.Fatalf("Classic should stay on env platform, got %s/%s/%s", sess.TenantName, sess.AuthName, sess.Surface)
 	}
 
-	restore, pin, indexCtx := beginAppPolicyIndexSession("", nil)
-	defer restore()
-	if pin != "sandbox-admin" || indexCtx != "sandbox-pro" {
-		t.Fatalf("pin=%q context=%q", pin, indexCtx)
+	sess, err = cfg.ResolveSession("sandbox", "", OpRead)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := policyListV1Session(pin); err != nil {
-		t.Fatalf("relocated scan should resolve OpProUI: %v", err)
+	if sess.TenantName != "sandbox" || sess.AuthName != "sandbox-platform" || sess.Surface != SurfacePlatform {
+		t.Fatalf("OpRead should stay on env platform, got %s/%s/%s", sess.TenantName, sess.AuthName, sess.Surface)
 	}
+
+	sess, err = cfg.ResolveSession("sandbox", "", OpProUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.TenantName != "sandbox-pro" || sess.AuthName != "sandbox-admin" || sess.Surface != SurfaceInstance {
+		t.Fatalf("OpProUI should use child instance, got %s/%s/%s", sess.TenantName, sess.AuthName, sess.Surface)
+	}
+
+	sess, err = cfg.ResolveSession("sandbox", "", OpACS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.TenantName != "sandbox-pro" || sess.AuthName != "sandbox-admin" {
+		t.Fatalf("OpACS should use child, got %s/%s", sess.TenantName, sess.AuthName)
+	}
+
+	if got := jamfProIndexContext(""); got != "sandbox-pro" {
+		t.Fatalf("index context = %q", got)
+	}
+
 	selT, selA := ActiveSelection()
-	if selT != "sandbox-pro" || selA != "sandbox-admin" {
-		t.Fatalf("active selection %s/%s", selT, selA)
+	if selT != "sandbox" || selA != "" {
+		t.Fatalf("selection leaked: %s/%s", selT, selA)
 	}
 }
 
-func TestPickAppScanProUISession_NoChildStaysOnEnvironment(t *testing.T) {
+func TestResolveSession_EnvWithoutChildSkipsProUI(t *testing.T) {
 	t.Setenv(EnvClassicInstanceOnly, "false")
 	cfg := envWithJamfProChildConfig()
 	delete(cfg.Tenants, "sandbox-pro")
@@ -93,15 +116,18 @@ func TestPickAppScanProUISession_NoChildStaysOnEnvironment(t *testing.T) {
 		SetActiveSelection("", "")
 	})
 
-	if _, _, ok := pickAppPolicyIndexSession(""); ok {
-		t.Fatal("expected no relocation without a Jamf Pro child")
+	if _, err := cfg.ResolveSession("sandbox", "", OpProUI); err == nil {
+		t.Fatal("expected OpProUI to fail without a Jamf Pro child")
 	}
 	if err := policyListV1Session(""); err == nil {
 		t.Fatal("environment-only should still skip v1")
 	}
+	if got := jamfProIndexContext(""); got != "" {
+		t.Fatalf("index context = %q", got)
+	}
 }
 
-func TestPickAppScanProUISession_ChildWithoutInstanceAuthSkipped(t *testing.T) {
+func TestResolveSession_EnvChildWithoutInstanceAuthSkipped(t *testing.T) {
 	t.Setenv(EnvClassicInstanceOnly, "false")
 	cfg := envWithJamfProChildConfig()
 	delete(cfg.Auths, "sandbox-admin")
@@ -112,12 +138,12 @@ func TestPickAppScanProUISession_ChildWithoutInstanceAuthSkipped(t *testing.T) {
 		SetActiveSelection("", "")
 	})
 
-	if _, _, ok := pickAppPolicyIndexSession(""); ok {
+	if _, err := cfg.ResolveSession("sandbox", "", OpProUI); err == nil {
 		t.Fatal("expected no relocation when the child has no instance auth")
 	}
 }
 
-func TestPickAppScanProUISession_AlreadyOnProductTenant(t *testing.T) {
+func TestResolveSession_AlreadyOnProductTenant(t *testing.T) {
 	t.Setenv(EnvClassicInstanceOnly, "false")
 	cfg := envWithJamfProChildConfig()
 	SetActiveConfig(cfg)
@@ -127,12 +153,19 @@ func TestPickAppScanProUISession_AlreadyOnProductTenant(t *testing.T) {
 		SetActiveSelection("", "")
 	})
 
-	if _, _, ok := pickAppPolicyIndexSession("sandbox-admin"); ok {
-		t.Fatal("already on the product tenant; do not relocate")
+	sess, err := cfg.ResolveSession("sandbox-pro", "sandbox-admin", OpProUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.TenantName != "sandbox-pro" || sess.AuthName != "sandbox-admin" {
+		t.Fatalf("already on the product tenant; got %s/%s", sess.TenantName, sess.AuthName)
+	}
+	if got := jamfProIndexContext("sandbox-admin"); got != "" {
+		t.Fatalf("index context should be empty on product tenant, got %q", got)
 	}
 }
 
-func TestPickAppScanProUISession_SkipsChildWithoutInstanceURL(t *testing.T) {
+func TestResolveSession_SkipsChildWithoutInstanceURL(t *testing.T) {
 	t.Setenv(EnvClassicInstanceOnly, "false")
 	cfg := envWithJamfProChildConfig()
 	cfg.Tenants["protect"] = TenantConfig{
@@ -147,13 +180,110 @@ func TestPickAppScanProUISession_SkipsChildWithoutInstanceURL(t *testing.T) {
 		SetActiveSelection("", "")
 	})
 
-	tenant, auth, ok := pickAppPolicyIndexSession("")
-	if !ok || tenant != "sandbox-pro" || auth != "sandbox-admin" {
-		t.Fatalf("should skip URL-less child, got tenant=%q auth=%q ok=%v", tenant, auth, ok)
+	sess, err := cfg.ResolveSession("sandbox", "", OpProUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.TenantName != "sandbox-pro" || sess.AuthName != "sandbox-admin" {
+		t.Fatalf("should skip URL-less child, got %s/%s", sess.TenantName, sess.AuthName)
 	}
 }
 
-func TestGetPolicyCacheStatus_UsesJamfProChildDir(t *testing.T) {
+func TestResolveSession_EnvPlatformPinNotReusedOnChild(t *testing.T) {
+	t.Setenv(EnvClassicInstanceOnly, "false")
+	cfg := envWithJamfProChildConfig()
+	SetActiveConfig(cfg)
+	SetActiveSelection("sandbox", "sandbox-platform")
+	t.Cleanup(func() {
+		SetActiveConfig(nil)
+		SetActiveSelection("", "")
+	})
+
+	sess, err := cfg.ResolveSession("sandbox", "sandbox-platform", OpProUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.TenantName != "sandbox-pro" || sess.AuthName != "sandbox-admin" {
+		t.Fatalf("env pin should not be reused: %s/%s", sess.TenantName, sess.AuthName)
+	}
+}
+
+func TestResolveSession_EnvWithoutPlatformAuthUsesChildForClassic(t *testing.T) {
+	t.Setenv(EnvClassicInstanceOnly, "false")
+	cfg := envWithJamfProChildConfig()
+	delete(cfg.Auths, "sandbox-platform")
+	SetActiveConfig(cfg)
+	SetActiveSelection("sandbox", "")
+	t.Cleanup(func() {
+		SetActiveConfig(nil)
+		SetActiveSelection("", "")
+	})
+
+	sess, err := cfg.ResolveSession("sandbox", "", OpClassic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.TenantName != "sandbox-pro" || sess.AuthName != "sandbox-admin" {
+		t.Fatalf("Classic without env platform auth should use child, got %s/%s", sess.TenantName, sess.AuthName)
+	}
+
+	sess, err = cfg.ResolveSession("sandbox", "", OpRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.TenantName != "sandbox-pro" || sess.AuthName != "sandbox-admin" {
+		t.Fatalf("OpRead without env platform auth should use child, got %s/%s", sess.TenantName, sess.AuthName)
+	}
+}
+
+func TestResolveSession_ClassicInstanceOnlyUsesProChild(t *testing.T) {
+	t.Setenv(EnvClassicInstanceOnly, "true")
+	cfg := envWithJamfProChildConfig()
+	cfg.Features.ClassicInstanceOnly = boolPtr(true)
+	SetActiveConfig(cfg)
+	SetActiveSelection("sandbox", "")
+	t.Cleanup(func() {
+		SetActiveConfig(nil)
+		SetActiveSelection("", "")
+	})
+
+	sess, err := cfg.ResolveSession("sandbox", "", OpClassic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.TenantName != "sandbox-pro" || sess.AuthName != "sandbox-admin" || sess.Surface != SurfaceInstance {
+		t.Fatalf("classic_instance_only should use child, got %s/%s/%s", sess.TenantName, sess.AuthName, sess.Surface)
+	}
+}
+
+func TestResolveSession_OpAnyAndPlatformStayOnEnvironment(t *testing.T) {
+	t.Setenv(EnvClassicInstanceOnly, "false")
+	cfg := envWithJamfProChildConfig()
+	SetActiveConfig(cfg)
+	SetActiveSelection("sandbox", "")
+	t.Cleanup(func() {
+		SetActiveConfig(nil)
+		SetActiveSelection("", "")
+	})
+
+	sess, err := cfg.ResolveSession("sandbox", "", OpAny)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.TenantName != "sandbox" || sess.AuthName != "sandbox-platform" {
+		t.Fatalf("OpAny must not walk to Pro child, got %s/%s", sess.TenantName, sess.AuthName)
+	}
+
+	sess, err = cfg.ResolveSession("sandbox", "", OpPlatform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.TenantName != "sandbox" || sess.AuthName != "sandbox-platform" {
+		t.Fatalf("OpPlatform must not walk to Pro child, got %s/%s", sess.TenantName, sess.AuthName)
+	}
+}
+
+func TestGetPolicyCacheStatus_UsesEnvironmentDirWhenClassicStaysOnGateway(t *testing.T) {
 	t.Setenv(EnvClassicInstanceOnly, "false")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cfg := envWithJamfProChildConfig()
@@ -168,7 +298,7 @@ func TestGetPolicyCacheStatus_UsesJamfProChildDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(st.Dir, "sandbox-admin@sandbox-pro") {
-		t.Fatalf("cache dir should follow the Jamf Pro child, got %q", st.Dir)
+	if !strings.Contains(st.Dir, "sandbox-platform@sandbox") {
+		t.Fatalf("cache dir should follow Classic-on-gateway, got %q", st.Dir)
 	}
 }

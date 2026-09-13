@@ -85,8 +85,8 @@ type AppScanResult struct {
 	Apps   []PolicyAppSummary
 	Source string // "cache" or "live"
 	Cache  PolicyCacheStatus
-	// IndexContext is a Jamf Pro product-tenant workplace when scan relocated
-	// from an environment so undocumented GET /api/v1/policies can run.
+	// IndexContext is a Jamf Pro product-tenant workplace when undocumented
+	// GET /api/v1/policies ran via a child of the selected environment.
 	IndexContext string `json:"index_context,omitempty"`
 }
 
@@ -94,9 +94,7 @@ type AppScanResult struct {
 // (summaries.json) when present so a 1300-policy tenant is not listed live.
 // --refresh rebuilds that cache first. Missing cache falls back to a live list.
 func AppScan(credName string, opts AppScanOpts, logger *slog.Logger) (AppScanResult, error) {
-	restore, pin, indexCtx := beginAppPolicyIndexSession(credName, logger)
-	defer restore()
-	credName = pin
+	indexCtx := jamfProIndexContext(credName)
 
 	if opts.Refresh {
 		if err := PolicyCacheRefresh(credName, logger); err != nil {

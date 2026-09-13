@@ -46,6 +46,28 @@ func TestPolicyListV1Session_EnvironmentOnlySkips(t *testing.T) {
 	}
 }
 
+func TestPolicyListV1Session_EnvironmentWithProChild(t *testing.T) {
+	t.Setenv(EnvClassicInstanceOnly, "false")
+	cfg := envWithJamfProChildConfig()
+	SetActiveConfig(cfg)
+	SetActiveSelection("sandbox", "")
+	t.Cleanup(func() {
+		SetActiveConfig(nil)
+		SetActiveSelection("", "")
+	})
+
+	if err := policyListV1Session(""); err != nil {
+		t.Fatalf("env with Jamf Pro child should resolve OpProUI: %v", err)
+	}
+	sess, err := ResolveSessionForCred("", OpProUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.TenantName != "sandbox-pro" || sess.AuthName != "sandbox-admin" {
+		t.Fatalf("got %s/%s", sess.TenantName, sess.AuthName)
+	}
+}
+
 func TestPolicyListV1Session_InstanceURLTriesV1(t *testing.T) {
 	t.Setenv(EnvClassicInstanceOnly, "false")
 	cfg := dualSurfaceTestConfig()

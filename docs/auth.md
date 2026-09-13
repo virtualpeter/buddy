@@ -315,10 +315,12 @@ Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`)
 
 Classic follows a platform pin / auto-pick by default (`OpClassic` / `OpClassicWrite` → `/proclassic/…`, no `/JSSResource`). Auto-pick among mixed auths still prefers an instance auth when one is linked. Set `features.classic_instance_only: true` (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force **Classic `/JSSResource` only** onto instance even when the pin is platform. A gateway `403` means the OAuth client lacks Classic scopes.
 
-That toggle does **not** apply to surfaces that are never published on the gateway. These always use the instance URL (a platform pin auto-picks an instance auth on the same context):
+When the selected context is an **environment** workplace (no Jamf Pro URL) and the op cannot run there — no platform auth, `classic_instance_only`, or an instance-only path — buddy uses the first Jamf Pro product-tenant child (tree order) that has an instance URL and instance auth. Classic and published Pro stay on the environment when a platform auth can serve them (`/proclassic/`, `/pro/`). `buddy auth test` (`OpAny`) and Platform product APIs (blueprints, devices, licenses) do not walk down.
+
+That toggle does **not** apply to surfaces that are never published on the gateway. These always use the instance URL (a platform pin auto-picks an instance auth on the same context, or a Jamf Pro child when the workplace is environment-only):
 
 - **ACS** `/api/config-profiles/…` — Jamf Pro UI API; gateway POST is `404 page not found`
-- **Undocumented Pro policy list** `GET /api/v1/policies` — not in published OpenAPI; gateway is `403`. Buddy skips this probe when the workplace has no instance URL (environment-only Account) and lists via Classic instead (`/proclassic/policies` on the gateway). Policy writes and detail stay Classic XML (`/JSSResource/policies`)
+- **Undocumented Pro policy list** `GET /api/v1/policies` — not in published OpenAPI; gateway is `403`. Environment workplaces with no Jamf Pro child skip this probe and list via Classic (`/proclassic/policies` on the gateway). When a product-tenant child has instance auth, the v1 list runs on that child. Policy writes and detail stay Classic XML (`/JSSResource/policies`)
 - **Schema discovery** `/api/schema` and Classic swagger — instance host only
 
 ```yaml
