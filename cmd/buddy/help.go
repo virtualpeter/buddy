@@ -81,6 +81,9 @@ var helpDDM = help.DdmCLIHelp
 // helpBenchmark is generated (make gendocs).
 var helpBenchmark = help.BenchmarksCLIHelp
 
+// helpLicense is generated (make gendocs).
+var helpLicense = help.LicensesCLIHelp
+
 // helpPackage is generated (make gendocs).
 var helpPackage = help.PackagesCLIHelp
 
@@ -165,6 +168,7 @@ func printCommandHelp(path []string) {
 		clispec.CmdDeviceGroup:    helpDeviceGroup,
 		clispec.CmdDDM:            helpDDM,
 		clispec.CmdBenchmark:      helpBenchmark,
+		clispec.CmdLicense:        helpLicense,
 		clispec.CmdRole:           helpRole,
 		clispec.CmdClient:         helpClient,
 		clispec.CmdScript:         helpScript,

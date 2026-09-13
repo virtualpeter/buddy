@@ -325,3 +325,22 @@ func runBenchmark(credName string, opts buddy.Opts, args []string, log *slog.Log
 		})
 	}
 }
+
+func runLicense(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("license", args, []string{clispec.SubList, clispec.SubHelp}); err != nil {
+		return err
+	}
+	if len(args) == 0 || args[0] == clispec.SubHelp {
+		fmt.Print(helpLicense)
+		return nil
+	}
+	switch args[0] {
+	case clispec.SubList:
+		if len(args) > 1 {
+			return fmt.Errorf("unknown list flag %q; run '%s'", args[1], clispec.UsageHelp(clispec.CmdLicense))
+		}
+		return buddy.LicenseList(credName, log)
+	default:
+		return errUnknownSubcommand("license", args[0], []string{clispec.SubList})
+	}
+}

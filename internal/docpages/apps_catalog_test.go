@@ -14,7 +14,7 @@ var generatedDocIDs = []string{
 	"docs/categories", "docs/macapps", "docs/computers", "docs/computer-searches", "docs/mdm",
 	"docs/mobile-devices", "docs/mobile-searches", "docs/mobile-groups", "docs/mobile-profiles",
 	"docs/api-roles", "docs/api-clients", "docs/blueprints", "docs/devices",
-	"docs/device-groups", "docs/ddm", "docs/benchmarks",
+	"docs/device-groups", "docs/ddm", "docs/benchmarks", "docs/licenses",
 }
 
 func TestGeneratedResourcesHumanVsAgentTone(t *testing.T) {

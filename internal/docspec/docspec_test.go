@@ -1,6 +1,9 @@
 package docspec_test
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,7 +56,7 @@ func TestAllTopicsRegistered(t *testing.T) {
 		"docs/mobile-devices", "docs/mobile-searches", "docs/mobile-groups", "docs/mobile-profiles",
 		"docs/extension-attributes", "docs/mobile-extension-attributes",
 		"docs/api-roles", "docs/api-clients", "docs/blueprints", "docs/devices",
-		"docs/device-groups", "docs/ddm", "docs/benchmarks", "docs/icons",
+		"docs/device-groups", "docs/ddm", "docs/benchmarks", "docs/licenses", "docs/icons",
 	}
 	for _, id := range want {
 		if !got[id] {
@@ -64,22 +67,65 @@ func TestAllTopicsRegistered(t *testing.T) {
 
 func TestGendocsMatchesCommitted(t *testing.T) {
 	root := findRepoRoot(t)
+	before, err := generatedTreeDigest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cmd := exec.Command("go", "run", "./cmd/gendocs")
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("gendocs: %v\n%s", err, out)
 	}
-	cmd = exec.Command("git", "diff", "--exit-code", "--", "docs/generated", "internal/help")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		// Only fail on generated artifacts; ignore unrelated help edits outside *_gen.go
-		cmd2 := exec.Command("git", "diff", "--exit-code", "--", "docs/generated/", "internal/help/*_gen.go")
-		cmd2.Dir = root
-		if out2, err2 := cmd2.CombinedOutput(); err2 != nil {
-			t.Errorf("gendocs output stale:\n%s\n%s", out, out2)
+	after, err := generatedTreeDigest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != after {
+		t.Errorf("gendocs rewrote docs/generated or internal/help/*_gen.go; run 'make gendocs' and keep the output\n%s", out)
+	}
+}
+
+// generatedTreeDigest fingerprints audience markdown and help fragments gendocs writes.
+func generatedTreeDigest(root string) (string, error) {
+	h := sha256.New()
+	helpDir := filepath.Join(root, "internal", "help")
+	dirs := []string{
+		filepath.Join(root, "docs", "generated"),
+		helpDir,
+	}
+	for _, dir := range dirs {
+		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				return nil
+			}
+			if strings.HasPrefix(path, helpDir) && !strings.HasSuffix(path, "_gen.go") {
+				return nil
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			f, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			fmt.Fprintf(h, "%s\n", filepath.ToSlash(rel))
+			if _, err := io.Copy(h, f); err != nil {
+				return err
+			}
+			h.Write([]byte{0})
+			return nil
+		})
+		if err != nil {
+			return "", err
 		}
 	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 func findRepoRoot(t *testing.T) string {

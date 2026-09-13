@@ -46,6 +46,7 @@ func catalogBodies() map[string]string {
 		clispec.CmdDeviceGroup:    DeviceGroupsCLIHelp,
 		clispec.CmdDDM:            DdmCLIHelp,
 		clispec.CmdBenchmark:      BenchmarksCLIHelp,
+		clispec.CmdLicense:        LicensesCLIHelp,
 		clispec.CmdRole:           RolesCLIHelp,
 		clispec.CmdClient:         ClientsCLIHelp,
 		clispec.CmdScript:         ScriptsCLIHelp,

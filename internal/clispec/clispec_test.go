@@ -82,7 +82,7 @@ func TestEnglishCatalogComplete(t *testing.T) {
 		MsgCmdGroup, MsgCmdProfile, MsgCmdPackage, MsgCmdIcon, MsgCmdComputer, MsgCmdComputerSearch, MsgCmdMdm,
 		MsgCmdMobile, MsgCmdMobileSearch, MsgCmdMobileGroup, MsgCmdMobileProf,
 		MsgCmdBlueprint, MsgCmdDevice, MsgCmdDeviceGroup, MsgCmdDDM, MsgCmdBenchmark,
-		MsgCmdRole, MsgCmdClient, MsgCmdScript, MsgCmdExtensionAttribute, MsgCmdMobileExtAttr,
+		MsgCmdLicense, MsgCmdRole, MsgCmdClient, MsgCmdScript, MsgCmdExtensionAttribute, MsgCmdMobileExtAttr,
 		MsgCmdSetup, MsgCmdServe, MsgCmdMCP,
 		MsgCmdLSP, MsgCmdVersion,
 		MsgGFlagVersion, MsgGFlagEval, MsgGFlagSkipConfirm, MsgGFlagVerbose,
@@ -128,6 +128,9 @@ func TestCommandAliases(t *testing.T) {
 	a := CommandAliases()
 	if a["policies"] != CmdPolicy || a["blueprints"] != CmdBlueprint {
 		t.Fatalf("aliases = %v", a)
+	}
+	if a["licenses"] != CmdLicense {
+		t.Fatalf("licenses alias = %v", a)
 	}
 	if a["ea"] != CmdExtensionAttribute || a["eas"] != CmdExtensionAttribute || a["extension-attributes"] != CmdExtensionAttribute {
 		t.Fatalf("ea aliases = %v", a)

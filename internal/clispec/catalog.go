@@ -43,6 +43,7 @@ const (
 	MsgCmdMobileProf         = "cli.cmd.mobile_profile"
 	MsgCmdDDM                = "cli.cmd.ddm"
 	MsgCmdBenchmark          = "cli.cmd.benchmark"
+	MsgCmdLicense            = "cli.cmd.license"
 	MsgCmdRole               = "cli.cmd.role"
 	MsgCmdClient             = "cli.cmd.client"
 	MsgCmdScript             = "cli.cmd.script"
@@ -106,12 +107,13 @@ var en = map[string]string{
 	MsgCmdMobileProf:         "Manage mobile-device configuration profiles (list/get/put/create/delete)",
 	MsgCmdDDM:                "Platform DDM declaration reporting (read-only)",
 	MsgCmdBenchmark:          "Platform compliance benchmarks",
+	MsgCmdLicense:            "List Jamf Account licenses (organization workplace)",
 	MsgCmdRole:               "Manage API roles (list/get/create/update/delete/privileges)",
 	MsgCmdClient:             "Manage API integrations (list/get/create/update/delete/credentials/set)",
 	MsgCmdScript:             "Manage Jamf scripts (list/get/create/upload/download/delete/set)",
 	MsgCmdExtensionAttribute: "Manage computer extension attributes (list/get/create/upload/download/delete/set)",
 	MsgCmdMobileExtAttr:      "Manage mobile-device extension attributes (list/get/create/delete)",
-	MsgCmdSetup:              "basic-setup; secrets; managed-plist; write-script; store-oauth",
+	MsgCmdSetup:              "First-run chooser; import; export; secrets; managed-plist",
 	MsgCmdServe:              "Local docs + config + script IDE web UI",
 	MsgCmdMCP:                "MCP stdio server for AI tools (setup discovers host configs)",
 	MsgCmdLSP:                "Language server for buddyscript (editor integration)",

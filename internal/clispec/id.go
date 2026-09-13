@@ -37,6 +37,7 @@ const (
 	CmdMobileProf         = "mobile-profile"
 	CmdDDM                = "ddm"
 	CmdBenchmark          = "benchmark"
+	CmdLicense            = "license"
 	CmdSetup              = "setup"
 	CmdServe              = "serve"
 	CmdMCP                = "mcp"

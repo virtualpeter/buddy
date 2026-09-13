@@ -611,6 +611,7 @@ var Builtins = builtinsHead +
 	DeviceGroupsBuiltinsSection +
 	DdmBuiltinsSection +
 	BenchmarksBuiltinsSection +
+	LicensesBuiltinsSection +
 	PackagesBuiltinsSection +
 	IconsBuiltinsSection +
 	ProfilesBuiltinsSection +

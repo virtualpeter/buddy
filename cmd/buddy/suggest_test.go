@@ -8,6 +8,7 @@ import (
 func TestSuggestTopLevelCommand(t *testing.T) {
 	cases := map[string]string{
 		"blueprints":    "blueprint",
+		"licenses":      "license",
 		"blueprint":     "blueprint", // exact (case fold handled separately)
 		"policies":      "policy",
 		"packages":      "package",

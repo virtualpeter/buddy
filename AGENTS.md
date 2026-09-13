@@ -49,4 +49,4 @@ Reviewed via Jamf MCP (`list-specs` / `list-endpoints` / `get-server-variables`)
 - Token docs show `/auth/token` (getting started) and `/oauth2/token` (migration). Keep the 404 fallback in `tokenauth`.
 - Full JSON remains MIT snapshots in [jamfplatform-go-sdk `api/`](https://github.com/Jamf-Concepts/jamfplatform-go-sdk/tree/main/api) (jamf-cli `specs/platform/` is a copy). Same six snake_case files.
 
-Keep the embed so `api="platform"` stays offline and credential-free. Re-check for a live schema URL if Jamf publishes `{gateway}/schema` or a portal `openapi.json`.
+Keep the embed so `api="platform"` stays offline and credential-free. Account licensing (`GET /licensing/v1/licenses`) is a live org-gateway call, not in that snapshot. Re-check for a live schema URL if Jamf publishes `{gateway}/schema` or a portal `openapi.json`.

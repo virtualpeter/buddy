@@ -169,7 +169,7 @@ var curatedDocEntries = []curatedDoc{
 	{id: "docs/index", title: "About", section: "Start here", file: "index.md",
 		keywords: []string{"about", "home", "landing", "overview", "map"}},
 	{id: "docs/getting-started", title: "Getting started", section: "Start here", file: "getting-started.md",
-		keywords: []string{"install", "setup", "cred add", "basic-setup", "auth test", "first", "quickstart", "config"}},
+		keywords: []string{"install", "setup", "cred add", "quickstart", "auth test", "first", "config"}},
 
 	// Resources — Classic / Pro object cookbooks
 	{id: "docs/policies", title: "Policies", section: "Resources",
@@ -255,6 +255,9 @@ var curatedDocEntries = []curatedDoc{
 	{id: "docs/benchmarks", title: "Compliance benchmarks", section: "Platform",
 		humanFile: "generated/human/benchmarks.md", agentFile: "generated/agent/benchmarks.md",
 		keywords: []string{"benchmark", "benchmarks", "compliance", "baseline", "baselines"}},
+	{id: "docs/licenses", title: "Licenses", section: "Platform",
+		humanFile: "generated/human/licenses.md", agentFile: "generated/agent/licenses.md",
+		keywords: []string{"license", "licenses", "licensing", "account", "organization"}},
 
 	// BuddyScript — language guide (function index appended as builtins page)
 	{id: "docs/buddyscript", title: "Overview", section: "BuddyScript", file: "buddyscript.md",

@@ -20,6 +20,7 @@ func TestLoadHumanEmbedded(t *testing.T) {
 		"docs/computers", "docs/computer-searches", "docs/mdm", "docs/mobile-devices", "docs/mobile-searches", "docs/mobile-groups", "docs/mobile-profiles",
 		"docs/api-roles", "docs/api-clients",
 		"docs/blueprints", "docs/devices", "docs/device-groups", "docs/ddm", "docs/benchmarks",
+		"docs/licenses",
 		"docs/auth", "docs/reference-manual", "docs/change-batches", "docs/api-endpoints",
 		"docs/mcp", "docs/mcp-tools", "docs/profile-payloads", "docs/editor",
 		"docs/apps", "docs/macapps",
