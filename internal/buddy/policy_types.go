@@ -210,29 +210,47 @@ func policyGetByID(credName string, policyID int) (*resourcePolicy, error) {
 const uriPoliciesV1 = "/api/v1/policies"
 
 // policyFetchList fetches the policy id/name list. Prefers undocumented Pro
-// GET /api/v1/policies (paginated; instance-only — not on the Platform gateway
-// and not gated by features.classic_instance_only); falls back to Classic
-// GET /JSSResource/policies.
+// GET /api/v1/policies when an instance session can be resolved (paginated;
+// instance-only — not on the Platform gateway and not gated by
+// features.classic_instance_only). Environment-only workplaces skip that
+// probe. Otherwise falls back to Classic GET /JSSResource/policies (which
+// may still succeed on the gateway as /proclassic/policies).
 func policyFetchList(credName string) ([]policyListItem, error) {
 	return policyFetchListHybrid(credName, nil)
 }
 
+// policyListV1Session resolves an instance session for undocumented
+// GET /api/v1/policies. Environment-only workplaces (no Jamf Pro URL) and
+// platform-only auths fail here; Classic-on-gateway still works.
+func policyListV1Session(credName string) error {
+	_, err := ResolveSessionForCred(credName, OpProUI)
+	return err
+}
+
 // policyFetchListHybrid tries Pro v1 then Classic. logger may be nil.
 func policyFetchListHybrid(credName string, logger *slog.Logger) ([]policyListItem, error) {
-	v1, err := policyFetchListV1(credName)
-	if err == nil && len(v1) > 0 {
+	var v1Err error
+	if err := policyListV1Session(credName); err != nil {
 		if logger != nil {
-			logger.Debug("policy list source", "source", "v1", "count", len(v1))
+			logger.Debug("policy list skipping v1; using classic", "error", err.Error())
 		}
-		return v1, nil
-	}
-	if err != nil && logger != nil {
-		logger.Debug("policy list v1 failed; falling back to classic", "error", err.Error())
+	} else {
+		v1, err := policyFetchListV1(credName)
+		if err == nil && len(v1) > 0 {
+			if logger != nil {
+				logger.Debug("policy list source", "source", "v1", "count", len(v1))
+			}
+			return v1, nil
+		}
+		v1Err = err
+		if err != nil && logger != nil {
+			logger.Debug("policy list v1 failed; falling back to classic", "error", err.Error())
+		}
 	}
 	classic, cerr := policyFetchListClassic(credName)
 	if cerr != nil {
-		if err != nil {
-			return nil, fmt.Errorf("policy list v1: %w; classic: %v", err, cerr)
+		if v1Err != nil {
+			return nil, fmt.Errorf("policy list v1: %w; classic: %v", v1Err, cerr)
 		}
 		return nil, cerr
 	}
