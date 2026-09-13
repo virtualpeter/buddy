@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# Build a branded macOS product archive from the signed Darwin/arm64 binary.
-# Args: <signed-binary> <pkg-output> <version> <identifier> [installer-sign-identity]
+# Build a branded macOS product archive from Buddy.app.
+# Installs /Applications/Buddy.app and a postinstall symlink
+# /usr/local/bin/buddy → Contents/Helpers/buddy.
+# Args: <buddy.app> <pkg-output> <version> <identifier> [installer-sign-identity]
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-bin="${1:?signed binary}"
+app="${1:?Buddy.app}"
 out="${2:?output pkg}"
 version="${3:?version}"
 ident="${4:?identifier}"
 sign_id="${5:-}"
 
 test "$(uname -s)" = Darwin || { echo "build-pkg: macOS only" >&2; exit 1; }
-test -f "$bin" || { echo "build-pkg: missing $bin" >&2; exit 1; }
+test -d "$app" || { echo "build-pkg: missing app bundle $app" >&2; exit 1; }
+test -x "$app/Contents/Helpers/buddy" || { echo "build-pkg: missing $app/Contents/Helpers/buddy" >&2; exit 1; }
 logo="internal/serve/buddy.png"
 test -f "$logo" || { echo "build-pkg: missing $logo" >&2; exit 1; }
 
@@ -20,10 +23,12 @@ work="$(mktemp -d /tmp/buddy-pkg.XXXXXX)"
 cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
 
-mkdir -p "$work/root" "$work/resources" "$work/buddy.iconset"
-cp "$bin" "$work/root/buddy"
-chmod 755 "$work/root/buddy"
-codesign --verify --verbose=2 "$work/root/buddy"
+mkdir -p "$work/root/Applications" "$work/resources" "$work/scripts"
+ditto "$app" "$work/root/Applications/Buddy.app"
+codesign --verify --verbose=2 "$work/root/Applications/Buddy.app"
+
+cp "$root/packaging/pkg-scripts/postinstall" "$work/scripts/postinstall"
+chmod 755 "$work/scripts/postinstall"
 
 go run ./scripts/genbrand \
 	-src "$logo" \
@@ -31,23 +36,12 @@ go run ./scripts/genbrand \
 	-background-dark "$work/resources/background-darkAqua.png"
 cp "$root/packaging/welcome.html" "$work/resources/welcome.html"
 
-# Icon set from the 512×512 logo (512@2x is an upscale; Finder still prefers a full set).
-while read -r size name; do
-	sips -z "$size" "$size" "$logo" --out "$work/buddy.iconset/$name" >/dev/null
-done <<'EOF'
-16 icon_16x16.png
-32 icon_16x16@2x.png
-32 icon_32x32.png
-64 icon_32x32@2x.png
-128 icon_128x128.png
-256 icon_128x128@2x.png
-256 icon_256x256.png
-512 icon_256x256@2x.png
-512 icon_512x512.png
-1024 icon_512x512@2x.png
-EOF
-xattr -cr "$work/buddy.iconset" 2>/dev/null || true
-iconutil -c icns "$work/buddy.iconset" -o "$work/buddy.icns"
+if [[ -f "$app/Contents/Resources/AppIcon.icns" ]]; then
+	cp "$app/Contents/Resources/AppIcon.icns" "$work/buddy.icns"
+else
+	echo "build-pkg: missing AppIcon.icns in app bundle" >&2
+	exit 1
+fi
 
 sed \
 	-e "s|@IDENTIFIER@|${ident}|g" \
@@ -58,7 +52,8 @@ pkgbuild \
 	--root "$work/root" \
 	--identifier "$ident" \
 	--version "$version" \
-	--install-location /usr/local/bin \
+	--install-location / \
+	--scripts "$work/scripts" \
 	"$work/component.pkg"
 
 unsigned="$work/unsigned.pkg"
@@ -79,3 +74,4 @@ swift "$root/scripts/set-file-icon.swift" "$work/buddy.icns" "$out"
 
 ls -lh "$out"
 echo "Install: sudo installer -pkg $out -target /"
+echo "Layout: /Applications/Buddy.app + /usr/local/bin/buddy → Contents/Helpers/buddy"

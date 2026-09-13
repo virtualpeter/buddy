@@ -15,7 +15,7 @@ keywords:
 
 # API clients
 
-Jamf Pro API integrations (OAuth clients) — list, get, create, put. Pair with [API roles](/docs/docs/api-roles) and `buddy setup store-oauth` for instance-surface oauth auths.
+Jamf Pro API integrations (OAuth clients) — list, get, create, put. Pair with [API roles](/docs/docs/api-roles). Store the client secret with `buddy cred add --paste` or `buddy cred set secret`.
 
 ## Agent rules
 
@@ -26,7 +26,6 @@ Jamf Pro API integrations (OAuth clients) — list, get, create, put. Pair with 
 
 - List / load: `clients(...)` / `client(id=…)` · `buddy client list` / `get`
 - Create / update: `client_create` / `client_put` · `buddy client create` / `update`
-- Store secret: `buddy setup store-oauth` — Instance API client → buddy oauth auth (`surface=instance`)
 - Pair with [API roles](/docs/docs/api-roles). Platform gateway oauth cannot manage API roles/integrations.
 
 ## Builtins

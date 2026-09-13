@@ -43,8 +43,8 @@ func TestSessionSelectionForMCP(t *testing.T) {
 	if got.Channel != ChannelMCP {
 		t.Fatalf("channel=%q", got.Channel)
 	}
-	if got.Tenant != "prod" {
-		t.Fatalf("tenant=%q want prod", got.Tenant)
+	if got.Tenant != "prod" || got.Context != "prod" {
+		t.Fatalf("tenant=%q context=%q want prod", got.Tenant, got.Context)
 	}
 	if got.ChannelAccess != AccessReadonly {
 		t.Fatalf("channel_access=%q", got.ChannelAccess)

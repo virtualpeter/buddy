@@ -18,7 +18,8 @@ import (
 type DirectAuthOpts struct {
 	BaseURL         string
 	Region          string // Platform API Gateway region (builds BaseURL when set and BaseURL empty)
-	TenantID        string // Platform API Gateway tenant id
+	EnvironmentID   string // Platform environment id (preferred GA scope)
+	TenantID        string // Platform tenant id (legacy single-product scope)
 	Username        string
 	Password        string
 	ClientID        string
@@ -29,6 +30,7 @@ type DirectAuthOpts struct {
 func (o DirectAuthOpts) UsesDirectAuth() bool {
 	return o.BaseURL != "" ||
 		o.Region != "" ||
+		o.EnvironmentID != "" ||
 		o.TenantID != "" ||
 		o.Username != "" ||
 		o.Password != "" ||
@@ -97,9 +99,15 @@ func obtainRawTokenDirect(direct DirectAuthOpts, log *slog.Logger) (string, erro
 	if direct.BaseURL == "" {
 		return "", fmt.Errorf("Jamf Pro URL is required for direct auth (use --url or --region)")
 	}
-	platform := strings.TrimSpace(direct.TenantID) != ""
+	if LooksLikeRetiredPlatformGateway(direct.BaseURL) {
+		return "", retiredPlatformGatewayError(direct.BaseURL)
+	}
+	if eid, tid := strings.TrimSpace(direct.EnvironmentID), strings.TrimSpace(direct.TenantID); eid != "" && tid != "" {
+		return "", bothPlatformScopeIDsError(eid, tid)
+	}
+	platform := strings.TrimSpace(direct.EnvironmentID) != "" || strings.TrimSpace(direct.TenantID) != "" || LooksLikePlatformGateway(direct.BaseURL) || strings.TrimSpace(direct.Region) != ""
 	if platform && (direct.ClientID == "" || direct.ClientSecret == "") {
-		return "", fmt.Errorf("Platform API Gateway direct auth requires --client-id and --client-secret (and --tenant-id)")
+		return "", fmt.Errorf("Platform API Gateway direct auth requires --client-id and --client-secret")
 	}
 	cfg := tokenauth.Config{
 		BaseURL:      direct.BaseURL,
@@ -113,7 +121,14 @@ func obtainRawTokenDirect(direct DirectAuthOpts, log *slog.Logger) (string, erro
 	if err := validateDirectAuth(cfg); err != nil {
 		return "", err
 	}
-	cfg.CacheKey = directAuthCacheKey(cfg, direct.TenantID)
+	scope := strings.TrimSpace(direct.EnvironmentID)
+	if scope == "" {
+		scope = strings.TrimSpace(direct.TenantID)
+	}
+	if platform && scope == "" {
+		scope = "org"
+	}
+	cfg.CacheKey = directAuthCacheKey(cfg, scope)
 	a := tokenauth.NewAuthenticator(cfg)
 	return a.GetToken()
 }
@@ -531,6 +546,7 @@ func persistCaps(sess *Session, rec CapsRecord) {
 	rec.Tenant = sess.TenantName
 	rec.Surface = sess.Surface
 	if sess.Surface == SurfacePlatform {
+		rec.EnvironmentID = sess.Credential.EffectiveEnvironmentID()
 		rec.TenantID = sess.Credential.EffectiveTenantID()
 	}
 	if rec.ExpiresAt.IsZero() {
@@ -578,7 +594,12 @@ func authTestEnvelope(sess *Session, live string, extra map[string]interface{}) 
 		"url":     strings.TrimRight(sess.Credential.EffectiveBaseURL(), "/"),
 	}
 	if sess.Surface == SurfacePlatform {
-		out["tenantId"] = sess.Credential.EffectiveTenantID()
+		if eid := sess.Credential.EffectiveEnvironmentID(); eid != "" {
+			out["environmentId"] = eid
+		}
+		if tid := sess.Credential.EffectiveTenantID(); tid != "" {
+			out["tenantId"] = tid
+		}
 	}
 	for k, v := range extra {
 		out[k] = v
@@ -588,8 +609,11 @@ func authTestEnvelope(sess *Session, live string, extra map[string]interface{}) 
 
 // AuthTestValue tests authentication and returns a JSON-friendly object.
 // Always ForceRenews basic/oauth tokens so a disk-cached bearer cannot mask a
-// bad secret. Instance probes GET /api/v1/auth; platform probes buildings.
-// Token success with a 401/403 probe is live=token-ok (exit 0).
+// bad secret. Instance probes GET /api/v1/auth; platform probes buildings when
+// the workplace has an environment or product-tenant id. Organization workplaces
+// probe GET /licensing/v1/licenses (no X-Environment-Id / X-Tenant-Id). Token
+// success with a 401/403 probe is live=token-ok (exit 0); licenses 401 after
+// ForceRenew is a token failure.
 func AuthTestValue(credName string, log *slog.Logger) (map[string]interface{}, error) {
 	sess, err := ResolveSessionForCred(credName, OpAny)
 	if err != nil {
@@ -632,15 +656,21 @@ func authTestSession(sess *Session, log *slog.Logger) (map[string]interface{}, e
 	probeName := "auth"
 	op := OpRead
 	if platform {
-		probePath = "/api/v1/buildings"
-		probeName = "buildings"
-		op = OpPlatform
+		if platformAuthTestHasProductScope(sess) {
+			probePath = "/api/v1/buildings"
+			probeName = "buildings"
+			op = OpPlatform
+		} else {
+			probePath = uriLicenses
+			probeName = "licenses"
+			op = OpPlatform
+		}
 	}
 	endpoint, err := ResolveEndpointOp(sess.AuthName, probePath, op)
 	if err != nil {
 		return nil, err
 	}
-	if platform {
+	if platform && probeName == "buildings" {
 		endpoint += "?page=0&page-size=1"
 	}
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
@@ -680,12 +710,14 @@ func authTestSession(sess *Session, log *slog.Logger) (map[string]interface{}, e
 		return authTestEnvelope(sess, LiveOK, extra), nil
 	}
 
-	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+	if resp.StatusCode == http.StatusForbidden || (resp.StatusCode == http.StatusUnauthorized && probeName != "licenses") {
 		if log != nil {
 			log.Debug("auth probe not permitted; token acquired", "status", resp.StatusCode, "probe", probeName)
 		}
 		note := "Bearer token acquired; probe not permitted (privilege, not a bad secret)"
-		if platform {
+		if platform && probeName == "licenses" {
+			note = "Bearer token acquired; licenses probe not permitted (need licensing privilege on the org integration for a full probe)"
+		} else if platform {
 			note = "Bearer token acquired; buildings probe not permitted (need read:pro:buildings for a full probe)"
 		}
 		persistCaps(sess, CapsRecord{
@@ -700,14 +732,76 @@ func authTestSession(sess *Session, log *slog.Logger) (map[string]interface{}, e
 		}), nil
 	}
 
+	if platform && strings.Contains(string(body), "REQUEST_CONTEXT_NOT_PROVIDED") && !platformAuthTestHasProductScope(sess) {
+		note := "Bearer token acquired; probe needs X-Environment-Id or X-Tenant-Id (organization workplace sends none). Account licensing does not need a scope header; use --context on an environment or product tenant for a Pro probe."
+		persistCaps(sess, CapsRecord{
+			Live: LiveTokenOK, TokenOk: true, ProbeOk: false,
+			Probe: probeName, ProbeStatus: resp.StatusCode,
+		})
+		return authTestEnvelope(sess, LiveTokenOK, map[string]interface{}{
+			"tokenAcquired": true,
+			"probe":         probeName,
+			"probeStatus":   resp.StatusCode,
+			"note":          note,
+		}), nil
+	}
+
 	if platform {
-		tenantID := sess.Credential.EffectiveTenantID()
-		looksUUID := len(tenantID) == 36 && strings.Count(tenantID, "-") == 4
-		if strings.Contains(string(body), "REQUEST_CONTEXT_NOT_PROVIDED") && !looksUUID {
-			return nil, fmt.Errorf("platform auth test returned %d: %s\nHint: tenantId %q does not look like a Jamf Account tenant UUID. In Jamf Account → Integrations, open the integration and click the tenant pill to copy the tenant id (not the jamfcloud.com subdomain)", resp.StatusCode, string(body), tenantID)
+		if hint := platformAuthTestHint(string(body), sess.Credential); hint != "" {
+			return nil, fmt.Errorf("platform auth test returned %d: %s\nHint: %s", resp.StatusCode, string(body), hint)
 		}
 	}
 	return nil, fmt.Errorf("auth test returned %d: %s", resp.StatusCode, string(body))
+}
+
+// platformAuthTestHasProductScope is true when a buildings (Pro) probe can send
+// X-Environment-Id or X-Tenant-Id. Organization workplaces send neither.
+func platformAuthTestHasProductScope(sess *Session) bool {
+	if sess == nil {
+		return false
+	}
+	return sess.Credential.EffectiveEnvironmentID() != "" || sess.Credential.EffectiveTenantID() != ""
+}
+
+func platformAuthTestHint(body string, cred CredentialConfig) string {
+	eid := cred.EffectiveEnvironmentID()
+	tid := cred.EffectiveTenantID()
+	switch {
+	case strings.Contains(body, "OWNERSHIP_FORBIDDEN"):
+		if eid != "" {
+			return fmt.Sprintf("X-Environment-Id %q is not accepted for these credentials (wrong organization, or a tenant id in the environment field)", eid)
+		}
+		if tid != "" {
+			return fmt.Sprintf("X-Tenant-Id %q is not accepted for these credentials (wrong organization, or an environment id in the tenant field)", tid)
+		}
+		return "the gateway refused this scope (OWNERSHIP_FORBIDDEN); check environmentId / tenantId against the integration"
+	case strings.Contains(body, "ENVIRONMENT_NOT_FOUND"):
+		if eid != "" {
+			return fmt.Sprintf("the gateway does not know environmentId %q (a tenant id in the environment field reads as this)", eid)
+		}
+		return "the gateway does not know this environment-id (a tenant id in the environment field reads as ENVIRONMENT_NOT_FOUND)"
+	case strings.Contains(body, "REQUEST_CONTEXT_NOT_PROVIDED"):
+		if eid == "" && tid == "" {
+			return "no scope header was sent; organization workplaces probe licensing without X-Environment-Id (use --context on an environment or product tenant to probe Pro)"
+		}
+		id := eid
+		if id == "" {
+			id = tid
+		}
+		if id != "" && !LooksLikeTenantUUID(id) {
+			return fmt.Sprintf("scope id %q does not look like a Jamf Account UUID. In Jamf Account → Integrations, open the integration and click the environment or tenant pill to copy the id", id)
+		}
+		return "the credential expects a scope header that was not sent; set environmentId or tenantId to match how the integration was registered"
+	case strings.Contains(body, "INVALID_REQUEST_CONTEXT_TYPE"):
+		if tid != "" && eid == "" {
+			return "this endpoint does not accept tenant scope; set environmentId instead of tenantId"
+		}
+		if eid != "" {
+			return "this endpoint does not accept environment scope with these credentials; try tenantId, or register an integration at the level the API declares"
+		}
+		return "the scope level sent is not the level that endpoint accepts"
+	}
+	return ""
 }
 
 // AuthTest tests authentication and pretty-prints the response.
@@ -822,7 +916,7 @@ func PrintAuthCaps(cfg *Config, credName string, all bool) error {
 		}
 		tid := ""
 		if sess.Surface == SurfacePlatform {
-			tid = sess.Credential.EffectiveTenantID()
+			tid = sess.Credential.PlatformScopeKey()
 		}
 		if rec := LoadCaps(sess.AuthName, sess.TenantName, sess.Surface, tid); rec != nil {
 			recs = []CapsRecord{*rec}

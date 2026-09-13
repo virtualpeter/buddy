@@ -60,7 +60,7 @@ Subcommands:
   report-rules <benchmark-id>            Rules stats for a benchmark
 
 Notes:
-  Beta Platform API. Requires Platform gateway tenant+auth and
+  Platform API. Requires Platform gateway context+auth and
   read|create|delete:pro:compliance-benchmarks as applicable.
 
 Examples:

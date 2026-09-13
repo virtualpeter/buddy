@@ -10,10 +10,29 @@ import (
 func requirePlatformCred(credName string) error {
 	sess, err := ResolveSessionForCred(credName, OpPlatform)
 	if err != nil {
-		return fmt.Errorf("Platform API requires a Platform API Gateway tenant+auth (set tenantId on the tenant and link an oauth auth); see 'buddy cred help': %w", err)
+		return fmt.Errorf("Platform API requires a Platform API Gateway context+auth (set context id / environmentId or jamfpro.tenantId and link a platform auth); see 'buddy cred help': %w", err)
 	}
-	if sess.Credential.EffectiveTenantID() == "" {
-		return fmt.Errorf("Platform API requires a Platform API Gateway tenant (tenantId); see 'buddy cred help'")
+	if sess.Surface != SurfacePlatform {
+		return fmt.Errorf("Platform API requires a Platform API Gateway context+auth (set context id / environmentId or jamfpro.tenantId and link a platform auth); see 'buddy cred help'")
+	}
+	if sess.Credential.EffectiveEnvironmentID() == "" && sess.Credential.EffectiveTenantID() == "" {
+		return fmt.Errorf("Platform product APIs require an Account environment or product tenant id on this context; organization-scoped auths send no context header; see 'buddy cred help'")
+	}
+	return nil
+}
+
+// requireOrgPlatformCred ensures a platform session with no environment or
+// product-tenant header (Account organization APIs such as licensing).
+func requireOrgPlatformCred(credName string) error {
+	sess, err := ResolveSessionForCred(credName, OpPlatform)
+	if err != nil {
+		return fmt.Errorf("Account licensing requires a platform auth on an organization workplace (no X-Environment-Id / X-Tenant-Id); see 'buddy cred help': %w", err)
+	}
+	if sess.Surface != SurfacePlatform {
+		return fmt.Errorf("Account licensing requires a platform auth on an organization workplace (no X-Environment-Id / X-Tenant-Id); see 'buddy cred help'")
+	}
+	if sess.Credential.EffectiveEnvironmentID() != "" || sess.Credential.EffectiveTenantID() != "" {
+		return fmt.Errorf("Account licensing is organization-scoped; use --context on an organization workplace (no environment or product tenant id)")
 	}
 	return nil
 }

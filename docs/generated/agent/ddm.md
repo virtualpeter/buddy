@@ -13,7 +13,7 @@ keywords:
 
 # DDM reporting
 
-Platform Declarative Device Management (DDM) **declaration reporting** — read-oriented devices / declarations / channels. Requires platform-capable tenant + auth.
+Platform Declarative Device Management (DDM) **declaration reporting** — read-oriented devices / declarations / channels. Requires platform-capable context + auth.
 
 ## Agent rules
 
@@ -23,7 +23,7 @@ Platform Declarative Device Management (DDM) **declaration reporting** — read-
 ## Facts
 
 - Report: `ddm_*` builtins · `buddy ddm declaration|device …` — Devices / declarations / channels
-- Read-oriented Platform DDM declaration reporting. Requires platform-capable tenant + auth.
+- Read-oriented Platform DDM declaration reporting. Requires platform-capable context + auth.
 
 ## Builtins
 

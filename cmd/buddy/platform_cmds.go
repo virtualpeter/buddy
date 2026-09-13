@@ -28,6 +28,9 @@ func readJSONFileArg(args []string) (body []byte, rest []string, err error) {
 }
 
 func runDeviceGroup(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("device-group", args, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubSet, clispec.SubDelete, "members", "set-members", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpDeviceGroup)
 		return nil
@@ -95,6 +98,9 @@ func runDeviceGroup(credName string, opts buddy.Opts, args []string, log *slog.L
 }
 
 func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("device", args, []string{clispec.SubList, clispec.SubGet, clispec.SubSet, clispec.SubDelete, "applications", "user", "check-in", "restart", "shutdown", "erase", "unmanage", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpDevice)
 		return nil
@@ -198,6 +204,9 @@ func runDevice(credName string, opts buddy.Opts, args []string, log *slog.Logger
 
 func runDDM(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
 	_ = opts
+	if err := resolveArg0("ddm", args, []string{"declaration", "device", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpDDM)
 		return nil
@@ -228,7 +237,11 @@ func runDDM(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 		if len(args) < 3 {
 			return fmt.Errorf("usage: buddy ddm device <device-id> <declarations|channels>")
 		}
-		switch args[2] {
+		verb, err := matchSubcommand("ddm device", args[2], []string{"declarations", "channels"})
+		if err != nil {
+			return err
+		}
+		switch verb {
 		case "channels":
 			return buddy.DDMDeviceChannels(credName, deviceID, log)
 		case "declarations":
@@ -253,6 +266,9 @@ func runDDM(credName string, opts buddy.Opts, args []string, log *slog.Logger) e
 }
 
 func runBenchmark(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("benchmark", args, []string{clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubDelete, "baselines", "rules", "compliance-percentage", "report-devices", "report-rules", clispec.SubHelp}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpBenchmark)
 		return nil
@@ -307,5 +323,24 @@ func runBenchmark(credName string, opts buddy.Opts, args []string, log *slog.Log
 		return errUnknownSubcommand("benchmark", args[0], []string{
 			clispec.SubList, clispec.SubGet, clispec.SubCreate, clispec.SubDelete, "baselines", "rules", "compliance-percentage", "report-devices", "report-rules",
 		})
+	}
+}
+
+func runLicense(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("license", args, []string{clispec.SubList, clispec.SubHelp}); err != nil {
+		return err
+	}
+	if len(args) == 0 || args[0] == clispec.SubHelp {
+		fmt.Print(helpLicense)
+		return nil
+	}
+	switch args[0] {
+	case clispec.SubList:
+		if len(args) > 1 {
+			return fmt.Errorf("unknown list flag %q; run '%s'", args[1], clispec.UsageHelp(clispec.CmdLicense))
+		}
+		return buddy.LicenseList(credName, log)
+	default:
+		return errUnknownSubcommand("license", args[0], []string{clispec.SubList})
 	}
 }

@@ -92,6 +92,13 @@ func ActiveChannel() string {
 // surface, or the auth is readonly and the op mutates — buddy auto-picks another
 // linked auth on the same tenant. Channel access=readonly is a hard clamp (no
 // fallback). Platform product writes still need a platform + full auth.
+//
+// When the selected workplace is an environment that cannot serve the op
+// (no platform auth, classic_instance_only, or an instance-only path such as
+// ACS / undocumented policy list / schema), ResolveSession uses the first Jamf
+// Pro product-tenant child with an instance URL and instance auth. Classic and
+// published Pro stay on the environment when a platform auth can serve them.
+// OpPlatform and OpAny (auth test) do not walk down.
 func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Session, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("internal error: config is nil")
@@ -122,25 +129,32 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 		if err != nil {
 			return nil, err
 		}
-		if tenantName == "" || !auth.LinkedTo(tenantName) {
+		if tenantName == "" || !cfg.AuthAvailableOnTenant(auth, tenantName) {
 			if len(auth.Tenants) == 0 {
 				return nil, fmt.Errorf("auth %q has no linked tenants", authName)
 			}
-			if explicitTenant && tenantName != "" && !auth.LinkedTo(tenantName) {
+			if explicitTenant && tenantName != "" && !cfg.AuthAvailableOnTenant(auth, tenantName) {
+				if auth.EffectiveScope() == PlatformScopeOrganization {
+					return nil, fmt.Errorf("auth %q is organization-scoped; use --context on the organization workplace (linked: %s)", authName, strings.Join(auth.Tenants, ", "))
+				}
 				return nil, fmt.Errorf("auth %q is not linked to tenant %q (linked: %s)", authName, tenantName, strings.Join(auth.Tenants, ", "))
 			}
 			// Soft-switch: implicit tenant mismatch → first channel-allowed linked tenant.
 			tenantName = ""
 			for _, t := range auth.Tenants {
-				if cfg.TenantAllowedOnChannel(channel, t) {
-					tenantName = t
-					break
+				if !cfg.TenantAllowedOnChannel(channel, t) {
+					continue
 				}
+				if !cfg.AuthAvailableOnTenant(auth, t) {
+					continue
+				}
+				tenantName = t
+				break
 			}
 			if tenantName == "" {
 				tenantName = auth.Tenants[0]
 			}
-			if selTenant != "" && auth.LinkedTo(selTenant) && cfg.TenantAllowedOnChannel(channel, selTenant) {
+			if selTenant != "" && cfg.AuthAvailableOnTenant(auth, selTenant) && cfg.TenantAllowedOnChannel(channel, selTenant) {
 				tenantName = selTenant
 			}
 		}
@@ -156,7 +170,17 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 		if err := checkAuthForOp(cfg, auth, tenant, op, surface, channel); err != nil {
 			if isPinFallback(err) {
 				// Pin cannot serve this op — pick a compatible auth on the tenant.
-				return cfg.autoPickSession(tenantName, tenant, op, channel)
+				sess, aerr := cfg.autoPickSession(tenantName, tenant, op, channel)
+				if aerr == nil {
+					return sess, nil
+				}
+				if child, cerr := cfg.resolveViaJamfProChild(tenantName, tenant, authName, op, channel); cerr == nil {
+					return child, nil
+				}
+				return nil, aerr
+			}
+			if child, cerr := cfg.resolveViaJamfProChild(tenantName, tenant, authName, op, channel); cerr == nil {
+				return child, nil
 			}
 			return nil, fmt.Errorf("auth %q: %w", authName, err)
 		}
@@ -173,7 +197,7 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 
 	// Auto-pick for tenant.
 	if tenantName == "" {
-		return nil, fmt.Errorf("no tenant selected — set default with 'buddy cred use <tenant>' or pass --tenant / --user")
+		return nil, fmt.Errorf("no context selected — set default with 'buddy cred use <context>' or pass --context / --user")
 	}
 	if !cfg.TenantAllowedOnChannel(channel, tenantName) {
 		return nil, fmt.Errorf("tenant %q is not allowed for %s (see channels.%s.tenants in config)", tenantName, channel, channel)
@@ -182,7 +206,80 @@ func (cfg *Config) ResolveSession(tenantName, authName string, op OpClass) (*Ses
 	if err != nil {
 		return nil, err
 	}
-	return cfg.autoPickSession(tenantName, tenant, op, channel)
+	sess, err := cfg.autoPickSession(tenantName, tenant, op, channel)
+	if err == nil {
+		return sess, nil
+	}
+	if child, cerr := cfg.resolveViaJamfProChild(tenantName, tenant, "", op, channel); cerr == nil {
+		return child, nil
+	}
+	return nil, err
+}
+
+// jamfProChildFallbackOp reports Classic/Pro/instance ops that may use a Jamf
+// Pro product-tenant child when the selected workplace is an environment that
+// cannot serve the call. Platform product APIs and OpAny (auth test) stay put.
+func jamfProChildFallbackOp(op OpClass) bool {
+	switch op {
+	case OpPlatform, OpPlatformWrite, OpAny:
+		return false
+	default:
+		return true
+	}
+}
+
+// resolveViaJamfProChild picks the first product-tenant child under envName
+// that has an instance URL and an auth that can serve op. The process auth pin
+// is not inherited; an explicit pin is tried on the child, then auto-pick.
+func (cfg *Config) resolveViaJamfProChild(envName string, env TenantConfig, pin string, op OpClass, channel string) (*Session, error) {
+	if cfg == nil || env.WorkplaceKind() != "environment" || !jamfProChildFallbackOp(op) {
+		return nil, fmt.Errorf("no Jamf Pro child")
+	}
+	pin = strings.TrimSpace(pin)
+	for _, name := range ProductTenantsUnderEnvironment(cfg.Tenants, envName) {
+		child := cfg.Tenants[name]
+		if !child.HasInstanceURL() {
+			continue
+		}
+		if !cfg.TenantAllowedOnChannel(channel, name) {
+			continue
+		}
+		if pin != "" {
+			if sess, err := cfg.ResolveSession(name, pin, op); err == nil {
+				return sess, nil
+			}
+		}
+		if sess, err := cfg.autoPickSession(name, child, op, channel); err == nil {
+			return sess, nil
+		}
+	}
+	return nil, fmt.Errorf("no Jamf Pro child")
+}
+
+// jamfProIndexContext is the product-tenant workplace used for undocumented
+// Pro policy list when the selected context is an environment. Empty when the
+// op stays on the selected workplace (or there is no usable child).
+func jamfProIndexContext(credName string) string {
+	cfg := GetActiveConfig()
+	if cfg == nil {
+		return ""
+	}
+	sel, _ := ActiveSelection()
+	if sel == "" {
+		sel = cfg.DefaultTenant(ActiveChannel())
+	}
+	t, err := cfg.ResolveTenant(sel)
+	if err != nil || t.WorkplaceKind() != "environment" {
+		return ""
+	}
+	sess, err := ResolveSessionForCred(credName, OpProUI)
+	if err != nil || sess == nil {
+		return ""
+	}
+	if sess.TenantName != "" && sess.TenantName != sel {
+		return sess.TenantName
+	}
+	return ""
 }
 
 func (cfg *Config) autoPickSession(tenantName string, tenant TenantConfig, op OpClass, channel string) (*Session, error) {
@@ -212,7 +309,7 @@ func (cfg *Config) autoPickSession(tenantName string, tenant TenantConfig, op Op
 // either instance or platform is valid (published Pro JSON / generic read-mutate).
 //
 // features.classic_instance_only (default false) can force Classic /JSSResource
-// onto instance. When off, Classic may use /api/proclassic/. It does not apply
+// onto instance. When off, Classic may use /proclassic/. It does not apply
 // to ACS, schema, or undocumented Pro GET /api/v1/policies — those are
 // instance-only because they are not published on the Platform gateway.
 func requiredSurfaceForOp(cfg *Config, op OpClass) string {
@@ -235,8 +332,8 @@ func requiredSurfaceForOp(cfg *Config, op OpClass) string {
 // either surface. A locked Classic (classic_instance_only), ACS, undocumented
 // Pro policy list, schema, or Platform-product surface is not overridden —
 // otherwise a platform pin plus surface=platform would send Classic through
-// /api/proclassic/ while the instance lock is on, ACS to the gateway (404),
-// or GET /api/v1/policies through /api/pro/ (403).
+// /proclassic/ while the instance lock is on, ACS to the gateway (404),
+// or GET /api/v1/policies through /pro/ (403).
 func overlaySurfacePref(cfg *Config, op OpClass, auth AuthEntry, tenant TenantConfig, surface, channel string) string {
 	pref := SurfacePreference()
 	if pref != SurfacePlatform && pref != SurfaceInstance {
@@ -306,8 +403,11 @@ func checkAuthForOp(cfg *Config, auth AuthEntry, tenant TenantConfig, op OpClass
 	}
 	switch surface {
 	case SurfacePlatform:
+		if auth.EffectiveScope() == PlatformScopeOrganization && !tenant.IsOrganizationWorkplace() {
+			return surfaceIncompatible("organization-scoped auth can only be used on an organization workplace")
+		}
 		if !tenant.HasPlatform() {
-			return fmt.Errorf("tenant has no platform tenantId/region")
+			return fmt.Errorf("this context has no Account environment / platform auth")
 		}
 		if auth.EffectiveSurface() == SurfaceInstance {
 			return surfaceIncompatible("surface=instance cannot be used for platform operations")
@@ -407,6 +507,20 @@ func scoreAuth(cfg *Config, authName string, auth AuthEntry, tenantName string, 
 		if op == OpPlatformWrite && access == AccessFull {
 			score += 30
 		}
+		switch auth.EffectiveScope() {
+		case PlatformScopeOrganization:
+			if tenant.IsOrganizationWorkplace() {
+				score += 80
+			}
+		case PlatformScopeEnvironment:
+			if tenant.EffectiveEnvironmentID() != "" {
+				score += 80
+			}
+		case PlatformScopeTenant:
+			if tenant.EffectiveTenantID() != "" {
+				score += 80
+			}
+		}
 	case OpClassic, OpClassicWrite, OpACS, OpACSWrite, OpSchema, OpProUI, OpProUIWrite:
 		if surf == SurfaceInstance {
 			score += 100
@@ -426,7 +540,7 @@ func scoreAuth(cfg *Config, authName string, auth AuthEntry, tenantName string, 
 	}
 	tid := ""
 	if surface == SurfacePlatform {
-		tid = tenant.EffectiveTenantID()
+		tid = tenant.PlatformScopeKey()
 	}
 	rec := LoadCaps(authName, tenantName, surface, tid)
 	if capsTokenOK(rec) {

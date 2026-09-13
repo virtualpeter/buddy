@@ -36,6 +36,7 @@ type JamfResponse struct {
 func DefaultJamfMedia(path string) (contentType, accept string) {
 	if strings.HasPrefix(path, "/JSSResource") ||
 		strings.HasPrefix(path, "/api/proclassic/") ||
+		strings.HasPrefix(path, "/proclassic/") ||
 		strings.Contains(path, "/proclassic/") {
 		return "application/xml", "application/xml"
 	}
@@ -68,7 +69,7 @@ func opClassForPath(method, path string) OpClass {
 		}
 		return OpProUIWrite
 	}
-	// Vendored Platform product APIs (blueprints, devices, device-groups, …).
+	// Vendored and Account Platform product APIs (blueprints, devices, licensing, …).
 	if isPlatformProductPath(path) {
 		if method == http.MethodGet || method == http.MethodHead {
 			return OpPlatform
@@ -76,7 +77,7 @@ func opClassForPath(method, path string) OpClass {
 		return OpPlatformWrite
 	}
 	// Already rewritten Pro gateway paths — keep platform auth/surface.
-	if strings.HasPrefix(path, "/api/pro/") || strings.Contains(path, "/api/pro/") {
+	if strings.HasPrefix(path, "/api/pro/") || strings.HasPrefix(path, "/pro/") || strings.Contains(path, "/api/pro/") {
 		if method == http.MethodGet || method == http.MethodHead {
 			return OpPlatform
 		}

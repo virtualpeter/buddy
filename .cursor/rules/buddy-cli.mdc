@@ -13,6 +13,7 @@ When adding or changing CLI commands or help in `cmd/buddy/help.go`, follow thes
 - Use `<subcommand>` for the first token after the command (not "action"). For a fixed set (e.g. group), either `group <subcommand> [args...]` or `group <list|get|set|delete> [args...]` is fine.
 - Use `[args...]` for positionals and/or flags; avoid `[flags]` alone.
 - Commands that accept global flags must show `[global-flags]` in usage (including auth).
+- Command and subcommand names accept a unique prefix (`buddy ico list`). Ambiguous prefixes must error, not guess.
 
 ## Section headers
 
@@ -30,4 +31,6 @@ When adding or changing CLI commands or help in `cmd/buddy/help.go`, follow thes
 ## Flags
 
 - Document long form as `--flag=<value>` or `--flag` (boolean). Short form when present: `-f, --flag`.
+- Long flags also accept a single dash (`-filter` is `--filter`). Short flags are not combinable (`-vt` is not `-v -t`).
 - Global flags are defined once in root help; other help strings only reference `[global-flags]`.
+- Global flags may appear anywhere before `--`.

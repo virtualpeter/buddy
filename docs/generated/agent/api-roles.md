@@ -14,7 +14,7 @@ keywords:
 
 # API roles
 
-Jamf Pro API roles — list, get, create, put, and privilege catalog. Used when bootstrapping least-privilege API clients (`buddy setup` flows).
+Jamf Pro API roles — list, get, create, put, and privilege catalog. Pair with API clients for least-privilege instance oauth.
 
 ## Agent rules
 
@@ -25,7 +25,6 @@ Jamf Pro API roles — list, get, create, put, and privilege catalog. Used when 
 
 - List / load: `roles(...)` / `role(id=…)` · `buddy role list` / `get`
 - Create / update: `role_create` / `role_put` · `buddy role create` / `update` — Privilege helpers in builtins
-- Bootstrap: `buddy setup write-script` → `setup_buddy_role.buddy` — Idempotent role + client; trim privileges after
 
 ## Builtins
 

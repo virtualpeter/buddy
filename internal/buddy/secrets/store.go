@@ -58,6 +58,10 @@ type Store interface {
 var (
 	overrideStore   Store
 	overrideStoreMu sync.Mutex
+
+	defaultVaultMu   sync.Mutex
+	defaultVault     *VaultStore
+	defaultVaultPath string
 )
 
 // SetStore replaces the default store (for tests). Pass nil to reset.
@@ -65,6 +69,9 @@ func SetStore(s Store) {
 	overrideStoreMu.Lock()
 	overrideStore = s
 	overrideStoreMu.Unlock()
+	if s == nil {
+		resetCachedDefaultStore()
+	}
 }
 
 func currentOverrideStore() Store {
@@ -78,10 +85,20 @@ func UsingOverrideStore() bool {
 	return currentOverrideStore() != nil
 }
 
-// DefaultStore returns the encrypted vault (or a test override).
+// DefaultStore returns the process-wide encrypted vault (or a test override).
+// The same VaultStore is reused so Keychain presence / Touch ID runs once per process.
 func DefaultStore() (Store, error) {
 	if s := currentOverrideStore(); s != nil {
 		return s, nil
+	}
+	path, err := VaultPath()
+	if err != nil {
+		return nil, err
+	}
+	defaultVaultMu.Lock()
+	defer defaultVaultMu.Unlock()
+	if defaultVault != nil && defaultVaultPath == path {
+		return defaultVault, nil
 	}
 	dek, err := DefaultDEKStore()
 	if err != nil {
@@ -91,7 +108,16 @@ func DefaultStore() (Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewVaultStore("", dek).WithRecovery(recovery), nil
+	defaultVault = NewVaultStore(path, dek).WithRecovery(recovery)
+	defaultVaultPath = path
+	return defaultVault, nil
+}
+
+func resetCachedDefaultStore() {
+	defaultVaultMu.Lock()
+	defaultVault = nil
+	defaultVaultPath = ""
+	defaultVaultMu.Unlock()
 }
 
 // LegacyStore returns the pre-vault per-auth backend (Keychain / file / pass)

@@ -7,24 +7,29 @@ import (
 
 // AuthSummary is a public view of an auth entry for UI / MCP session listing.
 type AuthSummary struct {
-	Name    string   `json:"name"`
-	Tenants []string `json:"tenants"`
-	Access  string   `json:"access,omitempty"`
-	Surface string   `json:"surface,omitempty"`
-	Type    string   `json:"type,omitempty"`
+	Name     string   `json:"name"`
+	Contexts []string `json:"contexts"`
+	Tenants  []string `json:"tenants"` // dual-read alias of contexts
+	Access   string   `json:"access,omitempty"`
+	Surface  string   `json:"surface,omitempty"`
+	Type     string   `json:"type,omitempty"`
 }
 
-// SessionSelection describes the active tenant/auth pin and available choices
+// SessionSelection describes the active context/auth pin and available choices
 // for a buddy client channel (cli|mcp|ide).
 type SessionSelection struct {
 	Channel             string        `json:"channel"`
-	Tenant              string        `json:"tenant"`
-	Auth                string        `json:"auth"` // pin; empty means auto-pick
-	Tenants             []string      `json:"tenants"`
+	Context             string        `json:"context"`
+	Tenant              string        `json:"tenant"` // dual-read alias of context
+	Auth                string        `json:"auth"`   // pin; empty means auto-pick
+	Contexts            []string      `json:"contexts"`
+	Tenants             []string      `json:"tenants"` // dual-read alias of contexts
 	Auths               []AuthSummary `json:"auths"`
 	ChannelAccess       string        `json:"channel_access,omitempty"`
-	ChannelTenant       string        `json:"channel_tenant,omitempty"`
-	ChannelTenants      []string      `json:"channel_tenants,omitempty"`
+	ChannelContext      string        `json:"channel_context,omitempty"`
+	ChannelTenant       string        `json:"channel_tenant,omitempty"` // dual-read alias of channel_context
+	ChannelContexts     []string      `json:"channel_contexts,omitempty"`
+	ChannelTenants      []string      `json:"channel_tenants,omitempty"` // dual-read alias of channel_contexts
 	DenyBuiltins        []string      `json:"deny_builtins,omitempty"`  // channel effective (MCP includes default jamf_*)
 	AllowBuiltins       []string      `json:"allow_builtins,omitempty"` // channel allow
 	TenantDenyBuiltins  []string      `json:"tenant_deny_builtins,omitempty"`
@@ -55,11 +60,13 @@ func SessionSelectionFor(channel, defaultTenant, defaultAuth string) SessionSele
 	}
 
 	out := SessionSelection{
-		Channel: channel,
-		Tenant:  tenant,
-		Auth:    authPin,
-		Tenants: []string{},
-		Auths:   []AuthSummary{},
+		Channel:  channel,
+		Context:  tenant,
+		Tenant:   tenant,
+		Auth:     authPin,
+		Contexts: []string{},
+		Tenants:  []string{},
+		Auths:    []AuthSummary{},
 	}
 	out.DenyBuiltins = EffectiveDenyBuiltins(cfg, channel)
 	out.AllowBuiltins = EffectiveAllowBuiltins(cfg, channel)
@@ -86,6 +93,7 @@ func SessionSelectionFor(channel, defaultTenant, defaultAuth string) SessionSele
 
 	if tenant == "" {
 		tenant = cfg.DefaultTenant(channel)
+		out.Context = tenant
 		out.Tenant = tenant
 	}
 
@@ -107,18 +115,20 @@ func SessionSelectionFor(channel, defaultTenant, defaultAuth string) SessionSele
 		ts := append([]string(nil), a.Tenants...)
 		sort.Strings(ts)
 		out.Auths = append(out.Auths, AuthSummary{
-			Name:    name,
-			Tenants: ts,
-			Access:  a.EffectiveAccess(),
-			Surface: a.EffectiveSurface(),
-			Type:    a.Type,
+			Name:     name,
+			Contexts: ts,
+			Tenants:  ts,
+			Access:   a.EffectiveAccess(),
+			Surface:  a.EffectiveSurface(),
+			Type:     a.Type,
 		})
 	}
 	if authPin != "" && !cfg.AuthAllowed(channel, authPin) {
 		out.Auth = ""
 	}
 	if tenant != "" && !cfg.TenantAllowedOnChannel(channel, tenant) {
-		out.Tenant = cfg.DefaultTenant(channel)
+		out.Context = cfg.DefaultTenant(channel)
+		out.Tenant = out.Context
 		tenant = out.Tenant
 	}
 	if authPin != "" && out.Auth == "" {
@@ -141,23 +151,31 @@ func SessionSelectionFor(channel, defaultTenant, defaultAuth string) SessionSele
 	}
 	out.Active = out.Auth
 	out.Creds = credNames
+	out.Context = out.Tenant
+	out.Contexts = out.Tenants
+	out.ChannelContext = out.ChannelTenant
+	out.ChannelContexts = out.ChannelTenants
 	return out
 }
 
 // ToMap returns the /api/creds JSON shape.
 func (s SessionSelection) ToMap() map[string]any {
 	m := map[string]any{
-		"channel":         s.Channel,
-		"tenant":          s.Tenant,
-		"auth":            s.Auth,
-		"tenants":         s.Tenants,
-		"auths":           s.Auths,
-		"channel_access":  s.ChannelAccess,
-		"channel_tenant":  s.ChannelTenant,
-		"channel_tenants": s.ChannelTenants,
-		"deny_builtins":   s.DenyBuiltins,
-		"active":          s.Active,
-		"creds":           s.Creds,
+		"channel":          s.Channel,
+		"context":          s.Context,
+		"tenant":           s.Tenant,
+		"auth":             s.Auth,
+		"contexts":         s.Contexts,
+		"tenants":          s.Tenants,
+		"auths":            s.Auths,
+		"channel_access":   s.ChannelAccess,
+		"channel_context":  s.ChannelContext,
+		"channel_tenant":   s.ChannelTenant,
+		"channel_contexts": s.ChannelContexts,
+		"channel_tenants":  s.ChannelTenants,
+		"deny_builtins":    s.DenyBuiltins,
+		"active":           s.Active,
+		"creds":            s.Creds,
 	}
 	if len(s.AllowBuiltins) > 0 {
 		m["allow_builtins"] = s.AllowBuiltins
@@ -183,16 +201,19 @@ func (s SessionSelection) InfoMap(version string) map[string]any {
 		version = "dev"
 	}
 	m := map[string]any{
-		"version":         version,
-		"channel":         s.Channel,
-		"tenant":          s.Tenant,
-		"auth":            s.Auth,
-		"tenants":         s.Tenants,
-		"auths":           s.Auths,
-		"channel_access":  s.ChannelAccess,
-		"channel_tenant":  s.ChannelTenant,
-		"channel_tenants": s.ChannelTenants,
-		"deny_builtins":   s.DenyBuiltins,
+		"version":          version,
+		"channel":          s.Channel,
+		"context":          s.Context,
+		"tenant":           s.Tenant,
+		"auth":             s.Auth,
+		"contexts":         s.Contexts,
+		"tenants":          s.Tenants,
+		"auths":            s.Auths,
+		"channel_access":   s.ChannelAccess,
+		"channel_context":  s.ChannelContext,
+		"channel_tenant":   s.ChannelTenant,
+		"channel_contexts": s.ChannelContexts,
+		"deny_builtins":    s.DenyBuiltins,
 	}
 	if len(s.AllowBuiltins) > 0 {
 		m["allow_builtins"] = s.AllowBuiltins

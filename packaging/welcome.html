@@ -2,17 +2,29 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>buddy</title>
+<title>Buddy</title>
 <style>
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 1.25rem 1.4rem; color: #1c1917; }
 h1 { font-size: 1.35rem; font-weight: 650; margin: 0 0 .6rem; }
-p { line-height: 1.5; margin: 0 0 .75rem; color: #44403c; max-width: 36rem; }
+p, li { line-height: 1.5; margin: 0 0 .75rem; color: #44403c; max-width: 36rem; }
 code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .92em; }
 </style>
 </head>
 <body>
-<h1>buddy</h1>
-<p>Jamf Pro automation CLI. This package installs the signed <code>buddy</code> binary to <code>/usr/local/bin/buddy</code>.</p>
-<p>After install, run any Jamf command (for example <code>buddy policy list</code>) or <code>buddy cred add</code> for the setup wizard. Use <code>buddy setup secrets</code> if an org managed plist is already on this Mac. <code>buddy setup basic-setup</code> remains for instance URL + basic auth only.</p>
+<h1>Buddy</h1>
+<p>Jamf Pro automation CLI. This package installs:</p>
+<ul>
+<li><b>Buddy.app</b> in <b>/Applications</b></li>
+<li><b>/usr/local/bin/buddy</b> as a symlink to the CLI helper inside the app (<code>Contents/Helpers/buddy</code>)</li>
+</ul>
+<p>Keep that path as a symlink rather than replacing it with a copied binary.</p>
+<p>After install, open Terminal:</p>
+<ul>
+<li><code>buddy policy list</code> — any Jamf command, if you are already set up</li>
+<li><code>buddy setup</code> / <code>buddy cred add</code> — first-run chooser (instance, Platform, quickstart file, or MDM)</li>
+<li><code>buddy setup secrets</code> — if this Mac already has an org managed plist</li>
+<li><code>buddy setup import ./quickstart.yaml</code> — load a secrets-free identity YAML or ACS plist</li>
+<li><code>buddy setup export ./quickstart.yaml</code> — write that YAML from a working install</li>
+</ul>
 </body>
 </html>

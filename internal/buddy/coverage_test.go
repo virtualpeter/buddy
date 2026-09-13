@@ -146,20 +146,26 @@ func TestBuildCoverageReportGaps(t *testing.T) {
 		},
 	}
 	rep := BuildCoverageReport(cfg)
-	var sawPlatGap, sawInstCovered, sawProd bool
+	var sawPlatGap, sawInstLocked, sawProd bool
 	for _, c := range rep.Cells {
-		if c.Tenant == "sandbox" && c.Surface == SurfacePlatform && c.Gap && c.GapReason == "no auth" {
+		if c.Tenant != c.Context {
+			t.Fatalf("coverage cell dual-read: tenant=%q context=%q", c.Tenant, c.Context)
+		}
+		if c.Tenant == "sandbox" && c.Kind != "product-tenant" {
+			t.Fatalf("sandbox kind=%q cell=%+v", c.Kind, c)
+		}
+		if c.Tenant == "sandbox" && c.Surface == SurfacePlatform && c.Gap && strings.Contains(c.GapReason, "scope=tenant") {
 			sawPlatGap = true
 		}
-		if c.Tenant == "sandbox" && c.Surface == SurfaceInstance && !c.Gap && len(c.Auths) == 1 && c.Auths[0].Secret == SecretPresenceStored {
-			sawInstCovered = true
+		if c.Tenant == "sandbox" && c.Surface == SurfaceInstance && !c.Gap && len(c.Auths) == 1 && c.Auths[0].Secret == SecretPresenceLocked {
+			sawInstLocked = true
 		}
 		if c.Tenant == "prod" && c.Surface == SurfaceInstance && !c.Gap {
 			sawProd = true
 		}
 	}
-	if !sawPlatGap || !sawInstCovered || !sawProd {
-		t.Fatalf("cells=%+v gaps plat=%v inst=%v prod=%v", rep.Cells, sawPlatGap, sawInstCovered, sawProd)
+	if !sawPlatGap || !sawInstLocked || !sawProd {
+		t.Fatalf("cells=%+v gaps plat=%v inst=%v prod=%v", rep.Cells, sawPlatGap, sawInstLocked, sawProd)
 	}
 	if !rep.HasGaps {
 		t.Fatal("expected HasGaps")
@@ -174,9 +180,112 @@ func TestBuildCoverageReportGaps(t *testing.T) {
 	var b strings.Builder
 	FormatCoverageReport(rep, &b)
 	out := b.String()
-	if !strings.Contains(out, "GAP") || !strings.Contains(out, "sandbox") {
+	if !strings.Contains(out, "GAP") || !strings.Contains(out, "sandbox") || !strings.Contains(out, "locked") {
 		t.Fatalf("format:\n%s", out)
 	}
+	if !strings.Contains(out, "KIND") || !strings.Contains(out, "product-tenant") || !strings.Contains(out, "ORG") {
+		t.Fatalf("format missing KIND/ORG:\n%s", out)
+	}
+
+	unlocked := BuildCoverageReportWith(cfg, CoverageOpts{UnlockSecrets: true})
+	for _, c := range unlocked.Cells {
+		if c.Tenant == "sandbox" && c.Surface == SurfaceInstance {
+			if len(c.Auths) != 1 || c.Auths[0].Secret != SecretPresenceStored {
+				t.Fatalf("unlocked SECRET want stored, got %+v", c.Auths)
+			}
+		}
+	}
+}
+
+func TestAuthSecretPresenceLockedVsUnlock(t *testing.T) {
+	hits := 0
+	secrets.SetStore(&countingHasStore{
+		mockSecretStore: mockSecretStore{values: map[string]string{
+			"vault-oauth/client-secret": "s",
+		}},
+		onHas: func() { hits++ },
+	})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	cfg := &Config{
+		Tenants: map[string]TenantConfig{
+			"sandbox": {URL: "https://example.jamfcloud.com"},
+		},
+		Auths: map[string]AuthEntry{
+			"vault-oauth": {Type: "oauth", ClientID: "cid", Tenants: []string{"sandbox"}},
+			"inline-oauth": {
+				Type: "oauth", ClientID: "cid", ClientSecret: "inline",
+				Tenants: []string{"sandbox"},
+			},
+			"missing-oauth": {Type: "oauth", ClientID: "cid", Tenants: []string{"sandbox"}},
+		},
+	}
+
+	if got := AuthSecretPresence(cfg, "vault-oauth", false); got != SecretPresenceLocked {
+		t.Fatalf("locked: got %q", got)
+	}
+	if hits != 0 {
+		t.Fatalf("locked path must not call Has, hits=%d", hits)
+	}
+	if got := AuthSecretPresence(cfg, "vault-oauth", true); got != SecretPresenceStored {
+		t.Fatalf("unlock stored: got %q", got)
+	}
+	if hits != 1 {
+		t.Fatalf("unlock should Has once, hits=%d", hits)
+	}
+	if got := AuthSecretPresence(cfg, "inline-oauth", false); got != SecretPresenceInline {
+		t.Fatalf("inline without unlock: got %q", got)
+	}
+	if got := AuthSecretPresence(cfg, "missing-oauth", true); got != SecretPresenceMissing {
+		t.Fatalf("missing: got %q", got)
+	}
+
+	gapCfg := &Config{
+		Tenants: map[string]TenantConfig{
+			"sandbox": {URL: "https://example.jamfcloud.com"},
+		},
+		Auths: map[string]AuthEntry{
+			"missing-oauth": {Type: "oauth", ClientID: "cid", Tenants: []string{"sandbox"}},
+		},
+	}
+	lockedRep := BuildCoverageReport(gapCfg)
+	unlockedRep := BuildCoverageReportWith(gapCfg, CoverageOpts{UnlockSecrets: true})
+	var lockedGap, unlockedGap bool
+	for _, c := range lockedRep.Cells {
+		if c.Tenant == "sandbox" && c.Surface == SurfaceInstance {
+			lockedGap = c.Gap
+			if c.Auths[0].Secret != SecretPresenceLocked {
+				t.Fatalf("want locked, got %q", c.Auths[0].Secret)
+			}
+		}
+	}
+	for _, c := range unlockedRep.Cells {
+		if c.Tenant == "sandbox" && c.Surface == SurfaceInstance {
+			unlockedGap = c.Gap && c.GapReason == "no secret"
+			if c.Auths[0].Secret != SecretPresenceMissing {
+				t.Fatalf("want missing, got %q", c.Auths[0].Secret)
+			}
+		}
+	}
+	if lockedGap {
+		t.Fatal("locked SECRET must not create a no-secret gap")
+	}
+	if !unlockedGap {
+		t.Fatal("unlocked missing SECRET should gap")
+	}
+}
+
+// countingHasStore wraps mockSecretStore and counts Has calls.
+type countingHasStore struct {
+	mockSecretStore
+	onHas func()
+}
+
+func (s *countingHasStore) Has(credName string, kind secrets.Kind) (bool, error) {
+	if s.onHas != nil {
+		s.onHas()
+	}
+	return s.mockSecretStore.Has(credName, kind)
 }
 
 func TestAuthCoversSurface(t *testing.T) {
@@ -195,5 +304,81 @@ func TestAuthCoversSurface(t *testing.T) {
 	basic := AuthEntry{Type: "basic"}
 	if !AuthCoversSurface(basic, SurfaceInstance) || AuthCoversSurface(basic, SurfacePlatform) {
 		t.Fatal("basic cannot cover platform")
+	}
+}
+
+func TestAuthFitsWorkplaceOrgScope(t *testing.T) {
+	orgAuth := AuthEntry{Type: AuthTypePlatform, Scope: PlatformScopeOrganization, Tenants: []string{"acme", "commercial"}}
+	org := TenantConfig{}
+	env := TenantConfig{Region: "us", EnvironmentID: "11111111-1111-1111-1111-111111111111", Org: "acme"}
+	ten := TenantConfig{URL: "https://example.jamfcloud.com", Region: "us", EnvironmentID: "11111111-1111-1111-1111-111111111111", TenantID: "22222222-2222-2222-2222-222222222222", Org: "acme"}
+	if !AuthFitsWorkplace(orgAuth, org) {
+		t.Fatal("org auth should fit organization workplace")
+	}
+	if AuthFitsWorkplace(orgAuth, env) || AuthFitsWorkplace(orgAuth, ten) {
+		t.Fatal("org auth must not fit environment or product-tenant")
+	}
+	envAuth := AuthEntry{Type: AuthTypePlatform, Scope: PlatformScopeEnvironment, Tenants: []string{"commercial"}}
+	if !AuthFitsWorkplace(envAuth, env) || !AuthFitsWorkplace(envAuth, ten) {
+		t.Fatal("environment-scoped auth still follows YAML links")
+	}
+
+	cfg := &Config{
+		Tenants: map[string]TenantConfig{"acme": org, "commercial": env, "sandbox": ten},
+		Auths:   map[string]AuthEntry{"orgadmin": orgAuth, "envplat": envAuth},
+	}
+	if got := cfg.AuthsForTenant("acme"); len(got) != 1 || got[0] != "orgadmin" {
+		t.Fatalf("acme auths=%v", got)
+	}
+	for _, child := range []string{"commercial", "sandbox"} {
+		for _, name := range cfg.AuthsForTenant(child) {
+			if name == "orgadmin" {
+				t.Fatalf("%s listed orgadmin: %v", child, cfg.AuthsForTenant(child))
+			}
+		}
+		if cfg.AuthAvailableOnTenant(orgAuth, child) {
+			t.Fatalf("orgadmin available on %s", child)
+		}
+	}
+	rep := BuildCoverageReport(cfg)
+	for _, c := range rep.Cells {
+		if c.Tenant == "acme" {
+			continue
+		}
+		for _, a := range c.Auths {
+			if a.Name == "orgadmin" {
+				t.Fatalf("coverage listed orgadmin on %+v", c)
+			}
+		}
+	}
+}
+
+func TestBuildCoverageReportEnvironmentKind(t *testing.T) {
+	cfg := &Config{
+		Tenants: map[string]TenantConfig{
+			"commercial": {Region: "us", EnvironmentID: "11111111-1111-1111-1111-111111111111", Org: "acme"},
+		},
+	}
+	rep := BuildCoverageReport(cfg)
+	if len(rep.Cells) != 1 {
+		t.Fatalf("cells=%+v", rep.Cells)
+	}
+	c := rep.Cells[0]
+	if c.Kind != "environment" || c.Surface != SurfacePlatform || !c.Gap {
+		t.Fatalf("%+v", c)
+	}
+	if !strings.Contains(c.GapReason, "scope=environment") {
+		t.Fatalf("gap=%q", c.GapReason)
+	}
+	var b strings.Builder
+	FormatCoverageReport(rep, &b)
+	out := b.String()
+	for _, want := range []string{"KIND", "environment", "ENVIRONMENT", "CONTEXT", "ORG"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "11111111") {
+		t.Fatalf("status table should not print UUIDs:\n%s", out)
 	}
 }

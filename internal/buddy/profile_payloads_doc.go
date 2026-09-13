@@ -77,7 +77,7 @@ var ProfilePayloadsTopic = docspec.Topic{
     xml = profile_xml_patch_payload(xml, identifier=ident, new_payload={"Key": "New"})
     profile_put_xml(id=42, xml_str=xml)
     return rows`,
-		`./buddy --tenant=sandbox --user=sandbox-admin scripts/integration_test.buddy
+		`./buddy --context=sandbox --user=sandbox-admin scripts/integration_test.buddy
 # or: make integration-test`,
 	},
 	HelpExport: `profile_payloads`,

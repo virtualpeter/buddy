@@ -16,7 +16,7 @@ Usage:
   buddy [global-flags] auth <subcommand> [args...]
 
 Subcommands:
-  test [--all]                 Prove the secret (ForceRenew + probe); --all tests every tenant×surface×auth
+  test [--all]                 Prove the secret (ForceRenew + probe); --all tests every context×surface×auth
   authorization [--all]        Print cached authorization details from GET /api/v1/auth
   token                        Show token subcommands (same as token help)
   token show [--raw]           Print Authorization header, or raw bearer with --raw
@@ -25,7 +25,7 @@ Subcommands:
   token refresh [--raw]        Obtain, keep-alive, or replace the session token from cache state
 
 Flags for 'test':
-  --all                        Test every covering auth × tenant × surface (not just the default session)
+  --all                        Test every covering auth × context × surface (not just the default session)
 
 Flags for 'authorization':
   --all                        Every still-valid authorization-details cache entry
@@ -43,12 +43,15 @@ Notes:
   auth test always discards the cached token and mints a new one. Exit 0 if the
   secret works (probe 403 is live=token-ok, not a bad secret). Exit non-zero if
   the secret is missing or the token POST fails. cred get secret is presence only.
+  Organization workplaces probe GET /licensing/v1/licenses (no buildings
+  probe; no X-Environment-Id). 403 is live=token-ok (missing licensing
+  privilege, not a bad secret).
 
   auth authorization prints the last Jamf authorization details cached after
   auth test (GET /api/v1/auth: accessLevel, privilegeSet, privileges, username).
   Session pick and cred status use that cache. Missing or stale cache is ignored.
 
-  auth token refresh uses the derived session (--tenant / --user) and the disk
+  auth token refresh uses the derived session (--context / --user) and the disk
   cache: basic keep-alives a usable cached token (Jamf POST /api/v1/auth/keep-alive),
   otherwise obtains; oauth and platform always replace via client credentials;
   command re-runs runCommand.
@@ -82,41 +85,43 @@ Subcommands:
 Flags for 'direct':
   --url=<url>                  Jamf Pro or Platform gateway base URL
   --region=<region>            Platform gateway region (builds URL when --url omitted)
-  --tenant-id=<tenant-id>      Platform tenant id (gateway oauth; needs client-id and client-secret)
+  --environment-id=<environment-id>  Platform environment id (preferred GA scope)
+  --tenant-id=<tenant-id>      Platform tenant id (legacy single-product scope)
   --username=<username>        Basic auth username
   --password=<password>        Basic auth password
-  --client-id=<client-id>      OAuth2 client ID (instance, or Platform with --tenant-id)
+  --client-id=<client-id>      OAuth2 client ID (instance, or Platform with a scope id)
   --client-secret=<client-secret>  OAuth2 client secret
   --oauth2-creds-file=<path>   JSON file with client_id and client_secret
 
 Notes:
   Prints the raw bearer (no "Bearer " prefix). Does not load a named auth or the
   vault. Pass either username+password or client-id+client-secret (not both).
-  --tenant-id selects Platform; omit it for instance. Tokens still land in
-  tokens/ under a direct-* cache key. Secrets on the command line are visible
-  in process lists.
+  --environment-id or --tenant-id (or a gateway --url/--region) selects Platform;
+  omit both ids for organization scope. --environment-id and --tenant-id are
+  mutually exclusive. Tokens still land in tokens/ under a direct-* cache key.
+  Secrets on the command line are visible in process lists.
 
   For a configured session, use 'buddy auth token show --raw' instead.
 
 Examples:
   buddy token direct --url=https://example.jamfcloud.com --username=admin --password=secret
-  buddy token direct --region=us --tenant-id=<tenant-id> --client-id=<client-id> --client-secret=<client-secret>
+  buddy token direct --region=us --environment-id=<environment-id> --client-id=<client-id> --client-secret=<client-secret>
   buddy token direct --url=https://example.jamfcloud.com --oauth2-creds-file=./client.json
 `
-const CredShort = `buddy cred - Manage tenants, auths, and secrets
+const CredShort = `buddy cred - Manage contexts, auths, and secrets
 
 Usage:
   buddy [global-flags] cred <subcommand> [args...]
 
 Subcommands:
-  add [auth-name] [args...]         Guided tenant + auth + secret
-  set tenant <name> [args...]       Add or update a tenant (Jamf environment)
+  add [auth-name] [args...]         Guided context + auth + secret
+  set context <name> [args...]      Add or update a context (instance URL and/or Platform gateway)
   set auth <name> [args...]         Add or update an auth (the --user name)
   set secret <auth> [args...]       Store password / client secret in the vault
-  status [--test]                   Tenant × surface coverage
-  list                              List tenants, auths, and channel policies
-  get tenant|auth|channel|secret    Show one item (secrets redacted / presence only)
-  use [tenant]                      Show or set tenant.default
+  status [--test] [--unlock]        Workplace coverage (org → env → tenant)
+  list                              List contexts as org → environment → tenant
+  get context|auth|channel|secret   Show one item (secrets redacted / presence only)
+  use [context]                     Show or set context.default
   help                              Full flags, channel policy, backup, vault, migrate, clean, erase
 
 Notes:
@@ -124,19 +129,21 @@ Notes:
   --user / --auth. Full flags and notes: buddy cred help.
 
 Examples:
-  buddy cred add --tenant=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
-  buddy cred set tenant sandbox --url=https://example.jamfcloud.com
-  buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox
+  buddy cred add --context=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
+  buddy cred add --paste --context=sandbox
+  buddy cred set context sandbox --url=https://example.jamfcloud.com
+  buddy cred set auth sandbox-admin --type=basic --username=admin --jamfpro=sandbox
   buddy cred set secret sandbox-admin --password
 `
-const Cred = `buddy cred - Manage tenants, auths, secrets, and channel policies
+const Cred = `buddy cred - Manage contexts, auths, secrets, and channel policies
 
-Config is split into tenants (Jamf host / platform tenantId), auths (secret-bearing
-principals linked to one or more tenants), and channels (per-client policy:
-access, default tenant, tenant allowlist). Global --tenant selects a tenant
-(auto-picks auth); --user / --auth prefers a specific auth (Classic follows
-the pin unless classic_instance_only is on; ACS and GET /api/v1/policies are
-always instance).
+Config is split into contexts (named workplace: instance URL and/or
+Account environment id + jamfpro.tenantId), auths (secret-bearing principals
+linked with jamfpro: / contexts:), and channels (per-client policy: access,
+default context, context allowlist). Global --context selects a context
+(auto-picks auth; --tenant is a dual-read alias); --user / --auth prefers a
+specific auth (Classic follows the pin unless classic_instance_only is on;
+ACS and GET /api/v1/policies are always instance).
 
 Usage:
   buddy [global-flags] cred <subcommand> [args...]
@@ -144,61 +151,76 @@ Usage:
   buddy [global-flags] cred restore <file> [--passphrase=] [-y]
 
 Subcommands:
-  add [auth-name] [args...]         Guided tenant + auth + secret (optional live test)
-  set tenant <name> [args...]       Add or update a tenant
-  set auth <name> [args...]         Add or update an auth (the --user name; link to tenants)
+  add [auth-name] [args...]         Guided context + auth + secret (optional live test)
+  set context <name> [args...]      Add or update a context (tenant is a dual-read alias)
+  set auth <name> [args...]         Add or update an auth (the --user name; link to contexts)
   set secret <auth> [args...]       Store password / client secret in the vault
-  status [--test]                   Tenant × surface coverage (gaps, secret presence, last live check)
-  list                              List tenants, auths, and channel policies
-  get tenant <name>                 Show tenant details
+  status [--test] [--unlock]        Workplace coverage, org → env → tenant (gaps, secret presence, last live check)
+  list                              List contexts as org → environment → tenant
+  get context <name>                Show context details (tenant is a dual-read alias)
   get auth <name>                   Show auth details (secrets redacted)
   get channel <cli|mcp|ide>
                                     Show channel policy
   get secret <auth>                 Show where secrets are stored (values hidden; presence only)
-  use [tenant]                      Show or set tenant.default
-  use --cli|--mcp|--ide [tenant]
-                                    Show or set channels.<client>.tenant
+  use [context]                     Show or set context.default
+  use --cli|--mcp|--ide [context]
+                                    Show or set channels.<client>.context
   set channel <cli|mcp|ide> [args...]
-                                    Set channel access / tenant / tenants allowlist
+                                    Set channel access / context / contexts allowlist
   set passphrase [--passphrase=]    Create or rotate the recovery passphrase (backups)
-  delete tenant|auth|secret <name>  Remove a tenant (cascades sole-linked auths+secrets),
+  delete context|auth|secret <name> Remove a context (cascades sole-linked auths+secrets),
                                     auth (+secrets), or stored secrets
   clean secrets                     Review secret-store entries; prompt to delete orphans
   clean tokens                      Delete expired/corrupt files under ~/.config/buddy/tokens/
   erase secrets                     Wipe the vault, data key, recovery passphrase, token wrap/cache, and leftover Keychain items
   store                             Show vault path, data-key backend, and recovery-passphrase backend
   migrate [auth]                    Move inline YAML secrets and old per-auth store items into the vault
-  backup <file>                     Encrypt tenants, auths (with secrets), and channels to a file
+  backup <file>                     Encrypt contexts, auths (with secrets), and channels to a file
   restore <file>                    Decrypt a backup; prompt once per auth (or -y)
 
 Flags for 'status':
   --test                            Run auth test --all first (ForceRenew), then print the matrix
+  --unlock                          Open the vault so SECRET is stored/missing (default SECRET is locked)
 
 Flags for 'add':
-  --tenant=<name>                   Existing or new tenant name
-  --url=<url>                       Jamf Pro instance URL (creating a tenant)
-  --region=<region>                 Platform region (creating a tenant)
-  --tenant-id=<tenant-id>           Platform tenant id (creating a tenant)
-  --type=oauth|basic|platform       Auth type (default oauth; platform-only tenant → platform)
+  --context=<name>                  Existing or new context name (--tenant alias)
+  --url=<url>                       Jamf Pro instance URL (creating a context)
+  --region=<region>                 Platform region (creating a context)
+  --environment-id=<environment-id> Account environment UUID (context id)
+  --tenant-id=<tenant-id>           Jamf Pro product tenant UUID (jamfpro.tenantId)
+  --type=oauth|basic|platform       Auth type (default oauth; platform-only context → platform)
+  --scope=organization|environment|tenant
+                                    Platform auth Account scope (org: no region)
   --client-id=<client-id>           OAuth client id
   --username=<user>                 Basic username
   --client-secret=<secret>          OAuth secret (non-interactive)
   --password=<password>             Basic password (non-interactive)
+  --paste                           Read Jamf client JSON or curl (prompt, or stdin when piped)
+  --paste=<blob>                    Same, from a one-line JSON/curl string (- = stdin)
+  --from=<file>                     Import secrets-free YAML or ACS plist, then fill secrets
+  --org=<name>                      Parent organization workplace (nested orgs: on platform add)
+  --environment-name=<name>         Environment workplace when creating a product tenant
   --test                            Force a live auth test after save
   --no-test                         Skip the live test (default when -y / non-TTY)
   -y                                Non-interactive; fail if required fields are missing
 
-Flags for 'set tenant':
+Flags for 'set context' (alias: set tenant):
   --url=<url>                       Jamf Pro instance URL (and/or platform gateway URL)
-  --region=<region>                 Platform API Gateway region (us|eu|apac|…)
-  --tenant-id=<tenant-id>           Platform tenant id (with region)
-  --deny-builtins=<a,b>             Block builtins on this tenant (* = deny all; empty clears)
-  --allow-builtins=<a,b>            Override this tenant's deny (empty clears)
+  --region=<region>                 Platform API Gateway region (us|eu|apac|…); omit on org workplaces
+  --org=<context-name>              Parent organization workplace (environment/instance contexts)
+  --environment-id=<environment-id> Account environment UUID (written as context id)
+  --tenant-id=<tenant-id>           Jamf Pro product tenant UUID (jamfpro.tenantId)
+  --deny-builtins=<a,b>             Block builtins on this context (* = deny all; empty clears)
+  --allow-builtins=<a,b>            Override this context's deny (empty clears)
 
 Flags for 'set auth':
   --type=command|basic|oauth|platform
                                     Auth type (required). platform = gateway oauth; oauth = instance oauth
-  --tenants=<a,b>                   Comma-separated tenant names this auth may use (required)
+  --jamfpro=<name>                  Instance (and tenant-scoped platform) product link
+  --contexts=<a,b>                  Context names this platform auth may use
+  --tenants=<a,b>                   Dual-read alias of --contexts
+  --scope=organization|environment|tenant
+                                    Platform auth Account scope (default environment)
   --access=full|readonly            Default full; readonly preferred for reads
   --channels=cli,mcp,ide|all
                                     Buddy clients that may use this auth (default all)
@@ -212,8 +234,10 @@ Flags for 'set auth':
 
 Flags for 'set channel':
   --access=readonly|full            Clamp mutates for this client (omit = full)
-  --tenant=<name>                   Default tenant for this client
-  --tenants=<a,b>                   Optional tenant allowlist (empty clears)
+  --context=<name>                  Default context for this client
+  --contexts=<a,b>                  Optional context allowlist (empty clears)
+  --tenant=<name>                   Dual-read alias of --context
+  --tenants=<a,b>                   Dual-read alias of --contexts
   --deny-builtins=<a,b>             Extra blocked builtins (MCP already denies jamf_*; * = deny all; empty clears)
   --allow-builtins=<a,b>            Override this channel's deny (allow follows deny; empty clears)
 
@@ -232,24 +256,38 @@ Flags for 'backup' / 'restore':
 Notes for 'backup' / 'restore':
   cred backup uses the stored recovery passphrase by default (--passphrase=
   overrides). It writes AES-256-GCM (PBKDF2-SHA256) JSON; auths include store
-  secrets. Restore applies tenants/channels, then prompts once per auth (and
+  secrets. Restore applies contexts/channels, then prompts once per auth (and
   its secrets) unless -y. Enter/y writes that auth from the backup; n leaves
   the existing auth (or absence) in config. Auths not in the backup are kept.
-  A backup with no auths restores tenants/channels only. Secrets go to the
+  A backup with no auths restores contexts/channels only. Secrets go to the
   vault under a new local data key; if no recovery passphrase exists yet,
   restore stores the backup passphrase as the recovery phrase.
 
 Notes:
-  cred status is the maintenance view (tenant × surface coverage). cred list is
-  the raw dump. cred get secret / status SECRET column are presence only —
-  'buddy auth test' proves the secret (ForceRenew). Last authorization details
-  from GET /api/v1/auth live in ~/.config/buddy/caps/ (same obfuscation style as tokens/).
-  A platform clientId may list multiple tenants under --tenants.
+  cred status is the maintenance view (org → environment → product-tenant,
+  then SURFACE). SURFACE is instance vs Platform gateway — not Jamf Account
+  scope (that lives on the auth as SCOPE=organization|environment|tenant).
+  cred list prints the same tree (ORG / ENVIRONMENT / CONTEXT); Account
+  UUIDs stay on cred get. Organization-scoped auths only cover the
+  organization workplace (not environments or product tenants). Default SECRET is locked
+  (does not open the vault / Touch ID).
+  cred status --unlock or --test classifies stored/missing. cred get secret
+  is presence only — 'buddy auth test' proves the secret (ForceRenew). Last
+  authorization details from GET /api/v1/auth live in ~/.config/buddy/caps/
+  (same obfuscation style as tokens/).
+  A platform clientId may list multiple contexts under --contexts.
   credentials: / string tenant: / defaults: / allow_auths: and the notebook
-  / serve client names are removed — use tenants:/auths: and channels.<cli|mcp|ide>.
+  / serve client names are removed — use contexts:/auths: and channels.<cli|mcp|ide>.
+  Dual-read tenants: / tenant.default / --tenant / tenant= for one release;
+  loading config rewrites those keys to context: / contexts: on disk.
+  Optional orgs: YAML (organization → environments → product tenants) expands
+  into those same workplaces; --context still picks a workplace name. Nested
+  orgs.*.environments.*.tenants is Jamf's product-tenant list, not the root
+  tenants: dual-read. cred add --paste with a US curl and blank env id still
+  creates an org workplace under the name you passed (same object as orgs.<name>).
   macOS managed preferences (domain virtualpete.buddy.cli) overlay as org
   defaults; config.yaml wins per name. 'buddy cred list' notes managed sources.
-  Deleting a managed tenant/auth warns; it returns on next load until the MDM
+  Deleting a managed context/auth warns; it returns on next load until the MDM
   profile changes. Fill secrets with 'buddy setup secrets' or 'buddy cred add'.
   Passwords and client secrets live in ~/.config/buddy/secrets.enc (AES-256-GCM
   with a random data key). The data key is one Keychain item on macOS (account
@@ -260,8 +298,8 @@ Notes:
   overrides the recovery passphrase (never written). cred set passphrase creates
   or rotates the recovery phrase (Touch ID on the signed binary).
   Deleting an auth also removes its password/client-secret from the vault.
-  Deleting a tenant deletes auths linked only to that tenant (with secrets) and
-  unlinks multi-tenant auths; use 'buddy cred clean secrets' for leftover orphans
+  Deleting a context deletes auths linked only to that context (with secrets) and
+  unlinks multi-context auths; use 'buddy cred clean secrets' for leftover orphans
   or 'buddy cred erase secrets' to wipe the vault, data key, recovery passphrase,
   token-wrap key, on-disk token cache, and leftover per-auth Keychain items
   (both macOS services).
@@ -274,25 +312,42 @@ Notes:
   auth access both clamp mutates (most restrictive wins). Restrict MCP e.g.:
   channels.mcp.access=readonly and/or auth channels excluding mcp from full auths.
   MCP denies jamf_* builtins by default on the channel layer (union with channels.mcp.deny_builtins).
-  deny_builtins / allow_builtins also apply on tenants and auths; each layer is independent
-  (channel allow cannot unblock a tenant deny). deny_builtins: ["*"] is an allowlist at that layer.
+  deny_builtins / allow_builtins also apply on contexts and auths; each layer is independent
+  (channel allow cannot unblock a context deny). deny_builtins: ["*"] is an allowlist at that layer.
   Extra deny_builtins (exact or trailing-* glob) still block named builtins so MCP
   agents cannot fall back to generic jamf_get/jamf_put; treat raises as coverage gaps.
+  cred add --paste accepts the JSON Jamf Pro shows when creating an API client,
+  or the curl sample from a Platform API client. Organization-admin is the US
+  gateway (us.api.jamfcloud.com) with no environment/tenant header — leave
+  environment id blank. There is no api.jamfcloud.com host (NXDOMAIN); paste
+  still maps that sample URL to org-against-US. A curl plus --environment-id=
+  (any region) is environment-scoped. Interactive cred add offers a paste step
+  first. buddy cred set context acme (no --region) defines an organization
+  workplace (same object as orgs.acme). Environment/instance contexts may set
+  --org=acme. Auth scope: is organization|environment|tenant; --context is only
+  the workplace name.
 
 Examples:
-  buddy cred add --tenant=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
-  buddy cred set tenant sandbox --url=https://example.jamfcloud.com --region=apac --tenant-id=…
-  buddy cred set auth sandbox-admin --type=basic --username=admin --tenants=sandbox --channels=cli,ide
-  buddy cred set auth platform-ro --type=platform --client-id=… --tenants=sandbox --access=readonly --channels=mcp,ide
+  buddy cred add --context=sandbox --url=https://example.jamfcloud.com --client-id=… --client-secret=…
+  buddy cred add --context=sandbox --url=https://example.jamfcloud.com --type=basic --username=… --password=…
+  buddy cred add --paste --context=sandbox
+  pbpaste | buddy cred add --paste --context=sandbox -y
+  buddy cred add --from=./quickstart.yaml
+  buddy cred set context acme
+  buddy cred set auth org --type=platform --client-id=… --contexts=acme --scope=organization
+  buddy cred set context sandbox --url=https://example.jamfcloud.com --region=us --environment-id=… --org=acme
+  buddy cred set auth sandbox-admin --type=basic --username=admin --jamfpro=sandbox --channels=cli,ide
+  buddy cred set auth platform-ro --type=platform --client-id=… --contexts=sandbox --scope=environment --access=readonly --channels=mcp,ide
   buddy cred set secret platform-ro --client-secret
   buddy cred status
+  buddy cred status --unlock
   buddy cred status --test
   buddy cred use sandbox
   buddy cred use --mcp sandbox
-  buddy cred set channel mcp --access=readonly --tenant=sandbox --tenants=sandbox
+  buddy cred set channel mcp --access=readonly --context=sandbox --contexts=sandbox
   buddy cred set channel mcp --deny-builtins=computer_erase
   buddy cred set channel mcp --allow-builtins=*
-  buddy cred set tenant prod --deny-builtins=* --allow-builtins=policies,policy
+  buddy cred set context prod --deny-builtins=* --allow-builtins=policies,policy
   buddy cred set passphrase
   buddy cred delete auth sandbox-admin
   buddy cred delete tenant sandbox
@@ -301,7 +356,7 @@ Examples:
   buddy cred erase secrets
   buddy cred backup ./buddy.creds
   buddy cred restore ./buddy.creds
-  buddy --tenant=sandbox policy list --filter=chrome
+  buddy --context=sandbox policy list --filter=chrome
   buddy --user=sandbox-admin policy set …
 `
 const PolicyList = `buddy policy list - List policies
@@ -469,81 +524,53 @@ Examples:
   buddy policy delete 42
   buddy policy delete 42 43 44
 `
-const Setup = `buddy setup - Bootstrap instance config; Jamf Pro role/client + instance oauth
+const Setup = `buddy setup - First-run chooser, quickstart import/export, secrets, MDM plist
 
 Usage:
-  buddy [global-flags] setup basic-setup [--tenant=] [--url=] [--name=] [--username=] [--password=] [-y]
+  buddy [global-flags] setup
+  buddy [global-flags] setup import <file>
+  buddy [global-flags] setup export [path]
   buddy [global-flags] setup secrets [-y]
   buddy [global-flags] setup managed-plist [path]
-  buddy [global-flags] setup write-script [path]
-  buddy [global-flags] setup store-oauth [--user=<auth>] [--tenant=<tenant>] [--client-name=buddy-cli] [--name=<auth>] [-y]
 
 Subcommands:
-  basic-setup [args...]     First tenant + basic instance auth (vault password)
-  secrets [-y]              Fill missing auths and secrets for existing tenants
-  managed-plist [path]      Write org MDM plist (tenants + channels; no auths)
-  write-script [path]       Generate role+client buddyscript (default setup_buddy_role.buddy)
-  store-oauth [args...]     Rotate instance client secret into a buddy oauth auth
-
-Flags for 'basic-setup':
-  --tenant=<name>     Tenant name (default: prompt, or "default")
-  --url=<url>         Jamf Pro instance URL
-  --name=<auth>       Basic auth name (--auth= / --user= aliases; default <tenant>-admin)
-  --username=<user>   Jamf username
-  --password=<pass>   Jamf password (prefer interactive prompt)
-  -y                  Overwrite existing tenant/auth without confirming
+  import <file>             Merge secrets-free YAML or ACS plist; then fill secrets
+  export [path]             Write secrets-free identity YAML (stdout if path omitted)
+  secrets [-y]              Fill missing auths and secrets for existing workplaces
+  managed-plist [path]      Write org MDM plist (same identity as export; no auths)
 
 Flags for 'secrets':
-  -y                  Do not prompt; print missing auths/secrets and exit non-zero
-
-Flags for 'store-oauth':
-  --user=<auth>         Instance-capable auth used to call Jamf (rotate credentials)
-  --tenant=<tenant>     Tenant to link the oauth auth to (default: session tenant)
-  --client-name=<name>  Jamf Pro API integration display name (default: buddy-cli)
-  --name=<auth>         Buddy auth to create/update (--auth= alias)
-  -y                    Skip confirmation when rotating the Jamf client secret
+  -y                        Do not prompt; print missing auths/secrets and exit non-zero
 
 Notes:
-  write-script and store-oauth target the Jamf Pro *instance* (API roles and
-  integrations). Platform gateway oauth cannot create roles or clients.
-  If you have no tenants yet, prefer any interactive Jamf command or
-  'buddy cred add' (tenant name, URL and/or platform region+id, auth + secret).
-  'setup basic-setup' is the instance URL + basic auth shortcut.
-  If an MDM profile already provides tenants, run setup secrets instead.
+  Empty config: any interactive Jamf command, or 'buddy setup' / 'buddy cred add',
+  asks how to start: Jamf Pro instance (API-client JSON, or URL + basic), Jamf
+  Account / Platform (paste curl), a quickstart file, or an org MDM profile.
+  --context is a workplace name; auth scope: is organization|environment|tenant.
+  Optional orgs: YAML expands into those workplaces. A US curl with blank env id
+  is an org workplace (same object as orgs.<name>).
 
-  basic-setup stores the password in the vault and sets the tenant as default
-  when appropriate, then prints next steps (auth test, optional write-script →
-  store-oauth). Non-interactive: pass --tenant, --url, --username, and
-  --password (and optionally --name; default <tenant>-admin).
+  From a working install, setup export writes the mail-around YAML (orgs: /
+  leftover contexts: / context.default / channels; no auths). Recipients run
+  setup import. managed-plist is the same identity as ACS XML for domain
+  virtualpete.buddy.cli. import and cred add --from= accept either file.
+  Then setup secrets stores passwords and client secrets in the vault.
 
-  secrets: for each tenant with no linked auth, prompt to create one (oauth by
-  default), then fill instance/platform coverage gaps, then store missing
-  passwords or OAuth client secrets. Org MDM profiles typically ship tenants
-  and channel policy; auths in the plist are accepted if present, but prefer
-  this command so they stay in the local store. managed-plist omits auths.
-  Non-interactive / -y reports gaps and exits non-zero.
+  If managed preferences already provide workplaces (domain virtualpete.buddy.cli),
+  run setup secrets. User config.yaml overlays managed prefs (user wins per name).
 
-  managed-plist writes tenants and channel policy as XML plist (stdout if path
-  omitted). Upload as Jamf Application & Custom Settings for preference domain
-  virtualpete.buddy.cli. User config.yaml overlays managed prefs (user wins per
-  name).
-
-  write-script is idempotent for role "Buddy" and client "buddy-cli". Run it
-  with the active session, then rotate the secret with store-oauth (type=oauth,
-  not type=platform). Review the role in Jamf and drop destructive privileges
-  you do not need. If role creation fails, run "buddy role privileges" and edit
-  the script. store-oauth updates an existing oauth auth with the same clientId
-  in place, otherwise prompts for a name (default <tenant>-oauth).
+  Instance basic auth: cred add --type=basic --url= --username= --password=.
+  Instance oauth: paste the JSON Jamf Pro shows when creating an API client.
 
 Examples:
-  buddy setup basic-setup
+  buddy setup
+  buddy cred add --paste --context=sandbox
+  buddy cred add --context=sandbox --url=https://example.jamfcloud.com --type=basic --username=admin --password=…
+  buddy setup export ./quickstart.yaml
+  buddy setup import ./quickstart.yaml
   buddy setup secrets
   buddy setup managed-plist /tmp/buddy.plist
-  buddy --user <admin-auth> auth test
-  buddy setup write-script
-  buddy setup_buddy_role.buddy -y
-  buddy setup store-oauth
-  buddy setup store-oauth --tenant=sandbox --name=sandbox-oauth -y
+  buddy auth test
 `
 const ScriptGet = `buddy script get - Retrieve script information
 
@@ -614,7 +641,8 @@ Flags for 'serve':
 
 Notes:
   Serves a curated user docs UI (guides, builtins, examples) plus:
-  /config — Tenant/auth metadata editor (defaults, coverage). Secrets stay CLI.
+  /config — Workplace/auth metadata editor (defaults, coverage). First-run is
+            the CLI chooser (buddy setup / cred add); secrets stay in the vault.
   /ide — Single-buffer script runner (open/save, args, trace, Run as file,
          Variables/Libraries sidebar, copy/save/stash output)
   AGENTS.md and Cursor rules stay in the repo for contributors; they are not
@@ -630,12 +658,12 @@ Notes:
   IDE runs use the same builtins as the CLI. Interactive confirm() and Jamf
   mutate confirms open a dialog in the browser (not the serve terminal).
   Global -y skips confirms entirely. The IDE uses the ide client
-  channel with optional channels.ide policy for tenant and access.
+  channel with optional channels.ide policy for context and access.
   Bind address must be localhost (127.0.0.1, localhost, or ::1).
 
 Examples:
   buddy serve --open
-  buddy --tenant=sandbox serve --open
+  buddy --context=sandbox serve --open
   buddy serve --addr=127.0.0.1:9000
 `
 const MCP = `buddy mcp - MCP stdio server for AI tools
@@ -658,13 +686,15 @@ Notes:
   Claude Desktop, and other MCP clients). Lean surface: buddy_info,
   docs, jamf_schema, buddyscript (primary), plus buddy://docs/... resources.
   Resource automation uses named builtins via buddyscript.
-  Uses the active tenant/auth from config (override with --tenant / --user).
-  With no tenants configured, buddy mcp registers no tools and instructs the
-  host to run CLI setup first (buddy cred add / interactive Jamf command).
+  Uses the active context/auth from config (override with --context / --user;
+  --tenant is a dual-read alias).
+  With no contexts configured, buddy mcp registers no tools and instructs the
+  With no contexts configured, buddy mcp registers no tools and instructs the
+  host to run CLI setup first (buddy setup / buddy cred add).
 
   Every tool returns a JSON object {ok, value, error?, count?} — never a bare
   array (hosts require object structuredContent). buddy_info reports binary
-  version plus default tenant / auth pin and available tenants/auths for the
+  version plus default context / auth pin (JSON fields context / tenant, contexts / tenants) for the
   mcp channel (no Jamf call). Live auth: first buddyscript Jamf call or CLI
   buddy auth test.
 

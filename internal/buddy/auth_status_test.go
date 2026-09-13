@@ -95,6 +95,122 @@ func TestAuthTestForceRenewAndTokenOkOnProbe403(t *testing.T) {
 	}
 }
 
+func TestAuthTestOrganizationWorkplaceProbesLicenses(t *testing.T) {
+	InitLogger()
+	var tokenHits, buildingHits, licenseHits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/auth/token", "/oauth2/token", "/api/oauth/token":
+			tokenHits.Add(1)
+			_ = json.NewEncoder(w).Encode(tokenauth.OAuth2TokenResponse{
+				AccessToken: "org-tok",
+				ExpiresIn:   3600,
+			})
+			return
+		case "/api/v1/buildings", "/pro/v1/buildings":
+			buildingHits.Add(1)
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"errors":[{"code":"REQUEST_CONTEXT_NOT_PROVIDED"}]}`)
+			return
+		case "/licensing/v1/licenses", "/api/licensing/v1/licenses":
+			licenseHits.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"totalCount": 0,
+				"results":    []any{},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	capsDir := t.TempDir()
+	t.Cleanup(SetCapsCacheDirForTest(capsDir))
+	tokDir := t.TempDir()
+	t.Cleanup(tokenauth.SetTokenCacheDirForTest(tokDir))
+	t.Cleanup(SetOrgPlatformGatewayURLForTest(srv.URL))
+	clearCredAuthCache()
+	t.Cleanup(clearCredAuthCache)
+
+	cfg := orgLicensesTestConfig()
+	SetActiveConfig(cfg)
+	SetActiveSelection("sandbox", "sandbox")
+	t.Cleanup(func() {
+		SetActiveConfig(nil)
+		SetActiveSelection("", "")
+	})
+
+	res, err := AuthTestValue("sandbox", GetLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if live, _ := res["live"].(string); live != LiveOK {
+		t.Fatalf("live=%v body=%v", res["live"], res)
+	}
+	if probe, _ := res["probe"].(string); probe != "licenses" {
+		t.Fatalf("probe=%v want licenses", res["probe"])
+	}
+	if tokenHits.Load() < 1 {
+		t.Fatal("expected a token mint")
+	}
+	if licenseHits.Load() < 1 {
+		t.Fatal("expected a licenses probe")
+	}
+	if buildingHits.Load() != 0 {
+		t.Fatalf("organization workplace should not probe buildings, hits=%d", buildingHits.Load())
+	}
+}
+
+func TestAuthTestOrganizationWorkplaceLicenses403(t *testing.T) {
+	InitLogger()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/auth/token", "/oauth2/token", "/api/oauth/token":
+			_ = json.NewEncoder(w).Encode(tokenauth.OAuth2TokenResponse{
+				AccessToken: "org-tok",
+				ExpiresIn:   3600,
+			})
+			return
+		case "/licensing/v1/licenses", "/api/licensing/v1/licenses":
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `{"httpStatus":403}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	capsDir := t.TempDir()
+	t.Cleanup(SetCapsCacheDirForTest(capsDir))
+	tokDir := t.TempDir()
+	t.Cleanup(tokenauth.SetTokenCacheDirForTest(tokDir))
+	t.Cleanup(SetOrgPlatformGatewayURLForTest(srv.URL))
+	clearCredAuthCache()
+	t.Cleanup(clearCredAuthCache)
+
+	SetActiveConfig(orgLicensesTestConfig())
+	SetActiveSelection("sandbox", "sandbox")
+	t.Cleanup(func() {
+		SetActiveConfig(nil)
+		SetActiveSelection("", "")
+	})
+
+	res, err := AuthTestValue("sandbox", GetLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if live, _ := res["live"].(string); live != LiveTokenOK {
+		t.Fatalf("live=%v body=%v", res["live"], res)
+	}
+	if probe, _ := res["probe"].(string); probe != "licenses" {
+		t.Fatalf("probe=%v want licenses", res["probe"])
+	}
+	rec := LoadCaps("sandbox", "sandbox", SurfacePlatform, "org")
+	if rec == nil || rec.Live != LiveTokenOK || !rec.TokenOk {
+		t.Fatalf("caps=%+v", rec)
+	}
+}
+
 func TestAuthTestSecretMissing(t *testing.T) {
 	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
 	t.Cleanup(func() { secrets.SetStore(nil) })
@@ -252,5 +368,137 @@ func TestCredAddRequiresFieldsNonInteractive(t *testing.T) {
 	_, err := CredAdd(cfg, CredAddOpts{SkipConfirm: true, NoTest: true}, nil)
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestCredAddFromPastedInstanceJSON(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, dir+"/no-managed.plist")
+	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	cfg := &Config{}
+	res, err := CredAdd(cfg, CredAddOpts{
+		TenantName:  "sandbox",
+		URL:         "https://example.jamfcloud.com",
+		PasteBlob:   instanceClientJSON,
+		SkipConfirm: true,
+		NoTest:      true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AuthName != "buddy-cli" {
+		t.Fatalf("auth name from client_name: %+v", res)
+	}
+	a := cfg.Auths["buddy-cli"]
+	if a.Type != AuthTypeOAuth || a.ClientID != "11111111-1111-1111-1111-111111111111" {
+		t.Fatalf("auth=%+v", a)
+	}
+	okHas, err := HasCredentialSecret("buddy-cli", secrets.KindClientSecret)
+	if err != nil || !okHas {
+		t.Fatalf("secret stored? %v %v", okHas, err)
+	}
+	if len(cfg.Orgs) != 0 {
+		t.Fatalf("instance paste must write flat contexts only, got orgs=%+v", cfg.Orgs)
+	}
+	if cfg.Tenants["sandbox"].URL != "https://example.jamfcloud.com" {
+		t.Fatalf("instance url=%+v", cfg.Tenants["sandbox"])
+	}
+}
+
+func TestCredAddFromPastedPlatformCurl(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, dir+"/no-managed.plist")
+	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	cfg := &Config{}
+	res, err := CredAdd(cfg, CredAddOpts{
+		TenantName:  "sandbox",
+		PasteBlob:   platformOrgCurl,
+		SkipConfirm: true,
+		NoTest:      true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AuthName != "sandbox-platform" {
+		t.Fatalf("%+v", res)
+	}
+	tc := cfg.Tenants["sandbox"]
+	if tc.Region != "" || tc.URL != "" || !tc.IsOrganizationWorkplace() {
+		t.Fatalf("context=%+v", tc)
+	}
+	if _, ok := cfg.Orgs["sandbox"]; !ok {
+		t.Fatalf("org paste should write orgs.sandbox: %+v", cfg.Orgs)
+	}
+	a := cfg.Auths["sandbox-platform"]
+	if a.Type != AuthTypePlatform || a.Scope != PlatformScopeOrganization || a.ClientID != "22222222-2222-2222-2222-222222222222" {
+		t.Fatalf("auth=%+v", a)
+	}
+}
+
+func TestCredAddFromPastedUSEnvCurl(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, dir+"/no-managed.plist")
+	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	cfg := &Config{}
+	_, err := CredAdd(cfg, CredAddOpts{
+		TenantName:    "sandbox",
+		PasteBlob:     platformEnvCurl,
+		EnvironmentID: "11111111-1111-1111-1111-111111111111",
+		SkipConfirm:   true,
+		NoTest:        true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc := cfg.Tenants["sandbox"]
+	if tc.Region != "us" || tc.EnvironmentID != "11111111-1111-1111-1111-111111111111" || tc.IsOrganizationWorkplace() {
+		t.Fatalf("env context=%+v", tc)
+	}
+	a := cfg.Auths["sandbox-platform"]
+	if a.Type != AuthTypePlatform || a.Scope == PlatformScopeOrganization {
+		t.Fatalf("env auth should not be org: %+v", a)
+	}
+}
+
+func TestCredAddOrgAuthOntoInstanceContext(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, dir+"/no-managed.plist")
+	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	cfg := &Config{Tenants: map[string]TenantConfig{
+		"sandbox": {URL: "https://example.jamfcloud.com"},
+	}}
+	_, err := CredAdd(cfg, CredAddOpts{
+		TenantName:  "sandbox",
+		AuthName:    "org",
+		PasteBlob:   platformOrgCurl,
+		SkipConfirm: true,
+		NoTest:      true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc := cfg.Tenants["sandbox"]
+	if tc.URL != "https://example.jamfcloud.com" || tc.Region != "" {
+		t.Fatalf("instance context must stay instance: %+v", tc)
+	}
+	a := cfg.Auths["org"]
+	if a.Type != AuthTypePlatform || a.Scope != PlatformScopeOrganization || !a.LinkedTo("sandbox") {
+		t.Fatalf("auth=%+v", a)
+	}
+	cred := ComposeCredential(tc, a, SurfacePlatform)
+	if cred.URL != OrgPlatformGatewayURL || cred.Region != OrgPlatformRegion {
+		t.Fatalf("org session: %+v", cred)
 	}
 }

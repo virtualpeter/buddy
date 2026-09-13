@@ -324,6 +324,96 @@ func TestExtractGlobalFlags(t *testing.T) {
 	if !g.evalMissing {
 		t.Fatal("expected evalMissing for bare -e")
 	}
+
+	argv = []string{"buddy", "policy", "list", "-tenant=sandbox", "-v"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "sandbox" || !g.verbose {
+		t.Fatalf("tenant=%q verbose=%v", g.tenant, g.verbose)
+	}
+	want = []string{"buddy", "policy", "list"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "policy", "list", "--tenant", "sandbox", "-t"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "sandbox" || !g.trace {
+		t.Fatalf("tenant=%q trace=%v", g.tenant, g.trace)
+	}
+	want = []string{"buddy", "policy", "list"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "policy", "list", "--context=sandbox"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "sandbox" {
+		t.Fatalf("context alias tenant=%q", g.tenant)
+	}
+	want = []string{"buddy", "policy", "list"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "policy", "list", "-vt"}
+	g, rest = extractGlobalFlags(argv)
+	if g.verbose || g.trace {
+		t.Fatal("-vt must not bundle -v -t")
+	}
+	want = []string{"buddy", "policy", "list", "--vt"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "script.buddy", "--", "--tenant", "foo"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "" {
+		t.Fatalf("tenant after -- leaked: %q", g.tenant)
+	}
+	want = []string{"buddy", "script.buddy", "--", "--tenant", "foo"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "cred", "set", "channel", "mcp", "--tenant=sandbox"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "" {
+		t.Fatalf("channel --tenant stolen as global: %q", g.tenant)
+	}
+	want = []string{"buddy", "cred", "set", "channel", "mcp", "--tenant=sandbox"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "--tenant=other", "cred", "set", "channel", "mcp", "--tenant=sandbox"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "other" {
+		t.Fatalf("session tenant = %q, want other", g.tenant)
+	}
+	want = []string{"buddy", "cred", "set", "channel", "mcp", "--tenant=sandbox"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "cred", "add", "--tenant=sandbox", "--url=https://example.jamfcloud.com"}
+	g, rest = extractGlobalFlags(argv)
+	if g.tenant != "" {
+		t.Fatalf("cred add --tenant stolen: %q", g.tenant)
+	}
+	want = []string{"buddy", "cred", "add", "--tenant=sandbox", "--url=https://example.jamfcloud.com"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+
+	argv = []string{"buddy", "setup", "import", "./quickstart.yaml"}
+	g, rest = extractGlobalFlags(argv)
+	if g.user != "" || g.tenant != "" {
+		t.Fatalf("setup import flags stolen user=%q tenant=%q", g.user, g.tenant)
+	}
+	want = []string{"buddy", "setup", "import", "./quickstart.yaml"}
+	if !reflect.DeepEqual(rest, want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
 }
 
 func TestRunAuthRefreshHelp(t *testing.T) {
@@ -473,12 +563,12 @@ func TestStaticGroupSplitFlags(t *testing.T) {
 func TestParseCredSetTenantArgs(t *testing.T) {
 	tid := "e77c1408-10c8-4007-b177-abc9157fbcaa"
 	got, err := parseCredSetTenantArgs([]string{
-		"gw", "--region=us", "--tenant-id=" + tid,
+		"gw", "--region=us", "--environment-id=" + tid,
 	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Name != "gw" || got.Tenant.Region != "us" || got.Tenant.TenantID != tid {
+	if got.Name != "gw" || got.Tenant.Region != "us" || got.Tenant.EnvironmentID != tid {
 		t.Fatalf("%+v", got)
 	}
 	if err := got.Tenant.Validate(); err != nil {
@@ -576,14 +666,32 @@ func TestRunCredEraseSecrets_WipesStore(t *testing.T) {
 	}
 }
 
-func TestParseCredSetTenant_GatewayRequiresTenantID(t *testing.T) {
+func TestParseCredSetTenant_OrgOK(t *testing.T) {
 	got, err := parseCredSetTenantArgs([]string{"gw", "--region=us"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := got.Tenant.Validate(); err == nil {
-		t.Fatal("Validate should reject platform without tenantId")
-	} else if !strings.Contains(err.Error(), "tenantId") {
-		t.Fatalf("Validate error = %v", err)
+	if err := got.Tenant.Validate(); err != nil {
+		t.Fatalf("org-scope tenant should be valid: %v", err)
+	}
+}
+
+func TestParseCredSetTenant_BothIDsOK(t *testing.T) {
+	got, err := parseCredSetTenantArgs([]string{"gw", "--region=us", "--environment-id=e1", "--tenant-id=t1"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tenant.EnvironmentID != "e1" || got.Tenant.TenantID != "t1" {
+		t.Fatalf("got %+v", got.Tenant)
+	}
+}
+
+func TestParseCredSetTenant_HybridNeedsScopeID(t *testing.T) {
+	got, err := parseCredSetTenantArgs([]string{"gw", "--url=https://example.jamfcloud.com", "--region=us"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := got.Tenant.Validate(); err == nil || !strings.Contains(err.Error(), "hybrid") {
+		t.Fatalf("Validate should reject hybrid without scope id, got %v", err)
 	}
 }

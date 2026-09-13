@@ -37,7 +37,7 @@ Subcommands:
       List channels available for a device
 
 Notes:
-  Requires Platform API Gateway tenant+auth and read:pro:declaration-reporting.
+  Requires Platform API Gateway context+auth and read:pro:declaration-reporting.
   Useful alongside 'buddy blueprint status' for deployment verification.
   --filter bare term → name=="*term*"; or full RSQL.
 

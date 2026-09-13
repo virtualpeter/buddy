@@ -63,6 +63,12 @@ func (c *createSessionReq) UnmarshalJSON(data []byte) error {
 			return err
 		}
 	}
+	if v, ok := raw["context"]; ok {
+		c.tenantSet = true
+		if err := json.Unmarshal(v, &c.Tenant); err != nil {
+			return err
+		}
+	}
 	if v, ok := raw["auth"]; ok {
 		c.authSet = true
 		if err := json.Unmarshal(v, &c.Auth); err != nil {
@@ -94,12 +100,13 @@ func (c *createSessionReq) UnmarshalJSON(data []byte) error {
 }
 
 type createSessionResp struct {
-	ID     string   `json:"id"`
-	Tenant string   `json:"tenant"`
-	Cred   string   `json:"cred"`
-	Auth   string   `json:"auth"`
-	Trace  bool     `json:"trace"`
-	Args   []string `json:"args"`
+	ID      string   `json:"id"`
+	Context string   `json:"context"`
+	Tenant  string   `json:"tenant"` // dual-read alias of context
+	Cred    string   `json:"cred"`
+	Auth    string   `json:"auth"`
+	Trace   bool     `json:"trace"`
+	Args    []string `json:"args"`
 }
 
 type stashReq struct {
@@ -204,7 +211,7 @@ func (s *sessionStore) handleCreate(w http.ResponseWriter, r *http.Request) {
 	s.sessions[id] = &liveSession{sess: sess, tenant: tenant, auth: auth, channel: channel}
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, createSessionResp{
-		ID: id, Tenant: tenant, Cred: auth, Auth: auth, Trace: req.Trace, Args: sess.Args(),
+		ID: id, Context: tenant, Tenant: tenant, Cred: auth, Auth: auth, Trace: req.Trace, Args: sess.Args(),
 	})
 }
 

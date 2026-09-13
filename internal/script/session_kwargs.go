@@ -17,14 +17,16 @@ const (
 // sessionArgs holds optional trailing session kwargs for Jamf builtins.
 type sessionArgs struct {
 	Tenant  starlark.String
+	Context starlark.String
 	Surface starlark.String
 	Auth    starlark.String
 }
 
-// sessionUnpack returns UnpackArgs trailing keys for tenant?, surface?, auth?.
+// sessionUnpack returns UnpackArgs trailing keys for tenant?, context?, surface?, auth?.
 func sessionUnpack(s *sessionArgs) []any {
 	return []any{
 		"tenant?", &s.Tenant,
+		"context?", &s.Context,
 		"surface?", &s.Surface,
 		"auth?", &s.Auth,
 	}
@@ -54,6 +56,9 @@ func beginSession(thread *starlark.Thread, defaultAuth string, s sessionArgs) (p
 		return "", nil, err
 	}
 	tenant := strings.TrimSpace(string(s.Tenant))
+	if c := strings.TrimSpace(string(s.Context)); c != "" {
+		tenant = c
+	}
 	surface := strings.TrimSpace(string(s.Surface))
 	auth := strings.TrimSpace(string(s.Auth))
 
@@ -96,6 +101,9 @@ func sessionRefFromArgs(thread *starlark.Thread, defaultAuth string, s sessionAr
 		return buddy.SessionRef{}, err
 	}
 	tenant := strings.TrimSpace(string(s.Tenant))
+	if c := strings.TrimSpace(string(s.Context)); c != "" {
+		tenant = c
+	}
 	auth := strings.TrimSpace(string(s.Auth))
 	surface := strings.TrimSpace(string(s.Surface))
 	if tenant == "" && auth == "" {
@@ -124,16 +132,16 @@ func rejectLegacyFromKwargs(fromTenant, fromSurface, fromAuth starlark.String) e
 	if strings.TrimSpace(string(fromTenant)) != "" ||
 		strings.TrimSpace(string(fromSurface)) != "" ||
 		strings.TrimSpace(string(fromAuth)) != "" {
-		return fmt.Errorf("from_tenant/from_auth/from_surface removed; use tenant=/auth=/surface= for source and to_tenant=/to_auth=/to_surface= for destination")
+		return fmt.Errorf("from_tenant/from_auth/from_surface removed; use tenant=/context=/auth=/surface= for source and to_tenant=/to_context=/to_auth=/to_surface= for destination")
 	}
 	return nil
 }
 
 // dualSessionUnpackKeys are shared optional kwargs for copy builtins (source + dest + legacy reject).
 type dualSessionKwargs struct {
-	Src                                             sessionArgs
-	ToTenant, ToSurface, ToAuth                     starlark.String
-	FromTenant, FromSurface, FromAuth               starlark.String // rejected if set
+	Src                                    sessionArgs
+	ToTenant, ToContext, ToSurface, ToAuth starlark.String
+	FromTenant, FromSurface, FromAuth      starlark.String // rejected if set
 }
 
 func (d *dualSessionKwargs) unpackTail() []any {
@@ -142,9 +150,11 @@ func (d *dualSessionKwargs) unpackTail() []any {
 		"from_surface?", &d.FromSurface,
 		"from_auth?", &d.FromAuth,
 		"tenant?", &d.Src.Tenant,
+		"context?", &d.Src.Context,
 		"surface?", &d.Src.Surface,
 		"auth?", &d.Src.Auth,
 		"to_tenant?", &d.ToTenant,
+		"to_context?", &d.ToContext,
 		"to_surface?", &d.ToSurface,
 		"to_auth?", &d.ToAuth,
 	}
@@ -158,6 +168,13 @@ func (d *dualSessionKwargs) refs(thread *starlark.Thread, defaultAuth string) (s
 	if err != nil {
 		return buddy.SessionRef{}, buddy.SessionRef{}, err
 	}
-	dst, err = destSessionRef(src, d.ToTenant, d.ToSurface, d.ToAuth)
+	dst, err = destSessionRef(src, firstStarlarkString(d.ToContext, d.ToTenant), d.ToSurface, d.ToAuth)
 	return src, dst, err
+}
+
+func firstStarlarkString(prefer, fallback starlark.String) starlark.String {
+	if strings.TrimSpace(string(prefer)) != "" {
+		return prefer
+	}
+	return fallback
 }

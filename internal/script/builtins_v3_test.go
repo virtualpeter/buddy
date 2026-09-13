@@ -48,6 +48,7 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 		"blueprints", "blueprint", "blueprint_create", "blueprint_set",
 		"blueprint_delete", "blueprint_deploy", "blueprint_undeploy",
 		"blueprint_status", "blueprint_components", "blueprint_component",
+		"licenses",
 		"auth", "confirm", "error", "exit",
 		"icon", "icons", "icon_upload", "icon_check", "icon_download", "policy_set_icon",
 		"version_extract", "version_compare", "version_sort",

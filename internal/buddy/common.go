@@ -84,6 +84,9 @@ func resolveURLOp(credName string, op OpClass) (string, error) {
 	if base == "" {
 		return "", fmt.Errorf("tenant %q / auth %q has no URL or region configured", sess.TenantName, sess.AuthName)
 	}
+	if LooksLikeRetiredPlatformGateway(base) {
+		return "", retiredPlatformGatewayError(base)
+	}
 	return base, nil
 }
 
@@ -117,7 +120,7 @@ func sessionCacheName(sess *Session) string {
 	}
 	name := sess.AuthName + "@" + sess.TenantName
 	if sess.Surface == SurfacePlatform {
-		tid := sess.Credential.EffectiveTenantID()
+		tid := sess.Credential.PlatformScopeKey()
 		if tid != "" {
 			return name + "@platform:" + tid
 		}
@@ -135,7 +138,7 @@ func sessionDiskCacheKey(sess *Session) string {
 
 func sessionDiskCacheKeyFromParts(cacheName string, cred CredentialConfig) string {
 	if cred.IsPlatform() && !strings.Contains(cacheName, "@platform:") {
-		return cacheName + "@platform:" + cred.EffectiveTenantID()
+		return cacheName + "@platform:" + cred.PlatformScopeKey()
 	}
 	return cacheName
 }
@@ -311,6 +314,12 @@ func PerformRequestOp(req *http.Request, credName string, op OpClass) (*http.Res
 		return nil, fmt.Errorf("get auth for %q: %w", credName, err)
 	}
 	req.Header.Set("Authorization", authHeader)
+	if sess, sessErr := ResolveSessionForCred(credName, op); sessErr == nil && sess.Surface == SurfacePlatform {
+		if LooksLikeRetiredPlatformGateway(sess.Credential.EffectiveBaseURL()) {
+			return nil, retiredPlatformGatewayError(sess.Credential.EffectiveBaseURL())
+		}
+		applyPlatformScopeHeaders(req, sess.Credential)
+	}
 	resp, err := performHTTP(req)
 	if err != nil {
 		return nil, err

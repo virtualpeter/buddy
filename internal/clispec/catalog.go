@@ -9,14 +9,16 @@ import (
 
 // Message IDs (stable keys; not English-as-id).
 const (
-	MsgMissingArg        = "cli.missing_arg"
-	MsgMissingArgHint    = "cli.missing_arg_hint"
-	MsgUnknownCommand    = "cli.unknown_command"
-	MsgUnknownSubcommand = "cli.unknown_subcommand"
-	MsgDidYouMean        = "cli.did_you_mean"
-	MsgUseCandidates     = "cli.use_candidates"
-	MsgRunHelpList       = "cli.run_help_list"
-	MsgNoHelp            = "cli.no_help"
+	MsgMissingArg          = "cli.missing_arg"
+	MsgMissingArgHint      = "cli.missing_arg_hint"
+	MsgUnknownCommand      = "cli.unknown_command"
+	MsgUnknownSubcommand   = "cli.unknown_subcommand"
+	MsgAmbiguousCommand    = "cli.ambiguous_command"
+	MsgAmbiguousSubcommand = "cli.ambiguous_subcommand"
+	MsgDidYouMean          = "cli.did_you_mean"
+	MsgUseCandidates       = "cli.use_candidates"
+	MsgRunHelpList         = "cli.run_help_list"
+	MsgNoHelp              = "cli.no_help"
 
 	MsgCmdAuth               = "cli.cmd.auth"
 	MsgCmdToken              = "cli.cmd.token"
@@ -41,6 +43,7 @@ const (
 	MsgCmdMobileProf         = "cli.cmd.mobile_profile"
 	MsgCmdDDM                = "cli.cmd.ddm"
 	MsgCmdBenchmark          = "cli.cmd.benchmark"
+	MsgCmdLicense            = "cli.cmd.license"
 	MsgCmdRole               = "cli.cmd.role"
 	MsgCmdClient             = "cli.cmd.client"
 	MsgCmdScript             = "cli.cmd.script"
@@ -59,6 +62,7 @@ const (
 	MsgGFlagTrace       = "cli.gflag.trace"
 	MsgGFlagScriptTrace = "cli.gflag.script_trace"
 	MsgGFlagTenant      = "cli.gflag.tenant"
+	MsgGFlagContext     = "cli.gflag.context"
 	MsgGFlagUser        = "cli.gflag.user"
 	MsgGFlagAuth        = "cli.gflag.auth"
 )
@@ -69,14 +73,16 @@ var catalogs = map[string]map[string]string{
 }
 
 var en = map[string]string{
-	MsgMissingArg:        "missing %s; run '%s' for usage",
-	MsgMissingArgHint:    "missing %s; run '%s'",
-	MsgUnknownCommand:    "Unknown command: %q",
-	MsgUnknownSubcommand: "unknown %s subcommand: %q",
-	MsgDidYouMean:        "\nDid you mean %q?",
-	MsgUseCandidates:     " (use: %s)",
-	MsgRunHelpList:       "Run 'buddy help' for a list of commands.",
-	MsgNoHelp:            "No help available for %q\n\n",
+	MsgMissingArg:          "missing %s; run '%s' for usage",
+	MsgMissingArgHint:      "missing %s; run '%s'",
+	MsgUnknownCommand:      "Unknown command: %q",
+	MsgUnknownSubcommand:   "unknown %s subcommand: %q",
+	MsgAmbiguousCommand:    "Ambiguous command: %q (could be: %s)",
+	MsgAmbiguousSubcommand: "ambiguous %s subcommand: %q (could be: %s)",
+	MsgDidYouMean:          "\nDid you mean %q?",
+	MsgUseCandidates:       " (use: %s)",
+	MsgRunHelpList:         "Run 'buddy help' for a list of commands.",
+	MsgNoHelp:              "No help available for %q\n\n",
 
 	MsgCmdAuth:               "Test authentication for the active tenant/auth",
 	MsgCmdToken:              "Mint a bearer token with one-shot flags (no config)",
@@ -101,12 +107,13 @@ var en = map[string]string{
 	MsgCmdMobileProf:         "Manage mobile-device configuration profiles (list/get/put/create/delete)",
 	MsgCmdDDM:                "Platform DDM declaration reporting (read-only)",
 	MsgCmdBenchmark:          "Platform compliance benchmarks",
+	MsgCmdLicense:            "List Jamf Account licenses (organization workplace)",
 	MsgCmdRole:               "Manage API roles (list/get/create/update/delete/privileges)",
 	MsgCmdClient:             "Manage API integrations (list/get/create/update/delete/credentials/set)",
 	MsgCmdScript:             "Manage Jamf scripts (list/get/create/upload/download/delete/set)",
 	MsgCmdExtensionAttribute: "Manage computer extension attributes (list/get/create/upload/download/delete/set)",
 	MsgCmdMobileExtAttr:      "Manage mobile-device extension attributes (list/get/create/delete)",
-	MsgCmdSetup:              "basic-setup; secrets; managed-plist; write-script; store-oauth",
+	MsgCmdSetup:              "First-run chooser; import; export; secrets; managed-plist",
 	MsgCmdServe:              "Local docs + config + script IDE web UI",
 	MsgCmdMCP:                "MCP stdio server for AI tools (setup discovers host configs)",
 	MsgCmdLSP:                "Language server for buddyscript (editor integration)",
@@ -118,7 +125,8 @@ var en = map[string]string{
 	MsgGFlagVerbose:     "Verbose output",
 	MsgGFlagTrace:       "Trace HTTP requests and responses to stderr (headers and bodies; Authorization/Cookie and token-shaped values redacted)",
 	MsgGFlagScriptTrace: "Trace buddyscript builtin calls and print() in scripts and the interactive shell",
-	MsgGFlagTenant:      "Tenant from config (default: config.tenant); auto-picks auth",
+	MsgGFlagTenant:      "Alias of --context (dual-read)",
+	MsgGFlagContext:     "Context from config (auto-picks auth); --tenant is a dual-read alias",
 	MsgGFlagUser:        "Pin an auth name (--auth alias)",
 	MsgGFlagAuth:        "Pin an auth name (same as --user)",
 }

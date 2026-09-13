@@ -142,7 +142,7 @@ func TestParseCLIHelpPolicySetKeepsNestedFlagsInUsage(t *testing.T) {
 
 func TestParseCLIHelpCredLeadAndNotes(t *testing.T) {
 	p := parseCLIHelp(Cred)
-	if !strings.Contains(p.Lead, "Config is split into tenants") {
+	if !strings.Contains(p.Lead, "Config is split into contexts") {
 		t.Fatalf("lead = %q", p.Lead)
 	}
 	foundNotes := false
@@ -176,7 +176,7 @@ func TestParseCLIHelpCredLeadAndNotes(t *testing.T) {
 
 func TestParseCLIHelpCredShort(t *testing.T) {
 	p := parseCLIHelp(CredShort)
-	if p.Does != "Manage tenants, auths, and secrets" {
+	if p.Does != "Manage contexts, auths, and secrets" {
 		t.Fatalf("Does = %q", p.Does)
 	}
 	var subcommands, notes, examples string
@@ -198,7 +198,7 @@ func TestParseCLIHelpCredShort(t *testing.T) {
 	if !strings.Contains(notes, "buddy cred help") {
 		t.Fatalf("short Notes should point at cred help:\n%s", notes)
 	}
-	if !strings.Contains(examples, "buddy cred add --tenant=") {
+	if !strings.Contains(examples, "buddy cred add --context=") {
 		t.Fatalf("short Examples missing setup add:\n%s", examples)
 	}
 }

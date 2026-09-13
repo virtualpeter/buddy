@@ -37,12 +37,9 @@ func registerPlatformBuiltins(dict starlark.StringDict, credName string, logger 
 	putBuiltin(dict, "benchmarks", benchmarksBuiltin(credName, logger))
 	putBuiltin(dict, "benchmark", benchmarkBuiltin(credName, logger))
 	putBuiltin(dict, "benchmark_create", benchmarkCreateBuiltin(credName, logger))
-	putBuiltin(dict, "benchmark_delete", benchmarkDeleteBuiltin(credName, logger))
-	putBuiltin(dict, "benchmark_baselines", benchmarkBaselinesBuiltin(credName, logger))
-	putBuiltin(dict, "benchmark_catalog_rules", benchmarkCatalogRulesBuiltin(credName, logger))
-	putBuiltin(dict, "benchmark_compliance_percentage", benchmarkComplianceBuiltin(credName, logger))
 	putBuiltin(dict, "benchmark_report_devices", benchmarkReportDevicesBuiltin(credName, logger))
 	putBuiltin(dict, "benchmark_report_rules", benchmarkReportRulesBuiltin(credName, logger))
+	putBuiltin(dict, "licenses", licensesBuiltin(credName, logger))
 }
 
 func jsonResult(v interface{}, err error) (starlark.Value, error) {
@@ -662,6 +659,26 @@ func benchmarkReportRulesBuiltin(credName string, logger *slog.Logger) func(*sta
 		defer restoreSession()
 		c := sessionPin
 		out, err := buddy.BenchmarkReportRulesValue(c, string(benchmarkID), logger)
+		return jsonResult(out, err)
+	}
+}
+
+func licensesBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("licenses", args, kwargs,
+			"tenant?", &sess.Tenant,
+			"context?", &sess.Context,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		out, err := buddy.LicenseListValues(sessionPin, logger)
 		return jsonResult(out, err)
 	}
 }

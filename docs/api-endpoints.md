@@ -6,21 +6,21 @@ Buddy communicates with Jamf through direct HTTP requests (no third-party SDK).
 
 - **Classic API** — XML-based, path prefix `/JSSResource/`
 - **Jamf Pro API** — JSON-based, path prefix `/api/v1/` or `/api/v2/` / `/api/v3/`
-- **Platform API Gateway** — first-class surface for blueprints, devices, device groups, DDM, and compliance benchmarks. Set `region` (currently `us`, `eu`, `apac`; the list may grow) and/or gateway `url` `https://{region}.apigw.jamf.com`, plus OAuth client credentials and `tenantId` on the **tenant**.
+- **Platform API Gateway** — first-class surface for blueprints, devices, device groups, DDM, compliance benchmarks, and organization Account APIs (licenses). Set `region` (currently `us`, `eu`, `apac`; the list may grow) and/or gateway `url` `https://{region}.api.jamfcloud.com`, plus OAuth client credentials. Scope is **`id` / `environmentId` (preferred)** or `jamfpro.tenantId` on the **buddy context** (the named workplace `--context` selects — not Jamf’s environment). Organization-scoped integrations use a platform auth with `scope: organization`: same US gateway (`https://us.api.jamfcloud.com`), no `X-Environment-Id` / `X-Tenant-Id`. There is no `api.jamfcloud.com` host (it does not resolve). The org workplace YAML has no region. Optional nested `orgs:` YAML expands into those same workplaces. Scope lives on the **auth**, so a context may hold both an environment `id` and a product `tenantId`. The retired beta host `*.apigw.jamf.com` is refused. See [Auth](auth.md#contexts-and-auths).
 
-Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`). When the **tenant** has `tenantId` set, buddy rewrites them:
+Call sites still use instance-relative paths (`/api/v1/…`, `/JSSResource/…`). On a platform session buddy rewrites them and sends scope in a header (`X-Environment-Id` or `X-Tenant-Id`), not a path segment:
 
 | Caller path | Gateway path |
 |-------------|--------------|
-| `/api/vN/rest…` | `/api/pro/vN/tenant/{tenantId}/rest…` |
-| `/JSSResource/…` | `/api/proclassic/tenant/{tenantId}/…` (the `/JSSResource` prefix is stripped) |
-| `/api/blueprints/vN/…` | inject `/tenant/{tenantId}` after the version |
+| `/api/vN/rest…` | `/pro/vN/rest…` |
+| `/JSSResource/…` | `/proclassic/…` (the `/JSSResource` prefix is stripped) |
+| `/api/blueprints/vN/…` | `/blueprints/vN/…` (drop `/api`; same for devices, device-groups, licensing, sso, …) |
 
-**Limitation (Classic / proclassic):** Classic-on-Platform is `/api/proclassic/tenant/{tenantId}/…` with `/JSSResource` stripped (Jamf’s Classic OpenAPI). Buddy sends Classic through the gateway when the session is platform (`features.classic_instance_only` default **false**). Auto-pick among mixed auths still prefers instance. Set `features.classic_instance_only: true` (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force Classic onto an instance auth. A gateway `403` means the client lacks Classic privileges, not a bad path.
+**Limitation (Classic / proclassic):** Classic-on-Platform is `/proclassic/…` with `/JSSResource` stripped (Jamf’s Classic OpenAPI). Buddy sends Classic through the gateway when the session is platform (`features.classic_instance_only` default **false**). Auto-pick among mixed auths still prefers instance. Set `features.classic_instance_only: true` (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force Classic onto an instance auth. A gateway `403` means the client lacks Classic privileges, not a bad path.
 
 That toggle does **not** control ACS or the undocumented Pro policy list — those never work on the gateway (see ACS and Policies notes below). If a Platform OAuth client lacks Classic scopes, pin an instance auth or set `classic_instance_only: true`.
 
-Authentication is config-driven per tenant + auth (command, basic, or OAuth). See **[Auth, secrets, and tokens](auth.md)**, `buddy auth help`, and `buddy cred help`. For **basic** (username/password), buddy obtains a Bearer token via `POST /api/v1/auth/token` with Basic auth, then uses that token for all API requests. Platform credentials use **OAuth only** (`POST {gateway}/auth/token`, fallback `/oauth2/token`); there is no keep-alive.
+Authentication is config-driven per context + auth (command, basic, or OAuth). See **[Auth, secrets, and tokens](auth.md)**, `buddy auth help`, and `buddy cred help`. For **basic** (username/password), buddy obtains a Bearer token via `POST /api/v1/auth/token` with Basic auth, then uses that token for all API requests. Platform credentials use **OAuth only** (`POST {gateway}/auth/token`, fallback `/oauth2/token`); there is no keep-alive.
 
 ### Custom calls from buddyscript
 
@@ -29,7 +29,7 @@ For endpoints without a typed builtin, scripts can call:
 - `jamf_get` / `jamf_post` / `jamf_put` / `jamf_patch` / `jamf_delete`
 - or `jamf_request(method, path, …)`
 
-Paths are host-relative (`/api/v1/…` or `/JSSResource/…`). Media-type defaults follow the path (JSON for `/api/…`, XML for `/JSSResource/…` and gateway `/api/proclassic/…`). See `buddy help builtins` (section **JAMF API**).
+Paths are host-relative (`/api/v1/…` or `/JSSResource/…`). Media-type defaults follow the path (JSON for `/api/…`, XML for `/JSSResource/…` and gateway `/proclassic/…`). See `buddy help builtins` (section **JAMF API**).
 
 ### API schema documents
 
@@ -41,15 +41,15 @@ Each Jamf **instance** host publishes its live Pro/Classic specs (use `jamf_sche
 | Classic API | `classic` | live `/classicapi/doc/swagger.yaml` | Swagger 2 YAML |
 | Platform API Gateway | `platform` | embedded specs (blueprints, devices, device-groups, device-actions, ddm/report, compliance-benchmarks) | OpenAPI 3.x JSON |
 
-`api="both"` searches pro+classic; `api="all"` (the default) also includes platform. Platform paths are prefixed with each service's gateway base (e.g. `/api/blueprints/v1/tenant/{tenantId}/blueprints`) and tagged with the service segment, so `jamf_schema(filter="blueprints deploy")` finds them. `api="platform"` needs no credential.
+`api="both"` searches pro+classic; `api="all"` (the default) also includes platform. Platform paths are prefixed with each service's gateway base (e.g. `/blueprints/v1/blueprints`) and tagged with the service segment, so `jamf_schema(filter="blueprints deploy")` finds them. `api="platform"` needs no credential.
 
 **Authentication:** none of these schema documents require authentication. The Pro `/api/schema` and Classic `/classicapi/doc/swagger.yaml` endpoints are served publicly by the Jamf host (only *data* endpoints need a bearer token), and the Platform specs are embedded in the binary. buddy fetches Pro/Classic schemas with **no `Authorization` header**, using the credential only to resolve the host base URL — so schema discovery works even when the credential has no stored secret.
 
 Example: `jamf_schema(filter="policy delete")` searches Pro, Classic, and Platform (default `api="all"`). MCP exposes the same helper as tool `jamf_schema`.
 
-Official discovery is [Jamf’s Platform API docs](https://developer.jamf.com/platform-api) and the remote MCP at `https://developer.jamf.com/mcp` (same six native services: blueprints, devices, device-groups, device-actions, ddm/report, compliance-benchmarks). Those are HTML / MCP query surfaces — they do **not** publish a downloadable OpenAPI document, and the gateway has no `/api/schema`. buddy therefore vendors the per-service OAS JSON from [`Jamf-Concepts/jamf-cli`](https://github.com/Jamf-Concepts/jamf-cli/tree/main/specs/platform) (MIT) into `internal/buddy/platformschema/specs/` so `jamf_schema(api="platform")` works offline with no credential. Refresh with `make sync-platform-schema` and commit the result.
+Official discovery is [Jamf’s Platform API docs](https://developer.jamf.com/platform-api) and the remote MCP at `https://developer.jamf.com/mcp` (the six native product services: blueprints, devices, device-groups, device-actions, ddm/report, compliance-benchmarks, plus Account APIs such as licensing and SSO). Those are HTML / MCP query surfaces — they do **not** publish a downloadable OpenAPI document for the six product services. Authenticated GETs of `{gateway}/schema` and `/openapi.json` are **404**; per-service `/openapi.json` is **403** (unknown path, not a missing docs privilege). buddy therefore vendors the per-service OAS JSON from [`Jamf-Concepts/jamfplatform-go-sdk`](https://github.com/Jamf-Concepts/jamfplatform-go-sdk/tree/main/api) (MIT; jamf-cli `specs/platform/` is a copy of that tree) into `internal/buddy/platformschema/specs/` so `jamf_schema(api="platform")` works offline with no credential. Refresh with `make sync-platform-schema` and commit the result. Account licensing is called live (`GET /licensing/v1/licenses`); it is **not** in that embed.
 
-Do not vendor the MCP’s `platform-api=Jamf Pro API` / `Classic API` copies — those are gateway-rewritten instance APIs; buddy already loads them live from the Jamf Pro host. Revisit dropping jamf-cli vendoring after the Platform API Gateway is GA, if Jamf adds a live schema URL.
+Do not vendor the MCP’s `platform-api=Jamf Pro API` / `Classic API` copies — those are gateway-rewritten instance APIs; buddy already loads them live from the Jamf Pro host. Keep the SDK embed until Jamf publishes a live schema URL.
 
 ### Pagination
 
@@ -64,6 +64,7 @@ Applies to scripts, packages, computers inventory, smart/static group lists, API
 ### Contents
 
 - [Blueprints](#blueprints-platform-api-gateway)
+- [Account licenses](#account-licenses-licensing)
 - [Platform devices](#platform-devices-apidevices)
 - [Platform device actions](#platform-device-actions-apidevice-actions)
 - [Platform device groups](#platform-device-groups-apidevice-groups)
@@ -94,9 +95,9 @@ Applies to scripts, packages, computers inventory, smart/static group lists, API
 ## Blueprints (Platform API Gateway)
 
 Base path (logical): `/api/blueprints/v1/blueprints`  
-Rewritten: `/api/blueprints/v1/tenant/{tenantId}/blueprints`
+Rewritten: `/blueprints/v1/blueprints` plus `X-Environment-Id` or `X-Tenant-Id`
 
-Requires a **tenant** with `tenantId` and `region` (or gateway `url`, e.g. `https://us.apigw.jamf.com`) and a linked `type: platform` auth. CLI: `buddy blueprint …`. buddyscript: `blueprints` / `blueprint` / `blueprint_*`.
+Requires a **buddy context** with Jamf Account environment `id` (preferred) or `jamfpro.tenantId`, plus `region` (or gateway `url`, e.g. `https://us.api.jamfcloud.com`) and a linked `type: platform` auth. CLI: `buddy blueprint …`. buddyscript: `blueprints` / `blueprint` / `blueprint_*`.
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
@@ -113,9 +114,23 @@ Requires a **tenant** with `tenantId` and `region` (or gateway `url`, e.g. `http
 
 ---
 
+## Account licenses (`/licensing`)
+
+Organization-scoped Jamf Account API. Logical path `/api/licensing/v1/licenses` rewrites to `/licensing/v1/licenses` on `https://us.api.jamfcloud.com`. The org is taken from the access token; **no** `X-Environment-Id` / `X-Tenant-Id`. Not paginated (one GET; empty org is still **200** `{totalCount:0, results:[]}`). Privilege: licensing on the org integration.
+
+CLI: `buddy license list`. buddyscript: `licenses()`. `buddy auth test` on an organization workplace uses this GET as the live probe (200 → `live=ok`; 403 → `live=token-ok`).
+
+| Method | Endpoint | Used by | Purpose |
+|--------|----------|---------|---------|
+| `GET` | `/api/licensing/v1/licenses` | `LicenseList`, `licenses`, `auth test` | List licenses for the organization |
+
+When the current context is an environment or product tenant with `org:`, `buddy license list` / `licenses()` use that parent organization workplace automatically. `buddy auth test` stays on the selected workplace. Do not rewrite this path to `/pro/…`. Environment / product-tenant Platform APIs (blueprints, devices, …) cannot run on an org workplace.
+
+---
+
 ## Platform devices (`/api/devices`)
 
-Logical paths inject `/tenant/{tenantId}` after `v1` (same as blueprints). Distinct from Jamf Pro `computer` inventory.
+Logical paths drop `/api` on the gateway (same as blueprints). Scope is a header. Distinct from Jamf Pro `computer` inventory.
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
@@ -257,9 +272,9 @@ Base path: `/JSSResource/policies`
 
 ### Notes
 
-- **Hybrid list (undocumented Pro):** `getPolicyList` prefers `GET /api/v1/policies` (paginated `results`/`totalCount`; summary: `id`, `name`, `enabled`, `categoryId`, `executionFrequency`, `triggerCheckin`, `triggerManual`, `updateInventory`). On failure or empty, falls back to Classic. Not in published OpenAPI; not used for writes or detail. RSQL filter fields are those keys only — **no** Self Service boolean. The Platform gateway returns **403** for this path; buddy always routes it to an **instance** auth. That is **not** `features.classic_instance_only` (that flag is Classic `/JSSResource` only).
+- **Hybrid list (undocumented Pro):** `getPolicyList` prefers `GET /api/v1/policies` when an instance session can be resolved (paginated `results`/`totalCount`; summary: `id`, `name`, `enabled`, `categoryId`, `executionFrequency`, `triggerCheckin`, `triggerManual`, `updateInventory`). Environment-only workplaces (no Jamf Pro URL) skip that probe unless a Jamf Pro product-tenant child has instance auth — then the v1 list (and ACS / schema) run on that child. Classic and published Pro stay on the environment when a platform auth can serve them. On v1 failure or empty, falls back to Classic. Not in published OpenAPI; not used for writes or detail. RSQL filter fields are those keys only — **no** Self Service boolean. The Platform gateway returns **403** for this path; buddy never sends it through `/pro/`. That is **not** `features.classic_instance_only` (that flag is Classic `/JSSResource` only). Classic fallback may still use `/proclassic/policies`. `buddy auth test` and Platform product APIs do not walk down to a Pro child.
 - `GET /JSSResource/policies` returns a summary list `{id, name}` only; detail fields (trigger, scripts, scope) require a subsequent `GET /JSSResource/policies/id/{id}`.
-- Buddy caches the summary list in process memory per resolved tenant+auth session (~60s TTL) so multi-step scripts and change batches don't re-fetch it for every trigger lookup. Policy creates/deletes in the same process invalidate the entry; there is no on-disk cache.
+- Buddy caches the summary list in process memory per resolved context+auth session (~60s TTL) so multi-step scripts and change batches don't re-fetch it for every trigger lookup. Policy creates/deletes in the same process invalidate the entry; there is no on-disk cache.
 - Phase 1 of trigger resolution fetches detail for a small set of name-matched candidate policies to verify `trigger_other` exactly, rather than relying on name heuristics alone.
 
 ---
@@ -1131,4 +1146,4 @@ computers(
 
 ## Base URLs
 
-Instance URLs live on **tenants** in `~/.config/buddy/config.yaml` (`tenants.<name>.url`). Platform gateway URLs are derived from tenant `region` (or an explicit gateway `url`). There is no hardcoded host. See `buddy cred help` and [Auth, secrets, and tokens](auth.md).
+Instance URLs live on **contexts** in `~/.config/buddy/config.yaml` (`contexts.<name>.jamfpro.url`). Platform gateway URLs are derived from context `region` (or an explicit gateway `url`). There is no hardcoded host. See `buddy cred help` and [Auth, secrets, and tokens](auth.md).

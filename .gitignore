@@ -1,4 +1,6 @@
 # Build output
+/dist/
+# Legacy root artefacts (pre-dist/)
 /buddy
 /buddy-lite
 /buddy-linux-amd64
@@ -6,6 +8,7 @@
 /buddy-darwin-arm64
 /buddy-Darwin-arm64
 /buddy-signed
+/Buddy.app
 /*.pkg
 /docfs/content
 

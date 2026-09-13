@@ -91,6 +91,36 @@ func errUnknownSubcommand(command, got string, candidates []string) error {
 	return fmt.Errorf("%s", msg)
 }
 
+func errAmbiguousSubcommand(command, got string, matches []string) error {
+	return fmt.Errorf("%s", clispec.T(clispec.MsgAmbiguousSubcommand, command, got, strings.Join(matches, ", ")))
+}
+
+// matchSubcommand resolves got against candidates (exact or unique prefix).
+func matchSubcommand(command, got string, candidates []string) (string, error) {
+	match, amb := clispec.MatchToken(got, candidates)
+	if match != "" {
+		return match, nil
+	}
+	if len(amb) > 0 {
+		return "", errAmbiguousSubcommand(command, got, amb)
+	}
+	return "", errUnknownSubcommand(command, got, candidates)
+}
+
+// resolveArg0 rewrites args[0] to the unique candidate (exact or prefix). Empty args
+// and flag tokens (starting with -) are a no-op so existing flag-as-first-arg errors remain.
+func resolveArg0(command string, args []string, candidates []string) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return nil
+	}
+	sub, err := matchSubcommand(command, args[0], candidates)
+	if err != nil {
+		return err
+	}
+	args[0] = sub
+	return nil
+}
+
 func abs(n int) int {
 	if n < 0 {
 		return -n

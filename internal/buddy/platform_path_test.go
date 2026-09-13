@@ -6,7 +6,7 @@ import (
 )
 
 func TestRewriteJamfPath_Identity(t *testing.T) {
-	got, err := RewriteJamfPath("", "/api/v1/packages")
+	got, err := RewriteJamfPath(false, "/api/v1/packages")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16,77 +16,75 @@ func TestRewriteJamfPath_Identity(t *testing.T) {
 }
 
 func TestRewriteJamfPath_Pro(t *testing.T) {
-	tid := "e77c1408-10c8-4007-b177-abc9157fbcaa"
-	got, err := RewriteJamfPath(tid, "/api/v3/computer-groups/smart-groups")
+	got, err := RewriteJamfPath(true, "/api/v3/computer-groups/smart-groups")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/api/pro/v3/tenant/" + tid + "/computer-groups/smart-groups"
+	want := "/pro/v3/computer-groups/smart-groups"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
 func TestRewriteJamfPath_Classic(t *testing.T) {
-	tid := "tid-1"
-	got, err := RewriteJamfPath(tid, "/JSSResource/policies/id/42")
+	got, err := RewriteJamfPath(true, "/JSSResource/policies/id/42")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/api/proclassic/tenant/tid-1/policies/id/42"
+	want := "/proclassic/policies/id/42"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
 func TestRewriteJamfPath_ClassicExactPrefix(t *testing.T) {
-	got, err := RewriteJamfPath("tid-1", "/JSSResource")
+	got, err := RewriteJamfPath(true, "/JSSResource")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/api/proclassic/tenant/tid-1/"
+	want := "/proclassic/"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
 func TestRewriteJamfPath_ClassicQuery(t *testing.T) {
-	got, err := RewriteJamfPath("tid-1", "/JSSResource/policies?foo=1")
+	got, err := RewriteJamfPath(true, "/JSSResource/policies?foo=1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/api/proclassic/tenant/tid-1/policies?foo=1"
+	want := "/proclassic/policies?foo=1"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
 func TestRewriteJamfPath_Blueprints(t *testing.T) {
-	tid := "tid-1"
-	got, err := RewriteJamfPath(tid, "/api/blueprints/v1/blueprints")
+	got, err := RewriteJamfPath(true, "/api/blueprints/v1/blueprints")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/api/blueprints/v1/tenant/tid-1/blueprints"
+	want := "/blueprints/v1/blueprints"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
 func TestRewriteJamfPath_PlatformProducts(t *testing.T) {
-	tid := "tid-1"
 	cases := []struct {
 		in, want string
 	}{
-		{"/api/devices/v1/devices", "/api/devices/v1/tenant/tid-1/devices"},
-		{"/api/device-groups/v1/device-groups", "/api/device-groups/v1/tenant/tid-1/device-groups"},
-		{"/api/device-actions/v1/devices/x/restart", "/api/device-actions/v1/tenant/tid-1/devices/x/restart"},
-		{"/api/compliance-benchmarks/v1/benchmarks", "/api/compliance-benchmarks/v1/tenant/tid-1/benchmarks"},
-		{"/api/ddm/report/v1/devices/x/declarations", "/api/ddm/report/v1/tenant/tid-1/devices/x/declarations"},
-		{"/api/devices/v1/devices?page=0", "/api/devices/v1/tenant/tid-1/devices?page=0"},
+		{"/api/devices/v1/devices", "/devices/v1/devices"},
+		{"/api/device-groups/v1/device-groups", "/device-groups/v1/device-groups"},
+		{"/api/device-actions/v1/devices/x/restart", "/device-actions/v1/devices/x/restart"},
+		{"/api/compliance-benchmarks/v1/benchmarks", "/compliance-benchmarks/v1/benchmarks"},
+		{"/api/ddm/report/v1/devices/x/declarations", "/ddm/report/v1/devices/x/declarations"},
+		{"/api/licensing/v1/licenses", "/licensing/v1/licenses"},
+		{"/api/sso/v1/domains", "/sso/v1/domains"},
+		{"/api/devices/v1/devices?page=0", "/devices/v1/devices?page=0"},
 	}
 	for _, tc := range cases {
-		got, err := RewriteJamfPath(tid, tc.in)
+		got, err := RewriteJamfPath(true, tc.in)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.in, err)
 		}
@@ -100,11 +98,26 @@ func TestOpClassForPath_PlatformProducts(t *testing.T) {
 	if got := opClassForPath("GET", "/api/devices/v1/devices"); got != OpPlatform {
 		t.Fatalf("GET devices → %q", got)
 	}
+	if got := opClassForPath("GET", "/devices/v1/devices"); got != OpPlatform {
+		t.Fatalf("GET rewritten devices → %q", got)
+	}
 	if got := opClassForPath("POST", "/api/device-actions/v1/devices/x/restart"); got != OpPlatformWrite {
 		t.Fatalf("POST device-actions → %q", got)
 	}
 	if got := opClassForPath("GET", "/api/ddm/report/v1/devices/x/declarations"); got != OpPlatform {
 		t.Fatalf("GET ddm/report → %q", got)
+	}
+	if got := opClassForPath("GET", "/pro/v1/buildings"); got != OpPlatform {
+		t.Fatalf("GET rewritten pro → %q", got)
+	}
+	if got := opClassForPath("GET", "/api/licensing/v1/licenses"); got != OpPlatform {
+		t.Fatalf("GET licensing → %q", got)
+	}
+	if got := opClassForPath("GET", "/licensing/v1/licenses"); got != OpPlatform {
+		t.Fatalf("GET rewritten licensing → %q", got)
+	}
+	if got := opClassForPath("GET", "/api/sso/v1/domains"); got != OpPlatform {
+		t.Fatalf("GET sso → %q", got)
 	}
 }
 
@@ -115,7 +128,7 @@ func TestOpClassForPath_Classic(t *testing.T) {
 	if got := opClassForPath("POST", "/JSSResource/policies/id/0"); got != OpClassicWrite {
 		t.Fatalf("POST Classic → %q want %q", got, OpClassicWrite)
 	}
-	if got := opClassForPath("PUT", "/api/proclassic/tenant/tid/policies/id/1"); got != OpClassicWrite {
+	if got := opClassForPath("PUT", "/proclassic/policies/id/1"); got != OpClassicWrite {
 		t.Fatalf("PUT proclassic → %q", got)
 	}
 	if got := opClassForPath("GET", "/api/proclassic/tenant/tid/JSSResource/policies/id/1"); got != OpClassic {
@@ -145,40 +158,40 @@ func TestOpClassForPath_ProPoliciesList(t *testing.T) {
 }
 
 func TestRewriteJamfPath_AlreadyScoped(t *testing.T) {
-	path := "/api/pro/v1/tenant/tid-1/buildings"
-	got, err := RewriteJamfPath("tid-1", path)
+	got, err := RewriteJamfPath(true, "/api/pro/v1/tenant/tid-1/buildings")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != path {
-		t.Fatalf("got %q", got)
+	want := "/pro/v1/buildings"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
 func TestRewriteJamfPath_QueryPreserved(t *testing.T) {
-	got, err := RewriteJamfPath("tid", "/api/v1/packages/1/history?sort=date:desc&page-size=1")
+	got, err := RewriteJamfPath(true, "/api/v1/packages/1/history?sort=date:desc&page-size=1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/api/pro/v1/tenant/tid/packages/1/history?sort=date:desc&page-size=1"
+	want := "/pro/v1/packages/1/history?sort=date:desc&page-size=1"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
 func TestRewriteJamfPath_SchemaRejected(t *testing.T) {
-	_, err := RewriteJamfPath("tid", "/api/schema")
+	_, err := RewriteJamfPath(true, "/api/schema")
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("expected not supported error, got %v", err)
 	}
 }
 
 func TestRewriteJamfPath_ACSRejected(t *testing.T) {
-	_, err := RewriteJamfPath("tid", "/api/config-profiles/plist/can-convert-to-plist")
+	_, err := RewriteJamfPath(true, "/api/config-profiles/plist/can-convert-to-plist")
 	if err == nil || !strings.Contains(err.Error(), "ACS is instance-only") {
 		t.Fatalf("expected ACS instance-only error, got %v", err)
 	}
-	got, err := RewriteJamfPath("", "/api/config-profiles/macos/x")
+	got, err := RewriteJamfPath(false, "/api/config-profiles/macos/x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,11 +201,11 @@ func TestRewriteJamfPath_ACSRejected(t *testing.T) {
 }
 
 func TestRewriteJamfPath_ProPoliciesListRejected(t *testing.T) {
-	_, err := RewriteJamfPath("tid", "/api/v1/policies")
+	_, err := RewriteJamfPath(true, "/api/v1/policies")
 	if err == nil || !strings.Contains(err.Error(), "undocumented Pro policy list is instance-only") {
 		t.Fatalf("expected policy-list instance-only error, got %v", err)
 	}
-	got, err := RewriteJamfPath("", "/api/v1/policies")
+	got, err := RewriteJamfPath(false, "/api/v1/policies")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +215,7 @@ func TestRewriteJamfPath_ProPoliciesListRejected(t *testing.T) {
 }
 
 func TestDefaultJamfMedia_Proclassic(t *testing.T) {
-	ct, accept := DefaultJamfMedia("/api/proclassic/tenant/x/policies")
+	ct, accept := DefaultJamfMedia("/proclassic/policies")
 	if ct != "application/xml" || accept != "application/xml" {
 		t.Fatalf("got ct=%q accept=%q", ct, accept)
 	}
@@ -210,7 +223,7 @@ func TestDefaultJamfMedia_Proclassic(t *testing.T) {
 
 func TestCredentialValidate_PlatformRequiresOAuth(t *testing.T) {
 	cred := CredentialConfig{
-		URL:      "https://us.apigw.jamf.com",
+		URL:      "https://us.api.jamfcloud.com",
 		TenantID: "e77c1408-10c8-4007-b177-abc9157fbcaa",
 		Auth:     AuthConfig{Type: "basic", Username: "u"},
 	}
@@ -220,21 +233,87 @@ func TestCredentialValidate_PlatformRequiresOAuth(t *testing.T) {
 	}
 }
 
-func TestCredentialValidate_GatewayURLRequiresTenantID(t *testing.T) {
+func TestCredentialValidate_GatewayURLOrgOK(t *testing.T) {
 	cred := CredentialConfig{
-		URL:  "https://us.apigw.jamf.com",
+		URL:  "https://us.api.jamfcloud.com",
 		Auth: AuthConfig{Type: "oauth", ClientID: "c"},
 	}
+	if err := cred.Validate(); err != nil {
+		t.Fatalf("org-scope platform cred should be valid: %v", err)
+	}
+}
+
+func TestCredentialValidate_RetiredGatewayRefused(t *testing.T) {
+	cred := CredentialConfig{
+		URL:      "https://us.apigw.jamf.com",
+		TenantID: "tid",
+		Auth:     AuthConfig{Type: "oauth", ClientID: "c"},
+	}
 	err := cred.Validate()
-	if err == nil || !strings.Contains(err.Error(), "tenantId") {
-		t.Fatalf("expected tenantId error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "retired") {
+		t.Fatalf("expected retired gateway error, got %v", err)
+	}
+}
+
+func TestCredentialValidate_BothScopeIDsRefused(t *testing.T) {
+	cred := CredentialConfig{
+		Region:        "us",
+		EnvironmentID: "env-1",
+		TenantID:      "tid-1",
+		Auth:          AuthConfig{Type: "oauth", ClientID: "c"},
+	}
+	err := cred.Validate()
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("expected mutually exclusive error, got %v", err)
+	}
+}
+
+func TestTenantValidate_OrganizationWorkplace(t *testing.T) {
+	tcfg := TenantConfig{}
+	if err := tcfg.Validate(); err != nil {
+		t.Fatalf("empty context is an org workplace: %v", err)
+	}
+	if !tcfg.IsOrganizationWorkplace() || !tcfg.HasPlatform() {
+		t.Fatal("org workplace should HasPlatform with no region")
+	}
+	if tcfg.GatewayBaseURL() != OrgPlatformGatewayURL {
+		t.Fatalf("GatewayBaseURL = %q", tcfg.GatewayBaseURL())
+	}
+}
+
+func TestTenantValidate_OrgOK(t *testing.T) {
+	tcfg := TenantConfig{Region: "us"}
+	if err := tcfg.Validate(); err != nil {
+		t.Fatalf("org-scope tenant should be valid: %v", err)
+	}
+	if !tcfg.HasPlatform() {
+		t.Fatal("region-only tenant should HasPlatform")
+	}
+	if tcfg.HasScopeID() {
+		t.Fatal("org tenant should have no scope id")
+	}
+}
+
+func TestTenantValidate_HybridNeedsScopeID(t *testing.T) {
+	tcfg := TenantConfig{URL: "https://example.jamfcloud.com", Region: "us"}
+	err := tcfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "hybrid") {
+		t.Fatalf("expected hybrid scope error, got %v", err)
+	}
+}
+
+func TestTenantValidate_RetiredURLRefused(t *testing.T) {
+	tcfg := TenantConfig{URL: "https://eu.apigw.jamf.com", TenantID: "tid"}
+	err := tcfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "retired") {
+		t.Fatalf("expected retired gateway error, got %v", err)
 	}
 }
 
 func TestCredentialValidate_PlatformOAuthOK(t *testing.T) {
 	cred := CredentialConfig{
-		URL:      "https://us.apigw.jamf.com",
-		TenantID: "example-opaque-tenant", // opaque string, not necessarily UUID
+		URL:      "https://us.api.jamfcloud.com",
+		TenantID: "example-opaque-tenant",
 		Auth:     AuthConfig{Type: "oauth", ClientID: "c"},
 	}
 	if err := cred.Validate(); err != nil {
@@ -244,14 +323,14 @@ func TestCredentialValidate_PlatformOAuthOK(t *testing.T) {
 
 func TestCredentialValidate_RegionWithoutURL(t *testing.T) {
 	cred := CredentialConfig{
-		Region:   "us",
-		TenantID: "e77c1408-10c8-4007-b177-abc9157fbcaa",
-		Auth:     AuthConfig{Type: "oauth", ClientID: "c"},
+		Region:        "us",
+		EnvironmentID: "e77c1408-10c8-4007-b177-abc9157fbcaa",
+		Auth:          AuthConfig{Type: "oauth", ClientID: "c"},
 	}
 	if err := cred.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if got := cred.EffectiveBaseURL(); got != "https://us.apigw.jamf.com" {
+	if got := cred.EffectiveBaseURL(); got != "https://us.api.jamfcloud.com" {
 		t.Fatalf("EffectiveBaseURL = %q", got)
 	}
 }
@@ -269,8 +348,8 @@ func TestNormalizeConfigForSave_InfersRegionDropsDefaultURL(t *testing.T) {
 		Tenant: TenantSelection{Default: "gw"},
 		Tenants: map[string]TenantConfig{
 			"gw": {
-				URL:      "https://us.apigw.jamf.com",
-				TenantID: "tid",
+				URL:           "https://us.api.jamfcloud.com",
+				EnvironmentID: "tid",
 			},
 		},
 		Auths: map[string]AuthEntry{
@@ -289,7 +368,7 @@ func TestNormalizeConfigForSave_InfersRegionDropsDefaultURL(t *testing.T) {
 
 func TestCredentialValidate_AcceptsNonUUIDTenant(t *testing.T) {
 	cred := CredentialConfig{
-		URL:      "https://us.apigw.jamf.com",
+		URL:      "https://us.api.jamfcloud.com",
 		TenantID: "my-tenant-slug",
 		Auth:     AuthConfig{Type: "oauth", ClientID: "c"},
 	}
@@ -305,24 +384,52 @@ func TestCredentialIsPlatform(t *testing.T) {
 	if !(CredentialConfig{TenantID: "x"}).IsPlatform() {
 		t.Fatal("tenantId should enable platform")
 	}
+	if !(CredentialConfig{EnvironmentID: "e"}).IsPlatform() {
+		t.Fatal("environmentId should enable platform")
+	}
 	if !(CredentialConfig{Region: "us"}).IsPlatform() {
 		t.Fatal("region should enable platform")
 	}
 }
 
 func TestLooksLikePlatformGateway(t *testing.T) {
-	if !LooksLikePlatformGateway("https://us.apigw.jamf.com") {
-		t.Fatal("expected true")
+	if !LooksLikePlatformGateway("https://us.api.jamfcloud.com") {
+		t.Fatal("expected true for GA regional host")
+	}
+	if !LooksLikePlatformGateway("https://api.jamfcloud.com") {
+		t.Fatal("expected true for org host")
+	}
+	if LooksLikePlatformGateway("https://us.apigw.jamf.com") {
+		t.Fatal("retired host is not the GA gateway")
+	}
+	if !LooksLikeRetiredPlatformGateway("https://us.apigw.jamf.com") {
+		t.Fatal("expected retired")
 	}
 	if LooksLikePlatformGateway("https://example.jamfcloud.com") {
-		t.Fatal("expected false")
+		t.Fatal("expected false for instance")
+	}
+}
+
+func TestComposeCredential_OrganizationUsesUSGateway(t *testing.T) {
+	tenant := TenantConfig{
+		URL:           "https://example.jamfcloud.com",
+		Region:        "apac",
+		EnvironmentID: "11111111-1111-1111-1111-111111111111",
+	}
+	auth := AuthEntry{Type: AuthTypePlatform, Scope: PlatformScopeOrganization, ClientID: "c", Tenants: []string{"sandbox"}}
+	cred := ComposeCredential(tenant, auth, SurfacePlatform)
+	if cred.URL != OrgPlatformGatewayURL || cred.Region != OrgPlatformRegion || cred.EnvironmentID != "" || cred.TenantID != "" {
+		t.Fatalf("org compose should use us.api.jamfcloud.com with no env/tenant headers: %+v", cred)
+	}
+	if err := cred.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestUsesPlatformAuth(t *testing.T) {
-	gwOnly := CredentialConfig{URL: "https://apac.apigw.jamf.com", Auth: AuthConfig{Type: "oauth"}}
+	gwOnly := CredentialConfig{URL: "https://apac.api.jamfcloud.com", Auth: AuthConfig{Type: "oauth"}}
 	if !gwOnly.UsesPlatformAuth() {
-		t.Fatal("apigw URL should use platform auth")
+		t.Fatal("GA gateway URL should use platform auth")
 	}
 	inst := CredentialConfig{URL: "https://x.jamfcloud.com", Auth: AuthConfig{Type: "oauth"}}
 	if inst.UsesPlatformAuth() {
@@ -332,7 +439,7 @@ func TestUsesPlatformAuth(t *testing.T) {
 
 func TestEffectiveTenantID_FromAuthMisplaced(t *testing.T) {
 	cred := CredentialConfig{
-		URL: "https://us.apigw.jamf.com",
+		URL: "https://us.api.jamfcloud.com",
 		Auth: AuthConfig{
 			Type:     "oauth",
 			ClientID: "c",
@@ -347,5 +454,16 @@ func TestEffectiveTenantID_FromAuthMisplaced(t *testing.T) {
 	}
 	if got := cred.EffectiveTenantID(); got != "e77c1408-10c8-4007-b177-abc9157fbcaa" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestPlatformAuthTestHint(t *testing.T) {
+	hint := platformAuthTestHint(`{"errors":[{"code":"REQUEST_CONTEXT_NOT_PROVIDED"}]}`, CredentialConfig{})
+	if hint == "" || !strings.Contains(hint, "organization") {
+		t.Fatalf("got %q", hint)
+	}
+	hint = platformAuthTestHint(`OWNERSHIP_FORBIDDEN`, CredentialConfig{EnvironmentID: "env-1"})
+	if !strings.Contains(hint, "X-Environment-Id") {
+		t.Fatalf("got %q", hint)
 	}
 }

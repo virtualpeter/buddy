@@ -13,7 +13,7 @@ var ideHTML = buildIDEHTML()
 
 func buildIDEHTML() string {
 	session := `
-  <label>tenant <select id="tenant"></select></label>
+  <label>context <select id="context"></select></label>
   <label>user <select id="auth"></select></label>`
 	actions := `
   <button type="button" id="btn-open">Open</button>
@@ -376,7 +376,7 @@ async function ensureSession(force) {
   if (state.sessionId) {
     try { await fetch("/api/session/" + state.sessionId, { method: "DELETE" }); } catch (_) {}
   }
-  const tenant = document.getElementById("tenant").value;
+  const context = document.getElementById("context").value;
   const cred = document.getElementById("auth").value;
   const trace = document.getElementById("trace").checked;
   let args = [];
@@ -385,7 +385,7 @@ async function ensureSession(force) {
   const res = await jfetch("/api/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tenant, cred, auth: cred, channel: "ide", trace, args }),
+    body: JSON.stringify({ context, tenant: context, cred, auth: cred, channel: "ide", trace, args }),
   });
   state.sessionId = res.id;
   return state.sessionId;
@@ -713,7 +713,7 @@ async function saveAs() {
 let authCatalog = [];
 
 function fillAuthSelect(selected) {
-  const tenant = document.getElementById("tenant").value;
+  const context = document.getElementById("context").value;
   const sel = document.getElementById("auth");
   const prev = selected !== undefined ? selected : sel.value;
   sel.innerHTML = "";
@@ -722,7 +722,8 @@ function fillAuthSelect(selected) {
   auto.textContent = "(auto)";
   sel.appendChild(auto);
   (authCatalog || []).forEach(a => {
-    const linked = !tenant || !(a.tenants || []).length || (a.tenants || []).includes(tenant);
+    const linkedNames = a.contexts || a.tenants || [];
+    const linked = !context || !linkedNames.length || linkedNames.includes(context);
     if (!linked) return;
     const o = document.createElement("option");
     o.value = a.name;
@@ -739,21 +740,23 @@ function fillAuthSelect(selected) {
 async function loadCreds() {
   const res = await jfetch("/api/creds?channel=ide");
   authCatalog = res.auths || [];
-  const tsel = document.getElementById("tenant");
+  const tsel = document.getElementById("context");
   tsel.innerHTML = "";
-  (res.tenants || []).forEach(t => {
+  const names = res.contexts || res.tenants || [];
+  const current = res.context || res.tenant || "";
+  names.forEach(t => {
     const o = document.createElement("option");
     o.value = t; o.textContent = t;
-    if (t === res.tenant) o.selected = true;
+    if (t === current) o.selected = true;
     tsel.appendChild(o);
   });
   if (!tsel.options.length) {
     const o = document.createElement("option");
-    o.value = res.tenant || "";
-    o.textContent = o.value || "(no tenants)";
+    o.value = current;
+    o.textContent = o.value || "(no contexts)";
     tsel.appendChild(o);
   }
-  const preselect = res.tenant || "";
+  const preselect = current;
   if (preselect && [...tsel.options].some(o => o.value === preselect)) {
     tsel.value = preselect;
   }

@@ -2,30 +2,46 @@ package buddy
 
 import (
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 )
 
-var (
-	proVersionPathRE = regexp.MustCompile(`^(/api)/(v\d+)(/.*)$`)
-	// platformProductPathRE matches Platform product APIs that inject /tenant/{id}
-	// after the version segment (blueprints, devices, device-groups, …).
-	// Service may include a slash (ddm/report).
-	platformProductPathRE = regexp.MustCompile(`^(/api/(?:blueprints|devices|device-groups|device-actions|compliance-benchmarks|ddm/report))/(v\d+)(/.*)$`)
+const (
+	HeaderEnvironmentID = "X-Environment-Id"
+	HeaderTenantID      = "X-Tenant-Id"
 )
 
-// platformProductPrefixes are logical path prefixes that use Platform gateway auth.
+var (
+	proVersionPathRE = regexp.MustCompile(`^(/api)/(v\d+)(/.*)$`)
+	// platformProductPathRE matches Platform product APIs (logical /api/{service}/vN/…).
+	// Service may include a slash (ddm/report).
+	platformProductPathRE = regexp.MustCompile(`^(/api/(?:blueprints|devices|device-groups|device-actions|compliance-benchmarks|ddm/report|licensing|sso))/(v\d+)(/.*)$`)
+	tenantSegmentRE       = regexp.MustCompile(`/tenant/[^/]+`)
+)
+
+// platformProductPrefixes are logical (and rewritten) path prefixes that use Platform gateway auth.
 var platformProductPrefixes = []string{
 	"/api/blueprints",
+	"/blueprints",
 	"/api/devices",
+	"/devices",
 	"/api/device-groups",
+	"/device-groups",
 	"/api/device-actions",
+	"/device-actions",
 	"/api/compliance-benchmarks",
+	"/compliance-benchmarks",
 	"/api/ddm/report",
+	"/ddm/report",
+	"/api/licensing",
+	"/licensing",
+	"/api/sso",
+	"/sso",
 }
 
 // isPlatformProductPath reports whether path targets a vendored Platform product API
-// (instance-relative or already gateway-rewritten; both keep the /api/{service} prefix).
+// (instance-relative /api/{service} or GA rewritten /{service}).
 func isPlatformProductPath(path string) bool {
 	for _, p := range platformProductPrefixes {
 		if path == p || strings.HasPrefix(path, p+"/") {
@@ -52,19 +68,22 @@ func isUndocumentedProPoliciesListPath(path string) bool {
 	return path == "/api/v1/policies"
 }
 
+func stripTenantSegment(path string) string {
+	return tenantSegmentRE.ReplaceAllString(path, "")
+}
+
 // RewriteJamfPath maps an instance-relative Jamf path onto the Platform API Gateway
-// when tenantID is non-empty. With an empty tenantID the path is returned unchanged
-// (aside from normalization).
+// when platform is true. With platform false the path is returned unchanged
+// (aside from normalization). GA scope travels in headers, not /tenant/{id}.
 //
 // Rules:
-//   - /api/vN/rest…           → /api/pro/vN/tenant/{id}/rest…
-//   - /JSSResource/…          → /api/proclassic/tenant/{id}/…  (JSSResource prefix stripped;
-//     Platform Classic OpenAPI is /api/proclassic + /tenant/{id}/{resource})
-//   - /api/{product}/vN/…     → inject /tenant/{id} after the version segment
-//     (blueprints, devices, device-groups, device-actions, compliance-benchmarks, ddm/report)
-//   - already contains /tenant/ → unchanged
+//   - /api/vN/rest…           → /pro/vN/rest…
+//   - /JSSResource/…          → /proclassic/…  (JSSResource prefix stripped)
+//   - /api/{product}/vN/…     → /{service}/vN/…
+//     (blueprints, devices, device-groups, device-actions, compliance-benchmarks, ddm/report, licensing, sso)
+//   - already rewritten /pro/… or /proclassic/… → strip leftover /tenant/{id} and /api
 //   - /api/schema, /classicapi, /api/config-profiles, GET /api/v1/policies → error (not supported via gateway)
-func RewriteJamfPath(tenantID, path string) (string, error) {
+func RewriteJamfPath(platform bool, path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", fmt.Errorf("path is required")
@@ -74,10 +93,7 @@ func RewriteJamfPath(tenantID, path string) (string, error) {
 		query = path[i:]
 		path = path[:i]
 	}
-	if tenantID == "" {
-		return path + query, nil
-	}
-	if strings.Contains(path, "/tenant/") {
+	if !platform {
 		return path + query, nil
 	}
 	if path == "/api/schema" || strings.HasPrefix(path, "/api/schema/") ||
@@ -91,30 +107,50 @@ func RewriteJamfPath(tenantID, path string) (string, error) {
 		return "", fmt.Errorf("path %q is not supported via the Platform API Gateway (undocumented Pro policy list is instance-only)", path)
 	}
 
+	path = stripTenantSegment(path)
+
 	switch {
 	case strings.HasPrefix(path, "/JSSResource"):
 		rest := strings.TrimPrefix(path, "/JSSResource")
 		if rest == "" {
 			rest = "/"
 		}
-		return "/api/proclassic/tenant/" + tenantID + rest + query, nil
+		return "/proclassic" + rest + query, nil
+	case path == "/api/proclassic" || strings.HasPrefix(path, "/api/proclassic/"):
+		return strings.TrimPrefix(path, "/api") + query, nil
+	case strings.HasPrefix(path, "/api/pro/"):
+		return strings.TrimPrefix(path, "/api") + query, nil
 	case platformProductPathRE.MatchString(path):
 		m := platformProductPathRE.FindStringSubmatch(path)
 		// m[1]=/api/{service} m[2]=vN m[3]=/rest
-		rest := m[3]
-		if strings.HasPrefix(rest, "/tenant/") {
-			return path + query, nil
-		}
-		return m[1] + "/" + m[2] + "/tenant/" + tenantID + rest + query, nil
+		return strings.TrimPrefix(m[1], "/api") + "/" + m[2] + m[3] + query, nil
 	case proVersionPathRE.MatchString(path):
 		m := proVersionPathRE.FindStringSubmatch(path)
 		// m[1]=/api m[2]=vN m[3]=/rest
-		return m[1] + "/pro/" + m[2] + "/tenant/" + tenantID + m[3] + query, nil
+		return "/pro/" + m[2] + m[3] + query, nil
 	default:
 		// Unknown absolute path: leave unchanged so callers can pass already-scoped
 		// gateway paths or other product APIs.
 		return path + query, nil
 	}
+}
+
+func applyPlatformScopeHeaders(req *http.Request, cred CredentialConfig) {
+	if req == nil {
+		return
+	}
+	if eid := cred.EffectiveEnvironmentID(); eid != "" {
+		req.Header.Set(HeaderEnvironmentID, eid)
+		req.Header.Del(HeaderTenantID)
+		return
+	}
+	if tid := cred.EffectiveTenantID(); tid != "" {
+		req.Header.Set(HeaderTenantID, tid)
+		req.Header.Del(HeaderEnvironmentID)
+		return
+	}
+	req.Header.Del(HeaderEnvironmentID)
+	req.Header.Del(HeaderTenantID)
 }
 
 // tenantIDForCred returns the Platform tenant ID for the resolved session, or "" for instance mode.
@@ -133,18 +169,26 @@ func tenantIDForCredOp(credName string, op OpClass) (string, error) {
 	return sess.Credential.EffectiveTenantID(), nil
 }
 
-// RewritePathForCred applies RewriteJamfPath using the session's tenantId.
+func platformSessionForCredOp(credName string, op OpClass) (*Session, error) {
+	sess, err := ResolveSessionForCred(credName, op)
+	if err != nil {
+		return nil, err
+	}
+	return sess, nil
+}
+
+// RewritePathForCred applies RewriteJamfPath using the session's platform surface.
 func RewritePathForCred(credName, path string) (string, error) {
 	return RewritePathForCredOp(credName, path, OpAny)
 }
 
 // RewritePathForCredOp is like RewritePathForCred with an operation class.
 func RewritePathForCredOp(credName, path string, op OpClass) (string, error) {
-	tenantID, err := tenantIDForCredOp(credName, op)
+	sess, err := platformSessionForCredOp(credName, op)
 	if err != nil {
 		return "", err
 	}
-	return RewriteJamfPath(tenantID, path)
+	return RewriteJamfPath(sess.Surface == SurfacePlatform, path)
 }
 
 // ResolveEndpoint returns the full request URL (base + rewritten path) for a credential/session.
@@ -167,6 +211,9 @@ func ResolveEndpointOp(credName, path string, op OpClass) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if LooksLikeRetiredPlatformGateway(baseURL) {
+		return "", retiredPlatformGatewayError(baseURL)
+	}
 	rewritten, err := RewritePathForCredOp(credName, path, op)
 	if err != nil {
 		return "", err
@@ -176,9 +223,9 @@ func ResolveEndpointOp(credName, path string, op OpClass) (string, error) {
 
 // IsPlatformCred reports whether the resolved session uses Platform API Gateway mode.
 func IsPlatformCred(credName string) (bool, error) {
-	tenantID, err := tenantIDForCred(credName)
+	sess, err := ResolveSessionForCred(credName, OpAny)
 	if err != nil {
 		return false, err
 	}
-	return tenantID != "", nil
+	return sess.Surface == SurfacePlatform, nil
 }

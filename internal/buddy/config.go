@@ -99,11 +99,17 @@ func (a AuthConfig) MarshalYAML() (interface{}, error) {
 	return n, nil
 }
 
-// TenantConfig is a Jamf environment: instance URL and/or Platform gateway identity.
+// TenantConfig is a named workplace (a buddy context): an organization (no
+// region), a Platform environment (region + id), and/or a Jamf Pro instance.
+// Account environment id (id / environmentId) and jamfpro.tenantId may both be
+// set — they are different objects. Optional nested orgs: YAML expands into
+// this flat map; child org: is derived from the tree when present.
 type TenantConfig struct {
-	Region        string   `yaml:"region,omitempty"`         // Platform API Gateway region (us|eu|apac|…)
-	URL           string   `yaml:"url,omitempty"`            // Instance or gateway URL; optional when region is set
-	TenantID      string   `yaml:"tenantId,omitempty"`       // Platform API Gateway tenant id
+	Org           string   `yaml:"org,omitempty"`            // parent organization workplace (no region)
+	Region        string   `yaml:"region,omitempty"`         // Platform API Gateway region (us|eu|apac|…); omit on org workplaces
+	URL           string   `yaml:"url,omitempty"`            // Instance URL (legacy flat; prefer jamfpro.url)
+	EnvironmentID string   `yaml:"environmentId,omitempty"`  // Account environment UUID (also YAML id:)
+	TenantID      string   `yaml:"tenantId,omitempty"`       // Jamf Pro product tenant UUID (also jamfpro.tenantId)
 	DenyBuiltins  []string `yaml:"deny_builtins,omitempty"`  // exact names, trailing-* globs, or "*"
 	AllowBuiltins []string `yaml:"allow_builtins,omitempty"` // override this tenant's deny (allow follows deny)
 }
@@ -113,10 +119,22 @@ func (t *TenantConfig) UnmarshalYAML(value *yaml.Node) error {
 	if t == nil {
 		return fmt.Errorf("tenant config is nil")
 	}
+	if value == nil || value.Kind == yaml.ScalarNode && (value.Tag == "!!null" || strings.TrimSpace(value.Value) == "") {
+		*t = TenantConfig{}
+		return nil
+	}
 	var raw struct {
-		Region        string    `yaml:"region"`
-		URL           string    `yaml:"url"`
-		TenantID      string    `yaml:"tenantId"`
+		Org           string `yaml:"org"`
+		Organization  string `yaml:"organization"` // alias of org:
+		Region        string `yaml:"region"`
+		URL           string `yaml:"url"`
+		ID            string `yaml:"id"` // GA: Account environment UUID
+		EnvironmentID string `yaml:"environmentId"`
+		TenantID      string `yaml:"tenantId"`
+		JamfPro       struct {
+			URL      string `yaml:"url"`
+			TenantID string `yaml:"tenantId"`
+		} `yaml:"jamfpro"`
 		DenyBuiltins  yaml.Node `yaml:"deny_builtins"`
 		AllowBuiltins yaml.Node `yaml:"allow_builtins"`
 	}
@@ -131,9 +149,23 @@ func (t *TenantConfig) UnmarshalYAML(value *yaml.Node) error {
 	if err != nil {
 		return fmt.Errorf("allow_builtins: %w", err)
 	}
+	t.Org = strings.TrimSpace(raw.Org)
+	if t.Org == "" {
+		t.Org = strings.TrimSpace(raw.Organization)
+	}
 	t.Region = raw.Region
-	t.URL = raw.URL
-	t.TenantID = raw.TenantID
+	t.URL = strings.TrimSpace(raw.URL)
+	if t.URL == "" {
+		t.URL = strings.TrimSpace(raw.JamfPro.URL)
+	}
+	t.EnvironmentID = strings.TrimSpace(raw.EnvironmentID)
+	if t.EnvironmentID == "" {
+		t.EnvironmentID = strings.TrimSpace(raw.ID)
+	}
+	t.TenantID = strings.TrimSpace(raw.TenantID)
+	if t.TenantID == "" {
+		t.TenantID = strings.TrimSpace(raw.JamfPro.TenantID)
+	}
 	t.DenyBuiltins = deny
 	t.AllowBuiltins = allow
 	return nil
@@ -147,7 +179,10 @@ type AuthEntry struct {
 	Password      string   `yaml:"password,omitempty"`
 	ClientID      string   `yaml:"clientId,omitempty"`
 	ClientSecret  string   `yaml:"clientSecret,omitempty"`
-	Tenants       []string `yaml:"tenants"`
+	Tenants       []string `yaml:"tenants"`                  // dual-read; prefer contexts: / jamfpro:
+	Contexts      []string `yaml:"contexts,omitempty"`       // platform auth allowlist (environment-scoped)
+	JamfPro       string   `yaml:"jamfpro,omitempty"`        // instance (and tenant-scoped platform) product link
+	Scope         string   `yaml:"scope,omitempty"`          // platform: organization | environment | tenant
 	Access        string   `yaml:"access,omitempty"`         // readonly | full (default full)
 	Surface       string   `yaml:"surface,omitempty"`        // legacy; folded into type on load
 	Channels      []string `yaml:"channels,omitempty"`       // buddy clients cli|mcp|ide; empty = all
@@ -168,6 +203,9 @@ func (a *AuthEntry) UnmarshalYAML(value *yaml.Node) error {
 		ClientID      string    `yaml:"clientId"`
 		ClientSecret  string    `yaml:"clientSecret"`
 		Tenants       []string  `yaml:"tenants"`
+		Contexts      []string  `yaml:"contexts"`
+		JamfPro       string    `yaml:"jamfpro"`
+		Scope         string    `yaml:"scope"`
 		Access        string    `yaml:"access"`
 		Surface       string    `yaml:"surface"`
 		Channels      []string  `yaml:"channels"`
@@ -191,13 +229,37 @@ func (a *AuthEntry) UnmarshalYAML(value *yaml.Node) error {
 	a.Password = raw.Password
 	a.ClientID = raw.ClientID
 	a.ClientSecret = raw.ClientSecret
-	a.Tenants = raw.Tenants
+	a.Tenants = mergeAuthLinks(raw.Tenants, raw.Contexts, raw.JamfPro)
+	a.Contexts = append([]string(nil), raw.Contexts...)
+	a.JamfPro = strings.TrimSpace(raw.JamfPro)
+	a.Scope = strings.TrimSpace(raw.Scope)
 	a.Access = raw.Access
 	a.Surface = raw.Surface
 	a.Channels = raw.Channels
 	a.DenyBuiltins = deny
 	a.AllowBuiltins = allow
 	return nil
+}
+
+func mergeAuthLinks(tenants, contexts []string, jamfpro string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	for _, t := range tenants {
+		add(t)
+	}
+	for _, t := range contexts {
+		add(t)
+	}
+	add(jamfpro)
+	return out
 }
 
 // AuthConfig returns the secret/type block for this entry.
@@ -234,14 +296,60 @@ func (a AuthEntry) EffectiveSurface() string {
 	return SurfaceInstance
 }
 
+// PlatformScopeOrganization / Environment / Tenant are Jamf Account integration scopes.
+const (
+	PlatformScopeOrganization = "organization"
+	PlatformScopeEnvironment  = "environment"
+	PlatformScopeTenant       = "tenant"
+)
+
+// EffectiveScope returns the platform auth scope (organization, environment, tenant).
+// Omitted scope on type: platform defaults to environment (GA). Instance auths return "".
+func (a AuthEntry) EffectiveScope() string {
+	s := strings.ToLower(strings.TrimSpace(a.Scope))
+	switch s {
+	case "org", "organisation", PlatformScopeOrganization:
+		return PlatformScopeOrganization
+	case "env", PlatformScopeEnvironment:
+		return PlatformScopeEnvironment
+	case PlatformScopeTenant:
+		return PlatformScopeTenant
+	case "":
+		if NormalizeAuthType(a.Type) == AuthTypePlatform {
+			return PlatformScopeEnvironment
+		}
+		return ""
+	default:
+		return s
+	}
+}
+
+// IsOrganizationScope reports an explicit organization (org / organisation) platform scope.
+func IsOrganizationScope(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "org", "organisation", PlatformScopeOrganization:
+		return true
+	default:
+		return false
+	}
+}
+
 // UsesClientCredentials reports oauth or platform.
 func (a AuthEntry) UsesClientCredentials() bool {
 	return AuthTypeUsesClientCredentials(a.Type)
 }
 
-// LinkedTo reports whether this auth lists tenantName.
+// LinkedTo reports whether this auth is attached to the named context.
 func (a AuthEntry) LinkedTo(tenantName string) bool {
+	if strings.TrimSpace(a.JamfPro) == tenantName {
+		return true
+	}
 	for _, t := range a.Tenants {
+		if t == tenantName {
+			return true
+		}
+	}
+	for _, t := range a.Contexts {
 		if t == tenantName {
 			return true
 		}
@@ -324,10 +432,16 @@ func ParseAuthChannels(s string) ([]string, error) {
 // CredentialConfig is a resolved tenant+auth view used by the HTTP/auth stack.
 // It is not stored in the new YAML shape; ResolveSession / ResolveCredential build it.
 type CredentialConfig struct {
-	Region   string     `yaml:"region,omitempty"`
-	URL      string     `yaml:"url,omitempty"`
-	TenantID string     `yaml:"tenantId,omitempty"`
-	Auth     AuthConfig `yaml:"auth"`
+	Region        string     `yaml:"region,omitempty"`
+	URL           string     `yaml:"url,omitempty"`
+	EnvironmentID string     `yaml:"environmentId,omitempty"`
+	TenantID      string     `yaml:"tenantId,omitempty"`
+	Auth          AuthConfig `yaml:"auth"`
+}
+
+// EffectiveEnvironmentID returns the Platform environment id.
+func (c CredentialConfig) EffectiveEnvironmentID() string {
+	return strings.TrimSpace(c.EnvironmentID)
 }
 
 // EffectiveTenantID returns the Platform tenant id.
@@ -336,6 +450,21 @@ func (c CredentialConfig) EffectiveTenantID() string {
 		return t
 	}
 	return strings.TrimSpace(c.Auth.TenantID)
+}
+
+// PlatformScopeKey is the cache/caps identity for a platform session:
+// environment id, tenant id, or "org" when neither is set.
+func (c CredentialConfig) PlatformScopeKey() string {
+	if e := c.EffectiveEnvironmentID(); e != "" {
+		return e
+	}
+	if t := c.EffectiveTenantID(); t != "" {
+		return t
+	}
+	if c.IsPlatform() {
+		return "org"
+	}
+	return ""
 }
 
 // EffectiveRegion returns the configured region, or infers it from a gateway URL.
@@ -364,7 +493,8 @@ func (c CredentialConfig) EffectiveBaseURL() string {
 
 // IsPlatform returns true when this resolved credential targets the Platform gateway.
 func (c CredentialConfig) IsPlatform() bool {
-	return c.EffectiveTenantID() != "" ||
+	return c.EffectiveEnvironmentID() != "" ||
+		c.EffectiveTenantID() != "" ||
 		strings.TrimSpace(c.Region) != "" ||
 		LooksLikePlatformGateway(c.URL)
 }
@@ -374,15 +504,27 @@ func (c CredentialConfig) UsesPlatformAuth() bool {
 	return c.IsPlatform()
 }
 
-// HasInstanceURL reports whether an instance (non-gateway) URL is configured.
-// When tenantId is set without a region, url is treated as a gateway/proxy base
-// (not an instance host) so test servers and custom proxies work.
-func (t TenantConfig) HasInstanceURL() bool {
+// HasScopeID reports whether this tenant has an environment or tenant scope id.
+func (t TenantConfig) HasScopeID() bool {
+	return t.EffectiveEnvironmentID() != "" || t.EffectiveTenantID() != ""
+}
+
+func (t TenantConfig) hasNonGatewayURL() bool {
 	u := strings.TrimSpace(t.URL)
-	if u == "" || LooksLikePlatformGateway(u) {
+	if u == "" || LooksLikePlatformGateway(u) || LooksLikeRetiredPlatformGateway(u) {
 		return false
 	}
-	if strings.TrimSpace(t.TenantID) != "" && t.EffectiveRegion() == "" {
+	return true
+}
+
+// HasInstanceURL reports whether an instance (non-gateway) URL is configured.
+// When a scope id is set without a region, url is treated as a gateway/proxy base
+// (not an instance host) so test servers and custom proxies work.
+func (t TenantConfig) HasInstanceURL() bool {
+	if !t.hasNonGatewayURL() {
+		return false
+	}
+	if t.HasScopeID() && t.EffectiveRegion() == "" {
 		return false
 	}
 	return true
@@ -390,12 +532,400 @@ func (t TenantConfig) HasInstanceURL() bool {
 
 // HasPlatform reports whether this tenant has Platform gateway identity.
 func (t TenantConfig) HasPlatform() bool {
-	return strings.TrimSpace(t.TenantID) != ""
+	if t.IsOrganizationWorkplace() {
+		return true
+	}
+	if t.HasScopeID() {
+		return true
+	}
+	if LooksLikePlatformGateway(t.URL) {
+		return true
+	}
+	if strings.TrimSpace(t.Region) != "" {
+		return true
+	}
+	return false
+}
+
+// IsOrganizationWorkplace reports a named org context: no region, no environment
+// or product tenant id, no instance URL. Jamf Account orgs sit above environments.
+// Tokens go to us.api.jamfcloud.com with no environment/tenant header; YAML has
+// no region. Parent org: on a child must not be set here.
+func (t TenantConfig) IsOrganizationWorkplace() bool {
+	if strings.TrimSpace(t.Org) != "" {
+		return false
+	}
+	if t.HasScopeID() {
+		return false
+	}
+	if strings.TrimSpace(t.Region) != "" {
+		return false
+	}
+	if t.HasInstanceURL() {
+		return false
+	}
+	u := strings.TrimRight(strings.TrimSpace(t.URL), "/")
+	if u == "" || LooksLikeOrgPlatformGateway(u) {
+		return true
+	}
+	return strings.EqualFold(RegionFromGatewayURL(u), OrgPlatformRegion)
+}
+
+// WorkplaceKind is the config-UI label for this context: organization,
+// environment, tenant (Jamf product tenant), or instance.
+func (t TenantConfig) WorkplaceKind() string {
+	switch {
+	case t.IsOrganizationWorkplace():
+		return "organization"
+	case strings.TrimSpace(t.EffectiveTenantID()) != "":
+		return "tenant"
+	case strings.TrimSpace(t.EffectiveEnvironmentID()) != "":
+		return "environment"
+	case t.HasPlatform() && !t.HasInstanceURL():
+		return "environment"
+	default:
+		return "instance"
+	}
+}
+
+// FormatWorkplaceKind is the cred-list / cred-status label for a context
+// (product-tenant instead of the internal "tenant" kind).
+func FormatWorkplaceKind(t TenantConfig) string {
+	if t.WorkplaceKind() == "tenant" {
+		return "product-tenant"
+	}
+	return t.WorkplaceKind()
+}
+
+// WorkplaceTreeRow is one context in org → environment → product-tenant order.
+type WorkplaceTreeRow struct {
+	Name        string // --context name
+	Kind        string // organization | environment | product-tenant | instance
+	Org         string // organization workplace (parent, or this name)
+	Environment string // environment workplace (parent, or this name)
+}
+
+// WorkplaceTreeOrder returns context names org-first, then each environment,
+// then that environment's product tenants, then the next environment. Instance
+// workplaces (no Account tree) follow, sorted by name.
+func WorkplaceTreeOrder(tenants map[string]TenantConfig) []string {
+	rows := WorkplaceTree(tenants)
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.Name)
+	}
+	return out
+}
+
+// WorkplaceTree returns display rows in tree order (no Account UUIDs).
+func WorkplaceTree(tenants map[string]TenantConfig) []WorkplaceTreeRow {
+	if len(tenants) == 0 {
+		return nil
+	}
+	kindOf := func(name string) string {
+		return tenants[name].WorkplaceKind()
+	}
+	var orgs, envs, product, inst, other []string
+	for n := range tenants {
+		switch kindOf(n) {
+		case "organization":
+			orgs = append(orgs, n)
+		case "environment":
+			envs = append(envs, n)
+		case "tenant":
+			product = append(product, n)
+		case "instance":
+			inst = append(inst, n)
+		default:
+			other = append(other, n)
+		}
+	}
+	sort.Strings(orgs)
+	sort.Strings(envs)
+	sort.Strings(product)
+	sort.Strings(inst)
+	sort.Strings(other)
+
+	parentEnv := map[string]string{}
+	tenantsByEnv := map[string][]string{}
+	var orphanProduct []string
+	for _, n := range product {
+		p := parentEnvironmentName(tenants, n, tenants[n])
+		parentEnv[n] = p
+		if p != "" {
+			tenantsByEnv[p] = append(tenantsByEnv[p], n)
+		} else {
+			orphanProduct = append(orphanProduct, n)
+		}
+	}
+	for env := range tenantsByEnv {
+		sort.Strings(tenantsByEnv[env])
+	}
+
+	envsByOrg := map[string][]string{}
+	var rootEnvs []string
+	for _, n := range envs {
+		org := strings.TrimSpace(tenants[n].Org)
+		if org == "" {
+			rootEnvs = append(rootEnvs, n)
+			continue
+		}
+		envsByOrg[org] = append(envsByOrg[org], n)
+	}
+	for org := range envsByOrg {
+		sort.Strings(envsByOrg[org])
+	}
+
+	orgSet := map[string]struct{}{}
+	for _, n := range orgs {
+		orgSet[n] = struct{}{}
+	}
+	for org := range envsByOrg {
+		orgSet[org] = struct{}{}
+	}
+	for _, n := range orphanProduct {
+		if o := strings.TrimSpace(tenants[n].Org); o != "" {
+			orgSet[o] = struct{}{}
+		}
+	}
+	orgNames := make([]string, 0, len(orgSet))
+	for n := range orgSet {
+		orgNames = append(orgNames, n)
+	}
+	sort.Strings(orgNames)
+
+	emitted := map[string]bool{}
+	var order []string
+	emit := func(name string) {
+		if name == "" || emitted[name] {
+			return
+		}
+		if _, ok := tenants[name]; !ok {
+			return
+		}
+		emitted[name] = true
+		order = append(order, name)
+	}
+	for _, org := range orgNames {
+		if t, ok := tenants[org]; ok && t.WorkplaceKind() == "organization" {
+			emit(org)
+		}
+		for _, env := range envsByOrg[org] {
+			emit(env)
+			for _, n := range tenantsByEnv[env] {
+				emit(n)
+			}
+		}
+		for _, n := range orphanProduct {
+			if strings.TrimSpace(tenants[n].Org) == org {
+				emit(n)
+			}
+		}
+	}
+	for _, env := range rootEnvs {
+		emit(env)
+		for _, n := range tenantsByEnv[env] {
+			emit(n)
+		}
+	}
+	for _, n := range orphanProduct {
+		emit(n)
+	}
+	for _, n := range inst {
+		emit(n)
+	}
+	for _, n := range other {
+		emit(n)
+	}
+	rest := make([]string, 0, len(tenants))
+	for n := range tenants {
+		if !emitted[n] {
+			rest = append(rest, n)
+		}
+	}
+	sort.Strings(rest)
+	for _, n := range rest {
+		emit(n)
+	}
+
+	rows := make([]WorkplaceTreeRow, 0, len(order))
+	for _, name := range order {
+		t := tenants[name]
+		row := WorkplaceTreeRow{Name: name, Kind: FormatWorkplaceKind(t)}
+		switch t.WorkplaceKind() {
+		case "organization":
+			row.Org = name
+		case "environment":
+			row.Org = strings.TrimSpace(t.Org)
+			row.Environment = name
+		case "tenant":
+			row.Org = strings.TrimSpace(t.Org)
+			row.Environment = parentEnv[name]
+		default:
+			row.Org = strings.TrimSpace(t.Org)
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func parentEnvironmentName(tenants map[string]TenantConfig, name string, t TenantConfig) string {
+	if t.WorkplaceKind() != "tenant" {
+		return ""
+	}
+	eid := t.EffectiveEnvironmentID()
+	if eid == "" {
+		return ""
+	}
+	org := strings.TrimSpace(t.Org)
+	var matches []string
+	for n, o := range tenants {
+		if n == name || o.WorkplaceKind() != "environment" {
+			continue
+		}
+		if o.EffectiveEnvironmentID() != eid {
+			continue
+		}
+		if org != "" && strings.TrimSpace(o.Org) != "" && strings.TrimSpace(o.Org) != org {
+			continue
+		}
+		matches = append(matches, n)
+	}
+	sort.Strings(matches)
+	if len(matches) == 0 {
+		return ""
+	}
+	return matches[0]
+}
+
+// ProductTenantsUnderEnvironment returns Jamf product-tenant workplace names
+// whose parent environment is envName, in tree order.
+func ProductTenantsUnderEnvironment(tenants map[string]TenantConfig, envName string) []string {
+	envName = strings.TrimSpace(envName)
+	if envName == "" || tenants[envName].WorkplaceKind() != "environment" {
+		return nil
+	}
+	var out []string
+	for _, name := range WorkplaceTreeOrder(tenants) {
+		t := tenants[name]
+		if parentEnvironmentName(tenants, name, t) == envName {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// OrderNamesByWorkplaceTree sorts names using WorkplaceTreeOrder (unknown names last).
+func OrderNamesByWorkplaceTree(tenants map[string]TenantConfig, names []string) []string {
+	rank := make(map[string]int, len(tenants))
+	for i, n := range WorkplaceTreeOrder(tenants) {
+		rank[n] = i
+	}
+	out := append([]string{}, names...)
+	sort.SliceStable(out, func(i, j int) bool {
+		ri, okI := rank[out[i]]
+		rj, okJ := rank[out[j]]
+		if okI && okJ {
+			return ri < rj
+		}
+		if okI {
+			return true
+		}
+		if okJ {
+			return false
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+// FormatWorkplaceAccount is the remainder of a cred-list row: instance URL,
+// or the Account header the workplace implies.
+func FormatWorkplaceAccount(t TenantConfig) string {
+	var parts []string
+	switch t.WorkplaceKind() {
+	case "organization":
+		parts = append(parts, "no X-Environment-Id/X-Tenant-Id")
+		if gw := t.GatewayBaseURL(); gw != "" {
+			parts = append(parts, gw)
+		}
+	case "environment":
+		if e := t.EffectiveEnvironmentID(); e != "" {
+			parts = append(parts, "X-Environment-Id="+e)
+		}
+	case "tenant":
+		if e := t.EffectiveEnvironmentID(); e != "" {
+			parts = append(parts, "X-Environment-Id="+e)
+		}
+		if id := t.EffectiveTenantID(); id != "" {
+			parts = append(parts, "X-Tenant-Id="+id)
+		}
+		if u := t.InstanceBaseURL(); u != "" {
+			parts = append(parts, u)
+		}
+	default:
+		if u := t.InstanceBaseURL(); u != "" {
+			return u
+		}
+		return "-"
+	}
+	if o := strings.TrimSpace(t.Org); o != "" {
+		parts = append(parts, "org="+o)
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, "  ")
+}
+
+// FormatAuthScope is "-" for instance auths, else organization|environment|tenant.
+func FormatAuthScope(a AuthEntry) string {
+	if a.EffectiveSurface() != SurfacePlatform {
+		return "-"
+	}
+	s := a.EffectiveScope()
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+// FormatAuthScopeDetail is a one-line reminder of which Account header that scope sends.
+func FormatAuthScopeDetail(a AuthEntry) string {
+	switch FormatAuthScope(a) {
+	case PlatformScopeOrganization:
+		return "no X-Environment-Id / X-Tenant-Id (link an organization workplace)"
+	case PlatformScopeEnvironment:
+		return "sends X-Environment-Id from the linked environment workplace"
+	case PlatformScopeTenant:
+		return "sends X-Tenant-Id from the linked product-tenant workplace"
+	default:
+		return ""
+	}
+}
+
+// EffectiveEnvironmentID returns the platform environment id.
+func (t TenantConfig) EffectiveEnvironmentID() string {
+	return strings.TrimSpace(t.EnvironmentID)
 }
 
 // EffectiveTenantID returns the platform tenant id.
 func (t TenantConfig) EffectiveTenantID() string {
 	return strings.TrimSpace(t.TenantID)
+}
+
+// PlatformScopeKey is environment id, tenant id, or "org" for a platform tenant.
+func (t TenantConfig) PlatformScopeKey() string {
+	if e := t.EffectiveEnvironmentID(); e != "" {
+		return e
+	}
+	if tid := t.EffectiveTenantID(); tid != "" {
+		return tid
+	}
+	if t.HasPlatform() {
+		return "org"
+	}
+	return ""
 }
 
 // EffectiveRegion returns region or infers from gateway URL.
@@ -408,13 +938,19 @@ func (t TenantConfig) EffectiveRegion() string {
 
 // GatewayBaseURL returns the platform gateway base URL, or "".
 // Prefer regional default; otherwise a gateway-looking url; otherwise any url
-// when tenantId is set (proxy / test servers).
+// when a scope id is set (proxy / test servers). Retired apigw hosts are never returned.
 func (t TenantConfig) GatewayBaseURL() string {
+	if LooksLikeRetiredPlatformGateway(t.URL) {
+		return ""
+	}
+	if t.IsOrganizationWorkplace() || LooksLikeOrgPlatformGateway(t.URL) {
+		return orgPlatformGatewayBase()
+	}
 	if r := t.EffectiveRegion(); r != "" {
 		if norm, err := NormalizePlatformRegion(r); err == nil {
 			def := PlatformGatewayURL(norm)
 			// Explicit non-default url (proxy) wins when present.
-			if u := strings.TrimRight(strings.TrimSpace(t.URL), "/"); u != "" && u != def && !t.HasInstanceURL() {
+			if u := strings.TrimRight(strings.TrimSpace(t.URL), "/"); u != "" && u != def && !t.HasInstanceURL() && !LooksLikeRetiredPlatformGateway(u) {
 				return u
 			}
 			return def
@@ -424,10 +960,10 @@ func (t TenantConfig) GatewayBaseURL() string {
 		return strings.TrimRight(strings.TrimSpace(t.URL), "/")
 	}
 	if t.HasPlatform() {
-		if u := strings.TrimRight(strings.TrimSpace(t.URL), "/"); u != "" && !t.HasInstanceURL() {
+		if u := strings.TrimRight(strings.TrimSpace(t.URL), "/"); u != "" && !t.HasInstanceURL() && !LooksLikeRetiredPlatformGateway(u) {
 			return u
 		}
-		// Hybrid tenant: instance url + tenantId needs region for gateway host.
+		// Hybrid tenant: instance url + scope id needs region for gateway host.
 	}
 	return ""
 }
@@ -458,29 +994,101 @@ func NormalizePlatformRegion(s string) (string, error) {
 	return s, nil
 }
 
-// PlatformGatewayURL builds the regional gateway base URL for region.
-func PlatformGatewayURL(region string) string {
-	return "https://" + strings.ToLower(strings.TrimSpace(region)) + ".apigw.jamf.com"
+// OrgPlatformRegion is the gateway region for organization-scoped Account
+// clients. There is no separate org hostname (api.jamfcloud.com does not
+// resolve); org traffic uses the US gateway with no environment/tenant header.
+// Org workplaces still omit region in YAML.
+const OrgPlatformRegion = "us"
+
+// OrgPlatformGatewayURL is the organization-scope GA token/API host.
+const OrgPlatformGatewayURL = "https://" + OrgPlatformRegion + ".api.jamfcloud.com"
+
+// orgPlatformGatewayURLForTest, when set, replaces OrgPlatformGatewayURL in
+// compose (httptest of Account APIs such as licensing).
+var orgPlatformGatewayURLForTest string
+
+func orgPlatformGatewayBase() string {
+	if s := strings.TrimRight(strings.TrimSpace(orgPlatformGatewayURLForTest), "/"); s != "" {
+		return s
+	}
+	return OrgPlatformGatewayURL
 }
 
-// RegionFromGatewayURL returns the region subdomain for a *.apigw.jamf.com URL, or "".
-func RegionFromGatewayURL(rawURL string) string {
+// SetOrgPlatformGatewayURLForTest redirects organization compose to u (usually
+// an httptest server). Restore with the returned func.
+func SetOrgPlatformGatewayURLForTest(u string) func() {
+	prev := orgPlatformGatewayURLForTest
+	orgPlatformGatewayURLForTest = u
+	return func() { orgPlatformGatewayURLForTest = prev }
+}
+
+// PlatformGatewayURL builds the regional GA gateway base URL for region.
+func PlatformGatewayURL(region string) string {
+	return "https://" + strings.ToLower(strings.TrimSpace(region)) + ".api.jamfcloud.com"
+}
+
+func gatewayHost(rawURL string) string {
 	u := strings.ToLower(strings.TrimSpace(rawURL))
 	u = strings.TrimPrefix(u, "https://")
 	u = strings.TrimPrefix(u, "http://")
 	if i := strings.IndexByte(u, '/'); i >= 0 {
 		u = u[:i]
 	}
-	const suffix = ".apigw.jamf.com"
-	if !strings.HasSuffix(u, suffix) {
-		return ""
-	}
-	return strings.TrimSuffix(u, suffix)
+	return u
 }
 
-// LooksLikePlatformGateway reports whether url is a Jamf Platform API Gateway host.
+// RegionFromGatewayURL returns the region subdomain for a GA gateway URL
+// (https://{region}.api.jamfcloud.com), or "". A sample host api.jamfcloud.com
+// (no subdomain) does not resolve in DNS; it is ignored here (paste maps it
+// to organization-against-US separately).
+func RegionFromGatewayURL(rawURL string) string {
+	h := gatewayHost(rawURL)
+	if h == "api.jamfcloud.com" {
+		return ""
+	}
+	const suffix = ".api.jamfcloud.com"
+	if !strings.HasSuffix(h, suffix) {
+		return ""
+	}
+	return strings.TrimSuffix(h, suffix)
+}
+
+// LooksLikeOrgPlatformGateway reports the non-resolving host that appears in
+// some Jamf curl samples. Organization traffic uses us.api.jamfcloud.com with
+// no scope header; that US host is also used for environment clients.
+func LooksLikeOrgPlatformGateway(rawURL string) bool {
+	return gatewayHost(rawURL) == "api.jamfcloud.com"
+}
+
+// LooksLikeRetiredPlatformGateway reports the public-beta host (*.apigw.jamf.com).
+func LooksLikeRetiredPlatformGateway(rawURL string) bool {
+	h := gatewayHost(rawURL)
+	return h == "apigw.jamf.com" || strings.HasSuffix(h, ".apigw.jamf.com")
+}
+
+// LooksLikePlatformGateway reports whether url is a GA Jamf Platform API Gateway host.
 func LooksLikePlatformGateway(rawURL string) bool {
-	return RegionFromGatewayURL(rawURL) != ""
+	return RegionFromGatewayURL(rawURL) != "" || LooksLikeOrgPlatformGateway(rawURL)
+}
+
+func retiredPlatformGatewayError(rawURL string) error {
+	region := "us"
+	h := gatewayHost(rawURL)
+	const suffix = ".apigw.jamf.com"
+	if strings.HasSuffix(h, suffix) {
+		if r := strings.TrimSuffix(h, suffix); r != "" {
+			region = r
+		}
+	}
+	shown := strings.TrimRight(strings.TrimSpace(rawURL), "/")
+	if shown == "" {
+		shown = h
+	}
+	return fmt.Errorf("%s is the retired Jamf Platform gateway and does not serve the GA API paths. Set url: %s (or region: %s); see 'buddy cred help'", shown, PlatformGatewayURL(region), region)
+}
+
+func bothPlatformScopeIDsError(environmentID, tenantID string) error {
+	return fmt.Errorf("environmentId %q and tenantId %q are mutually exclusive; an API integration is created at one level", strings.TrimSpace(environmentID), strings.TrimSpace(tenantID))
 }
 
 // LooksLikeTenantUUID reports whether s looks like a hyphenated UUID.
@@ -513,13 +1121,19 @@ func (t TenantConfig) Validate() error {
 			return err
 		}
 	}
+	if LooksLikeRetiredPlatformGateway(t.URL) {
+		return retiredPlatformGatewayError(t.URL)
+	}
 	hasInstance := t.HasInstanceURL()
-	hasPlatform := strings.TrimSpace(t.TenantID) != ""
-	if !hasInstance && !hasPlatform {
-		if LooksLikePlatformGateway(t.URL) || strings.TrimSpace(t.Region) != "" {
-			return fmt.Errorf("Platform API Gateway tenants require tenantId; see 'buddy cred help'")
+	hasPlatform := t.HasPlatform()
+	if t.IsOrganizationWorkplace() {
+		if _, _, err := normalizeDenyAllowLists(t.DenyBuiltins, t.AllowBuiltins); err != nil {
+			return err
 		}
-		return fmt.Errorf("tenant requires url (instance) and/or region+tenantId (platform); see 'buddy cred help'")
+		return nil
+	}
+	if !hasInstance && !hasPlatform {
+		return fmt.Errorf("tenant requires url (instance), region (environment/tenant Platform), or an organization workplace (no region); see 'buddy cred help'")
 	}
 	if hasPlatform {
 		if t.GatewayBaseURL() == "" && t.EffectiveRegion() == "" && strings.TrimSpace(t.URL) == "" {
@@ -527,6 +1141,9 @@ func (t TenantConfig) Validate() error {
 		}
 		if t.GatewayBaseURL() == "" && t.HasInstanceURL() && t.EffectiveRegion() == "" {
 			return fmt.Errorf("Platform API Gateway tenants require region (e.g. us) when url is an instance host")
+		}
+		if t.HasInstanceURL() && !t.HasScopeID() {
+			return fmt.Errorf("hybrid instance+platform tenants require environmentId (preferred) or tenantId; see 'buddy cred help'")
 		}
 	}
 	if _, _, err := normalizeDenyAllowLists(t.DenyBuiltins, t.AllowBuiltins); err != nil {
@@ -544,8 +1161,15 @@ func (a AuthEntry) Validate() error {
 	default:
 		return fmt.Errorf("unknown auth type %q (supported: command, basic, oauth, platform)", a.Type)
 	}
-	if len(a.Tenants) == 0 {
-		return fmt.Errorf("auth must list at least one tenant under tenants:")
+	if NormalizeAuthType(a.Type) == AuthTypePlatform {
+		switch a.EffectiveScope() {
+		case PlatformScopeOrganization, PlatformScopeEnvironment, PlatformScopeTenant:
+		default:
+			return fmt.Errorf("platform auth scope must be organization, environment, or tenant (got %q)", a.Scope)
+		}
+	}
+	if len(a.Tenants) == 0 && a.EffectiveScope() != PlatformScopeOrganization {
+		return fmt.Errorf("auth must link a context (jamfpro:, contexts:, or tenants:)")
 	}
 	switch a.EffectiveAccess() {
 	case AccessFull, AccessReadonly:
@@ -573,18 +1197,24 @@ func (c CredentialConfig) Validate() error {
 	}
 	if !c.IsPlatform() {
 		if strings.TrimSpace(c.URL) == "" {
-			return fmt.Errorf("url is required (or set region + tenantId for Platform API Gateway); see 'buddy cred help'")
+			return fmt.Errorf("url is required (or set region for Platform API Gateway); see 'buddy cred help'")
+		}
+		if LooksLikeRetiredPlatformGateway(c.URL) {
+			return retiredPlatformGatewayError(c.URL)
 		}
 		return nil
 	}
-	if c.EffectiveTenantID() == "" {
-		return fmt.Errorf("Platform API Gateway credentials require tenantId; see 'buddy cred help'")
+	if LooksLikeRetiredPlatformGateway(c.URL) {
+		return retiredPlatformGatewayError(c.URL)
+	}
+	if eid, tid := c.EffectiveEnvironmentID(), c.EffectiveTenantID(); eid != "" && tid != "" {
+		return bothPlatformScopeIDsError(eid, tid)
 	}
 	if c.Auth.Type != AuthTypeOAuth {
 		return fmt.Errorf("Platform API Gateway credentials require oauth client credentials (got auth.type=%q); basic and command are instance-only", c.Auth.Type)
 	}
 	if c.EffectiveBaseURL() == "" {
-		return fmt.Errorf("Platform API Gateway credentials require region (e.g. us) or url (e.g. https://us.apigw.jamf.com)")
+		return fmt.Errorf("Platform API Gateway credentials require region (e.g. us) or url (e.g. https://us.api.jamfcloud.com)")
 	}
 	return nil
 }
@@ -594,16 +1224,16 @@ type TenantSelection struct {
 	Default string `yaml:"default"`
 }
 
-// UnmarshalYAML accepts a mapping with default only (`tenant: {default: name}`).
+// UnmarshalYAML accepts a mapping with default only (`context:` / dual-read `tenant:`).
 func (t *TenantSelection) UnmarshalYAML(value *yaml.Node) error {
 	if value == nil {
 		return nil
 	}
 	if value.Kind == yaml.ScalarNode {
-		return fmt.Errorf("tenant: must be a mapping with default: (not a bare string)")
+		return fmt.Errorf("context/tenant: must be a mapping with default: (not a bare string)")
 	}
 	if value.Kind != yaml.MappingNode {
-		return fmt.Errorf("tenant: must be a mapping with default:")
+		return fmt.Errorf("context/tenant: must be a mapping with default:")
 	}
 	for i := 0; i+1 < len(value.Content); i += 2 {
 		k := value.Content[i].Value
@@ -612,11 +1242,11 @@ func (t *TenantSelection) UnmarshalYAML(value *yaml.Node) error {
 		case "default":
 			t.Default = v
 		case "cli", "mcp", "ide":
-			return fmt.Errorf("tenant.%s is no longer supported; use channels.%s.tenant", k, k)
+			return fmt.Errorf("context/tenant.%s is no longer supported; use channels.%s.context (or channels.%s.tenant)", k, k, k)
 		case "notebook", "serve":
-			return fmt.Errorf("tenant.%s is no longer supported; use channels.ide.tenant", k)
+			return fmt.Errorf("context/tenant.%s is no longer supported; use channels.ide.context", k)
 		default:
-			return fmt.Errorf("tenant: unknown key %q (want default only)", k)
+			return fmt.Errorf("context/tenant: unknown key %q (want default only)", k)
 		}
 	}
 	return nil
@@ -630,7 +1260,7 @@ const EnvClassicInstanceOnly = "BUDDY_CLASSIC_INSTANCE_ONLY"
 type FeatureFlags struct {
 	// ClassicInstanceOnly routes Classic /JSSResource calls to an instance auth.
 	// Default false: Classic follows a platform pin / auto-pick
-	// (/api/proclassic/tenant/{id}/… with /JSSResource stripped). Set true
+	// (/proclassic/… with /JSSResource stripped). Set true
 	// (or BUDDY_CLASSIC_INSTANCE_ONLY=true) to force Classic onto instance.
 	// Gateway 403 then means the OAuth client lacks Classic scopes.
 	//
@@ -691,6 +1321,7 @@ func boolPtrEqual(a, b *bool) bool {
 type Config struct {
 	Tenant   TenantSelection          `yaml:"tenant"`
 	Tenants  map[string]TenantConfig  `yaml:"tenants"`
+	Orgs     map[string]OrgConfig     `yaml:"orgs,omitempty"` // optional Jamf tree; expands into Tenants
 	Auths    map[string]AuthEntry     `yaml:"auths"`
 	Channels map[string]ChannelPolicy `yaml:"channels,omitempty"`
 	Features FeatureFlags             `yaml:"features,omitempty"`
@@ -699,6 +1330,50 @@ type Config struct {
 	// Both are omitted from YAML; SaveConfig writes only the user overlay when mdm is set.
 	user *Config
 	mdm  *Config
+}
+
+// UnmarshalYAML dual-reads context:/contexts: (canonical) and tenant:/tenants:.
+func (c *Config) UnmarshalYAML(value *yaml.Node) error {
+	if c == nil {
+		return fmt.Errorf("config is nil")
+	}
+	var raw struct {
+		Tenant   TenantSelection          `yaml:"tenant"`
+		Context  TenantSelection          `yaml:"context"`
+		Tenants  map[string]TenantConfig  `yaml:"tenants"`
+		Contexts map[string]TenantConfig  `yaml:"contexts"`
+		Orgs     map[string]OrgConfig     `yaml:"orgs"`
+		Auths    map[string]AuthEntry     `yaml:"auths"`
+		Channels map[string]ChannelPolicy `yaml:"channels"`
+		Features FeatureFlags             `yaml:"features"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	c.Tenant = raw.Tenant
+	if d := strings.TrimSpace(raw.Context.Default); d != "" {
+		c.Tenant.Default = d
+	}
+	c.Tenants = mergeWorkplaceMaps(raw.Tenants, raw.Contexts)
+	c.Orgs = raw.Orgs
+	c.Auths = raw.Auths
+	c.Channels = raw.Channels
+	c.Features = raw.Features
+	return expandOrgs(c)
+}
+
+func mergeWorkplaceMaps(legacy, contexts map[string]TenantConfig) map[string]TenantConfig {
+	if len(legacy) == 0 && len(contexts) == 0 {
+		return nil
+	}
+	out := make(map[string]TenantConfig, len(legacy)+len(contexts))
+	for k, v := range legacy {
+		out[k] = v
+	}
+	for k, v := range contexts {
+		out[k] = v
+	}
+	return out
 }
 
 // legacyConfigFile is used to detect and migrate older config shapes.
@@ -723,10 +1398,22 @@ func ComposeCredential(tenant TenantConfig, auth AuthEntry, surface string) Cred
 	cred := CredentialConfig{Auth: auth.AuthConfig()}
 	switch surface {
 	case SurfacePlatform:
-		cred.TenantID = tenant.EffectiveTenantID()
-		cred.Region = tenant.EffectiveRegion()
-		if gw := tenant.GatewayBaseURL(); gw != "" {
-			cred.URL = gw
+		switch composePlatformScope(auth, tenant) {
+		case PlatformScopeOrganization:
+			cred.URL = orgPlatformGatewayBase()
+			cred.Region = OrgPlatformRegion
+		case PlatformScopeTenant:
+			cred.TenantID = tenant.EffectiveTenantID()
+			cred.Region = tenant.EffectiveRegion()
+			if gw := tenant.GatewayBaseURL(); gw != "" {
+				cred.URL = gw
+			}
+		default:
+			cred.EnvironmentID = tenant.EffectiveEnvironmentID()
+			cred.Region = tenant.EffectiveRegion()
+			if gw := tenant.GatewayBaseURL(); gw != "" {
+				cred.URL = gw
+			}
 		}
 	default: // instance
 		cred.URL = tenant.InstanceBaseURL()
@@ -737,10 +1424,26 @@ func ComposeCredential(tenant TenantConfig, auth AuthEntry, surface string) Cred
 	return cred
 }
 
+// composePlatformScope picks which Account header a platform auth sends.
+// Explicit auth.scope wins. Omitted scope infers from the context (beta YAML
+// that only had tenantId still sends X-Tenant-Id).
+func composePlatformScope(auth AuthEntry, tenant TenantConfig) string {
+	if strings.TrimSpace(auth.Scope) != "" {
+		return auth.EffectiveScope()
+	}
+	if tenant.EffectiveEnvironmentID() != "" {
+		return PlatformScopeEnvironment
+	}
+	if tenant.EffectiveTenantID() != "" {
+		return PlatformScopeTenant
+	}
+	return PlatformScopeOrganization
+}
+
 // ResolveTenant looks up a named tenant.
 func (cfg *Config) ResolveTenant(name string) (TenantConfig, error) {
 	if cfg.Tenants == nil {
-		return TenantConfig{}, fmt.Errorf("no tenants configured — run 'buddy cred add' (or any buddy command interactively for the setup wizard; see 'buddy cred help')")
+		return TenantConfig{}, fmt.Errorf("no tenants configured — run 'buddy cred add' (or any buddy command interactively for the first-run chooser; see 'buddy setup help')")
 	}
 	t, ok := cfg.Tenants[name]
 	if !ok {
@@ -772,15 +1475,49 @@ func (cfg *Config) ResolveAuth(name string) (AuthEntry, error) {
 	return a, nil
 }
 
-// AuthsForTenant returns auth names linked to tenantName (unsorted).
+// AuthsForTenant returns auth names that may be used on tenantName (unsorted).
+// Organization-scoped auths only appear on organization workplaces.
 func (cfg *Config) AuthsForTenant(tenantName string) []string {
+	if cfg == nil {
+		return nil
+	}
 	var out []string
-	for name, a := range cfg.Auths {
-		if a.LinkedTo(tenantName) {
-			out = append(out, name)
+	seen := map[string]bool{}
+	add := func(name string) {
+		if name == "" || seen[name] {
+			return
 		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	tenant, hasTenant := cfg.Tenants[tenantName]
+	for name, a := range cfg.Auths {
+		if !a.LinkedTo(tenantName) {
+			continue
+		}
+		if hasTenant && !AuthFitsWorkplace(a, tenant) {
+			continue
+		}
+		add(name)
 	}
 	return out
+}
+
+// AuthAvailableOnTenant reports whether auth may be used with tenantName:
+// a direct jamfpro:/contexts: link, and organization-scoped auths only on
+// an organization workplace.
+func (cfg *Config) AuthAvailableOnTenant(auth AuthEntry, tenantName string) bool {
+	if !auth.LinkedTo(tenantName) {
+		return false
+	}
+	if cfg == nil {
+		return auth.EffectiveScope() != PlatformScopeOrganization
+	}
+	t, ok := cfg.Tenants[tenantName]
+	if !ok {
+		return auth.EffectiveScope() != PlatformScopeOrganization
+	}
+	return AuthFitsWorkplace(auth, t)
 }
 
 // DefaultTenant returns the selected tenant for channel (cli|mcp|ide).
@@ -843,14 +1580,14 @@ func (cfg *Config) ValidateTenantSelectionAndChannels() error {
 			return nil
 		}
 		if _, ok := cfg.Tenants[name]; !ok {
-			return fmt.Errorf("%s: unknown tenant %q", where, name)
+			return fmt.Errorf("%s: unknown context %q", where, name)
 		}
 		return nil
 	}
 	if len(cfg.Tenants) > 0 && strings.TrimSpace(cfg.Tenant.Default) == "" {
-		return fmt.Errorf("tenant.default is required when tenants are configured")
+		return fmt.Errorf("context.default is required when contexts are configured")
 	}
-	if err := checkTenantName("tenant.default", cfg.Tenant.Default); err != nil {
+	if err := checkTenantName("context.default", cfg.Tenant.Default); err != nil {
 		return err
 	}
 	for ch, p := range cfg.Channels {
@@ -866,11 +1603,11 @@ func (cfg *Config) ValidateTenantSelectionAndChannels() error {
 		default:
 			return fmt.Errorf("channels.%s.access must be %q or %q", ch, AccessFull, AccessReadonly)
 		}
-		if err := checkTenantName("channels."+ch+".tenant", p.Tenant); err != nil {
+		if err := checkTenantName("channels."+ch+".context", p.Tenant); err != nil {
 			return err
 		}
 		for _, tn := range p.Tenants {
-			if err := checkTenantName("channels."+ch+".tenants", tn); err != nil {
+			if err := checkTenantName("channels."+ch+".contexts", tn); err != nil {
 				return err
 			}
 		}
@@ -889,11 +1626,14 @@ func (cfg *Config) ValidateTenantSelectionAndChannels() error {
 	for name, t := range cfg.Tenants {
 		deny, allow, err := normalizeDenyAllowLists(t.DenyBuiltins, t.AllowBuiltins)
 		if err != nil {
-			return fmt.Errorf("tenants.%s: %w", name, err)
+			return fmt.Errorf("contexts.%s: %w", name, err)
 		}
 		t.DenyBuiltins = deny
 		t.AllowBuiltins = allow
 		cfg.Tenants[name] = t
+		if err := cfg.validateContextOrg(name, t); err != nil {
+			return err
+		}
 	}
 	for name, a := range cfg.Auths {
 		deny, allow, err := normalizeDenyAllowLists(a.DenyBuiltins, a.AllowBuiltins)
@@ -915,6 +1655,27 @@ func (cfg *Config) ValidateTenantSelectionAndChannels() error {
 				return fmt.Errorf("auth %q: unknown channel %q (want cli, mcp, or ide)", name, c)
 			}
 		}
+	}
+	return nil
+}
+
+func (cfg *Config) validateContextOrg(name string, t TenantConfig) error {
+	parent := strings.TrimSpace(t.Org)
+	if parent == "" {
+		return nil
+	}
+	if parent == name {
+		return fmt.Errorf("contexts.%s.org cannot be itself", name)
+	}
+	if cfg == nil || cfg.Tenants == nil {
+		return fmt.Errorf("contexts.%s.org: unknown context %q", name, parent)
+	}
+	p, ok := cfg.Tenants[parent]
+	if !ok {
+		return fmt.Errorf("contexts.%s.org: unknown context %q", name, parent)
+	}
+	if !p.IsOrganizationWorkplace() {
+		return fmt.Errorf("contexts.%s.org %q must be an organization workplace (no region, no environment id)", name, parent)
 	}
 	return nil
 }
@@ -962,8 +1723,8 @@ func ConfigFileExists() (bool, error) {
 }
 
 // LoadConfig loads config from the platform config dir (see secrets.ConfigDir).
-// Requires tenants:/auths: (legacy credentials:/defaults:/allow_auths: and a
-// bare string tenant: are rejected). Auth surface: still folds into type on load.
+// Requires contexts:/auths: (dual-read tenants:). Legacy credentials:/defaults:/allow_auths:
+// and a bare string tenant:/context: are rejected. Auth surface: still folds into type on load.
 // macOS managed preferences (and BUDDY_MANAGED_PLIST) overlay as org defaults; user YAML wins per name.
 func LoadConfig() (*Config, error) {
 	path, err := configPath()
@@ -1002,6 +1763,13 @@ func LoadConfig() (*Config, error) {
 	}
 	merged.user = cloneConfig(user)
 	merged.mdm = cloneConfig(mdm)
+	if err := expandOrgs(merged); err != nil {
+		src := path
+		if !userExists && mdm != nil {
+			src = "managed preferences"
+		}
+		return nil, fmt.Errorf("config %s: %w", src, err)
+	}
 	migrateAuthSurfaceIntoType(merged)
 
 	if strings.TrimSpace(merged.Tenant.Default) == "" {
@@ -1046,8 +1814,72 @@ func parseAndMigrateUserYAML(data []byte) (*Config, []string, error) {
 	if migrateAuthSurfaceIntoType(&cfg) {
 		notes = append(notes, "auth surface into type (platform oauth → type: platform)")
 	}
+	if configYAMLUsesLegacyWorkplaceKeys(data) {
+		notes = append(notes, "tenant/tenants keys → context/contexts")
+	}
 	normalizeAuthChannels(&cfg)
 	return &cfg, notes, nil
+}
+
+// configYAMLUsesLegacyWorkplaceKeys reports tenant:/tenants: (top-level),
+// auths.*.tenants, or channels.*.tenant/tenants. tenantId is not a workplace key.
+func configYAMLUsesLegacyWorkplaceKeys(data []byte) bool {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return false
+	}
+	m := yamlMappingRoot(&root)
+	if m == nil {
+		return false
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		k := m.Content[i].Value
+		v := m.Content[i+1]
+		switch k {
+		case "tenant", "tenants":
+			return true
+		case "auths", "channels":
+			if nestedMappingsHaveKey(v, "tenant", "tenants") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func yamlMappingRoot(n *yaml.Node) *yaml.Node {
+	if n == nil {
+		return nil
+	}
+	if n.Kind == yaml.DocumentNode && len(n.Content) > 0 {
+		n = n.Content[0]
+	}
+	if n.Kind != yaml.MappingNode {
+		return nil
+	}
+	return n
+}
+
+func nestedMappingsHaveKey(n *yaml.Node, keys ...string) bool {
+	if n == nil || n.Kind != yaml.MappingNode {
+		return false
+	}
+	want := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		want[k] = true
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		entry := n.Content[i+1]
+		if entry == nil || entry.Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(entry.Content); j += 2 {
+			if want[entry.Content[j].Value] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func rejectRemovedConfigKeys(data []byte) error {
@@ -1057,13 +1889,13 @@ func rejectRemovedConfigKeys(data []byte) error {
 	}
 	switch {
 	case raw["credentials"] != nil:
-		return fmt.Errorf("credentials: was removed; use tenants: and auths: (see 'buddy cred help')")
+		return fmt.Errorf("credentials: was removed; use contexts: and auths: (see 'buddy cred help')")
 	case raw["defaults"] != nil:
-		return fmt.Errorf("defaults: was removed; use channels.<cli|mcp|ide>.tenant")
+		return fmt.Errorf("defaults: was removed; use channels.<cli|mcp|ide>.context")
 	case raw["allow_auths"] != nil:
 		return fmt.Errorf("allow_auths: was removed; set channels: on each auth")
 	case raw["cred"] != nil:
-		return fmt.Errorf("cred: was removed; use tenant.default")
+		return fmt.Errorf("cred: was removed; use context.default")
 	}
 	return nil
 }
@@ -1120,7 +1952,7 @@ func ConfigFromCredentialMap(defaultName string, creds map[string]CredentialConf
 }
 
 // migrateCredentialsToTenantsAuths converts the legacy flat credentials map.
-// Unique host identities (instance URL and/or platform tenantId) become tenants;
+// Unique host identities (instance URL and/or platform scope) become tenants;
 // each old credential name becomes an auth linked to that tenant.
 func migrateCredentialsToTenantsAuths(raw *legacyConfigFile) (*Config, error) {
 	cfg := &Config{
@@ -1164,9 +1996,10 @@ func migrateCredentialsToTenantsAuths(raw *legacyConfigFile) (*Config, error) {
 				break
 			}
 			tc := TenantConfig{
-				Region:   c.Region,
-				URL:      c.URL,
-				TenantID: c.TenantID,
+				Region:        c.Region,
+				URL:           c.URL,
+				EnvironmentID: c.EnvironmentID,
+				TenantID:      c.TenantID,
 			}
 			// Drop gateway URL when region is set (same as normalize).
 			if tc.Region != "" {
@@ -1209,6 +2042,7 @@ func migrateCredentialsToTenantsAuths(raw *legacyConfigFile) (*Config, error) {
 }
 
 func tenantIdentityKey(c CredentialConfig) string {
+	eid := strings.TrimSpace(c.EnvironmentID)
 	tid := strings.TrimSpace(c.TenantID)
 	if tid == "" {
 		tid = strings.TrimSpace(c.Auth.TenantID)
@@ -1218,8 +2052,14 @@ func tenantIdentityKey(c CredentialConfig) string {
 	if region == "" {
 		region = RegionFromGatewayURL(c.URL)
 	}
+	if eid != "" {
+		return "platform:" + region + ":env:" + eid
+	}
 	if tid != "" {
 		return "platform:" + region + ":" + tid
+	}
+	if region != "" || LooksLikePlatformGateway(c.URL) {
+		return "platform:" + region + ":org"
 	}
 	return "instance:" + url
 }
@@ -1231,6 +2071,13 @@ func normalizeConfigForSave(cfg *Config) {
 	normalizeAuthChannels(cfg)
 	migrateAuthSurfaceIntoType(cfg)
 	for name, t := range cfg.Tenants {
+		if t.IsOrganizationWorkplace() {
+			t.URL = ""
+			t.Region = ""
+			t.Org = strings.TrimSpace(t.Org)
+			cfg.Tenants[name] = t
+			continue
+		}
 		if strings.TrimSpace(t.Region) == "" {
 			if inferred := RegionFromGatewayURL(t.URL); inferred != "" {
 				t.Region = inferred
@@ -1244,6 +2091,7 @@ func normalizeConfigForSave(cfg *Config) {
 				t.URL = ""
 			}
 		}
+		t.Org = strings.TrimSpace(t.Org)
 		cfg.Tenants[name] = t
 	}
 	for name, a := range cfg.Auths {
@@ -1251,7 +2099,32 @@ func normalizeConfigForSave(cfg *Config) {
 			a.Access = ""
 		}
 		a.Surface = ""
+		normalizeAuthLinksForSave(&a)
+		if NormalizeAuthType(a.Type) == AuthTypePlatform && strings.TrimSpace(a.Scope) == "" {
+			a.Scope = a.EffectiveScope()
+		}
 		cfg.Auths[name] = a
+	}
+}
+
+func normalizeAuthLinksForSave(a *AuthEntry) {
+	if a == nil {
+		return
+	}
+	if a.JamfPro == "" && len(a.Contexts) == 0 && len(a.Tenants) > 0 {
+		switch {
+		case NormalizeAuthType(a.Type) == AuthTypePlatform && a.EffectiveScope() == PlatformScopeTenant:
+			a.JamfPro = a.Tenants[0]
+		case NormalizeAuthType(a.Type) == AuthTypePlatform:
+			a.Contexts = append([]string(nil), a.Tenants...)
+		case len(a.Tenants) == 1:
+			a.JamfPro = a.Tenants[0]
+		default:
+			a.Contexts = append([]string(nil), a.Tenants...)
+		}
+	}
+	if a.JamfPro != "" || len(a.Contexts) > 0 {
+		a.Tenants = mergeAuthLinks(a.Tenants, a.Contexts, a.JamfPro)
 	}
 }
 
@@ -1303,6 +2176,16 @@ func yamlMapKeyOrder(data []byte, key string) []string {
 	return nil
 }
 
+func yamlWorkplaceKeyOrder(existing []byte) []string {
+	if order := yamlMapKeyOrder(existing, "contexts"); len(order) > 0 {
+		return order
+	}
+	if order := yamlMapKeyOrder(existing, "tenants"); len(order) > 0 {
+		return order
+	}
+	return yamlMapKeyOrder(existing, "credentials")
+}
+
 func marshalConfig(cfg *Config, existing []byte) ([]byte, error) {
 	return marshalConfigWith(cfg, existing, marshalConfigOptions{fillDefault: true})
 }
@@ -1345,14 +2228,19 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 	for n := range cfg.Tenants {
 		tenantSet[n] = struct{}{}
 	}
+	implied, _ := workplacesFromOrgs(cfg.Orgs)
+	if len(implied) > 0 {
+		for n, t := range cfg.Tenants {
+			if src, ok := implied[n]; ok && workplaceIdentityEqual(t, src) {
+				delete(tenantSet, n)
+			}
+		}
+	}
 	authSet := make(map[string]struct{}, len(cfg.Auths))
 	for n := range cfg.Auths {
 		authSet[n] = struct{}{}
 	}
-	tenantOrder := mapKeyOrder(yamlMapKeyOrder(existing, "tenants"), tenantSet)
-	if len(tenantOrder) == 0 {
-		tenantOrder = mapKeyOrder(yamlMapKeyOrder(existing, "credentials"), tenantSet)
-	}
+	tenantOrder := mapKeyOrder(yamlWorkplaceKeyOrder(existing), tenantSet)
 	authOrder := mapKeyOrder(yamlMapKeyOrder(existing, "auths"), authSet)
 	if len(authOrder) == 0 {
 		authOrder = mapKeyOrder(yamlMapKeyOrder(existing, "credentials"), authSet)
@@ -1371,9 +2259,29 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v},
 			)
 		}
+		addTenantStr("org", t.Org)
 		addTenantStr("region", t.Region)
-		addTenantStr("url", t.URL)
-		addTenantStr("tenantId", t.TenantID)
+		addTenantStr("id", t.EnvironmentID)
+		if t.URL != "" || t.TenantID != "" {
+			jamf := &yaml.Node{Kind: yaml.MappingNode}
+			addJamf := func(k, v string) {
+				if v == "" {
+					return
+				}
+				jamf.Content = append(jamf.Content,
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k},
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v},
+				)
+			}
+			addJamf("url", t.URL)
+			addJamf("tenantId", t.TenantID)
+			if len(jamf.Content) > 0 {
+				entry.Content = append(entry.Content,
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "jamfpro"},
+					jamf,
+				)
+			}
+		}
 		appendBuiltinPatternsYAML(entry, "deny_builtins", t.DenyBuiltins)
 		appendBuiltinPatternsYAML(entry, "allow_builtins", t.AllowBuiltins)
 		tenantsNode.Content = append(tenantsNode.Content,
@@ -1405,14 +2313,31 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 			addStr("clientId", a.ClientID, false)
 			addStr("clientSecret", a.ClientSecret, false)
 		}
-		tenantsSeq := &yaml.Node{Kind: yaml.SequenceNode}
-		for _, t := range a.Tenants {
-			tenantsSeq.Content = append(tenantsSeq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: t})
+		if jp := strings.TrimSpace(a.JamfPro); jp != "" {
+			addStr("jamfpro", jp, true)
 		}
-		entry.Content = append(entry.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenants"},
-			tenantsSeq,
-		)
+		if len(a.Contexts) > 0 {
+			seq := &yaml.Node{Kind: yaml.SequenceNode}
+			for _, t := range a.Contexts {
+				seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: t})
+			}
+			entry.Content = append(entry.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "contexts"},
+				seq,
+			)
+		} else if strings.TrimSpace(a.JamfPro) == "" && len(a.Tenants) > 0 {
+			seq := &yaml.Node{Kind: yaml.SequenceNode}
+			for _, t := range a.Tenants {
+				seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: t})
+			}
+			entry.Content = append(entry.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "contexts"},
+				seq,
+			)
+		}
+		if NormalizeAuthType(a.Type) == AuthTypePlatform {
+			addStr("scope", a.EffectiveScope(), true)
+		}
 		if a.Access != "" && a.Access != AccessFull {
 			addStr("access", a.Access, true)
 		}
@@ -1436,22 +2361,29 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 
 	root := &yaml.Node{Kind: yaml.MappingNode}
 	if d := strings.TrimSpace(cfg.Tenant.Default); d != "" {
-		tenantNode := &yaml.Node{Kind: yaml.MappingNode}
-		tenantNode.Content = append(tenantNode.Content,
+		selNode := &yaml.Node{Kind: yaml.MappingNode}
+		selNode.Content = append(selNode.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "default"},
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: d},
 		)
 		root.Content = append(root.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenant"},
-			tenantNode,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "context"},
+			selNode,
 		)
 	}
 
-	writeTenants := len(tenantOrder) > 0 || !opts.omitEmptyMaps
+	if orgsNode := marshalOrgsNode(cfg.Orgs, existing); orgsNode != nil {
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "orgs"},
+			orgsNode,
+		)
+	}
+
+	writeTenants := len(tenantOrder) > 0 || (!opts.omitEmptyMaps && len(cfg.Orgs) == 0)
 	writeAuths := len(authOrder) > 0 || !opts.omitEmptyMaps
 	if writeTenants {
 		root.Content = append(root.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenants"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "contexts"},
 			tenantsNode,
 		)
 	}
@@ -1480,7 +2412,7 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 			}
 			if t := strings.TrimSpace(p.Tenant); t != "" {
 				entry.Content = append(entry.Content,
-					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenant"},
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "context"},
 					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: t},
 				)
 			}
@@ -1490,7 +2422,7 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 					seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: tn})
 				}
 				entry.Content = append(entry.Content,
-					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tenants"},
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "contexts"},
 					seq,
 				)
 			}

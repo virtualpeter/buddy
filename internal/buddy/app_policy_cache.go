@@ -249,6 +249,8 @@ func PolicyCacheGet(credName string, policyID int, logger *slog.Logger) (*resour
 
 // PolicyCacheRefresh rebuilds the full Classic policy payload cache for the session.
 func PolicyCacheRefresh(credName string, logger *slog.Logger) error {
+	indexCtx := jamfProIndexContext(credName)
+
 	dir, err := PolicyCacheTenantDir(credName)
 	if err != nil {
 		return err
@@ -322,6 +324,9 @@ func PolicyCacheRefresh(credName string, logger *slog.Logger) error {
 		return err
 	}
 	fmt.Printf("Policy cache refreshed: %d policies → %s (fetched %s)\n", okCount, dir, manifest.FetchedAt.UTC().Format(time.RFC3339))
+	if indexCtx != "" {
+		fmt.Printf("  Policy index via product tenant %s\n", indexCtx)
+	}
 	return nil
 }
 

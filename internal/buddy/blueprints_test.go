@@ -21,6 +21,7 @@ func clearCredAuthCache() {
 
 func TestBlueprintList_RewritesPath(t *testing.T) {
 	var sawPath string
+	var sawTenant string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -30,6 +31,7 @@ func TestBlueprintList_RewritesPath(t *testing.T) {
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		sawPath = r.URL.Path
+		sawTenant = r.Header.Get(HeaderTenantID)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"totalCount": 1,
 			"results": []map[string]string{
@@ -42,15 +44,15 @@ func TestBlueprintList_RewritesPath(t *testing.T) {
 
 	tid := "tenant-uuid-1"
 	SetActiveConfig(ConfigFromCredentialMap("gw", map[string]CredentialConfig{
-			"gw": {
-				URL:      srv.URL,
-				TenantID: tid,
-				Auth: AuthConfig{
-					Type:         "oauth",
-					ClientID:     "cid",
-					ClientSecret: "sec",
-				},
+		"gw": {
+			URL:      srv.URL,
+			TenantID: tid,
+			Auth: AuthConfig{
+				Type:         "oauth",
+				ClientID:     "cid",
+				ClientSecret: "sec",
 			},
+		},
 	}))
 	clearCredAuthCache()
 	t.Cleanup(func() {
@@ -65,18 +67,35 @@ func TestBlueprintList_RewritesPath(t *testing.T) {
 	if len(items) != 1 || items[0].ID != "bp-1" {
 		t.Fatalf("items = %+v", items)
 	}
-	want := "/api/blueprints/v1/tenant/" + tid + "/blueprints"
+	want := "/blueprints/v1/blueprints"
 	if sawPath != want {
 		t.Fatalf("path = %q want %q", sawPath, want)
+	}
+	if sawTenant != tid {
+		t.Fatalf("X-Tenant-Id = %q want %q", sawTenant, tid)
+	}
+}
+
+func TestBlueprintRequirePlatform_OrgScope(t *testing.T) {
+	SetActiveConfig(ConfigFromCredentialMap("org", map[string]CredentialConfig{
+		"org": {
+			Region: "us",
+			Auth:   AuthConfig{Type: "oauth", ClientID: "c", ClientSecret: "s"},
+		},
+	}))
+	t.Cleanup(func() { SetActiveConfig(nil) })
+	_, err := BlueprintListValues("org", BlueprintListOpts{}, slog.Default())
+	if err == nil || !strings.Contains(err.Error(), "environment") {
+		t.Fatalf("expected environment/tenant id error, got %v", err)
 	}
 }
 
 func TestBlueprintRequirePlatform(t *testing.T) {
 	SetActiveConfig(ConfigFromCredentialMap("inst", map[string]CredentialConfig{
-			"inst": {
-				URL:  "https://example.jamfcloud.com",
-				Auth: AuthConfig{Type: "oauth", ClientID: "c", ClientSecret: "s"},
-			},
+		"inst": {
+			URL:  "https://example.jamfcloud.com",
+			Auth: AuthConfig{Type: "oauth", ClientID: "c", ClientSecret: "s"},
+		},
 	}))
 	t.Cleanup(func() { SetActiveConfig(nil) })
 	_, err := BlueprintListValues("inst", BlueprintListOpts{}, slog.Default())
@@ -87,6 +106,7 @@ func TestBlueprintRequirePlatform(t *testing.T) {
 
 func TestJamfRequest_PlatformRewrite(t *testing.T) {
 	var sawPath string
+	var sawTenant string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -96,6 +116,7 @@ func TestJamfRequest_PlatformRewrite(t *testing.T) {
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		sawPath = r.URL.Path
+		sawTenant = r.Header.Get(HeaderTenantID)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"ok":true}`)
 	})
@@ -104,11 +125,11 @@ func TestJamfRequest_PlatformRewrite(t *testing.T) {
 
 	tid := "t-1"
 	SetActiveConfig(ConfigFromCredentialMap("gw", map[string]CredentialConfig{
-			"gw": {
-				URL:      srv.URL,
-				TenantID: tid,
-				Auth:     AuthConfig{Type: "oauth", ClientID: "c", ClientSecret: "s"},
-			},
+		"gw": {
+			URL:      srv.URL,
+			TenantID: tid,
+			Auth:     AuthConfig{Type: "oauth", ClientID: "c", ClientSecret: "s"},
+		},
 	}))
 	clearCredAuthCache()
 	t.Cleanup(func() {
@@ -123,9 +144,12 @@ func TestJamfRequest_PlatformRewrite(t *testing.T) {
 	if resp.Status != 200 {
 		t.Fatalf("status %d body %s", resp.Status, resp.Body)
 	}
-	want := "/api/pro/v1/tenant/" + tid + "/buildings"
+	want := "/pro/v1/buildings"
 	if sawPath != want {
 		t.Fatalf("path = %q want %q", sawPath, want)
+	}
+	if sawTenant != tid {
+		t.Fatalf("X-Tenant-Id = %q want %q", sawTenant, tid)
 	}
 }
 

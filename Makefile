@@ -13,9 +13,16 @@ ifeq ($(BUDDY_CODESIGN_IDENTITY),)
 BUDDY_CODESIGN_IDENTITY := $(shell security find-identity -v -p codesigning 2>/dev/null | awk -F '"' '/Developer ID Application/ { print $$2; exit }')
 endif
 BUDDY_CODESIGN_IDENTIFIER ?= virtualpete.buddy.cli
+BUDDY_APP_IDENTIFIER ?= virtualpete.buddy
 
-BUILDTARGET := buddy
-SIGNED_TARGET := buddy-darwin-arm64
+# All build artefacts land under dist/ (override with DIST=…).
+DIST ?= dist
+BUILDTARGET := $(DIST)/buddy
+SIGNED_TARGET := $(DIST)/buddy-darwin-arm64
+LITE_TARGET := $(DIST)/buddy-lite
+LINUX_TARGET := $(DIST)/buddy-linux-amd64
+WINDOWS_TARGET := $(DIST)/buddy-windows-amd64.exe
+APP_TARGET := $(DIST)/Buddy.app
 
 # Find all Go files with package main
 GO_MAIN_FILES := $(shell find . -name "*.go" -type f -exec grep -l "^package main" {} \; | grep -v vendor | grep -v ".git" | sort)
@@ -23,9 +30,12 @@ GO_MAIN_FILES := $(shell find . -name "*.go" -type f -exec grep -l "^package mai
 # Version from git (tag or short hash)
 BUDDY_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
-# Buddy CLI (builds to ./buddy)
+# Buddy CLI (builds to dist/buddy)
 BUDDY_GO_FILES := $(shell find cmd/buddy internal docfs stdlib \( -name "*.go" -o -name "*.buddy" -o -name "buddy.png" \) 2>/dev/null)
 DOC_SOURCES := $(shell find docs examples -type f \( -name '*.md' -o -name '*.buddy' -o -name '*.json' \) 2>/dev/null) README.md
+
+$(DIST):
+	mkdir -p $(DIST)
 
 .PHONY: default
 default: $(SIGNED_TARGET)
@@ -63,29 +73,34 @@ else
 GO_TAGS :=
 endif
 
-$(BUILDTARGET): sync-docfs $(BUDDY_GO_FILES) docfs/content/README.embedded
+.PHONY: buddy
+buddy: $(BUILDTARGET)
+
+$(BUILDTARGET): sync-docfs $(BUDDY_GO_FILES) docfs/content/README.embedded | $(DIST)
 	@echo "Building buddy (version $(BUDDY_VERSION)$(if $(TAGS), tags=$(TAGS)), CGO_ENABLED=$(CGO_ENABLED))..."
 	$(GO) build $(GOFLAGS) $(GO_TAGS) -ldflags "-X main.Version=$(BUDDY_VERSION)" -o $(BUILDTARGET) ./cmd/buddy
-	@! santactl status>/dev/null|| santactl fileinfo buddy|grep Rule|egrep '(Allowed|None)' >/dev/null|| rm buddy
+	@! santactl status>/dev/null|| santactl fileinfo $(BUILDTARGET)|grep Rule|egrep '(Allowed|None)' >/dev/null|| rm -f $(BUILDTARGET)
 	@ls -lh $(BUILDTARGET)
 
 # Automation-oriented binary without serve/mcp/lsp (same CLI + buddyscript).
 .PHONY: buddy-lite
-buddy-lite: sync-docfs
+buddy-lite: sync-docfs | $(DIST)
 	@echo "Building buddy-lite (version $(BUDDY_VERSION), tags=noserve,nomcp,nolsp, CGO_ENABLED=$(CGO_ENABLED))..."
-	$(GO) build $(GOFLAGS) -tags 'noserve,nomcp,nolsp' -ldflags "-X main.Version=$(BUDDY_VERSION)" -o buddy-lite ./cmd/buddy
-	@ls -lh buddy-lite
+	$(GO) build $(GOFLAGS) -tags 'noserve,nomcp,nolsp' -ldflags "-X main.Version=$(BUDDY_VERSION)" -o $(LITE_TARGET) ./cmd/buddy
+	@ls -lh $(LITE_TARGET)
 
 # Darwin/arm64 release binary: Security.framework Keychain (service virtualpete.buddy.cli, label Buddy).
-# Signs with BUDDY_CODESIGN_IDENTITY (Developer ID Application; default from find-identity). Does not clobber ./buddy.
+# Signs with BUDDY_CODESIGN_IDENTITY (Developer ID Application; default from find-identity). Does not clobber dist/buddy.
+.PHONY: buddy-darwin-arm64
+buddy-darwin-arm64: $(SIGNED_TARGET)
 
-$(SIGNED_TARGET): sync-docfs
-	@test "$$(uname -s)" = Darwin || { echo "make $(SIGNED_TARGET) is macOS-only"; exit 1; }
-	@test "$$(uname -m)" = arm64 || { echo "make $(SIGNED_TARGET) is arm64-only"; exit 1; }
+$(SIGNED_TARGET): sync-docfs | $(DIST)
+	@test "$$(uname -s)" = Darwin || { echo "make buddy-darwin-arm64 is macOS-only"; exit 1; }
+	@test "$$(uname -m)" = arm64 || { echo "make buddy-darwin-arm64 is arm64-only"; exit 1; }
 	@test -n "$(BUDDY_CODESIGN_IDENTITY)" || { echo "no Developer ID Application identity found; set BUDDY_CODESIGN_IDENTITY or install a Developer ID"; exit 1; }
 	@echo "Building $(SIGNED_TARGET) (version $(BUDDY_VERSION)$(if $(TAGS), tags=secitem,$(TAGS), tags=secitem), CGO_ENABLED=1, identity=$(BUDDY_CODESIGN_IDENTITY))..."
 	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) -tags 'secitem$(if $(TAGS),$(comma)$(TAGS))' -ldflags "-X main.Version=$(BUDDY_VERSION)" -o $(SIGNED_TARGET) ./cmd/buddy
-	codesign --force --sign "$(BUDDY_CODESIGN_IDENTITY)" --identifier "$(BUDDY_CODESIGN_IDENTIFIER)" $(SIGNED_TARGET)
+	codesign --force --sign "$(BUDDY_CODESIGN_IDENTITY)" --options runtime --identifier "$(BUDDY_CODESIGN_IDENTIFIER)" $(SIGNED_TARGET)
 	@info=$$(codesign -dv --verbose=2 $(SIGNED_TARGET) 2>&1); \
 	printf '%s\n' "$$info"; \
 	case "$$info" in *Signature=adhoc*) echo "$(SIGNED_TARGET): ad-hoc signature rejected; use a Developer ID"; exit 1;; esac; \
@@ -95,17 +110,17 @@ $(SIGNED_TARGET): sync-docfs
 
 # Cross-compile Linux amd64 (pure Go; no CGO).
 .PHONY: buddy-linux
-buddy-linux: sync-docfs
-	@echo "Building buddy-linux-amd64 (version $(BUDDY_VERSION), CGO_ENABLED=0)..."
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) $(GO_TAGS) -ldflags "-X main.Version=$(BUDDY_VERSION)" -o buddy-linux-amd64 ./cmd/buddy
-	@ls -lh buddy-linux-amd64
+buddy-linux: sync-docfs | $(DIST)
+	@echo "Building $(LINUX_TARGET) (version $(BUDDY_VERSION), CGO_ENABLED=0)..."
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) $(GO_TAGS) -ldflags "-X main.Version=$(BUDDY_VERSION)" -o $(LINUX_TARGET) ./cmd/buddy
+	@ls -lh $(LINUX_TARGET)
 
 # Cross-compile Windows amd64 (pure Go; config under %APPDATA%\buddy).
 .PHONY: buddy-windows
-buddy-windows: sync-docfs
-	@echo "Building buddy-windows-amd64.exe (version $(BUDDY_VERSION), CGO_ENABLED=0)..."
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build $(GOFLAGS) $(GO_TAGS) -ldflags "-X main.Version=$(BUDDY_VERSION)" -o buddy-windows-amd64.exe ./cmd/buddy
-	@ls -lh buddy-windows-amd64.exe
+buddy-windows: sync-docfs | $(DIST)
+	@echo "Building $(WINDOWS_TARGET) (version $(BUDDY_VERSION), CGO_ENABLED=0)..."
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build $(GOFLAGS) $(GO_TAGS) -ldflags "-X main.Version=$(BUDDY_VERSION)" -o $(WINDOWS_TARGET) ./cmd/buddy
+	@ls -lh $(WINDOWS_TARGET)
 
 # Compare binary sizes for feature-tag combinations (writes /tmp/buddy-size-*).
 .PHONY: size-report
@@ -113,26 +128,46 @@ size-report: sync-docfs
 	@./scripts/buddy-size-report.sh
 
 install: $(BUILDTARGET)
-	rm -f ~/go/bin/$(BUILDTARGET)
-	cp $(BUILDTARGET) ~/go/bin/$(BUILDTARGET)
+	rm -f ~/go/bin/buddy
+	cp $(BUILDTARGET) ~/go/bin/buddy
 .PHONY: install
 
-# Install the signed Darwin/arm64 binary as ~/go/bin/buddy (replaces an unsigned install).
-install-signed: $(SIGNED_TARGET)
-	rm -f ~/go/bin/$(BUILDTARGET)
-	cp $(SIGNED_TARGET) ~/go/bin/$(BUILDTARGET)
+# Buddy.app: CLI at Contents/Helpers/buddy (codesign id virtualpete.buddy.cli).
+# MacOS/Buddy is a Finder stub (future GUI). PATH should symlink into Helpers, not copy.
+.PHONY: app
+app: $(APP_TARGET)
+
+$(APP_TARGET): $(SIGNED_TARGET) cmd/buddy-app/*.go packaging/Info.plist.in scripts/build-buddy-app.sh | $(DIST)
+	@test "$$(uname -s)" = Darwin || { echo "make app is macOS-only"; exit 1; }
+	BUDDY_CODESIGN_IDENTIFIER="$(BUDDY_CODESIGN_IDENTIFIER)" BUDDY_APP_IDENTIFIER="$(BUDDY_APP_IDENTIFIER)" \
+		./scripts/build-buddy-app.sh "$(SIGNED_TARGET)" "$(APP_TARGET)" "$(PKG_VERSION)" "$(BUDDY_CODESIGN_IDENTITY)"
+
+# Install Buddy.app to ~/Applications and symlink ~/go/bin/buddy at the helper.
+install-signed: $(APP_TARGET)
+	mkdir -p ~/Applications ~/go/bin
+	rm -rf ~/Applications/Buddy.app
+	ditto $(APP_TARGET) ~/Applications/Buddy.app
+	rm -f ~/go/bin/buddy
+	ln -s ~/Applications/Buddy.app/Contents/Helpers/buddy ~/go/bin/buddy
 .PHONY: install-signed
 
-# Branded product archive: signed Darwin/arm64 binary → /usr/local/bin/buddy
-# (installer welcome/background + Finder icon from internal/serve/buddy.png).
+# Branded product archive: Buddy.app → /Applications plus postinstall symlink
+# /usr/local/bin/buddy → Contents/Helpers/buddy (installer UI + Finder icon).
 # pkgbuild --version must be period-delimited integers (strip v prefix and -dirty / -N-gSHA).
 # Optional: BUDDY_PKG_SIGN_IDENTITY='Developer ID Installer: …' to productsign the pkg.
 PKG_VERSION ?= $(shell v=$$(printf '%s' "$(BUDDY_VERSION)" | sed -E 's/^v//;s/-.*//'); printf '%s\n' "$${v:-0.0.0}")
-PKG_TARGET ?= buddy-$(PKG_VERSION).pkg
+PKG_TARGET ?= $(DIST)/buddy-$(PKG_VERSION).pkg
 .PHONY: package
-package: $(SIGNED_TARGET)
+package: $(APP_TARGET) | $(DIST)
 	@test "$$(uname -s)" = Darwin || { echo "make package is macOS-only"; exit 1; }
-	@./scripts/build-pkg.sh "$(SIGNED_TARGET)" "$(PKG_TARGET)" "$(PKG_VERSION)" "$(BUDDY_CODESIGN_IDENTIFIER)" "$(BUDDY_PKG_SIGN_IDENTITY)"
+	@./scripts/build-pkg.sh "$(APP_TARGET)" "$(PKG_TARGET)" "$(PKG_VERSION)" "$(BUDDY_APP_IDENTIFIER)" "$(BUDDY_PKG_SIGN_IDENTITY)"
+
+# Clean dist/, then branded pkg + linux/windows cross-builds (macOS host required for pkg).
+.PHONY: release
+release: clean
+	@test "$$(uname -s)" = Darwin || { echo "make release is macOS-only (needs package)"; exit 1; }
+	$(MAKE) package buddy-linux buddy-windows
+	@ls -lh $(DIST)
 
 # Run unit tests (default Keychain: security(1) on Darwin, CGO off).
 test: sync-docfs
@@ -149,7 +184,7 @@ test-signed: sync-docfs
 
 # Run integration tests (requires non-production Jamf + buddy-test-source-profile; pin --tenant/--user)
 integration-test: $(BUILDTARGET)
-	./$(BUILDTARGET) -y scripts/integration_test.buddy
+	$(BUILDTARGET) -y scripts/integration_test.buddy
 .PHONY: integration-test
 
 # ACS hydrate shake-down against a live Classic profile (default id=7; same-tenant mutate+restore).
@@ -157,52 +192,58 @@ integration-test: $(BUILDTARGET)
 #   BUDDY_ACS_PAYLOAD_UUID_7=<FIELD_EXTERNAL_CONFIGPROFILE_ID> make integration-test-acs7
 # or set TEST_ACS_PAYLOAD_UUID in scripts/integration_test_acs_profile7.buddy
 integration-test-acs7: $(BUILDTARGET)
-	./$(BUILDTARGET) -y scripts/integration_test_acs_profile7.buddy
+	$(BUILDTARGET) -y scripts/integration_test_acs_profile7.buddy
 .PHONY: integration-test-acs7
 
 # Read-only: classify profiles that need ACS hydrate / UUID bind
 scan-acs-profiles: $(BUILDTARGET)
-	./$(BUILDTARGET) -y scripts/scan_acs_profile_handling.buddy
+	$(BUILDTARGET) -y scripts/scan_acs_profile_handling.buddy
 .PHONY: scan-acs-profiles
 
 # Local docs + config + script IDE (opens browser)
 docs-serve: $(BUILDTARGET)
-	./$(BUILDTARGET) serve --open
+	$(BUILDTARGET) serve --open
 .PHONY: docs-serve
 
 # Clean all built executables
 clean:
-	@echo "Cleaning executables..."
-	@rm -f $(BUILDTARGET) $(SIGNED_TARGET) buddy-signed buddy-lite buddy-linux-amd64 buddy-windows-amd64.exe buddy-*.pkg *.pkg.unsigned
+	@echo "Cleaning $(DIST)/ and legacy root artefacts..."
+	@rm -rf $(DIST)
+	@rm -rf Buddy.app
+	@rm -f buddy buddy-signed buddy-lite buddy-linux-amd64 buddy-windows-amd64.exe buddy-darwin-arm64 buddy-Darwin-arm64 buddy-*.pkg *.pkg.unsigned
 .PHONY: clean
 
 # Help target
 help:
 	@echo "Generic Go Build Makefile"
 	@echo ""
-	@echo "Targets:"
-	@echo "  $(BUILDTARGET)   - Sync embedded docs + build $(BUILDTARGET) CLI"
-	@echo "  $(SIGNED_TARGET) - Darwin/arm64 release: -tags secitem + Developer ID → ./$(SIGNED_TARGET)"
-	@echo "  buddy-lite - Build with TAGS=noserve,nomcp,nolsp → ./buddy-lite"
-	@echo "  buddy-linux - Cross-compile linux/amd64 → ./buddy-linux-amd64"
-	@echo "  buddy-windows - Cross-compile windows/amd64 → ./buddy-windows-amd64.exe"
+	@echo "Targets (artefacts under $(DIST)/):"
+	@echo "  buddy   - Sync embedded docs + build $(BUILDTARGET)"
+	@echo "  buddy-darwin-arm64 - Darwin/arm64 helper: -tags secitem + Developer ID → $(SIGNED_TARGET)"
+	@echo "  app / Buddy.app - Wrap helper in $(APP_TARGET) (Helpers/buddy + MacOS/Buddy stub)"
+	@echo "  buddy-lite - Build with TAGS=noserve,nomcp,nolsp → $(LITE_TARGET)"
+	@echo "  buddy-linux - Cross-compile linux/amd64 → $(LINUX_TARGET)"
+	@echo "  buddy-windows - Cross-compile windows/amd64 → $(WINDOWS_TARGET)"
 	@echo "  size-report - Build tag variants and print size contribution table"
 	@echo "  sync-docfs - Copy docs/AGENTS/examples/rules into docfs/content for go:embed"
 	@echo "  sync-platform-schema - Refresh vendored Jamf Platform API OpenAPI specs"
-	@echo "  install   - Install $(BUILDTARGET) CLI to ~/go/bin/"
-	@echo "  install-signed - Build $(SIGNED_TARGET) and install as ~/go/bin/$(BUILDTARGET)"
-	@echo "  package   - Build $(SIGNED_TARGET) into a branded pkg that installs /usr/local/bin/buddy"
+	@echo "  install   - Install $(BUILDTARGET) CLI to ~/go/bin/buddy"
+	@echo "  install-signed - Buddy.app → ~/Applications; symlink ~/go/bin/buddy → Helpers/buddy"
+	@echo "  package   - Branded pkg: /Applications/Buddy.app + /usr/local/bin/buddy symlink → $(DIST)/buddy-<version>.pkg"
+	@echo "  release   - clean + package + buddy-linux + buddy-windows (macOS host)"
 	@echo "  test      - Run unit tests (default Keychain / CGO off)"
 	@echo "  test-signed - Darwin: unit tests with -tags secitem (Security.framework, CGO)"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"
 	@echo "  integration-test-acs7 - ACS profile id=7 same-tenant mutate/restore suite"
 	@echo "  scan-acs-profiles - Read-only audit: profiles needing ACS hydrate/bind handling"
 	@echo "  docs-serve - Local docs + config + script IDE (buddy serve --open)"
-	@echo "  clean   - Remove all built executables"
+	@echo "  clean   - Remove $(DIST)/ and leftover root build artefacts"
 	@echo "  help    - Show this help message"
 	@echo ""
 	@echo "Build tags (TAGS=…): noserve, nomcp, nolsp — omit optional features"
 	@echo "CGO_ENABLED=$(CGO_ENABLED) by default (set CGO_ENABLED=1 to override)"
-	@echo "$(SIGNED_TARGET): BUDDY_CODESIGN_IDENTITY defaults to first Developer ID Application (security find-identity); override with BUDDY_CODESIGN_IDENTITY=…; BUDDY_CODESIGN_IDENTIFIER=$(BUDDY_CODESIGN_IDENTIFIER)"
-	@echo "package: same as $(SIGNED_TARGET); branded installer + Finder icon; optional BUDDY_PKG_SIGN_IDENTITY (Developer ID Installer)"
+	@echo "DIST=$(DIST) (override with DIST=…)"
+	@echo "buddy-darwin-arm64: BUDDY_CODESIGN_IDENTITY defaults to first Developer ID Application (security find-identity); override with BUDDY_CODESIGN_IDENTITY=…; BUDDY_CODESIGN_IDENTIFIER=$(BUDDY_CODESIGN_IDENTIFIER)"
+	@echo "app: BUDDY_APP_IDENTIFIER=$(BUDDY_APP_IDENTIFIER)"
+	@echo "package: $(APP_TARGET) into a branded installer; optional BUDDY_PKG_SIGN_IDENTITY (Developer ID Installer)"
 .PHONY: help

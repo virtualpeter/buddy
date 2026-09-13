@@ -33,6 +33,14 @@ func withMCPOpts(opts buddy.Opts) buddy.Opts {
 
 // Run starts the MCP stdio server until the client disconnects.
 func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) error {
+	server := newServer(credName, opts, logger, version)
+	return server.Run(context.Background(), &mcpsdk.StdioTransport{})
+}
+
+// newServer builds the MCP server without unlocking the vault. Touch ID / Keychain
+// presence happens lazily on the first vault-backed secret resolve (token cache
+// unwrap does not open the vault).
+func newServer(credName string, opts buddy.Opts, logger *slog.Logger, version string) *mcpsdk.Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -40,9 +48,6 @@ func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) 
 		version = "dev"
 	}
 	opts = withMCPOpts(opts)
-	if err := buddy.UnlockVaultSession("Unlock Buddy vault for MCP"); err != nil {
-		return fmt.Errorf("vault unlock: %w", err)
-	}
 	instructions := ServerInstructions
 	unconfigured := buddy.ConfigNeedsSetup(buddy.GetActiveConfig())
 	if unconfigured {
@@ -56,7 +61,7 @@ func Run(credName string, opts buddy.Opts, logger *slog.Logger, version string) 
 		registerTools(server, credName, opts, logger, version)
 		registerDocResources(server)
 	}
-	return server.Run(context.Background(), &mcpsdk.StdioTransport{})
+	return server
 }
 
 func registerTools(server *mcpsdk.Server, credName string, opts buddy.Opts, logger *slog.Logger, version string) {

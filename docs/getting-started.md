@@ -6,52 +6,51 @@ Install buddy, connect to Jamf, and run a first command. New here? Start with th
 
 ```sh
 make buddy
-make install    # optional: ~/go/bin/buddy
+make install          # optional: copy unsigned CLI to ~/go/bin/buddy
+make install-signed   # macOS: ~/Applications/Buddy.app + symlink ~/go/bin/buddy
 ```
 
 ## 2. Connect to Jamf
 
-If you have **no tenants configured**, the easiest path is to run any Jamf command on a terminal — buddy prompts for the first tenant and auth (same flow as `buddy cred add`):
+`--context` is a **workplace name** (buddy config), not a Jamf UUID. Jamf **scope** (`organization` / `environment` / `tenant`) lives on the **auth**. Optional nested `orgs:` YAML expands into the same workplaces; instance-only installs omit it. See [Auth](auth.md#contexts-and-auths).
+
+If you have **no workplaces configured**, run any Jamf command on a terminal — buddy asks how to start (same as `buddy setup` / `buddy cred add`):
+
+1. **Jamf Pro instance** — paste the API-client **JSON** Jamf Pro shows (oauth), or type the instance URL plus username/password (**basic**).
+2. **Jamf Account / Platform** — paste the integration **curl**. Organization-admin is `https://us.api.jamfcloud.com` with a blank environment id (no env/tenant header). That workplace is the same object as `orgs.<name>`. Environment curls use a regional host **plus** an environment id. (Samples that show `api.jamfcloud.com` do not resolve; paste still treats them as org-against-US.)
+3. **Quickstart file** — a secrets-free YAML (or ACS plist) with `orgs:` / `contexts:` / ids. Then fill secrets.
+4. **Org MDM profile** already on this Mac (`virtualpete.buddy.cli`) — fill secrets only.
 
 ```sh
-buddy policy list                     # interactive wizard when config is empty
-# or explicitly:
-buddy cred add
-```
-
-You will be asked for a **tenant name**, optional Jamf Pro instance URL, optional Platform region + tenant id, then auth type and credentials. Secrets go into the encrypted vault.
-
-Alternatively:
-
-```sh
-buddy setup basic-setup               # instance URL + basic auth only
+buddy policy list                     # chooser when config is empty
+# or:
+buddy setup
+buddy cred add --paste --context=sandbox
+buddy cred add --context=sandbox --url=https://example.jamfcloud.com --type=basic --username=admin
+buddy setup import ./quickstart.yaml
+pbpaste | buddy cred add --paste --context=sandbox -y
 buddy auth test
 ```
 
-That writes `~/.config/buddy/config.yaml`, stores the password in the encrypted vault (`secrets.enc`), and sets a default tenant.
+Secrets go into the encrypted vault. In the local docs UI (`buddy serve` → `/config`), edit workplace/auth **metadata** after you have identity — `/config` is not first-run. Empty config: `buddy setup` in a terminal. Vault secrets stay in the terminal (`buddy cred set secret` / `buddy setup secrets`).
 
-In the local docs UI (`buddy serve`), open **config** to view and edit tenant/auth **metadata**. Vault secrets are still set from the terminal (`buddy cred set secret …`).
-
-If this Mac already has an org MDM profile for preference domain `virtualpete.buddy.cli` (tenants and optional auth stubs), skip the wizard and run:
+If this Mac already has an org MDM profile (or you imported a quickstart), skip identity and run:
 
 ```sh
 buddy setup secrets                   # create missing auths; store client secrets / passwords
-buddy cred status                     # see tenant × surface coverage / gaps
+buddy cred status                     # org → environment → tenant coverage / gaps
 buddy auth test
 ```
 
-**Optional — API client (oauth) for day-to-day use** (instance only; not Platform gateway):
+Admins share the same identity document two ways. From a working install:
 
 ```sh
-buddy setup write-script              # writes setup_buddy_role.buddy
-buddy setup_buddy_role.buddy -y       # creates role "Buddy" + client "buddy-cli" (idempotent)
-buddy setup store-oauth               # rotates client secret into a buddy oauth auth
-buddy --user <auth-name> auth test
+buddy setup export ./quickstart.yaml           # YAML to mail around (no secrets)
+buddy setup import ./quickstart.yaml           # recipients merge identity, then fill secrets
+buddy setup managed-plist /tmp/buddy.plist     # same identity as Jamf ACS plist
 ```
 
-See `buddy setup help` for flags. After setup, review the Jamf API role and **drop privileges** you do not need (especially destructive MDM actions).
-
-Already have tenants/auths? Use `buddy cred …` and `buddy auth test` instead — details in the [reference manual](reference-manual.md) and [Auth, secrets, and tokens](auth.md).
+Already have workplaces/auths? Use `buddy cred …` and `buddy auth test` — details in the [reference manual](reference-manual.md) and [Auth, secrets, and tokens](auth.md).
 
 ## 3. Try it
 
@@ -69,8 +68,9 @@ In the IDE, open **Libraries** → **Getting started** for a short list of built
 | Guide | What it’s for |
 |-------|----------------|
 | [About](index.md) | Docs map: resources, Platform, guides |
-| [Auth, secrets, and tokens](auth.md) | Tenants, vault, channel policy |
-| [Reference manual](reference-manual.md) | Config, CLI, buddyscript, environment |
+| [Release notes](releases.md) | Notable changes per tagged version |
+| [Auth, secrets, and tokens](auth.md) | Contexts, vault, channel policy |
+| [Reference manual](reference-manual.md) | Config, CLI, buddyscript, env vars |
 | [Script IDE](/ide) | Single-buffer runner |
 | [BuddyScript overview](buddyscript.md) | Language, runners, conventions |
 | [Function index](/docs/builtins) | Every builtin |

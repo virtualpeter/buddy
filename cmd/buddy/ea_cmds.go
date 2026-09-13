@@ -10,6 +10,12 @@ import (
 )
 
 func runExtensionAttribute(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	if err := resolveArg0("extension-attribute", args, []string{
+		clispec.SubList, clispec.SubGet, "history", "deps", "templates",
+		clispec.SubCreate, clispec.SubUpload, clispec.SubDownload, clispec.SubDelete, clispec.SubSet, clispec.SubHelp,
+	}); err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
 		fmt.Print(helpExtensionAttribute)
 		return nil

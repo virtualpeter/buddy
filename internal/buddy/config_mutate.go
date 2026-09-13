@@ -10,18 +10,21 @@ import (
 type SetTenantOpts struct {
 	URL           string
 	Region        string
+	Org           string
+	EnvironmentID string
 	TenantID      string
 	DenyBuiltins  []string
 	AllowBuiltins []string
 	SetDeny       bool // when true, DenyBuiltins replaces previous (even if empty)
 	SetAllow      bool
+	SetOrg        bool // when true, Org replaces previous (even if empty)
 	Overwrite     bool // when false and tenant exists, return ErrExists
 }
 
 // ErrExists is returned when Overwrite is false and the named entry already exists.
 var ErrExists = fmt.Errorf("already exists")
 
-// SetTenantMetadata creates or updates a tenant (url / region / tenantId / builtins).
+// SetTenantMetadata creates or updates a tenant (url / region / scope ids / builtins).
 // Does not prompt. Caller must SaveConfig.
 func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bool, err error) {
 	if cfg == nil {
@@ -38,6 +41,8 @@ func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bo
 	t := TenantConfig{
 		URL:           strings.TrimSpace(opts.URL),
 		Region:        strings.TrimSpace(opts.Region),
+		Org:           strings.TrimSpace(opts.Org),
+		EnvironmentID: strings.TrimSpace(opts.EnvironmentID),
 		TenantID:      strings.TrimSpace(opts.TenantID),
 		DenyBuiltins:  opts.DenyBuiltins,
 		AllowBuiltins: opts.AllowBuiltins,
@@ -48,6 +53,12 @@ func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bo
 		}
 		if t.Region == "" {
 			t.Region = prev.Region
+		}
+		if !opts.SetOrg {
+			t.Org = prev.Org
+		}
+		if t.EnvironmentID == "" {
+			t.EnvironmentID = prev.EnvironmentID
 		}
 		if t.TenantID == "" {
 			t.TenantID = prev.TenantID
@@ -69,6 +80,9 @@ func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bo
 	if err := t.Validate(); err != nil {
 		return false, err
 	}
+	if err := cfg.validateContextOrg(name, t); err != nil {
+		return false, err
+	}
 	if cfg.Tenants == nil {
 		cfg.Tenants = map[string]TenantConfig{}
 	}
@@ -86,6 +100,9 @@ type SetAuthMetadataOpts struct {
 	ClientID      string
 	RunCommand    string
 	Tenants       []string
+	JamfPro       string
+	Contexts      []string
+	Scope         string
 	Access        string
 	Channels      []string
 	ChannelsSet   bool
@@ -119,7 +136,10 @@ func SetAuthMetadata(cfg *Config, name string, opts SetAuthMetadataOpts) (create
 	}
 	entry := AuthEntry{
 		Type:          typ,
-		Tenants:       append([]string{}, opts.Tenants...),
+		Tenants:       mergeAuthLinks(opts.Tenants, opts.Contexts, opts.JamfPro),
+		JamfPro:       strings.TrimSpace(opts.JamfPro),
+		Contexts:      append([]string{}, opts.Contexts...),
+		Scope:         strings.TrimSpace(opts.Scope),
 		Access:        strings.TrimSpace(opts.Access),
 		Channels:      append([]string{}, opts.Channels...),
 		DenyBuiltins:  opts.DenyBuiltins,
@@ -142,6 +162,11 @@ func SetAuthMetadata(cfg *Config, name string, opts SetAuthMetadataOpts) (create
 		entry.ClientSecret = prev.ClientSecret
 		if len(entry.Tenants) == 0 {
 			entry.Tenants = append([]string{}, prev.Tenants...)
+			entry.JamfPro = prev.JamfPro
+			entry.Contexts = append([]string{}, prev.Contexts...)
+		}
+		if entry.Scope == "" {
+			entry.Scope = prev.Scope
 		}
 		if entry.Access == "" {
 			entry.Access = prev.Access
@@ -210,6 +235,16 @@ func DeleteTenantMetadata(cfg *Config, name string) (DeleteTenantResult, error) 
 	res.DeletedAuths = deleteAuths
 	for _, an := range unlinkAuths {
 		a := cfg.Auths[an]
+		if a.JamfPro == name {
+			a.JamfPro = ""
+		}
+		var keptCtx []string
+		for _, t := range a.Contexts {
+			if t != name {
+				keptCtx = append(keptCtx, t)
+			}
+		}
+		a.Contexts = keptCtx
 		var kept []string
 		for _, t := range a.Tenants {
 			if t != name {
@@ -283,7 +318,7 @@ func SetSelection(cfg *Config, opts SetSelectionOpts) error {
 	}
 	if name := strings.TrimSpace(opts.DefaultTenant); name != "" {
 		if _, ok := cfg.Tenants[name]; !ok {
-			return fmt.Errorf("tenant %q not found", name)
+			return fmt.Errorf("context %q not found", name)
 		}
 		cfg.SetDefaultTenant(name)
 	}
@@ -299,7 +334,7 @@ func SetSelection(cfg *Config, opts SetSelectionOpts) error {
 	tenant := strings.TrimSpace(opts.ChannelTenant)
 	if tenant != "" {
 		if _, ok := cfg.Tenants[tenant]; !ok {
-			return fmt.Errorf("tenant %q not found", tenant)
+			return fmt.Errorf("context %q not found", tenant)
 		}
 	}
 	return cfg.SetChannelPolicy(ch, "", tenant, nil, false, true, false, nil, false, nil, false)
@@ -307,30 +342,40 @@ func SetSelection(cfg *Config, opts SetSelectionOpts) error {
 
 // ConfigSnapshot is the JSON-friendly view for GET /api/config.
 type ConfigSnapshot struct {
-	NeedsSetup     bool              `json:"needs_setup"`
-	ConfigFile     bool              `json:"config_file"` // user config.yaml exists
-	DefaultTenant  string            `json:"default_tenant"`
-	ChannelTenants map[string]string `json:"channel_tenants"` // cli/mcp/ide → effective default
-	Tenants        []TenantSnapshot  `json:"tenants"`
-	Auths          []AuthSnapshot    `json:"auths"`
-	Coverage       CoverageReport    `json:"coverage"`
+	NeedsSetup      bool              `json:"needs_setup"`
+	ConfigFile      bool              `json:"config_file"` // user config.yaml exists
+	DefaultContext  string            `json:"default_context"`
+	DefaultTenant   string            `json:"default_tenant"`   // dual-read alias of default_context
+	ChannelContexts map[string]string `json:"channel_contexts"` // cli/mcp/ide → effective default
+	ChannelTenants  map[string]string `json:"channel_tenants"`  // dual-read alias of channel_contexts
+	Contexts        []TenantSnapshot  `json:"contexts"`
+	Tenants         []TenantSnapshot  `json:"tenants"` // dual-read alias of contexts
+	Auths           []AuthSnapshot    `json:"auths"`
+	Coverage        CoverageReport    `json:"coverage"`
 }
 
-// TenantSnapshot is one tenant row for the config UI.
+// TenantSnapshot is one context row for the config UI.
 type TenantSnapshot struct {
-	Name     string `json:"name"`
-	URL      string `json:"url,omitempty"`
-	Region   string `json:"region,omitempty"`
-	TenantID string `json:"tenant_id,omitempty"`
-	Managed  bool   `json:"managed,omitempty"`
+	Name          string `json:"name"`
+	URL           string `json:"url,omitempty"`
+	Region        string `json:"region,omitempty"`
+	Org           string `json:"org,omitempty"`
+	Env           string `json:"env,omitempty"` // parent environment workplace name (not UUID)
+	EnvironmentID string `json:"environment_id,omitempty"`
+	TenantID      string `json:"tenant_id,omitempty"` // Jamf Pro product tenant UUID
+	Kind          string `json:"kind,omitempty"`      // organization | environment | product-tenant | instance
+	Organization  bool   `json:"organization,omitempty"`
+	Managed       bool   `json:"managed,omitempty"`
 }
 
 // AuthSnapshot is one auth row for the config UI (metadata + secret presence).
 type AuthSnapshot struct {
 	Name     string   `json:"name"`
 	Type     string   `json:"type"`
-	Tenants  []string `json:"tenants"`
+	Contexts []string `json:"contexts"`
+	Tenants  []string `json:"tenants"` // dual-read alias of contexts
 	Access   string   `json:"access"`
+	Scope    string   `json:"scope,omitempty"` // platform: organization|environment|tenant
 	Channels []string `json:"channels,omitempty"`
 	Username string   `json:"username,omitempty"`
 	ClientID string   `json:"client_id,omitempty"`
@@ -341,8 +386,9 @@ type AuthSnapshot struct {
 // BuildConfigSnapshot builds the serve/API view of config (no secret values).
 func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 	snap := ConfigSnapshot{
-		NeedsSetup:     ConfigNeedsSetup(cfg),
-		ChannelTenants: map[string]string{},
+		NeedsSetup:      ConfigNeedsSetup(cfg),
+		ChannelContexts: map[string]string{},
+		ChannelTenants:  map[string]string{},
 	}
 	if exists, err := ConfigFileExists(); err == nil {
 		snap.ConfigFile = exists
@@ -350,25 +396,33 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 	if cfg == nil {
 		return snap
 	}
+	snap.DefaultContext = cfg.Tenant.Default
 	snap.DefaultTenant = cfg.Tenant.Default
 	for _, ch := range []string{ChannelCLI, ChannelMCP, ChannelIDE} {
-		snap.ChannelTenants[ch] = cfg.DefaultTenant(ch)
+		d := cfg.DefaultTenant(ch)
+		snap.ChannelContexts[ch] = d
+		snap.ChannelTenants[ch] = d
 	}
-	tnames := make([]string, 0, len(cfg.Tenants))
-	for n := range cfg.Tenants {
-		tnames = append(tnames, n)
-	}
-	sort.Strings(tnames)
-	for _, n := range tnames {
-		t := cfg.Tenants[n]
+	for _, row := range WorkplaceTree(cfg.Tenants) {
+		t := cfg.Tenants[row.Name]
+		org := row.Org
+		if t.WorkplaceKind() == "organization" {
+			org = row.Name
+		}
 		snap.Tenants = append(snap.Tenants, TenantSnapshot{
-			Name:     n,
-			URL:      t.URL,
-			Region:   t.Region,
-			TenantID: t.TenantID,
-			Managed:  cfg.TenantFromManagedPrefs(n),
+			Name:          row.Name,
+			URL:           t.URL,
+			Region:        t.Region,
+			Org:           org,
+			Env:           row.Environment,
+			EnvironmentID: t.EnvironmentID,
+			TenantID:      t.TenantID,
+			Kind:          row.Kind,
+			Organization:  t.IsOrganizationWorkplace(),
+			Managed:       cfg.TenantFromManagedPrefs(row.Name),
 		})
 	}
+	snap.Contexts = snap.Tenants
 	anames := make([]string, 0, len(cfg.Auths))
 	for n := range cfg.Auths {
 		anames = append(anames, n)
@@ -379,12 +433,14 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 		snap.Auths = append(snap.Auths, AuthSnapshot{
 			Name:     n,
 			Type:     a.Type,
+			Contexts: append([]string{}, a.Tenants...),
 			Tenants:  append([]string{}, a.Tenants...),
 			Access:   a.EffectiveAccess(),
+			Scope:    a.EffectiveScope(),
 			Channels: append([]string{}, a.Channels...),
 			Username: a.Username,
 			ClientID: a.ClientID,
-			Secret:   AuthSecretPresence(cfg, n),
+			Secret:   AuthSecretPresence(cfg, n, false),
 			Managed:  cfg.AuthFromManagedPrefs(n),
 		})
 	}

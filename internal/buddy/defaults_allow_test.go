@@ -159,7 +159,7 @@ func TestValidateTenantSelectionAndChannels(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.Channels[ChannelCLI] = ChannelPolicy{Tenant: "missing"}
-	if err := cfg.ValidateTenantSelectionAndChannels(); err == nil || !strings.Contains(err.Error(), "unknown tenant") {
+	if err := cfg.ValidateTenantSelectionAndChannels(); err == nil || !strings.Contains(err.Error(), "unknown context") {
 		t.Fatalf("err=%v", err)
 	}
 	cfg = sampleChannelConfig()
@@ -185,7 +185,7 @@ func TestMarshalConfig_Channels(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(data)
-	for _, want := range []string{"tenant:", "default: sandbox", "channels:", "mcp:", "access: readonly", "cli:"} {
+	for _, want := range []string{"context:", "default: sandbox", "channels:", "mcp:", "access: readonly", "cli:"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in:\n%s", want, s)
 		}

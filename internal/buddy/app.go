@@ -85,12 +85,17 @@ type AppScanResult struct {
 	Apps   []PolicyAppSummary
 	Source string // "cache" or "live"
 	Cache  PolicyCacheStatus
+	// IndexContext is a Jamf Pro product-tenant workplace when undocumented
+	// GET /api/v1/policies ran via a child of the selected environment.
+	IndexContext string `json:"index_context,omitempty"`
 }
 
 // AppScan discovers policy apps for onboarding. Prefers the policy payload cache
 // (summaries.json) when present so a 1300-policy tenant is not listed live.
 // --refresh rebuilds that cache first. Missing cache falls back to a live list.
 func AppScan(credName string, opts AppScanOpts, logger *slog.Logger) (AppScanResult, error) {
+	indexCtx := jamfProIndexContext(credName)
+
 	if opts.Refresh {
 		if err := PolicyCacheRefresh(credName, logger); err != nil {
 			return AppScanResult{}, err
@@ -109,7 +114,7 @@ func AppScan(credName string, opts AppScanOpts, logger *slog.Logger) (AppScanRes
 		ss := ssCandidatesFromCacheSummaries(sums, list)
 		apps := discoverPolicyApps(ss, list, opts.Filter)
 		enrichScanPackagesFromCache(apps, sums)
-		return AppScanResult{Apps: apps, Source: "cache", Cache: st}, nil
+		return AppScanResult{Apps: apps, Source: "cache", Cache: st, IndexContext: indexCtx}, nil
 	}
 	list, err := getPolicyList(credName, logger)
 	if err != nil {
@@ -122,7 +127,7 @@ func AppScan(credName string, opts AppScanOpts, logger *slog.Logger) (AppScanRes
 		}
 	}
 	apps := discoverPolicyApps(ss, list, opts.Filter)
-	return AppScanResult{Apps: apps, Source: "live", Cache: st}, nil
+	return AppScanResult{Apps: apps, Source: "live", Cache: st, IndexContext: indexCtx}, nil
 }
 
 func policyListFromCacheSummaries(sums []PolicyCacheSummary) []policyListItem {

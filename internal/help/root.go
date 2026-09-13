@@ -19,10 +19,15 @@ Commands:
 `
 
 const rootFooter = `
-First time? Run any Jamf command interactively (or 'buddy cred add') for the setup wizard; MDM tenants use 'buddy setup secrets'. Then 'buddy auth test'. See 'buddy setup help' and 'buddy cred help'.
+First time? Run any Jamf command interactively (or 'buddy setup' / 'buddy cred add') for the first-run chooser; MDM / quickstart files use 'buddy setup secrets'. Then 'buddy auth test'. See 'buddy setup help' and 'buddy cred help'.
 Use 'buddy help starlark' or 'buddy help builtins' for buddyscript reference.
 Use 'buddy help <command>' or 'buddy <command> help' for command details.
 Use 'buddy <command> <subcommand> help' for subcommand details.
+
+Notes:
+  Global flags may appear anywhere before -- (buddy policy list --context sandbox -v).
+  Long flags accept a single dash (-context is --context). Short flags are not combinable (-vt is not -v -t).
+  Command and subcommand names accept a unique prefix (buddy ico list).
 `
 
 // Root is buddy help with no arguments (also the Command index overview).

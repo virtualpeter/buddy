@@ -22,8 +22,8 @@ func AllBuddyChannels() []string {
 // ChannelPolicy is per-client policy under top-level channels:.
 type ChannelPolicy struct {
 	Access        string   `yaml:"access,omitempty"`         // readonly | full (omit = full)
-	Tenant        string   `yaml:"tenant,omitempty"`         // default tenant for this channel
-	Tenants       []string `yaml:"tenants,omitempty"`        // optional allowlist
+	Tenant        string   `yaml:"tenant,omitempty"`         // default context (also YAML context:)
+	Tenants       []string `yaml:"tenants,omitempty"`        // optional allowlist (also YAML contexts:)
 	DenyBuiltins  []string `yaml:"deny_builtins,omitempty"`  // exact names or trailing-* prefix globs; "*" deny-all
 	AllowBuiltins []string `yaml:"allow_builtins,omitempty"` // override deny at this layer; ["*"] unblocks all
 }
@@ -37,7 +37,9 @@ func (p *ChannelPolicy) UnmarshalYAML(value *yaml.Node) error {
 	var raw struct {
 		Access        string    `yaml:"access"`
 		Tenant        string    `yaml:"tenant"`
+		Context       string    `yaml:"context"`
 		Tenants       []string  `yaml:"tenants"`
+		Contexts      []string  `yaml:"contexts"`
 		DenyBuiltins  yaml.Node `yaml:"deny_builtins"`
 		AllowBuiltins yaml.Node `yaml:"allow_builtins"`
 	}
@@ -53,8 +55,14 @@ func (p *ChannelPolicy) UnmarshalYAML(value *yaml.Node) error {
 		return fmt.Errorf("allow_builtins: %w", err)
 	}
 	p.Access = raw.Access
-	p.Tenant = raw.Tenant
+	p.Tenant = strings.TrimSpace(raw.Tenant)
+	if c := strings.TrimSpace(raw.Context); c != "" {
+		p.Tenant = c
+	}
 	p.Tenants = raw.Tenants
+	if len(raw.Contexts) > 0 {
+		p.Tenants = raw.Contexts
+	}
 	p.DenyBuiltins = deny
 	p.AllowBuiltins = allow
 	return nil
