@@ -401,6 +401,31 @@ func TestCredBackupSkipsCommandAuthSecrets(t *testing.T) {
 	}
 }
 
+func TestResolveBackupPassphraseIgnoresStoredMaster(t *testing.T) {
+	t.Setenv(secrets.EnvVaultPassphrase, "")
+	secrets.SetStore(nil)
+	secrets.SetMasterStore(&secrets.MemoryMaster{Phrase: "machine-master"})
+	t.Cleanup(func() { secrets.SetMasterStore(nil) })
+	_, err := resolveBackupPassphrase("", false)
+	if err == nil {
+		t.Fatal("backup must not default to machine-stored master")
+	}
+}
+
+func TestResolveBackupPassphraseEnv(t *testing.T) {
+	t.Setenv(secrets.EnvVaultPassphrase, "from-env")
+	t.Cleanup(func() { t.Setenv(secrets.EnvVaultPassphrase, "") })
+	secrets.SetMasterStore(&secrets.MemoryMaster{Phrase: "ignored-master"})
+	t.Cleanup(func() { secrets.SetMasterStore(nil) })
+	pass, err := resolveBackupPassphrase("", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pass != "from-env" {
+		t.Fatalf("pass = %q", pass)
+	}
+}
+
 func TestResolveBackupPassphraseIgnoresDEK(t *testing.T) {
 	t.Setenv(secrets.EnvVaultPassphrase, "")
 	secrets.SetStore(nil)
@@ -414,11 +439,15 @@ func TestResolveBackupPassphraseIgnoresDEK(t *testing.T) {
 		secrets.SetDEKStore(nil)
 		secrets.SetMasterStore(nil)
 	})
-	pass, err := resolveBackupPassphrase("", false)
+	_, err = resolveBackupPassphrase("", false)
+	if err == nil {
+		t.Fatal("must not use DEK or stored master as backup passphrase")
+	}
+	pass, err := resolveBackupPassphrase("explicit", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pass != "recovery-only" {
-		t.Fatalf("backup passphrase = %q (must not be the DEK)", pass)
+	if pass != "explicit" {
+		t.Fatalf("pass = %q", pass)
 	}
 }

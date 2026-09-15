@@ -181,16 +181,16 @@ Keep production passwords and OAuth client secrets **out of YAML**. Inline secre
 
 Resolution order: **inline config → vault → error**. Vault keys are **auth names**.
 
-Passwords and client secrets are stored in **`~/.config/buddy/secrets.enc`** (AES-256-GCM) next to `config.yaml`. A **random 256-bit data key (DEK)** decrypts the vault. After the DEK is loaded once into **process memory**, further secret reads in that process do not call Keychain again (no PBKDF2). A **recovery passphrase** is only for `cred backup` / `restore` and for unwrapping that DEK onto a new binary or Mac.
+Passwords and client secrets are stored in **`~/.config/buddy/secrets.enc`** (AES-256-GCM) next to `config.yaml`. A **random 256-bit data key (DEK)** decrypts the vault. After the DEK is loaded once into **process memory**, further secret reads in that process do not call Keychain again (no PBKDF2). A **user-held recovery passphrase** wraps that DEK inside `secrets.enc` and encrypts `cred backup` / `restore` — it is **not** stored in Keychain/file.
 
-| `BUDDY_SECRET_STORE` | Platform | Data key (DEK) | Recovery passphrase |
-|----------------------|----------|----------------|---------------------|
-| (default) | macOS (`make buddy`) | Keychain, service `buddy`, account `dek`, via `security(1)` | same service, account `master` |
-| (default) | macOS (`make buddy-darwin-arm64`) | Keychain, service `virtualpete.buddy.cli` (label Buddy), account `dek`, `AfterFirstUnlockThisDeviceOnly` + LocalAuthentication presence gate (SecAccessControl when entitled), via Security.framework | same service, account `master` (no presence ACL) |
-| (default) | Linux / Windows | `~/.config/buddy/dek` (mode `0600`) | `~/.config/buddy/master` (mode `0600`; Windows: `%APPDATA%\buddy\…`) |
-| `file` | any | Same as the Linux DEK file | Same as the Linux master file |
-| `pass` | Unix | `pass show buddy/dek` | `pass show buddy/master` |
-| `keychain` | macOS only | Explicit Keychain (same backend as the binary: CLI or SecItem) | same |
+| `BUDDY_SECRET_STORE` | Platform | Data key (DEK) | Recovery |
+|----------------------|----------|----------------|----------|
+| (default) | macOS (`make buddy`) | Keychain, service `buddy`, account `dek`, via `security(1)` | DEK wrap in `secrets.enc` (typed passphrase; leftover Keychain `master` is deleted once a wrap exists) |
+| (default) | macOS (`make buddy-darwin-arm64`) | Keychain, service `virtualpete.buddy.cli` (label Buddy), account `dek`, `AfterFirstUnlockThisDeviceOnly` + LocalAuthentication presence gate (SecAccessControl when entitled), via Security.framework | Same wrap in `secrets.enc` |
+| (default) | Linux / Windows | `~/.config/buddy/dek` (mode `0600`) | Wrap in `secrets.enc` (leftover `master` file deleted once wrap exists) |
+| `file` | any | Same as the Linux DEK file | Same wrap model |
+| `pass` | Unix | `pass show buddy/dek` | Wrap in `secrets.enc` |
+| `keychain` | macOS only | Explicit Keychain (same backend as the binary: CLI or SecItem) | Wrap in `secrets.enc` |
 
 Escape hatches (never written to disk as config):
 
@@ -209,13 +209,21 @@ Escape hatches (never written to disk as config):
 - Uses Security.framework so the ACL is buddy’s Developer ID
 - Upgrades keep working as long as the Team ID and identifier stay the same
 - Separate Keychain service (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) — never shares ACL or items with `dist/buddy`; the vault file is shared
-- **Presence unlock:** ideally Keychain `SecAccessControl` `userPresence`. A bare Developer ID CLI **cannot** store that ACL today (`errSecMissingEntitlement` — needs `keychain-access-groups` + provisioning profile / `.app` packaging). Buddy falls back to **LocalAuthentication** (`evaluatePolicy` device-owner) once per process before releasing the DEK into memory, then reads an `AfterFirstUnlockThisDeviceOnly` Keychain item
+- **Presence unlock:** ideally Keychain `SecAccessControl` `userPresence`. A bare Developer ID CLI **cannot** store that ACL today (`errSecMissingEntitlement` — needs `keychain-access-groups` + provisioning profile / `.app` packaging). Buddy falls back to **LocalAuthentication** (`evaluatePolicy` device-owner; no Mac-unlock reuse; unavailable policy fails closed) once per process before releasing the DEK into memory, then reads an `AfterFirstUnlockThisDeviceOnly` Keychain item
 - First vault use in a process loads the DEK into memory (**process session**): CLI, `buddy mcp`, and `buddy serve` unlock lazily on the first vault-backed secret resolve. A valid token cache skips the vault. `cred status` / `cred store` alone do not unlock the vault (`cred status --unlock` or `--test` does).
 - Escape: `BUDDY_VAULT_UNLOCK=after-first-unlock` skips the LocalAuthentication gate (and ACL attempts)
-- Recovery `master` item stays non-presence so vault writes do not prompt for every save
+- **Cancel means locked:** if the DEK item exists but presence / LA fails or is cancelled, buddy does **not** fall back to the recovery passphrase. Recovery still works when the DEK is genuinely absent via typed `buddy cred set passphrase` or `BUDDY_VAULT_PASSPHRASE`
+- **User-held recovery:** `cred set passphrase` writes a DEK wrap into `secrets.enc` only. Older Keychain/`master` (or `master` file) items are deleted once a wrap is present. `cred backup` / `restore` always require a typed passphrase (or `--passphrase=` / `BUDDY_VAULT_PASSPHRASE`) — never a machine-stored default
 - Unsigned `dist/buddy` cannot use a meaningful app ACL; presence prompts are a signed-release feature. An unlocked mcp/serve process still holds the DEK in RAM
+- Hard biometrics belong in an optional future macOS Buddy Agent (Swift tray); the Go CLI stays soft LA + AFU DEK until then (see security canvas / Agent spike)
 
-A signed binary does not see a DEK stored by `dist/buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against `dist/buddy-darwin-arm64` (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. `make install-signed` puts Buddy.app in `~/Applications` and **symlinks** `~/go/bin/buddy` at `Contents/Helpers/buddy`. `buddy cred erase secrets` deletes the vault, the DEK, the recovery passphrase, the token-wrap key, token cache files, and leftover per-auth items from **both** Keychain services.
+### Optional Buddy Agent (design only)
+
+An optional macOS menu-bar **Buddy Agent** (Swift, grow `Contents/MacOS/Buddy`) can own vault unlock and mint Jamf bearers. The Go CLI would dial a **unix-domain socket** with a **Team-ID codesign peer check**, receive `{access_token, expires_at}` only, and keep using disk `tokens/` for cache hits. When the agent is **absent** (Linux, CI, `BUDDY_NO_AGENT=1`, unsigned), today’s in-process vault remains. When the agent is **present but locked**, buddy errors or prompts — it must not silently load the DEK into Go.
+
+Spike checklist (separate PR): Swift UDS stub → peer codesign → Go `AgentDial` + kill-switch → mcp soak. Do not re-ship Go helper Keychain Sharing / Secure Enclave packaging as the primary unlock story.
+
+A signed binary does not see a DEK stored by `dist/buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against `dist/buddy-darwin-arm64` (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. `make install-signed` puts Buddy.app in `~/Applications` and **symlinks** `~/go/bin/buddy` at `Contents/Helpers/buddy`. `buddy cred erase secrets` deletes the vault, the DEK, any leftover Keychain/file master item, the token-wrap key, token cache files, and leftover per-auth items from **both** Keychain services. Leftover `~/.config/buddy/dek.se` from an abandoned Secure Enclave experiment is unused and safe to delete.
 
 **Codesign**
 
@@ -235,20 +243,20 @@ pbpaste | buddy cred add --paste --context=sandbox -y
 buddy cred add --from=./quickstart.yaml
 buddy setup export ./quickstart.yaml
 buddy setup import ./quickstart.yaml
-buddy cred set passphrase                        # create / rotate the recovery passphrase (backups)
+buddy cred set passphrase                        # create / rotate user-held recovery wrap in secrets.enc
 buddy cred set secret sandbox-admin                  # password (basic)
 buddy cred set secret sandbox-admin --client-secret  # OAuth
 buddy cred migrate                                   # inline YAML + old per-auth store → vault
-buddy cred backup ./buddy.creds                      # uses stored recovery passphrase by default; AES-GCM file
-buddy cred restore ./buddy.creds                     # recovery passphrase; confirm each auth; new local DEK
+buddy cred backup ./buddy.creds                      # typed passphrase (prompt / --passphrase=); AES-GCM file
+buddy cred restore ./buddy.creds                     # typed passphrase; confirm each auth; new local DEK
 buddy cred clean secrets                             # review / delete orphaned vault entries
-buddy cred erase secrets                             # wipe vault + DEK + recovery passphrase + token wrap/cache
+buddy cred erase secrets                             # wipe vault + DEK + leftover keys + token wrap/cache
 buddy cred delete auth sandbox-admin                 # also clears vault secrets
 ```
 
-`buddy cred get secret` and the SECRET column on `cred status` are **presence only**. `buddy auth test` discards any cached token and mints a new one: missing secret / token POST failure is an error; probe 403 after a good token is `live=token-ok` (the secret works, the role lacks that probe). On an **organization** workplace the probe is `GET /licensing/v1/licenses` (org from the token; no `X-Environment-Id` / `X-Tenant-Id`). 200 is `live=ok`; 403 is `live=token-ok` (need the licensing privilege on the org integration). Buildings is skipped — that Pro path needs a scope header. Use `--context` on an environment or product tenant to probe Pro.
+`buddy cred get secret` and the SECRET column on `cred status` (with `--unlock`) are **presence only**. `buddy auth test` discards any cached token and mints a new one: missing secret / token POST failure is an error; probe 403 after a good token is `live=token-ok` (the secret works, the role lacks that probe). On an **organization** workplace the probe is `GET /licensing/v1/licenses` (org from the token; no `X-Environment-Id` / `X-Tenant-Id`). 200 is `live=ok`; 403 is `live=token-ok` (need the licensing privilege on the org integration). Buildings is skipped — that Pro path needs a scope header. Use `--context` on an environment or product tenant to probe Pro.
 
-`buddy cred backup` / `restore` encrypt contexts, auths (including vault secrets), and channel policy with a **recovery passphrase** (AES-256-GCM, PBKDF2-SHA256). The DEK and any biometric/Keychain material are never written into `buddy.creds`. Backup defaults to the stored recovery passphrase (`--passphrase=` overrides). Restore applies contexts and channels, then prompts once per auth unless `-y` (Enter/y writes that auth from the backup; `n` leaves the existing config entry). Auths not in the backup are kept. Secrets go back to the vault under a **new** local DEK. If no recovery passphrase is stored yet, restore saves the backup passphrase as the recovery phrase.
+`buddy cred backup` / `restore` encrypt contexts, auths (including vault secrets), and channel policy with a **typed passphrase** (AES-256-GCM, PBKDF2-SHA256). The DEK and any biometric/Keychain material are never written into `buddy.creds`. Backup never defaults to a machine-stored Keychain/file secret — you must prompt or pass `--passphrase=` (CI may use `BUDDY_VAULT_PASSPHRASE`). Restore applies contexts and channels, then prompts once per auth unless `-y` (Enter/y writes that auth from the backup; `n` leaves the existing config entry). Auths not in the backup are kept. Secrets go back to the vault under a **new** local DEK. If `secrets.enc` has no recovery wrap yet, restore wraps the DEK with the backup passphrase (still not stored in Keychain).
 
 Config and tokens live under `~/.config/buddy` on macOS/Linux (`$XDG_CONFIG_HOME/buddy` when set), and `%APPDATA%\buddy` on Windows.
 
@@ -256,7 +264,7 @@ Config and tokens live under `~/.config/buddy` on macOS/Linux (`$XDG_CONFIG_HOME
 
 ## How tokens are cached
 
-Buddy reuses a bearer token until shortly before it expires (about 15 seconds of clock skew), then obtains a new one. There is no proactive keep-alive while the token is still valid. On CLI, the vault (Touch ID / presence unlock) is opened only when a token must be **minted or refreshed** — a still-valid disk cache under `~/.config/buddy/tokens/` skips the vault entirely. `buddy mcp` / `buddy serve` still unlock once at process start.
+Buddy reuses a bearer token until shortly before it expires (about 15 seconds of clock skew), then obtains a new one. There is no proactive keep-alive while the token is still valid. On CLI, the vault (Touch ID / presence unlock) is opened only when a token must be **minted or refreshed** — a still-valid disk cache under `~/.config/buddy/tokens/` skips the vault entirely. `buddy mcp` / `buddy serve` also unlock lazily on first vault-backed secret resolve (not at process start).
 
 | Auth type | Token source | Refresh |
 |-----------|--------------|---------|

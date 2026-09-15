@@ -270,7 +270,8 @@ func RecoveryPassphrase() (string, error) {
 	return MasterPassphrase()
 }
 
-// MasterPassphrase returns the recovery passphrase (env, then store).
+// MasterPassphrase returns the env override or leftover machine-stored master.
+// New installs do not store a recovery passphrase on the machine.
 func MasterPassphrase() (string, error) {
 	m, err := DefaultMasterStore()
 	if err != nil {
@@ -279,24 +280,30 @@ func MasterPassphrase() (string, error) {
 	return m.Get()
 }
 
-// HasMasterPassphrase reports whether a recovery passphrase is available.
+// HasMasterPassphrase reports whether recovery is available: vault wrap,
+// BUDDY_VAULT_PASSPHRASE, or (legacy) a still-present machine-stored master.
 func HasMasterPassphrase() (bool, error) {
+	if p := envRecoveryPassphrase(); p != "" {
+		return true, nil
+	}
+	if ok, err := VaultHasRecoveryWrap(); err != nil {
+		return false, err
+	} else if ok {
+		return true, nil
+	}
 	m, err := DefaultMasterStore()
 	if err != nil {
 		return false, err
 	}
-	return m.Has()
+	return platformMasterHas(m), nil
 }
 
-// SetMasterPassphrase stores the recovery passphrase and rewraps the vault DEK when needed.
+// SetMasterPassphrase rewraps the vault DEK with newPass. The passphrase is
+// not stored in Keychain/file (user-held knowledge factor).
 func SetMasterPassphrase(newPass string) error {
 	newPass = strings.TrimSpace(newPass)
 	if newPass == "" {
 		return fmt.Errorf("passphrase must not be empty")
-	}
-	m, err := DefaultMasterStore()
-	if err != nil {
-		return err
 	}
 	store, err := DefaultStore()
 	if err != nil {
@@ -304,7 +311,7 @@ func SetMasterPassphrase(newPass string) error {
 	}
 	vs, ok := store.(*VaultStore)
 	if !ok {
-		return m.Set(newPass)
+		return fmt.Errorf("secret store is not a vault")
 	}
 	return vs.SetPassphrase(newPass)
 }

@@ -1428,16 +1428,16 @@ func runCredSetPassphrase(opts buddy.Opts, args []string) error {
 		case a == "-y":
 			opts.SkipConfirm = true
 		case a == clispec.SubHelp:
-			fmt.Print(`buddy cred set passphrase - Create or rotate the recovery passphrase
+			fmt.Print(`buddy cred set passphrase - Create or rotate the user-held recovery passphrase
 
 Usage:
   buddy [global-flags] cred set passphrase [--passphrase=]
 
 Notes:
-  The recovery passphrase encrypts cred backup files (PBKDF2). Day-to-day CLI
-  unlocks ~/.config/buddy/secrets.enc with a random Keychain data key (no
-  fingerprint prompt). On macOS the recovery phrase is Keychain account
-  "master"; on Linux/Windows it is ~/.config/buddy/master (mode 0600).
+  Writes a DEK wrap into secrets.enc only. The passphrase is not stored in
+  Keychain/file — you type it for backup/restore and for DEK recovery when the
+  Keychain vault key is missing. Day-to-day unlock uses the Keychain data key
+  (Touch ID / LocalAuthentication on the signed Mac helper).
   Switching from unsigned ./buddy to the signed binary: use the same recovery
   phrase (unwraps the vault key into this binary's Keychain) or cred backup /
   restore.

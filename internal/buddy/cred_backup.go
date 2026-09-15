@@ -216,7 +216,7 @@ func RestoreCreds(cfg *Config, opts CredBackupOpts) (*CredRestoreResult, error) 
 	if !secrets.UsingOverrideStore() {
 		if ok, err := secrets.HasMasterPassphrase(); err == nil && !ok {
 			if err := secrets.SetMasterPassphrase(pass); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: could not store recovery passphrase: %v (run 'buddy cred set passphrase')\n", err)
+				fmt.Fprintf(os.Stderr, "warning: could not wrap vault with backup passphrase: %v (run 'buddy cred set passphrase')\n", err)
 			}
 		}
 	}
@@ -295,16 +295,19 @@ func authRestorePrompt(name string, a AuthEntry) string {
 
 func resolveBackupPassphrase(provided string, confirm bool) (string, error) {
 	pass := strings.TrimSpace(provided)
-	if pass == "" && !secrets.UsingOverrideStore() {
-		if stored, err := secrets.RecoveryPassphrase(); err == nil && strings.TrimSpace(stored) != "" {
-			if _, isDEK := secrets.ParseDEK(stored); !isDEK {
-				pass = stored
+	// Never default to a machine-stored Keychain/file master — backup encryption
+	// must be a knowledge factor (typed / --passphrase=), not something already
+	// on the machine that could decrypt buddy.creds after theft.
+	if pass == "" {
+		if p := strings.TrimSpace(os.Getenv(secrets.EnvVaultPassphrase)); p != "" {
+			if _, isDEK := secrets.ParseDEK(p); !isDEK {
+				pass = p
 			}
 		}
 	}
 	if pass == "" {
 		if !StdinIsTerminal() {
-			return "", fmt.Errorf("passphrase required (interactive prompt, --passphrase=, or 'buddy cred set passphrase')")
+			return "", fmt.Errorf("passphrase required (interactive prompt, or --passphrase=)")
 		}
 		var err error
 		pass, err = PromptSecret("Encryption passphrase")

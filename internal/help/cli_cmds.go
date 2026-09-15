@@ -168,17 +168,17 @@ Subcommands:
                                     Show or set channels.<client>.context
   set channel <cli|mcp|ide> [args...]
                                     Set channel access / context / contexts allowlist
-  set passphrase [--passphrase=]    Create or rotate the recovery passphrase (backups)
+  set passphrase [--passphrase=]    Create or rotate the user-held recovery passphrase (wraps DEK in secrets.enc; not stored in Keychain)
   delete context|auth|secret <name> Remove a context (blocked if it still has children),
                                     auth (+secrets), or stored secrets
   rename context|auth <old> <new>   Rename a workplace or auth (moves vault secrets)
   restore-config                    Copy last-good config.yaml.ok over a broken config.yaml
   clean secrets                     Review secret-store entries; prompt to delete orphans
   clean tokens                      Delete expired/corrupt files under ~/.config/buddy/tokens/
-  erase secrets                     Wipe the vault, data key, recovery passphrase, token wrap/cache, and leftover Keychain items
-  store                             Show vault path, data-key backend, and recovery-passphrase backend
+  erase secrets                     Wipe the vault, data key, leftover Keychain/file keys, token wrap/cache, and leftover Keychain items
+  store                             Show vault path, data-key backend, and recovery wrap status
   migrate [auth]                    Move inline YAML secrets and old per-auth store items into the vault
-  backup <file>                     Encrypt contexts, auths (with secrets), and channels to a file
+  backup <file>                     Encrypt contexts, auths (with secrets), and channels to a file (typed passphrase)
   restore <file>                    Decrypt a backup; prompt once per auth (or -y)
 
 Flags for 'status':
@@ -250,21 +250,22 @@ Flags for 'set secret':
   --secret-from-stdin               Read the secret value from stdin
 
 Flags for 'set passphrase':
-  --passphrase=<pass>               Recovery passphrase for cred backup/restore (prefer interactive prompt)
+  --passphrase=<pass>               User-held recovery passphrase (prefer interactive prompt; not stored in Keychain)
 
 Flags for 'backup' / 'restore':
-  --passphrase=<pass>               Encryption passphrase (defaults to the stored recovery passphrase)
+  --passphrase=<pass>               Encryption passphrase (required unless prompted; never defaults to Keychain)
   -y                                Overwrite backup file / restore all auths without prompting
 
 Notes for 'backup' / 'restore':
-  cred backup uses the stored recovery passphrase by default (--passphrase=
-  overrides). It writes AES-256-GCM (PBKDF2-SHA256) JSON; auths include store
-  secrets. Restore applies contexts/channels, then prompts once per auth (and
-  its secrets) unless -y. Enter/y writes that auth from the backup; n leaves
-  the existing auth (or absence) in config. Auths not in the backup are kept.
-  A backup with no auths restores contexts/channels only. Secrets go to the
-  vault under a new local data key; if no recovery passphrase exists yet,
-  restore stores the backup passphrase as the recovery phrase.
+  cred backup / restore always use a typed passphrase (--passphrase= or
+  interactive prompt). They do not read a machine-stored Keychain/file master.
+  Backup writes AES-256-GCM (PBKDF2-SHA256) JSON; auths include store secrets.
+  Restore applies contexts/channels, then prompts once per auth (and its
+  secrets) unless -y. Enter/y writes that auth from the backup; n leaves the
+  existing auth (or absence) in config. Auths not in the backup are kept. A
+  backup with no auths restores contexts/channels only. Secrets go to the
+  vault under a new local data key; if secrets.enc has no recovery wrap yet,
+  restore wraps the DEK with the backup passphrase (still not stored in Keychain).
 
 Notes:
   cred status is the maintenance view (org → environment → product-tenant,
@@ -296,16 +297,17 @@ Notes:
   profile changes. Fill secrets with 'buddy setup secrets' or 'buddy cred add'.
   Passwords and client secrets live in ~/.config/buddy/secrets.enc (AES-256-GCM
   with a random data key). The data key is one Keychain item on macOS (account
-  "dek"), or ~/.config/buddy/dek on Linux/Windows. A recovery passphrase (Keychain
-  account "master", or ~/.config/buddy/master) encrypts cred backup files only;
-  day-to-day CLI does not prompt for it or for Touch ID. BUDDY_SECRET_STORE
-  selects where those keys live (keychain, file, pass). BUDDY_VAULT_PASSPHRASE
-  overrides the recovery passphrase (never written). cred set passphrase creates
-  or rotates the recovery phrase (Touch ID on the signed binary).
+  "dek"), or ~/.config/buddy/dek on Linux/Windows. A user-held recovery
+  passphrase wraps that DEK inside secrets.enc and encrypts cred backup files;
+  it is not stored in Keychain. Day-to-day unlock uses the data key (Touch ID /
+  LocalAuthentication on the signed Mac helper). BUDDY_SECRET_STORE selects
+  where the data key lives (keychain, file, pass). BUDDY_VAULT_PASSPHRASE
+  overrides the recovery passphrase for CI (never written). cred set passphrase
+  creates or rotates the wrap.
   Deleting an auth also removes its password/client-secret from the vault.
   Deleting a context deletes auths linked only to that context (with secrets) and
   unlinks multi-context auths; use 'buddy cred clean secrets' for leftover orphans
-  or 'buddy cred erase secrets' to wipe the vault, data key, recovery passphrase,
+  or 'buddy cred erase secrets' to wipe the vault, data key, leftover keys,
   token-wrap key, on-disk token cache, and leftover per-auth Keychain items
   (both macOS services).
   cred migrate moves inline YAML secrets into the vault and, with no auth name,
