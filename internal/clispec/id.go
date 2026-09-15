@@ -73,6 +73,7 @@ const (
 	SubRefresh       = "refresh"
 	SubCheck         = "check"
 	SubDownload      = "download"
+	SubRename        = "rename"
 )
 
 // Flag names without leading dashes (never translated).

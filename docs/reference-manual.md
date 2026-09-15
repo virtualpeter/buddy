@@ -57,8 +57,8 @@ Config is split into:
 
 - **Context selection** — `context.default` (dual-read `tenant.default` for one release).
 - **Channel policies** — `channels.cli|mcp|ide` with optional `access` / `context` / `contexts` / `deny_builtins` / `allow_builtins`. MCP defaults deny `jamf_*`.
-- **Orgs** (optional) — nested Jamf organization → environment → product tenant sugar. Load expands it into `contexts:`; `--context` still picks a workplace name. See [Auth](auth.md#contexts-and-auths).
-- **Contexts** — named workplaces. Default is instance-only (`jamfpro.url`). Platform is additive (`id` + `region`, optional `jamfpro.tenantId`). The config name is not a Jamf environment UUID.
+- **Orgs** — nested Jamf organization → environment → product tenant. This is the on-disk workplace tree; load expands it into the in-memory map `--context` uses. See [Auth](auth.md#contexts-and-auths).
+- **Contexts** — named workplaces (`--context`). Default is instance-only (`orgs.<org>.environments.<name>.url`). Platform is additive (`id` + `region`, optional product `tenantId`). The config name is not a Jamf environment UUID. Flat `contexts:` still loads and is folded.
 - **Auths** — command/basic/oauth/platform principals. Instance auths use `jamfpro:`; platform auths use `scope:` plus `contexts:` or `jamfpro:`. Optional auth `channels:` (`cli`/`mcp`/`ide`; omit = all) limits which buddy clients may use that auth.
 
 Builtin deny/allow is per layer (channel allow cannot unblock a context deny). `deny_builtins: ["*"]` is an allowlist at that layer. `credentials:` / string `tenant:` / `defaults:` / `allow_auths:` and the `serve` / `notebook` client names are removed (use `contexts:` / `auths:` and `channels.ide`). Dual-read `tenants:` / `--tenant` / `tenant=` for one release (root `tenants:` means workplaces; nested `orgs.*.environments.*.tenants` is Jamf’s product-tenant list).
@@ -70,7 +70,9 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred add` — guided context + auth + secret (optional live test)
 - `buddy cred set secret <auth>` — store password/client secret in the vault
 - `buddy cred set passphrase` — create or rotate the recovery passphrase (backups; does not wrap the live vault)
-- `buddy cred delete auth|context <name>` — remove auth (+store secrets) or context (cascades sole-linked auths)
+- `buddy cred delete auth|context <name>` — remove auth (+store secrets) or context (blocked if it still has children; cascades sole-linked auths)
+- `buddy cred rename context|auth <old> <new>` — rename a workplace or auth (vault secrets move with the auth)
+- `buddy cred restore-config` — copy last-good `config.yaml.ok` over a broken `config.yaml`
 - `buddy cred clean secrets` — review secret-store entries and prompt to delete orphans
 - `buddy cred erase secrets` — wipe the vault, data key, recovery passphrase, token-wrap key, token cache files, and leftover Keychain items
 - `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`

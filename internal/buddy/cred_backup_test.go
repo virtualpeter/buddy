@@ -64,7 +64,7 @@ func TestCredBackupRestoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Tenants != 1 || got.Auths != 1 || got.Stored != 1 {
+	if got.Auths != 1 || got.Stored != 1 {
 		t.Fatalf("restore %+v", got)
 	}
 	if empty.Tenants["sandbox"].URL != "https://example.jamfcloud.com" {

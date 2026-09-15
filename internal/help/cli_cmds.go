@@ -122,6 +122,7 @@ Subcommands:
   list                              List contexts as org → environment → tenant
   get context|auth|channel|secret   Show one item (secrets redacted / presence only)
   use [context]                     Show or set context.default
+  rename context|auth <old> <new>   Rename a workplace or auth
   help                              Full flags, channel policy, backup, vault, migrate, clean, erase
 
 Notes:
@@ -168,8 +169,10 @@ Subcommands:
   set channel <cli|mcp|ide> [args...]
                                     Set channel access / context / contexts allowlist
   set passphrase [--passphrase=]    Create or rotate the recovery passphrase (backups)
-  delete context|auth|secret <name> Remove a context (cascades sole-linked auths+secrets),
+  delete context|auth|secret <name> Remove a context (blocked if it still has children),
                                     auth (+secrets), or stored secrets
+  rename context|auth <old> <new>   Rename a workplace or auth (moves vault secrets)
+  restore-config                    Copy last-good config.yaml.ok over a broken config.yaml
   clean secrets                     Review secret-store entries; prompt to delete orphans
   clean tokens                      Delete expired/corrupt files under ~/.config/buddy/tokens/
   erase secrets                     Wipe the vault, data key, recovery passphrase, token wrap/cache, and leftover Keychain items
@@ -279,11 +282,13 @@ Notes:
   credentials: / string tenant: / defaults: / allow_auths: and the notebook
   / serve client names are removed — use contexts:/auths: and channels.<cli|mcp|ide>.
   Dual-read tenants: / tenant.default / --tenant / tenant= for one release;
-  loading config rewrites those keys to context: / contexts: on disk.
-  Optional orgs: YAML (organization → environments → product tenants) expands
-  into those same workplaces; --context still picks a workplace name. Nested
+  loading config rewrites those keys and folds leftover flat contexts: into
+  orgs: (invented org default for instance-only). Nested
   orgs.*.environments.*.tenants is Jamf's product-tenant list, not the root
-  tenants: dual-read. cred add --paste with a US curl and blank env id still
+  tenants: dual-read. cred rename context|auth renames a workplace or auth
+  (vault secrets move). cred restore-config copies config.yaml.ok over a
+  broken config.yaml; leading tabs are rewritten to spaces on load.
+  cred add --paste with a US curl and blank env id still
   creates an org workplace under the name you passed (same object as orgs.<name>).
   macOS managed preferences (domain virtualpete.buddy.cli) overlay as org
   defaults; config.yaml wins per name. 'buddy cred list' notes managed sources.

@@ -14,15 +14,21 @@ import (
 // Load expands this tree into the flat contexts: map (cfg.Tenants) session
 // pick already uses.
 type OrgConfig struct {
-	ID           string                          `yaml:"id,omitempty" json:"id,omitempty"`
-	Environments map[string]OrgEnvironmentConfig `yaml:"environments,omitempty" json:"environments,omitempty"`
+	ID            string                          `yaml:"id,omitempty" json:"id,omitempty"`
+	DenyBuiltins  []string                        `yaml:"deny_builtins,omitempty" json:"deny_builtins,omitempty"`
+	AllowBuiltins []string                        `yaml:"allow_builtins,omitempty" json:"allow_builtins,omitempty"`
+	Environments  map[string]OrgEnvironmentConfig `yaml:"environments,omitempty" json:"environments,omitempty"`
 }
 
-// OrgEnvironmentConfig is an Account environment under an organization.
+// OrgEnvironmentConfig is an Account environment under an organization, or an
+// instance-only slot (url, no Account ids, no nested tenants).
 type OrgEnvironmentConfig struct {
 	ID            string                      `yaml:"id,omitempty" json:"id,omitempty"`
 	EnvironmentID string                      `yaml:"environmentId,omitempty" json:"environmentId,omitempty"`
 	Region        string                      `yaml:"region,omitempty" json:"region,omitempty"`
+	URL           string                      `yaml:"url,omitempty" json:"url,omitempty"`
+	DenyBuiltins  []string                    `yaml:"deny_builtins,omitempty" json:"deny_builtins,omitempty"`
+	AllowBuiltins []string                    `yaml:"allow_builtins,omitempty" json:"allow_builtins,omitempty"`
 	Tenants       map[string]OrgProductTenant `yaml:"tenants,omitempty" json:"tenants,omitempty"`
 }
 
@@ -38,9 +44,11 @@ func (e OrgEnvironmentConfig) EffectiveID() string {
 // Nested orgs.*.environments.*.tenants is Jamf’s product-tenant list — not the
 // root dual-read tenants: map (that still means workplaces / contexts:).
 type OrgProductTenant struct {
-	TenantID string `yaml:"tenantId,omitempty" json:"tenantId,omitempty"`
-	URL      string `yaml:"url,omitempty" json:"url,omitempty"`
-	JamfPro  struct {
+	TenantID      string   `yaml:"tenantId,omitempty" json:"tenantId,omitempty"`
+	URL           string   `yaml:"url,omitempty" json:"url,omitempty"`
+	DenyBuiltins  []string `yaml:"deny_builtins,omitempty" json:"deny_builtins,omitempty"`
+	AllowBuiltins []string `yaml:"allow_builtins,omitempty" json:"allow_builtins,omitempty"`
+	JamfPro       struct {
 		URL      string `yaml:"url,omitempty" json:"url,omitempty"`
 		TenantID string `yaml:"tenantId,omitempty" json:"tenantId,omitempty"`
 	} `yaml:"jamfpro,omitempty" json:"jamfpro,omitempty"`
@@ -60,6 +68,11 @@ func (t OrgProductTenant) EffectiveURL() string {
 		return s
 	}
 	return strings.TrimSpace(t.JamfPro.URL)
+}
+
+// EffectiveURL returns the instance URL on an instance-only environment slot.
+func (e OrgEnvironmentConfig) EffectiveURL() string {
+	return strings.TrimRight(strings.TrimSpace(e.URL), "/")
 }
 
 // expandOrgs compiles optional orgs: into cfg.Tenants (overlay, same names).
@@ -111,32 +124,58 @@ func workplacesFromOrgs(orgs map[string]OrgConfig) (map[string]TenantConfig, err
 		if err := claim(orgName, "organization", "orgs"); err != nil {
 			return nil, err
 		}
-		out[strings.TrimSpace(orgName)] = TenantConfig{}
+		out[strings.TrimSpace(orgName)] = TenantConfig{
+			DenyBuiltins:  append([]string(nil), org.DenyBuiltins...),
+			AllowBuiltins: append([]string(nil), org.AllowBuiltins...),
+		}
 		for envName, env := range org.Environments {
 			path := fmt.Sprintf("orgs.%s.environments.%s", orgName, envName)
-			if err := claim(envName, "environment", path); err != nil {
-				return nil, err
-			}
 			eid := env.EffectiveID()
 			id := strings.TrimSpace(env.ID)
 			alt := strings.TrimSpace(env.EnvironmentID)
 			if id != "" && alt != "" && id != alt {
 				return nil, fmt.Errorf("%s: id and environmentId differ", path)
 			}
-			if eid == "" {
-				return nil, fmt.Errorf("%s: requires id (environmentId)", path)
-			}
 			region := strings.TrimSpace(env.Region)
-			if region == "" {
+			if region != "" {
+				if norm, err := NormalizePlatformRegion(region); err == nil {
+					region = norm
+				}
+			}
+			envURL := env.EffectiveURL()
+			hasTenants := len(env.Tenants) > 0
+			instanceEnv := eid == "" && envURL != "" && !hasTenants
+			accountEnv := region != "" && (eid != "" || hasTenants)
+			if instanceEnv {
+				if err := claim(envName, "instance", path); err != nil {
+					return nil, err
+				}
+				out[strings.TrimSpace(envName)] = TenantConfig{
+					Org:           strings.TrimSpace(orgName),
+					URL:           envURL,
+					DenyBuiltins:  append([]string(nil), env.DenyBuiltins...),
+					AllowBuiltins: append([]string(nil), env.AllowBuiltins...),
+				}
+				continue
+			}
+			if !accountEnv {
+				if eid == "" && envURL == "" && hasTenants {
+					return nil, fmt.Errorf("%s: nested tenants require region (and id when this is an Account environment)", path)
+				}
+				if eid == "" {
+					return nil, fmt.Errorf("%s: requires id (environmentId) or url (instance-only)", path)
+				}
 				return nil, fmt.Errorf("%s: requires region", path)
 			}
-			if norm, err := NormalizePlatformRegion(region); err == nil {
-				region = norm
+			if err := claim(envName, "environment", path); err != nil {
+				return nil, err
 			}
 			out[strings.TrimSpace(envName)] = TenantConfig{
 				Org:           strings.TrimSpace(orgName),
 				Region:        region,
 				EnvironmentID: eid,
+				DenyBuiltins:  append([]string(nil), env.DenyBuiltins...),
+				AllowBuiltins: append([]string(nil), env.AllowBuiltins...),
 			}
 			for tenName, ten := range env.Tenants {
 				tpath := path + ".tenants." + tenName
@@ -149,14 +188,14 @@ func workplacesFromOrgs(orgs map[string]OrgConfig) (map[string]TenantConfig, err
 				if flat != "" && nested != "" && flat != nested {
 					return nil, fmt.Errorf("%s: tenantId and jamfpro.tenantId differ", tpath)
 				}
-				if tid == "" {
-					return nil, fmt.Errorf("%s: requires tenantId", tpath)
-				}
 				url := strings.TrimRight(ten.EffectiveURL(), "/")
 				flatURL := strings.TrimRight(strings.TrimSpace(ten.URL), "/")
 				nestedURL := strings.TrimRight(strings.TrimSpace(ten.JamfPro.URL), "/")
 				if flatURL != "" && nestedURL != "" && flatURL != nestedURL {
 					return nil, fmt.Errorf("%s: url and jamfpro.url differ", tpath)
+				}
+				if tid == "" && url == "" {
+					return nil, fmt.Errorf("%s: requires tenantId or url", tpath)
 				}
 				out[strings.TrimSpace(tenName)] = TenantConfig{
 					Org:           strings.TrimSpace(orgName),
@@ -164,6 +203,8 @@ func workplacesFromOrgs(orgs map[string]OrgConfig) (map[string]TenantConfig, err
 					EnvironmentID: eid,
 					TenantID:      tid,
 					URL:           url,
+					DenyBuiltins:  append([]string(nil), ten.DenyBuiltins...),
+					AllowBuiltins: append([]string(nil), ten.AllowBuiltins...),
 				}
 			}
 		}
@@ -259,7 +300,11 @@ func workplaceIdentityEqual(a, b TenantConfig) bool {
 }
 
 func cloneOrgConfig(o OrgConfig) OrgConfig {
-	out := OrgConfig{ID: o.ID}
+	out := OrgConfig{
+		ID:            o.ID,
+		DenyBuiltins:  append([]string(nil), o.DenyBuiltins...),
+		AllowBuiltins: append([]string(nil), o.AllowBuiltins...),
+	}
 	if o.Environments == nil {
 		return out
 	}
@@ -275,12 +320,17 @@ func cloneOrgEnvironment(e OrgEnvironmentConfig) OrgEnvironmentConfig {
 		ID:            e.ID,
 		EnvironmentID: e.EnvironmentID,
 		Region:        e.Region,
+		URL:           e.URL,
+		DenyBuiltins:  append([]string(nil), e.DenyBuiltins...),
+		AllowBuiltins: append([]string(nil), e.AllowBuiltins...),
 	}
 	if e.Tenants == nil {
 		return out
 	}
 	out.Tenants = make(map[string]OrgProductTenant, len(e.Tenants))
 	for k, t := range e.Tenants {
+		t.DenyBuiltins = append([]string(nil), t.DenyBuiltins...)
+		t.AllowBuiltins = append([]string(nil), t.AllowBuiltins...)
 		out.Tenants[k] = t
 	}
 	return out
@@ -288,6 +338,9 @@ func cloneOrgEnvironment(e OrgEnvironmentConfig) OrgEnvironmentConfig {
 
 func orgConfigEqual(a, b OrgConfig) bool {
 	if strings.TrimSpace(a.ID) != strings.TrimSpace(b.ID) {
+		return false
+	}
+	if !stringSliceEqual(a.DenyBuiltins, b.DenyBuiltins) || !stringSliceEqual(a.AllowBuiltins, b.AllowBuiltins) {
 		return false
 	}
 	if len(a.Environments) != len(b.Environments) {
@@ -319,6 +372,12 @@ func orgEnvironmentEqual(a, b OrgEnvironmentConfig) bool {
 	if ar != br {
 		return false
 	}
+	if a.EffectiveURL() != b.EffectiveURL() {
+		return false
+	}
+	if !stringSliceEqual(a.DenyBuiltins, b.DenyBuiltins) || !stringSliceEqual(a.AllowBuiltins, b.AllowBuiltins) {
+		return false
+	}
 	if len(a.Tenants) != len(b.Tenants) {
 		return false
 	}
@@ -333,6 +392,9 @@ func orgEnvironmentEqual(a, b OrgEnvironmentConfig) bool {
 		au := strings.TrimRight(at.EffectiveURL(), "/")
 		bu := strings.TrimRight(bt.EffectiveURL(), "/")
 		if au != bu {
+			return false
+		}
+		if !stringSliceEqual(at.DenyBuiltins, bt.DenyBuiltins) || !stringSliceEqual(at.AllowBuiltins, bt.AllowBuiltins) {
 			return false
 		}
 	}
@@ -358,6 +420,8 @@ func marshalOrgsNode(orgs map[string]OrgConfig, existing []byte) *yaml.Node {
 				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: id},
 			)
 		}
+		appendBuiltinPatternsYAML(entry, "deny_builtins", org.DenyBuiltins)
+		appendBuiltinPatternsYAML(entry, "allow_builtins", org.AllowBuiltins)
 		if len(org.Environments) > 0 {
 			envSet := make(map[string]struct{}, len(org.Environments))
 			for n := range org.Environments {
@@ -384,6 +448,14 @@ func marshalOrgsNode(orgs map[string]OrgConfig, existing []byte) *yaml.Node {
 						&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: r},
 					)
 				}
+				if u := env.EffectiveURL(); u != "" {
+					envEntry.Content = append(envEntry.Content,
+						&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "url"},
+						&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: u},
+					)
+				}
+				appendBuiltinPatternsYAML(envEntry, "deny_builtins", env.DenyBuiltins)
+				appendBuiltinPatternsYAML(envEntry, "allow_builtins", env.AllowBuiltins)
 				if len(env.Tenants) > 0 {
 					tenSet := make(map[string]struct{}, len(env.Tenants))
 					for n := range env.Tenants {
@@ -407,6 +479,8 @@ func marshalOrgsNode(orgs map[string]OrgConfig, existing []byte) *yaml.Node {
 								&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: u},
 							)
 						}
+						appendBuiltinPatternsYAML(tenEntry, "deny_builtins", ten.DenyBuiltins)
+						appendBuiltinPatternsYAML(tenEntry, "allow_builtins", ten.AllowBuiltins)
 						tensNode.Content = append(tensNode.Content,
 							&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: tenName},
 							tenEntry,

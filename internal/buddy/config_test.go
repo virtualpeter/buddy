@@ -1,6 +1,7 @@
 package buddy
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -599,8 +600,11 @@ auths:
 		t.Fatal(err)
 	}
 	s := string(data)
-	if !strings.Contains(s, "context:") || !strings.Contains(s, "contexts:") {
+	if !strings.Contains(s, "context:") || !strings.Contains(s, "orgs:") {
 		t.Fatalf("rewrite missing new keys:\n%s", s)
+	}
+	if yamlHasTopLevelKey(s, "contexts") {
+		t.Fatalf("folded workplaces should not remain under contexts:\n%s", s)
 	}
 	if strings.Contains(s, "\ntenants:") || strings.Contains(s, "\ntenant:") {
 		t.Fatalf("old keys still on disk:\n%s", s)
@@ -704,5 +708,118 @@ func TestWorkplaceTreeOrder(t *testing.T) {
 	}
 	if byName["acme"].Org != "acme" || byName["acme"].Environment != "" {
 		t.Fatalf("acme row=%+v", byName["acme"])
+	}
+}
+
+func TestRewriteLeadingYAMLTabs(t *testing.T) {
+	in := []byte("context:\n\tdefault: sandbox\n")
+	out := rewriteLeadingYAMLTabs(in)
+	if bytes.Contains(out, []byte{'\t'}) {
+		t.Fatalf("tabs remain: %q", out)
+	}
+	if !bytes.Contains(out, []byte("  default: sandbox")) {
+		t.Fatalf("expected two-space indent: %q", out)
+	}
+}
+
+func TestParseAndMigrateUserYAML_FoldsFlatAndTabs(t *testing.T) {
+	raw := []byte("context:\n\tdefault: sandbox\ncontexts:\n\tsandbox:\n\t\tjamfpro:\n\t\t\turl: https://example.jamfcloud.com\n")
+	cfg, notes, err := parseAndMigrateUserYAML(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(notes, "; ")
+	if !strings.Contains(joined, "leading tabs") || !strings.Contains(joined, "flat contexts") {
+		t.Fatalf("notes=%v", notes)
+	}
+	if cfg.Orgs["default"].Environments["sandbox"].EffectiveURL() != "https://example.jamfcloud.com" {
+		t.Fatalf("orgs=%+v", cfg.Orgs)
+	}
+}
+
+func TestLoadConfig_LeadingTabsRewritePersists(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, filepath.Join(dir, "no-managed.plist"))
+	path := filepath.Join(dir, "buddy", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte("context:\n\tdefault: sandbox\ncontexts:\n\tsandbox:\n\t\tjamfpro:\n\t\t\turl: https://example.jamfcloud.com\n")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Tenants["sandbox"].URL != "https://example.jamfcloud.com" {
+		t.Fatalf("sandbox=%+v", loaded.Tenants["sandbox"])
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if strings.Contains(s, "\t") {
+		t.Fatalf("tabs still on disk:\n%s", s)
+	}
+	if !strings.Contains(s, "orgs:") || yamlHasTopLevelKey(s, "contexts") {
+		t.Fatalf("expected orgs-only rewrite:\n%s", s)
+	}
+}
+
+func TestLastGoodConfigRestore(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, filepath.Join(dir, "no-managed.plist"))
+	path := filepath.Join(dir, "buddy", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	good := []byte(`context:
+  default: sandbox
+orgs:
+  default:
+    environments:
+      sandbox:
+        url: https://example.jamfcloud.com
+`)
+	if err := os.WriteFile(path, good, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	okPath := lastGoodConfigPath(path)
+	if _, err := os.Stat(okPath); err != nil {
+		t.Fatalf("expected last-good snapshot: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(":\tnot yaml\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = LoadConfig()
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if !IsConfigParseError(err) {
+		t.Fatalf("IsConfigParseError=false: %v", err)
+	}
+	if !strings.Contains(err.Error(), "last good") || !strings.Contains(err.Error(), "restore-config") {
+		t.Fatalf("error should mention last good: %v", err)
+	}
+	if err := RestoreLastGoodConfig(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Tenants["sandbox"].URL != "https://example.jamfcloud.com" {
+		t.Fatalf("restored=%+v", loaded.Tenants["sandbox"])
 	}
 }

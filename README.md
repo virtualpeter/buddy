@@ -93,30 +93,19 @@ channels:
     context: sandbox
   # cli omitted → full access; default context = context.default
 
-# Optional orgs: tree expands into the same workplace names (--context).
-# orgs:
-#   acme:
-#     environments:
-#       commercial:
-#         id: …                      # Account environment UUID
-#         region: us
-#         tenants:
-#           sandbox:
-#             tenantId: …            # product tenant UUID
-#             url: https://example.jamfcloud.com
-
-contexts:
-  acme: {}                         # organization workplace: no region (flat form; orgs.acme is the same object)
-
-  sandbox:
-    org: acme                      # this environment sits in that org
-    jamfpro:
-      url: https://example.jamfcloud.com   # instance-only is enough
-      # tenantId: 22222222-…               # product tenant; only if a tenant-scoped platform auth needs it
-    # id: e77c1408-10c8-4007-b177-abc9157fbcaa  # Account environment UUID (optional)
-    # region: us                                 # Platform gateway (us, eu, apac, …); omit on org workplaces
-    # deny_builtins: ["*"]         # context-layer allowlist
-    # allow_builtins: [policies, policy]
+orgs:
+  acme:                            # organization workplace (--context acme)
+    # id: …                        # optional Account org UUID; never sent as a header
+    environments:
+      sandbox:                     # instance-only: URL on the env node, no nested tenant
+        url: https://example.jamfcloud.com
+      commercial:                  # Account environment
+        id: e77c1408-10c8-4007-b177-abc9157fbcaa
+        region: us
+        tenants:
+          prod:
+            tenantId: 22222222-…   # product tenant UUID
+            url: https://prod.example.jamfcloud.com
 
 auths:
   sandbox-admin:
@@ -129,7 +118,7 @@ auths:
     type: platform
     scope: environment
     clientId: your_integration_client_id
-    contexts: [sandbox]
+    contexts: [commercial]
     access: readonly
     channels: [mcp, ide]           # restrict MCP/IDE to this readonly auth
   acme-org:
@@ -142,7 +131,7 @@ features:
   classic_instance_only: true      # optional: force Classic onto instance. Default false lets Classic use /proclassic. ACS and GET /api/v1/policies are always instance.
 ```
 
-**Storage:** Contexts hold workplace identity: an organization (`{}`, no region), and/or Platform `id` + `region`, and/or Jamf Pro `jamfpro.url` (optional `jamfpro.tenantId`). Optional nested `orgs:` YAML (organization → environment → product tenant) expands into those same names; `--context` is only a workplace name, and Jamf `scope:` stays on the auth. The YAML key is not a Jamf UUID. Child `org:` is derived from the tree when present. Auths hold type/username/clientId and link with `jamfpro:` or `contexts:`. Passwords and OAuth client secrets can stay inline for **dev/test**, or live in the encrypted vault (`secrets.enc`, keyed by **auth name**). The vault data key is one Keychain item (macOS) or `dek` (Linux/Windows); backups use a recovery passphrase (`master`):
+**Storage:** Nested `orgs:` is the on-disk workplace tree (organization → environment → product tenant). `--context` is only a workplace name; Jamf `scope:` stays on the auth. Instance-only URLs live on the environment node (`orgs.default.environments.sandbox.url` until you rename `default`). Old flat `contexts:` files still load and are folded. Auths hold type/username/clientId and link with `jamfpro:` or `contexts:`. Passwords and OAuth client secrets can stay inline for **dev/test**, or live in the encrypted vault (`secrets.enc`, keyed by **auth name**). The vault data key is one Keychain item (macOS) or `dek` (Linux/Windows); backups use a recovery passphrase (`master`):
 
 | Platform | Vault | Data key / recovery (`BUDDY_SECRET_STORE`) |
 |----------|-------|--------------------------------------------|
@@ -157,7 +146,7 @@ features:
 buddy cred set context acme
 buddy cred set context sandbox --url=https://example.jamfcloud.com --region=us --environment-id=… --org=acme
 buddy cred set auth sandbox-admin --type=oauth --client-id=abc --jamfpro=sandbox --channels=cli,ide
-buddy cred set auth sandbox-platform-ro --type=platform --client-id=… --contexts=sandbox --scope=environment --access=readonly --channels=mcp,ide
+buddy cred set auth sandbox-platform-ro --type=platform --client-id=… --contexts=commercial --scope=environment --access=readonly --channels=mcp,ide
 buddy cred set channel mcp --access=readonly --context=sandbox
 buddy cred set channel mcp --deny-builtins=computer_erase
 buddy cred set channel mcp --allow-builtins=*
@@ -175,7 +164,7 @@ buddy cred erase secrets               # wipe vault + DEK + recovery passphrase 
 buddy cred clean tokens                # delete expired/corrupt disk token cache files
 ```
 
-Config is `context.default` + `contexts:` + `auths:` + optional `channels:`. Dual-read `tenant.default` / `tenants:` / `--tenant` / `tenant=` for one release; loading config rewrites those keys on disk. Older `credentials:`, a bare string `tenant:`, `defaults:`, and `allow_auths:` are rejected. Inline secrets: `buddy cred migrate`. Selection: `--context` (auto-pick auth by operation; `--tenant` alias) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all). Per-client policy lives under top-level `channels:` (`access` / `context` / `contexts` / `deny_builtins` / `allow_builtins`; MCP defaults deny `jamf_*`). The same deny/allow lists may be set on contexts and auths (per-layer; channel allow cannot unblock a context deny). `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` clients are removed.
+Config is `context.default` + nested `orgs:` (organization → environment → product tenant) + `auths:` + optional `channels:`. Flat `contexts:` / `tenant:` still load and are folded into `orgs:` (invented org `default` for instance-only). Dual-read `--tenant` / `tenant=` for one release. Older `credentials:`, a bare string `tenant:`, `defaults:`, and `allow_auths:` are rejected. Inline secrets: `buddy cred migrate`. Selection: `--context` (auto-pick auth by operation; `--tenant` alias) or `--user`/`--auth` (pin). Prefer readonly auths for reads when linked. Limit which buddy clients may use an auth with `channels:` (omit = all). Per-client policy lives under top-level `channels:` (`access` / `context` / `contexts` / `deny_builtins` / `allow_builtins`; MCP defaults deny `jamf_*`). The same deny/allow lists may be set on contexts and auths (per-layer; channel allow cannot unblock a context deny). `tenant.cli|mcp|serve|ide|notebook` and the `serve` / `notebook` clients are removed. Rename with `buddy cred rename context|auth`. Recover a broken YAML file with `buddy cred restore-config`.
 
 ### First-time setup
 

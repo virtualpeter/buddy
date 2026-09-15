@@ -96,11 +96,15 @@ func TestCredAddBasicInstanceNoOrgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.AuthName == "" || cfg.Tenants["sandbox"].URL != "https://example.jamfcloud.com" {
+	if cfg.Tenants["sandbox"].URL != "https://example.jamfcloud.com" {
 		t.Fatalf("%+v tenants=%+v", res, cfg.Tenants)
 	}
-	if len(cfg.Orgs) != 0 {
-		t.Fatalf("instance basic must not write orgs: %+v", cfg.Orgs)
+	org, ok := cfg.Orgs["default"]
+	if !ok {
+		t.Fatalf("instance basic should write orgs.default: %+v", cfg.Orgs)
+	}
+	if org.Environments["sandbox"].EffectiveURL() != "https://example.jamfcloud.com" {
+		t.Fatalf("nested instance=%+v", org.Environments["sandbox"])
 	}
 	okHas, err := HasCredentialSecret(res.AuthName, secrets.KindPassword)
 	if err != nil || !okHas {

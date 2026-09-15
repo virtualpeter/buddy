@@ -236,12 +236,13 @@ func RestoreCreds(cfg *Config, opts CredBackupOpts) (*CredRestoreResult, error) 
 	if err := cfg.ValidateTenantSelectionAndChannels(); err != nil {
 		return nil, fmt.Errorf("restored config: %w", err)
 	}
+	nTenants := len(cfg.Tenants)
 	if err := SaveConfig(cfg); err != nil {
 		return nil, fmt.Errorf("save config: %w", err)
 	}
 	return &CredRestoreResult{
 		Path:    path,
-		Tenants: len(cfg.Tenants),
+		Tenants: nTenants,
 		Auths:   len(accept),
 		Stored:  stored,
 		Skipped: skipped,

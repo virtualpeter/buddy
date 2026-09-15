@@ -1,6 +1,7 @@
 package buddy
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1745,7 +1746,7 @@ func LoadConfig() (*Config, error) {
 		var err2 error
 		user, notes, err2 = parseAndMigrateUserYAML(data)
 		if err2 != nil {
-			return nil, fmt.Errorf("parse config %s: %w", path, err2)
+			return nil, wrapConfigParseError(path, err2)
 		}
 	}
 
@@ -1802,20 +1803,116 @@ func LoadConfig() (*Config, error) {
 	return merged, nil
 }
 
+func lastGoodConfigPath(path string) string {
+	return path + ".ok"
+}
+
+func rewriteLeadingYAMLTabs(data []byte) []byte {
+	if !bytes.Contains(data, []byte{'\t'}) {
+		return data
+	}
+	lines := bytes.Split(data, []byte("\n"))
+	changed := false
+	for i, line := range lines {
+		n := 0
+		for n < len(line) && line[n] == '\t' {
+			n++
+		}
+		if n == 0 {
+			continue
+		}
+		out := make([]byte, 0, len(line)-n+n*2)
+		for j := 0; j < n; j++ {
+			out = append(out, ' ', ' ')
+		}
+		out = append(out, line[n:]...)
+		lines[i] = out
+		changed = true
+	}
+	if !changed {
+		return data
+	}
+	return bytes.Join(lines, []byte("\n"))
+}
+
+func wrapConfigParseError(path string, err error) error {
+	last := lastGoodConfigPath(path)
+	if fi, statErr := os.Stat(last); statErr == nil && !fi.IsDir() {
+		return fmt.Errorf("parse config %s: %w (last good: %s — run 'buddy cred restore-config')", path, err, last)
+	}
+	return fmt.Errorf("parse config %s: %w", path, err)
+}
+
+// IsConfigParseError reports a YAML/parse failure of config.yaml (not validation of a loaded file).
+func IsConfigParseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "parse config ") || strings.Contains(s, "yaml:")
+}
+
+// RestoreLastGoodConfig copies config.yaml.ok over config.yaml.
+func RestoreLastGoodConfig() error {
+	path, err := configPath()
+	if err != nil {
+		return err
+	}
+	last := lastGoodConfigPath(path)
+	data, err := os.ReadFile(last)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("no last-good config at %s", last)
+		}
+		return err
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write config %s: %w", path, err)
+	}
+	return nil
+}
+
+func snapshotLastGoodConfig(path string, existing []byte) {
+	if len(bytes.TrimSpace(existing)) == 0 {
+		return
+	}
+	var tmp Config
+	if err := yaml.Unmarshal(existing, &tmp); err != nil {
+		return
+	}
+	_ = os.WriteFile(lastGoodConfigPath(path), existing, 0o600)
+}
+
 func parseAndMigrateUserYAML(data []byte) (*Config, []string, error) {
 	if err := rejectRemovedConfigKeys(data); err != nil {
 		return nil, nil, err
 	}
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, nil, err
-	}
 	var notes []string
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		if bytes.Contains(data, []byte{'\t'}) {
+			rewritten := rewriteLeadingYAMLTabs(data)
+			if err2 := yaml.Unmarshal(rewritten, &cfg); err2 != nil {
+				return nil, nil, err
+			}
+			notes = append(notes, "leading tabs → spaces")
+			data = rewritten
+		} else {
+			return nil, nil, err
+		}
+	}
 	if migrateAuthSurfaceIntoType(&cfg) {
 		notes = append(notes, "auth surface into type (platform oauth → type: platform)")
 	}
 	if configYAMLUsesLegacyWorkplaceKeys(data) {
 		notes = append(notes, "tenant/tenants keys → context/contexts")
+	}
+	folded, err := foldFlatIntoOrgs(&cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	if folded {
+		notes = append(notes, "flat contexts → orgs tree")
 	}
 	normalizeAuthChannels(&cfg)
 	return &cfg, notes, nil
@@ -2470,14 +2567,21 @@ func SaveConfig(cfg *Config) error {
 		return fmt.Errorf("create config directory: %w", err)
 	}
 	existing, _ := os.ReadFile(path)
-	if cfg != nil {
-		normalizeConfigForSave(cfg)
-	}
+	snapshotLastGoodConfig(path, existing)
 	toWrite := cfg
 	opts := marshalConfigOptions{fillDefault: true}
 	if cfg != nil && cfg.mdm != nil {
 		toWrite = userOverlayForSave(cfg)
 		opts = marshalConfigOptions{fillDefault: false, omitEmptyMaps: true}
+	}
+	if toWrite != nil {
+		if _, err := foldFlatIntoOrgs(toWrite); err != nil {
+			return fmt.Errorf("fold config into orgs: %w", err)
+		}
+		if err := expandOrgs(toWrite); err != nil {
+			return fmt.Errorf("expand orgs: %w", err)
+		}
+		normalizeConfigForSave(toWrite)
 	}
 	data, err := marshalConfigWith(toWrite, existing, opts)
 	if err != nil {

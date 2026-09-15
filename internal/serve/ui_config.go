@@ -37,7 +37,7 @@ body {
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-main { padding: 1.5rem 2rem 3rem; max-width: 68rem; }
+main { padding: 1.5rem 2rem 3rem; max-width: 76rem; }
 main h1 { margin: 0 0 1rem; font-size: 1.45rem; }
 main h2 {
   margin: 1.75rem 0 .75rem;
@@ -165,8 +165,57 @@ button.primary {
 }
 button.danger { color: var(--err); }
 button:hover { filter: brightness(1.06); }
-.row-actions { white-space: nowrap; }
-.row-actions button { margin-right: .25rem; }
+button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+button.icon {
+  padding: .15rem .4rem;
+  font-size: 1rem;
+  line-height: 1;
+  border: none;
+  background: transparent;
+}
+.work {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(18rem, 20rem);
+  gap: 1.75rem;
+  align-items: start;
+}
+.work > * { min-width: 0; }
+.table-wrap { overflow-x: auto; }
+.work table { margin: 0; }
+#auth-form { grid-template-columns: 1fr; }
+ul.tree { list-style: none; margin: 0; padding: 0; }
+ul.tree ul.tree { margin: .15rem 0 0 .9rem; padding-left: .65rem; border-left: 1px solid var(--line); }
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .28rem .4rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.tree-row:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.tree-row.on { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); }
+.tree-row .name { font-family: var(--mono); font-size: .85rem; }
+.tree-row .url { color: var(--muted); font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 14rem; }
+.tree-row .grow { flex: 1; }
+.row-actions { white-space: nowrap; text-align: right; }
+tr.linked { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+tr.other { opacity: .55; }
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem .75rem;
+  padding: .2rem 0;
+}
+.checks .check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: .35rem;
+  font-family: var(--mono);
+  font-size: .82rem;
+  color: var(--ink);
+}
 </style>
 </head>
 <body>
@@ -199,103 +248,120 @@ button:hover { filter: brightness(1.06); }
     </div>
   </div>
 
-  <h2>Contexts</h2>
+
+  <h2>Workplaces</h2>
   <p class="section-note">A context is a <strong>workplace name</strong> (<code>--context</code>), not a Jamf UUID.
     Jamf Account <strong>scope</strong> lives on the <em>auth</em>.
-    See <a href="/docs/docs/auth#contexts-and-auths">Auth: contexts and auths</a>.</p>
-  <ul class="section-note">
-    <li><strong>Instance</strong> — Jamf Pro URL only. No region or Account ids.</li>
-    <li><strong>Organization</strong> — name only. US gateway, <em>no</em> <code>X-Environment-Id</code> / <code>X-Tenant-Id</code>.</li>
-    <li><strong>Environment</strong> — <code>region</code> + Account <em>environment</em> UUID. Pair with a <code>platform</code> auth whose scope is <code>environment</code> (sends <code>X-Environment-Id</code>). This is the usual GA path for blueprints/devices.</li>
-    <li><strong>Product tenant</strong> — same region + environment id, plus Jamf Pro <em>tenant</em> UUID (optional instance URL). Auth scope <code>tenant</code> sends <code>X-Tenant-Id</code>.</li>
-  </ul>
-  <table>
-    <thead><tr><th>Org</th><th>Environment</th><th>Context</th><th>Kind</th><th>URL</th><th></th></tr></thead>
-    <tbody id="contexts-body"></tbody>
-  </table>
-  <div class="form-grid">
-    <label>Name <input id="t-name" autocomplete="off" placeholder="sandbox"></label>
-    <label>Instance URL
-      <span class="why">Jamf Pro host. Blank for org or environment-only workplaces.</span>
-      <input id="t-url" placeholder="https://example.jamfcloud.com">
-    </label>
-    <label>Region
-      <span class="why">Required for environment / product-tenant (us, eu, apac). Omit on org workplaces.</span>
-      <input id="t-region" placeholder="us">
-    </label>
-    <label>Environment id
-      <span class="why">Account environment UUID from Jamf Account → Integrations. Becomes <code>X-Environment-Id</code>.</span>
-      <input id="t-eid" placeholder="11111111-1111-1111-1111-111111111111">
-    </label>
-    <label>Product tenant id
-      <span class="why">Jamf Pro product-tenant UUID. Only for a tenant workplace / <code>scope: tenant</code>.</span>
-      <input id="t-tid" placeholder="leave blank for environment">
-    </label>
-    <label>Parent org
-      <span class="why">Optional workplace name of the organization (nested <code>orgs:</code>).</span>
-      <input id="t-org" placeholder="acme">
-    </label>
-    <div class="form-actions">
-      <button type="button" class="primary" id="btn-save-context">Add / update context</button>
+    See <a href="/docs/docs/auth#contexts-and-auths">Auth: contexts and auths</a>.
+    Pencil renames; trash deletes (parents with children are blocked).</p>
+  <div class="work">
+    <div>
+      <ul class="tree" id="tree"></ul>
+      <div class="form-actions" style="margin-top:.75rem">
+        <button type="button" id="btn-add-org">Add organization</button>
+        <button type="button" id="btn-add-child">Add child</button>
+      </div>
+    </div>
+    <div>
+      <div class="form-grid" id="detail">
+        <label>Name <input id="t-name" autocomplete="off" placeholder="sandbox"></label>
+        <label>Kind <input id="t-kind" readonly></label>
+        <label id="f-url">Instance URL
+          <span class="why">Jamf Pro host. Blank for org or environment-only workplaces.</span>
+          <input id="t-url" placeholder="https://example.jamfcloud.com">
+        </label>
+        <label id="f-region">Region
+          <span class="why">Required for Account environments (us, eu, apac).</span>
+          <input id="t-region" placeholder="us">
+        </label>
+        <label id="f-eid">Environment id
+          <span class="why">Account environment UUID. Becomes <code>X-Environment-Id</code>.</span>
+          <input id="t-eid" placeholder="11111111-1111-1111-1111-111111111111">
+        </label>
+        <label id="f-tid">Jamf Pro tenant id
+          <span class="why">Jamf Pro product-tenant UUID for <code>scope: tenant</code>.</span>
+          <input id="t-tid">
+        </label>
+        <label id="f-org">Parent org
+          <span class="why">Organization workplace name.</span>
+          <input id="t-org" placeholder="acme">
+        </label>
+        <label id="f-orgid">Org id
+          <span class="why">Optional Account organization UUID (never sent as a header).</span>
+          <input id="t-orgid">
+        </label>
+        <div class="form-actions">
+          <button type="button" class="primary" id="btn-save-context">Save workplace</button>
+        </div>
+      </div>
     </div>
   </div>
 
   <h2>Auths</h2>
   <p class="section-note"><code>oauth</code> / <code>basic</code> talk to Jamf Pro (instance).
     <code>platform</code> talks to the Account gateway; <strong>scope</strong> chooses the header:
-    <code>environment</code> → <code>X-Environment-Id</code> from the linked environment workplace;
-    <code>organization</code> → none (link the org workplace only; not inherited by env/tenant);
+    <code>environment</code> → <code>X-Environment-Id</code>;
+    <code>organization</code> → none;
     <code>tenant</code> → <code>X-Tenant-Id</code>.
-    Product APIs (blueprints, devices) want an environment-scoped platform auth.</p>
-  <table>
-    <thead><tr><th>Name</th><th>Type</th><th>Scope</th><th>Contexts</th><th>Access</th><th>Secret</th><th></th></tr></thead>
-    <tbody id="auths-body"></tbody>
-  </table>
-  <div class="form-grid">
-    <label>Name <input id="a-name" autocomplete="off"></label>
-    <label>Type
-      <select id="a-type">
-        <option value="oauth">oauth</option>
-        <option value="basic">basic</option>
-        <option value="platform">platform</option>
-      </select>
-    </label>
-    <label>Linked contexts (csv) <input id="a-contexts" placeholder="sandbox"></label>
-    <label>Platform scope
-      <span class="why">Only for type platform. environment is the GA default.</span>
-      <select id="a-scope">
-        <option value="">(instance — omit)</option>
-        <option value="organization">organization — no env/tenant header</option>
-        <option value="environment">environment — X-Environment-Id</option>
-        <option value="tenant">tenant — X-Tenant-Id</option>
-      </select>
-    </label>
-    <label>Access
-      <select id="a-access">
-        <option value="full">full</option>
-        <option value="readonly">readonly</option>
-      </select>
-    </label>
-    <label>Channels (csv, blank=all) <input id="a-channels" placeholder="cli,mcp,ide"></label>
-    <label>Username (basic) <input id="a-user"></label>
-    <label>Client ID (oauth/platform) <input id="a-cid"></label>
-    <div class="form-actions">
-      <button type="button" class="primary" id="btn-save-auth">Add / update auth</button>
+    Selecting a workplace highlights the auths linked to it.</p>
+  <div class="work">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Scope</th><th>Contexts</th><th>Access</th><th>Secret</th><th></th></tr></thead>
+        <tbody id="auths-body"></tbody>
+      </table>
+    </div>
+    <div>
+      <div class="form-grid" id="auth-form">
+        <label>Name <input id="a-name" autocomplete="off"></label>
+        <label>Type
+          <select id="a-type">
+            <option value="oauth">oauth</option>
+            <option value="basic">basic</option>
+            <option value="platform">platform</option>
+          </select>
+        </label>
+        <label id="f-scope">Platform scope
+          <span class="why">Only for type platform. environment is the GA default.</span>
+          <select id="a-scope">
+            <option value="">(instance — omit)</option>
+            <option value="organization">organization — no env/tenant header</option>
+            <option value="environment">environment — X-Environment-Id</option>
+            <option value="tenant">tenant — X-Tenant-Id</option>
+          </select>
+        </label>
+        <label>Access
+          <select id="a-access">
+            <option value="full">full</option>
+            <option value="readonly">readonly</option>
+          </select>
+        </label>
+        <label id="f-user">Username (basic) <input id="a-user"></label>
+        <label id="f-cid">Client ID (oauth/platform) <input id="a-cid"></label>
+        <label style="grid-column:1/-1">Linked contexts
+          <span class="why">Workplaces this auth may use.</span>
+          <div class="checks" id="a-contexts-boxes"></div>
+        </label>
+        <label style="grid-column:1/-1">Channels
+          <span class="why">Blank / all three = every client.</span>
+          <div class="checks">
+            <label class="check"><input type="checkbox" id="a-ch-cli" checked> cli</label>
+            <label class="check"><input type="checkbox" id="a-ch-mcp" checked> mcp</label>
+            <label class="check"><input type="checkbox" id="a-ch-ide" checked> ide</label>
+          </div>
+        </label>
+        <div class="form-actions">
+          <button type="button" class="primary" id="btn-save-auth">Add / update auth</button>
+        </div>
+      </div>
     </div>
   </div>
-
-  <h2>Coverage</h2>
-  <p class="section-note">Each row is a workplace × <em>surface</em> (instance URL vs Platform gateway) — not Jamf Account scope.
-    An environment workplace needs a <code>platform</code> auth with scope <code>environment</code>.</p>
-  <table>
-    <thead><tr><th>Org</th><th>Environment</th><th>Context</th><th>Kind</th><th>Surface</th><th>Status</th><th>Auths</th></tr></thead>
-    <tbody id="cov-body"></tbody>
-  </table>
 </main>
 ` + chromeToggleScript() + `
 <script>
 (function(){
   var state = null;
+  var selected = null;
   var errEl = document.getElementById('err');
   function showErr(msg){
     errEl.textContent = msg || '';
@@ -316,19 +382,20 @@ button:hover { filter: brightness(1.06); }
     if (!res.ok) throw new Error(data.error || (res.status + ' ' + res.statusText));
     return data;
   }
-  function workplaceKind(t){
-    if (t.kind) return t.kind;
-    if (t.organization) return 'organization';
-    if (t.tenant_id) return 'tenant';
-    if (t.environment_id || (t.region && !t.url)) return 'environment';
-    return 'instance';
-  }
-  function workplaceKindLabel(k){
-    if (k === 'tenant' || k === 'product-tenant') return 'product tenant';
-    return k || '';
-  }
   function workplaceRows(st){
     return st.contexts || st.tenants || [];
+  }
+  function walkTree(nodes, fn){
+    (nodes || []).forEach(function(n){
+      fn(n);
+      walkTree(n.children, fn);
+    });
+  }
+  function findNode(name){
+    var found = null;
+    walkTree(state && state.tree, function(n){ if (n.name === name) found = n; });
+    if (found) return found;
+    return workplaceRows(state).find(function(x){ return x.name === name; }) || null;
   }
   function defaultContext(st){
     return st.default_context || st.default_tenant || '';
@@ -337,82 +404,162 @@ button:hover { filter: brightness(1.06); }
     return st.channel_contexts || st.channel_tenants || {};
   }
   function authContexts(a){
-    return a.contexts || a.tenants || [];
+    var c = a.contexts || [];
+    if (c.length) return c;
+    return a.tenants || [];
   }
-  function contextOptions(selected, includeBlank){
+  function contextOptions(selectedName, includeBlank){
     var html = includeBlank ? '<option value="">(from default)</option>' : '';
     workplaceRows(state).forEach(function(t){
-      html += '<option value="'+esc(t.name)+'"'+(t.name===selected?' selected':'')+'>'+esc(t.name)+'</option>';
+      html += '<option value="'+esc(t.name)+'"'+(t.name===selectedName?' selected':'')+'>'+esc(t.name)+'</option>';
     });
     return html;
+  }
+  function kindLabel(k){
+    if (k === 'tenant' || k === 'product-tenant') return 'jamfpro';
+    return k || '';
+  }
+  function collectedContexts(){
+    var out = [];
+    document.querySelectorAll('#a-contexts-boxes input:checked').forEach(function(i){ out.push(i.value); });
+    return out;
+  }
+  function collectedChannels(){
+    var out = [];
+    if (document.getElementById('a-ch-cli').checked) out.push('cli');
+    if (document.getElementById('a-ch-mcp').checked) out.push('mcp');
+    if (document.getElementById('a-ch-ide').checked) out.push('ide');
+    if (out.length === 0 || out.length === 3) return [];
+    return out;
+  }
+  function setChannelChecks(list){
+    var all = !list || !list.length;
+    document.getElementById('a-ch-cli').checked = all || list.indexOf('cli') >= 0;
+    document.getElementById('a-ch-mcp').checked = all || list.indexOf('mcp') >= 0;
+    document.getElementById('a-ch-ide').checked = all || list.indexOf('ide') >= 0;
+  }
+  function syncContextChecks(selectedNames){
+    var box = document.getElementById('a-contexts-boxes');
+    var names = workplaceRows(state).map(function(t){ return t.name; });
+    var have = {};
+    if (selectedNames) selectedNames.forEach(function(n){ have[n] = true; });
+    else box.querySelectorAll('input:checked').forEach(function(i){ have[i.value] = true; });
+    var html = '';
+    names.forEach(function(n){
+      html += '<label class="check"><input type="checkbox" value="'+esc(n)+'"'+(have[n]?' checked':'')+'> '+esc(n)+'</label>';
+    });
+    box.innerHTML = html || '<span class="muted">No workplaces</span>';
+  }
+  function syncAuthFields(){
+    var typ = document.getElementById('a-type').value;
+    setVis('f-scope', typ === 'platform');
+    setVis('f-user', typ === 'basic');
+    setVis('f-cid', typ === 'oauth' || typ === 'platform');
+  }
+  function renderNode(n){
+    var canDel = !!n.can_delete && !n.managed;
+    var trashTitle = canDel ? 'Delete' : (n.managed ? 'Managed by MDM' : 'Delete children first');
+    var html = '<li><div class="tree-row'+(selected===n.name?' on':'')+'" data-sel="'+esc(n.name)+'">'+
+      '<span class="badge">'+esc(kindLabel(n.kind))+'</span>'+
+      '<span class="name">'+esc(n.name)+'</span>'+
+      (n.managed?' <span class="badge">mdm</span>':'')+
+      (n.gap?' <span class="badge gap">gap</span>':'')+
+      (n.url?' <span class="url">'+esc(n.url)+'</span>':'')+
+      '<span class="grow"></span>'+
+      (n.managed?'':
+        '<button type="button" class="icon" data-ren="'+esc(n.name)+'" title="Rename">✎</button>'+
+        '<button type="button" class="icon danger" data-del="'+esc(n.name)+'" title="'+esc(trashTitle)+'" '+(canDel?'':'disabled')+'>🗑</button>')+
+      '</div>';
+    if (n.children && n.children.length) {
+      html += '<ul class="tree">'+n.children.map(renderNode).join('')+'</ul>';
+    }
+    return html + '</li>';
+  }
+  function setVis(id, on){
+    var el = document.getElementById(id);
+    if (el) el.style.display = on ? '' : 'none';
+  }
+  function fillDetail(n){
+    document.getElementById('t-name').value = n && n.name || '';
+    document.getElementById('t-kind').value = n && kindLabel(n.kind) || '';
+    document.getElementById('t-url').value = n && n.url || '';
+    document.getElementById('t-region').value = n && n.region || '';
+    document.getElementById('t-eid').value = n && n.environment_id || '';
+    document.getElementById('t-tid').value = n && n.tenant_id || '';
+    document.getElementById('t-org').value = n && n.org && n.kind !== 'organization' ? n.org : '';
+    document.getElementById('t-orgid').value = n && n.org_id || '';
+    var k = n && n.kind || '';
+    setVis('f-url', !n || k === 'instance' || k === 'product-tenant' || k === 'tenant');
+    setVis('f-region', !n || k === 'environment');
+    setVis('f-eid', !n || k === 'environment');
+    setVis('f-tid', !n || k === 'product-tenant' || k === 'tenant');
+    setVis('f-org', !n || k !== 'organization');
+    setVis('f-orgid', !n || k === 'organization');
+  }
+  function confirmDeleteWorkplace(n){
+    var msg = 'Delete '+kindLabel(n.kind)+' "'+n.name+'"?';
+    var removed = [], unlinked = [];
+    (state.auths || []).forEach(function(a){
+      var links = authContexts(a);
+      if (links.indexOf(n.name) < 0) return;
+      if (links.length === 1) removed.push(a.name); else unlinked.push(a.name);
+    });
+    if (removed.length) msg += '\nAuths that will be removed: '+removed.join(', ');
+    if (unlinked.length) msg += '\nAuths that will be unlinked: '+unlinked.join(', ');
+    if (!removed.length && !unlinked.length) msg += '\nNo auths linked.';
+    return confirm(msg);
   }
   function render(){
     if (!state) return;
     showErr('');
     var banner = document.getElementById('banner');
-    if (state.needs_setup) {
+    if (state.parse_error) {
       banner.style.display = '';
-      banner.innerHTML = '<strong>Not configured yet.</strong> Run <code>buddy setup</code> or <code>buddy cred add</code> in a terminal (instance JSON/basic, Platform curl, <code>setup import</code>, or MDM + <code>setup secrets</code>). This page does not collect secrets. See <a href="/docs/docs/getting-started">Getting started</a>.';
+      banner.innerHTML = '<strong>config.yaml could not be parsed.</strong> '+esc(state.parse_error)+
+        (state.last_good ? ' <button type="button" class="primary" id="btn-restore">Restore last good</button>' : '');
+    } else if (state.needs_setup) {
+      banner.style.display = '';
+      banner.innerHTML = '<strong>Not configured yet.</strong> Run <code>buddy setup</code> or <code>buddy cred add</code> in a terminal. This page does not collect secrets. See <a href="/docs/docs/getting-started">Getting started</a>.';
     } else {
       banner.style.display = 'none';
     }
+    var rest = document.getElementById('btn-restore');
+    if (rest) rest.onclick = async function(){
+      try { state = await api('POST', '/api/config/restore'); selected = null; render(); }
+      catch (e) { showErr(e.message); }
+    };
     var def = defaultContext(state);
     var ch = channelContexts(state);
     document.getElementById('default-context').innerHTML = contextOptions(def, false);
     document.getElementById('ch-cli').innerHTML = contextOptions(ch.cli || '', true);
     document.getElementById('ch-mcp').innerHTML = contextOptions(ch.mcp || '', true);
     document.getElementById('ch-ide').innerHTML = contextOptions(ch.ide || '', true);
-
-    var tb = document.getElementById('contexts-body');
-    tb.innerHTML = '';
-    workplaceRows(state).forEach(function(t){
-      var kind = workplaceKind(t);
-      var org = t.org || (kind === 'organization' ? t.name : '');
-      var env = t.env || (kind === 'environment' ? t.name : '');
-      var url = (kind === 'instance' || kind === 'tenant' || kind === 'product-tenant') ? (t.url || '') : '';
-      var tr = document.createElement('tr');
-      tr.innerHTML = '<td>'+esc(org)+'</td><td>'+esc(env)+'</td>'+
-        '<td><code>'+esc(t.name)+'</code>'+(t.managed?' <span class="badge">mdm</span>':'')+'</td>'+
-        '<td><span class="badge">'+esc(workplaceKindLabel(kind))+'</span></td>'+
-        '<td>'+esc(url)+'</td>'+
-        '<td class="row-actions"><button type="button" data-edit-t="'+esc(t.name)+'">Edit</button>'+
-        '<button type="button" class="danger" data-del-t="'+esc(t.name)+'">Delete</button></td>';
-      tb.appendChild(tr);
+    var tree = state.tree && state.tree.length ? state.tree : workplaceRows(state).map(function(t){
+      return { name: t.name, kind: t.kind, url: t.url, can_delete: !t.managed, managed: t.managed, org: t.org, region: t.region, environment_id: t.environment_id, tenant_id: t.tenant_id };
     });
-    if (!workplaceRows(state).length) {
-      tb.innerHTML = '<tr><td colspan="6" class="muted">No contexts</td></tr>';
-    }
-
+    document.getElementById('tree').innerHTML = tree.length ? tree.map(renderNode).join('') : '<li class="muted">No workplaces</li>';
+    fillDetail(findNode(selected));
+    syncContextChecks();
+    syncAuthFields();
     var ab = document.getElementById('auths-body');
     ab.innerHTML = '';
-    (state.auths || []).forEach(function(a){
+    var auths = state.auths || [];
+    auths.forEach(function(a){
       var secretCls = a.secret === 'missing' ? 'gap' : 'ok';
+      var links = authContexts(a);
+      var cls = '';
+      if (selected) cls = links.indexOf(selected) >= 0 ? 'linked' : 'other';
       var tr = document.createElement('tr');
-      tr.innerHTML = '<td><code>'+esc(a.name)+'</code>'+(a.managed?' <span class="badge">mdm</span>':'')+'</td>'+
-        '<td>'+esc(a.type)+'</td><td>'+esc(a.scope||'')+'</td><td>'+esc(authContexts(a).join(', '))+'</td>'+
-        '<td>'+esc(a.access)+'</td><td><span class="badge '+secretCls+'">'+esc(a.secret)+'</span></td>'+
-        '<td class="row-actions"><button type="button" data-edit-a="'+esc(a.name)+'">Edit</button>'+
-        '<button type="button" class="danger" data-del-a="'+esc(a.name)+'">Delete</button></td>';
+      if (cls) tr.className = cls;
+      tr.innerHTML = '<td><code data-edit-a="'+esc(a.name)+'" title="Edit metadata">'+esc(a.name)+'</code>'+(a.managed?' <span class="badge">mdm</span>':'')+'</td>'+
+        '<td>'+esc(a.type)+'</td><td>'+esc(a.scope||'')+'</td><td>'+esc(links.join(', '))+'</td>'+
+        '<td>'+esc(a.access||'')+'</td><td><span class="badge '+secretCls+'">'+esc(a.secret)+'</span></td>'+
+        '<td class="row-actions">'+(a.managed?'':
+          '<button type="button" class="icon" data-ren-a="'+esc(a.name)+'" title="Rename">✎</button>'+
+          '<button type="button" class="icon danger" data-del-a="'+esc(a.name)+'" title="Delete">🗑</button>')+'</td>';
       ab.appendChild(tr);
     });
-    if (!(state.auths || []).length) {
-      ab.innerHTML = '<tr><td colspan="7" class="muted">No auths</td></tr>';
-    }
-
-    var cb = document.getElementById('cov-body');
-    cb.innerHTML = '';
-    var cells = (state.coverage && state.coverage.cells) || [];
-    cells.forEach(function(c){
-      var auths = (c.auths||[]).map(function(x){ return x.name+' ('+x.secret+')'; }).join(', ') || '—';
-      var st = c.gap ? '<span class="badge gap">gap</span> '+esc(c.gap_reason||'') : '<span class="badge ok">ok</span>';
-      var tr = document.createElement('tr');
-      tr.innerHTML = '<td>'+esc(c.org||'')+'</td><td>'+esc(c.environment||'')+'</td>'+
-        '<td>'+esc(c.context||c.tenant)+'</td><td>'+esc(c.kind||'')+'</td><td>'+esc(c.surface)+'</td><td>'+st+'</td><td>'+esc(auths)+'</td>';
-      cb.appendChild(tr);
-    });
-    if (!cells.length) {
-      cb.innerHTML = '<tr><td colspan="7" class="muted">No coverage rows</td></tr>';
-    }
+    if (!auths.length) ab.innerHTML = '<tr><td colspan="7" class="muted">No auths</td></tr>';
   }
   async function load(){
     state = await api('GET', '/api/config');
@@ -436,26 +583,75 @@ button:hover { filter: brightness(1.06); }
   document.getElementById('btn-save-context').onclick = async function(){
     try {
       var name = document.getElementById('t-name').value.trim();
-      if (!name) throw new Error('context name required');
+      if (!name) throw new Error('workplace name required');
+      var prev = selected;
       state = await api('PUT', '/api/config/context/' + encodeURIComponent(name), {
         url: document.getElementById('t-url').value.trim(),
         region: document.getElementById('t-region').value.trim(),
         environment_id: document.getElementById('t-eid').value.trim(),
         tenant_id: document.getElementById('t-tid').value.trim(),
-        org: document.getElementById('t-org').value.trim()
+        org: document.getElementById('t-org').value.trim(),
+        org_id: document.getElementById('t-orgid').value.trim()
       });
+      if (prev && prev !== name) {
+        try { await api('POST', '/api/config/rename', { kind: 'context', from: prev, to: name }); state = await api('GET', '/api/config'); } catch (e2) {}
+      }
+      selected = name;
       render();
     } catch (e) { showErr(e.message); }
   };
+  document.getElementById('btn-add-org').onclick = function(){
+    selected = null;
+    fillDetail({ kind: 'organization' });
+    document.getElementById('t-name').focus();
+  };
+  document.getElementById('btn-add-child').onclick = function(){
+    var n = findNode(selected);
+    var parent = n && (n.kind === 'organization' ? n.name : n.org) || '';
+    fillDetail({ kind: n && n.kind === 'environment' ? 'product-tenant' : 'instance', org: parent || selected });
+    document.getElementById('t-name').value = '';
+    document.getElementById('t-name').focus();
+  };
+  document.getElementById('tree').onclick = async function(ev){
+    var t = ev.target;
+    if (t.dataset.ren) {
+      var from = t.dataset.ren;
+      var to = prompt('Rename '+from+' to:', from);
+      if (!to || to === from) return;
+      try {
+        state = await api('POST', '/api/config/rename', { kind: 'context', from: from, to: to });
+        selected = to;
+        render();
+      } catch (e) { showErr(e.message); }
+      return;
+    }
+    if (t.dataset.del) {
+      var n = findNode(t.dataset.del) || { name: t.dataset.del, kind: 'workplace' };
+      if (!confirmDeleteWorkplace(n)) return;
+      try {
+        state = await api('DELETE', '/api/config/context/' + encodeURIComponent(t.dataset.del));
+        if (selected === t.dataset.del) selected = null;
+        render();
+      } catch (e) { showErr(e.message); }
+      return;
+    }
+    var row = t.closest && t.closest('[data-sel]');
+    if (row && row.dataset.sel) {
+      selected = row.dataset.sel;
+      render();
+    }
+  };
+  document.getElementById('a-type').onchange = syncAuthFields;
   document.getElementById('btn-save-auth').onclick = async function(){
     try {
       var name = document.getElementById('a-name').value.trim();
       if (!name) throw new Error('auth name required');
-      var contexts = document.getElementById('a-contexts').value.split(',').map(function(s){return s.trim();}).filter(Boolean);
-      var channels = document.getElementById('a-channels').value.split(',').map(function(s){return s.trim();}).filter(Boolean);
+      var contexts = collectedContexts();
+      var channels = collectedChannels();
+      var typ = document.getElementById('a-type').value;
       state = await api('PUT', '/api/config/auth/' + encodeURIComponent(name), {
-        type: document.getElementById('a-type').value,
-        scope: document.getElementById('a-scope').value,
+        type: typ,
+        scope: typ === 'platform' ? document.getElementById('a-scope').value : '',
         contexts: contexts,
         tenants: contexts,
         access: document.getElementById('a-access').value,
@@ -466,26 +662,6 @@ button:hover { filter: brightness(1.06); }
       render();
     } catch (e) { showErr(e.message); }
   };
-  document.getElementById('contexts-body').onclick = async function(ev){
-    var t = ev.target;
-    if (t.dataset.editT) {
-      var row = workplaceRows(state).find(function(x){return x.name===t.dataset.editT;});
-      if (!row) return;
-      document.getElementById('t-name').value = row.name;
-      document.getElementById('t-url').value = row.url || '';
-      document.getElementById('t-region').value = row.region || '';
-      document.getElementById('t-eid').value = row.environment_id || '';
-      document.getElementById('t-tid').value = row.tenant_id || '';
-      document.getElementById('t-org').value = row.org || '';
-    }
-    if (t.dataset.delT) {
-      if (!confirm('Delete context '+t.dataset.delT+'? Linked sole auths and their secrets will be removed.')) return;
-      try {
-        state = await api('DELETE', '/api/config/context/' + encodeURIComponent(t.dataset.delT));
-        render();
-      } catch (e) { showErr(e.message); }
-    }
-  };
   document.getElementById('auths-body').onclick = async function(ev){
     var t = ev.target;
     if (t.dataset.editA) {
@@ -494,16 +670,26 @@ button:hover { filter: brightness(1.06); }
       document.getElementById('a-name').value = row.name;
       document.getElementById('a-type').value = row.type || 'oauth';
       document.getElementById('a-scope').value = row.scope || '';
-      document.getElementById('a-contexts').value = authContexts(row).join(', ');
       document.getElementById('a-access').value = row.access || 'full';
-      document.getElementById('a-channels').value = (row.channels||[]).join(', ');
       document.getElementById('a-user').value = row.username || '';
       document.getElementById('a-cid').value = row.client_id || '';
+      setChannelChecks(row.channels || []);
+      syncContextChecks(authContexts(row));
+      syncAuthFields();
     }
     if (t.dataset.delA) {
       if (!confirm('Delete auth '+t.dataset.delA+' and vault secrets?')) return;
       try {
         state = await api('DELETE', '/api/config/auth/' + encodeURIComponent(t.dataset.delA));
+        render();
+      } catch (e) { showErr(e.message); }
+    }
+    if (t.dataset.renA) {
+      var from = t.dataset.renA;
+      var to = prompt('Rename auth '+from+' to:', from);
+      if (!to || to === from) return;
+      try {
+        state = await api('POST', '/api/config/rename', { kind: 'auth', from: from, to: to });
         render();
       } catch (e) { showErr(e.message); }
     }

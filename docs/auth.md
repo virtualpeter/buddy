@@ -2,9 +2,9 @@
 
 Buddy talks to Jamf using a **context** (a named workplace in config) plus an **auth** (which principal). Passwords and OAuth client secrets belong in the encrypted vault, not in `config.yaml`. Tokens are cached and refreshed automatically.
 
-First-time install: [Getting started](getting-started.md). With an empty config, any interactive Jamf command (or `buddy setup` / `buddy cred add`) runs the chooser: instance JSON or basic, Platform curl, a secrets-free quickstart file, or an org MDM profile. `buddy cred add --paste` accepts the JSON Jamf Pro shows when creating an API client, or the curl sample from a Platform API client. `buddy setup export` writes that YAML from a working config; `buddy setup import` / `cred add --from=` load it. With an org MDM profile, use `buddy setup secrets`. The docs UI **config** page edits context/auth metadata only — secrets stay in the terminal vault. YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
+First-time install: [Getting started](getting-started.md). With an empty config, any interactive Jamf command (or `buddy setup` / `buddy cred add`) runs the chooser: instance JSON or basic, Platform curl, a secrets-free quickstart file, or an org MDM profile. `buddy cred add --paste` accepts the JSON Jamf Pro shows when creating an API client, or the curl sample from a Platform API client. `buddy setup export` writes that YAML from a working config; `buddy setup import` / `cred add --from=` load it. With an org MDM profile, use `buddy setup secrets`. The docs UI **config** page is a workplace tree (rename with the pencil, delete with the trash — parents that still have children are blocked). Secrets stay in the terminal vault. YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
 
-Maintenance: `buddy cred status` and `buddy cred list` walk workplaces as **org → environment → product-tenant** (ORG / ENVIRONMENT / CONTEXT). SURFACE on status is instance URL vs Platform gateway — not Jamf Account scope (that lives on the auth). Account UUIDs stay on `buddy cred get`. Covering auths, whether a secret is **locked** / **stored** / missing, and the last `auth test` result. Default status does not open the vault (`SECRET=locked`); `--unlock` or `--test` classifies stored vs missing. Gaps are workplaces that have an identity but no covering auth (or no secret after unlock). Low-level `buddy cred set context|auth|secret` still works (`tenant` is a dual-read alias).
+Maintenance: `buddy cred status` and `buddy cred list` walk workplaces as **org → environment → product-tenant** (ORG / ENVIRONMENT / CONTEXT). SURFACE on status is instance URL vs Platform gateway — not Jamf Account scope (that lives on the auth). Account UUIDs stay on `buddy cred get`. Covering auths, whether a secret is **locked** / **stored** / missing, and the last `auth test` result. Default status does not open the vault (`SECRET=locked`); `--unlock` or `--test` classifies stored vs missing. Gaps are workplaces that have an identity but no covering auth (or no secret after unlock). Low-level `buddy cred set context|auth|secret` still works (`tenant` is a dual-read alias). `buddy cred rename context|auth` renames a workplace or auth (vault secrets move with the auth). If `config.yaml` will not parse, `buddy cred restore-config` copies the last-good `config.yaml.ok`. Loading also rewrites leading tabs to spaces.
 
 ---
 
@@ -12,9 +12,9 @@ Maintenance: `buddy cred status` and `buddy cred list` walk workplaces as **org 
 
 Jamf **scope** is organization / environment / tenant — which Account header, if any, an API client sends. It lives on the **auth** (`scope: organization|environment|tenant`). Buddy **context** is only a named workplace you pass to `--context` (dual-read `--tenant`). Those are different words on purpose.
 
-A context is a named buddy workplace (e.g. `sandbox`). The default path is **instance-only**: a Jamf Pro `jamfpro.url` and an `oauth`/`basic` auth. No Account environment, region, platform auth, or `orgs:` tree is required.
+A context is a named buddy workplace (e.g. `sandbox`). The default path is **instance-only**: a Jamf Pro URL and an `oauth`/`basic` auth. On disk that lives under nested `orgs:` (an invented organization named `default` until you rename it). No Account environment, region, or platform auth is required.
 
-When you adopt Jamf Account / Platform, Jamf’s hierarchy is **organization → environment → product tenant**. Optional nested `orgs:` YAML expresses that tree; load expands it into the same flat `contexts:` map `--context` already uses. Auths stay in `auths:`.
+When you adopt Jamf Account / Platform, Jamf’s hierarchy is **organization → environment → product tenant**. Nested `orgs:` YAML is the on-disk shape; load expands it into the same flat workplace map `--context` already uses. Auths stay in `auths:`. Old flat `contexts:` files are folded into `orgs:` on load.
 
 | Nested node | Workplace (`--context`) | What you get |
 |-------------|-------------------------|--------------|
@@ -22,9 +22,9 @@ When you adopt Jamf Account / Platform, Jamf’s hierarchy is **organization →
 | `environments.commercial` | `commercial` | Environment workplace: `region` + `id`, parent org `acme`. |
 | `tenants.sandbox` | `sandbox` | Product-tenant workplace: `jamfpro.tenantId` + optional URL; inherits environment id + region; parent org `acme`. |
 
-Org, environment, nested tenant, and a bare `contexts:` key share **one** workplace namespace. The same name overlays (instance URL + nested tenant ids = today’s hybrid). A name used twice in the nested tree, or an overlay with two different URLs / environment ids, is an error.
+Org, environment, and nested tenant names share **one** workplace namespace. A leftover flat `contexts:` key with the same name overlays (instance URL + nested tenant ids = today’s hybrid) and is then folded into the tree. A name used twice in the nested tree, or an overlay with two different URLs / environment ids, is an error.
 
-Root dual-read `tenants:` is the old name for workplaces (one release). Nested `orgs.*.environments.*.tenants` is Jamf’s product-tenant list inside the sugar tree — not a second root `tenants:` meaning.
+Root dual-read `tenants:` is the old name for workplaces (one release). Nested `orgs.*.environments.*.tenants` is Jamf’s product-tenant list inside the orgs tree — not a second root `tenants:` meaning.
 
 | Auth `scope:` | Header | What it is |
 |---------------|--------|------------|
@@ -50,17 +50,18 @@ Optional auth fields:
 
 `type` encodes the Jamf surface: `basic` / `oauth` / `command` are instance; `platform` is the API Gateway. An OAuth client is never valid on both. Legacy `surface: platform` on `type: oauth` migrates to `type: platform` on load.
 
-`credentials:`, a bare string `tenant:`/`context:`, `defaults:`, and `allow_auths:` are rejected. Dual-read `tenants:` / `tenant.default` / auth `tenants:` for one release. Loading config rewrites those keys to `contexts:` / `context.default` / `jamfpro:` / auth `contexts:` + `scope:`.
+`credentials:`, a bare string `tenant:`/`context:`, `defaults:`, and `allow_auths:` are rejected. Dual-read `tenants:` / `tenant.default` / auth `tenants:` for one release. Loading config rewrites those keys to `context.default` / `jamfpro:` / auth `contexts:` + `scope:`, and folds leftover flat `contexts:` into `orgs:`.
 
-Instance-only example:
+Instance-only example (invented org `default` — rename it in the config page or with `buddy cred rename context default acme`):
 
 ```yaml
 context:
   default: sandbox
-contexts:
-  sandbox:
-    jamfpro:
-      url: https://example.jamfcloud.com
+orgs:
+  default:
+    environments:
+      sandbox:
+        url: https://example.jamfcloud.com
 auths:
   sandgod:
     type: oauth
@@ -98,28 +99,7 @@ auths:
     jamfpro: sandbox
 ```
 
-Same name after adding Platform without `orgs:` (flat `contexts:` stays valid):
-
-```yaml
-contexts:
-  sandbox:
-    id: 11111111-1111-1111-1111-111111111111
-    region: us
-    jamfpro:
-      url: https://example.jamfcloud.com
-      tenantId: 22222222-2222-2222-2222-222222222222
-auths:
-  sandgod:
-    type: oauth
-    jamfpro: sandbox
-  sandbox-platform:
-    type: platform
-    scope: environment
-    contexts: [sandbox]
-    clientId: …
-```
-
-Empty `contexts.acme: {}` is still a valid organization workplace if you do not want nested YAML. `buddy cred set context acme` (no `--region`) creates that row. `--context=sandbox` still sees `acme-org` for Account org APIs when the child has `org: acme` (derived from `orgs:` or written by hand).
+Old flat `contexts:` files still load once and are rewritten into `orgs:`. `buddy cred set context acme` (no `--region`) creates an organization workplace. `--context=sandbox` still sees `acme-org` for Account org APIs when the child has `org: acme` (derived from `orgs:`).
 
 ---
 

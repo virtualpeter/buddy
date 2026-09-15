@@ -70,6 +70,15 @@ const (
 	SecretKindClientSecret = secrets.KindClientSecret
 )
 
+// GetCredentialSecret returns a secret from the platform store.
+func GetCredentialSecret(credName string, kind secrets.Kind) (string, error) {
+	store, err := secrets.DefaultStore()
+	if err != nil {
+		return "", err
+	}
+	return store.Get(credName, kind)
+}
+
 // SetCredentialSecret stores a secret for a credential in the platform store.
 func SetCredentialSecret(credName string, kind secrets.Kind, value string) error {
 	store, err := secrets.DefaultStore()

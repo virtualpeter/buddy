@@ -14,6 +14,7 @@ func reloadActiveConfig() (*buddy.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	buddy.SetConfigLoadError(nil)
 	buddy.SetActiveConfig(cfg)
 	return cfg, nil
 }
@@ -24,8 +25,18 @@ func handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "" && r.Method == http.MethodGet:
 		handleConfigGet(w, r)
+	case path == "rename" && r.Method == http.MethodPost:
+		if configAPIBroken(w) {
+			return
+		}
+		handleConfigRename(w, r)
+	case path == "restore" && r.Method == http.MethodPost:
+		handleConfigRestore(w, r)
 	case strings.HasPrefix(path, "tenant/") && (r.Method == http.MethodPut || r.Method == http.MethodDelete),
 		strings.HasPrefix(path, "context/") && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
+		if configAPIBroken(w) {
+			return
+		}
 		name := strings.TrimPrefix(path, "tenant/")
 		name = strings.TrimPrefix(name, "context/")
 		if r.Method == http.MethodPut {
@@ -34,6 +45,9 @@ func handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 			handleConfigDeleteTenant(w, r, name)
 		}
 	case strings.HasPrefix(path, "auth/") && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
+		if configAPIBroken(w) {
+			return
+		}
 		name := strings.TrimPrefix(path, "auth/")
 		if r.Method == http.MethodPut {
 			handleConfigPutAuth(w, r, name)
@@ -41,10 +55,23 @@ func handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 			handleConfigDeleteAuth(w, r, name)
 		}
 	case path == "selection" && r.Method == http.MethodPut:
+		if configAPIBroken(w) {
+			return
+		}
 		handleConfigPutSelection(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
+}
+
+func configAPIBroken(w http.ResponseWriter) bool {
+	if err := buddy.ConfigLoadError(); err == nil {
+		return false
+	}
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+		"error": buddy.ConfigLoadError().Error(),
+	})
+	return true
 }
 
 func handleConfigGet(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +83,7 @@ type tenantPutBody struct {
 	URL           string `json:"url"`
 	Region        string `json:"region"`
 	Org           string `json:"org"`
+	OrgID         string `json:"org_id"`
 	EnvironmentID string `json:"environment_id"`
 	TenantID      string `json:"tenant_id"`
 }
@@ -80,6 +108,7 @@ func handleConfigPutTenant(w http.ResponseWriter, r *http.Request, name string) 
 		URL:           body.URL,
 		Region:        body.Region,
 		Org:           body.Org,
+		OrgID:         body.OrgID,
 		SetOrg:        true,
 		EnvironmentID: body.EnvironmentID,
 		TenantID:      body.TenantID,
@@ -264,6 +293,65 @@ func handleConfigPutSelection(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := buddy.SaveConfig(cfg); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	cfg, err := reloadActiveConfig()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, buddy.BuildConfigSnapshot(cfg))
+}
+
+type renameBody struct {
+	Kind string `json:"kind"`
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+func handleConfigRename(w http.ResponseWriter, r *http.Request) {
+	var body renameBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+	cfg := buddy.GetActiveConfig()
+	if cfg == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no config"})
+		return
+	}
+	from := strings.TrimSpace(body.From)
+	to := strings.TrimSpace(body.To)
+	kind := strings.ToLower(strings.TrimSpace(body.Kind))
+	var err error
+	switch kind {
+	case "auth":
+		err = buddy.RenameAuth(cfg, from, to)
+	case "context", "tenant", "workplace", "":
+		err = buddy.RenameWorkplace(cfg, from, to)
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "kind must be context or auth"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := buddy.SaveConfig(cfg); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	cfg, err = reloadActiveConfig()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, buddy.BuildConfigSnapshot(cfg))
+}
+
+func handleConfigRestore(w http.ResponseWriter, r *http.Request) {
+	if err := buddy.RestoreLastGoodConfig(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	cfg, err := reloadActiveConfig()

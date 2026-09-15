@@ -21,6 +21,7 @@ var logger *slog.Logger
 
 // activeConfig holds the loaded configuration, set once at startup via SetActiveConfig.
 var activeConfig *Config
+var configLoadErr error
 
 // httpTrace when true logs each Jamf HTTP request and response (headers and bodies) to stderr.
 var httpTrace atomic.Bool
@@ -41,6 +42,16 @@ func SetActiveConfig(cfg *Config) {
 // GetActiveConfig returns the config set by SetActiveConfig (may be nil).
 func GetActiveConfig() *Config {
 	return activeConfig
+}
+
+// SetConfigLoadError records a config.yaml parse failure (buddy serve degraded mode).
+func SetConfigLoadError(err error) {
+	configLoadErr = err
+}
+
+// ConfigLoadError is the last config.yaml parse error, or nil.
+func ConfigLoadError() error {
+	return configLoadErr
 }
 
 // InitLogger initializes the global logger with appropriate log level.
