@@ -264,6 +264,9 @@ func overlayConfig(base, overlay *Config) *Config {
 	if overlay.Features.ClassicInstanceOnly != nil {
 		out.Features.ClassicInstanceOnly = cloneBoolPtr(overlay.Features.ClassicInstanceOnly)
 	}
+	if overlay.Features.UseAgent != nil {
+		out.Features.UseAgent = cloneBoolPtr(overlay.Features.UseAgent)
+	}
 	if len(overlay.Orgs) > 0 {
 		if out.Orgs == nil {
 			out.Orgs = map[string]OrgConfig{}
@@ -305,6 +308,7 @@ func cloneConfig(c *Config) *Config {
 		}
 	}
 	out.Features.ClassicInstanceOnly = cloneBoolPtr(c.Features.ClassicInstanceOnly)
+	out.Features.UseAgent = cloneBoolPtr(c.Features.UseAgent)
 	return out
 }
 
@@ -333,11 +337,31 @@ func cloneChannelPolicy(p ChannelPolicy) ChannelPolicy {
 // userOverlayForSave returns the subset of cfg that belongs in config.yaml when
 // managed prefs are in play. Unmodified MDM keys are omitted so later profile
 // updates still apply.
+// configBaseLayer is everything beneath the user's config.yaml: managed
+// preferences over the Buddy Agent's document. SaveConfig subtracts it so
+// neither layer is ever baked into the file.
+func configBaseLayer(cfg *Config) *Config {
+	if cfg == nil {
+		return nil
+	}
+	switch {
+	case cfg.agent == nil && cfg.mdm == nil:
+		return nil
+	case cfg.agent == nil:
+		return cfg.mdm
+	case cfg.mdm == nil:
+		return cfg.agent
+	default:
+		return overlayConfig(cfg.agent, cfg.mdm)
+	}
+}
+
 func userOverlayForSave(cfg *Config) *Config {
 	if cfg == nil {
 		return &Config{}
 	}
-	if cfg.mdm == nil {
+	base := configBaseLayer(cfg)
+	if base == nil {
 		return cloneConfig(cfg)
 	}
 	out := &Config{}
@@ -345,7 +369,7 @@ func userOverlayForSave(cfg *Config) *Config {
 	if cfg.user != nil {
 		userDefault = strings.TrimSpace(cfg.user.Tenant.Default)
 	}
-	mdmDefault := strings.TrimSpace(cfg.mdm.Tenant.Default)
+	mdmDefault := strings.TrimSpace(base.Tenant.Default)
 	mergedDefault := strings.TrimSpace(cfg.Tenant.Default)
 	if userDefault != "" {
 		out.Tenant.Default = mergedDefault
@@ -361,7 +385,7 @@ func userOverlayForSave(cfg *Config) *Config {
 	}
 	for name, t := range cfg.Tenants {
 		_, inUser := userTenants[name]
-		mdmT, inMDM := cfg.mdm.Tenants[name]
+		mdmT, inMDM := base.Tenants[name]
 		if inUser || !inMDM || !tenantConfigEqual(t, mdmT) {
 			if out.Tenants == nil {
 				out.Tenants = map[string]TenantConfig{}
@@ -378,7 +402,7 @@ func userOverlayForSave(cfg *Config) *Config {
 	}
 	for name, a := range cfg.Auths {
 		_, inUser := userAuths[name]
-		mdmA, inMDM := cfg.mdm.Auths[name]
+		mdmA, inMDM := base.Auths[name]
 		if inUser || !inMDM || !authEntryEqual(a, mdmA) {
 			if out.Auths == nil {
 				out.Auths = map[string]AuthEntry{}
@@ -395,7 +419,7 @@ func userOverlayForSave(cfg *Config) *Config {
 	}
 	for name, p := range cfg.Channels {
 		_, inUser := userCh[name]
-		mdmP, inMDM := cfg.mdm.Channels[name]
+		mdmP, inMDM := base.Channels[name]
 		if inUser || !inMDM || !channelPolicyEqual(p, mdmP) {
 			if out.Channels == nil {
 				out.Channels = map[string]ChannelPolicy{}
@@ -408,9 +432,12 @@ func userOverlayForSave(cfg *Config) *Config {
 	if cfg.user != nil {
 		userFeat = cfg.user.Features
 	}
-	if !boolPtrEqual(cfg.Features.ClassicInstanceOnly, cfg.mdm.Features.ClassicInstanceOnly) ||
+	if !boolPtrEqual(cfg.Features.ClassicInstanceOnly, base.Features.ClassicInstanceOnly) ||
 		userFeat.ClassicInstanceOnly != nil {
 		out.Features.ClassicInstanceOnly = cloneBoolPtr(cfg.Features.ClassicInstanceOnly)
+	}
+	if !boolPtrEqual(cfg.Features.UseAgent, base.Features.UseAgent) || userFeat.UseAgent != nil {
+		out.Features.UseAgent = cloneBoolPtr(cfg.Features.UseAgent)
 	}
 
 	userOrgs := map[string]struct{}{}
@@ -423,8 +450,8 @@ func userOverlayForSave(cfg *Config) *Config {
 		_, inUser := userOrgs[name]
 		var mdmO OrgConfig
 		inMDM := false
-		if cfg.mdm.Orgs != nil {
-			mdmO, inMDM = cfg.mdm.Orgs[name]
+		if base.Orgs != nil {
+			mdmO, inMDM = base.Orgs[name]
 		}
 		if inUser || !inMDM || !orgConfigEqual(o, mdmO) {
 			if out.Orgs == nil {

@@ -38,6 +38,9 @@ func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bo
 	if name == "" {
 		return false, fmt.Errorf("tenant name required")
 	}
+	if cfg.ContextFromAgent(name) {
+		return false, errAgentOwned("context", name)
+	}
 	prev, existing := cfg.Tenants[name]
 	if existing && !opts.Overwrite {
 		return false, fmt.Errorf("tenant %q: %w", name, ErrExists)
@@ -144,6 +147,9 @@ func SetAuthMetadata(cfg *Config, name string, opts SetAuthMetadataOpts) (create
 	if name == "" {
 		return false, fmt.Errorf("auth name required")
 	}
+	if cfg.AuthFromAgent(name) {
+		return false, errAgentOwned("auth", name)
+	}
 	prev, existing := cfg.Auths[name]
 	if existing && !opts.Overwrite {
 		return false, fmt.Errorf("auth %q: %w", name, ErrExists)
@@ -235,6 +241,9 @@ func DeleteTenantMetadata(cfg *Config, name string) (DeleteTenantResult, error) 
 	if _, ok := cfg.Tenants[name]; !ok {
 		return res, fmt.Errorf("tenant %q not found", name)
 	}
+	if cfg.ContextFromAgent(name) {
+		return res, errAgentOwned("context", name)
+	}
 	if err := removeWorkplaceFromOrgs(cfg, name); err != nil {
 		return res, err
 	}
@@ -320,6 +329,9 @@ func DeleteAuthMetadata(cfg *Config, name string) error {
 	if _, ok := cfg.Auths[name]; !ok {
 		return fmt.Errorf("auth %q not found", name)
 	}
+	if cfg.AuthFromAgent(name) {
+		return errAgentOwned("auth", name)
+	}
 	return deleteAuthRecord(cfg, name)
 }
 
@@ -344,6 +356,9 @@ func RenameWorkplace(cfg *Config, oldName, newName string) error {
 	}
 	if cfg.TenantFromManagedPrefs(oldName) {
 		return fmt.Errorf("context %q is managed (MDM); rename it in the profile, not here", oldName)
+	}
+	if cfg.ContextFromAgent(oldName) {
+		return errAgentOwned("context", oldName)
 	}
 	if _, ok := cfg.Tenants[oldName]; !ok {
 		return fmt.Errorf("tenant %q not found", oldName)
@@ -467,6 +482,9 @@ func RenameAuth(cfg *Config, oldName, newName string) error {
 	if cfg.AuthFromManagedPrefs(oldName) {
 		return fmt.Errorf("auth %q is managed (MDM); rename it in the profile, not here", oldName)
 	}
+	if cfg.AuthFromAgent(oldName) {
+		return errAgentOwned("auth", oldName)
+	}
 	entry, ok := cfg.Auths[oldName]
 	if !ok {
 		return fmt.Errorf("auth %q not found", oldName)
@@ -565,6 +583,7 @@ type WorkplaceNodeSnapshot struct {
 	TenantID      string                  `json:"tenant_id,omitempty"`
 	OrgID         string                  `json:"org_id,omitempty"`
 	Managed       bool                    `json:"managed,omitempty"`
+	Agent         bool                    `json:"agent,omitempty"`
 	CanDelete     bool                    `json:"can_delete"`
 	Gap           bool                    `json:"gap,omitempty"`
 	Children      []WorkplaceNodeSnapshot `json:"children,omitempty"`
@@ -582,6 +601,7 @@ type TenantSnapshot struct {
 	Kind          string `json:"kind,omitempty"`      // organization | environment | product-tenant | instance
 	Organization  bool   `json:"organization,omitempty"`
 	Managed       bool   `json:"managed,omitempty"`
+	Agent         bool   `json:"agent,omitempty"`
 }
 
 // AuthSnapshot is one auth row for the config UI (metadata + secret presence).
@@ -595,8 +615,10 @@ type AuthSnapshot struct {
 	Channels []string `json:"channels,omitempty"`
 	Username string   `json:"username,omitempty"`
 	ClientID string   `json:"client_id,omitempty"`
-	Secret   string   `json:"secret"` // missing | stored | inline | n/a
+	Secret   string   `json:"secret"` // missing | stored | inline | n/a | locked | agent
 	Managed  bool     `json:"managed,omitempty"`
+	// Agent means the macOS Buddy Agent owns this auth and its secret.
+	Agent bool `json:"agent,omitempty"`
 }
 
 // BuildConfigSnapshot builds the serve/API view of config (no secret values).
@@ -644,6 +666,7 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 			Kind:          row.Kind,
 			Organization:  t.IsOrganizationWorkplace(),
 			Managed:       cfg.TenantFromManagedPrefs(row.Name),
+			Agent:         cfg.ContextFromAgent(row.Name),
 		})
 	}
 	snap.Contexts = snap.Tenants
@@ -666,6 +689,7 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 			ClientID: a.ClientID,
 			Secret:   AuthSecretPresence(cfg, n, false),
 			Managed:  cfg.AuthFromManagedPrefs(n),
+			Agent:    cfg.AuthFromAgent(n),
 		})
 	}
 	snap.Coverage = BuildCoverageReport(cfg)
@@ -698,6 +722,7 @@ func buildOrgTreeSnapshot(cfg *Config, cov CoverageReport) []WorkplaceNodeSnapsh
 			EnvironmentID: t.EnvironmentID,
 			TenantID:      t.TenantID,
 			Managed:       cfg.TenantFromManagedPrefs(name),
+			Agent:         cfg.ContextFromAgent(name),
 			Gap:           workplaceHasCoverageGap(cov, name),
 		}
 		if kind == "organization" {
@@ -716,7 +741,7 @@ func buildOrgTreeSnapshot(cfg *Config, cov CoverageReport) []WorkplaceNodeSnapsh
 				kind = "tenant"
 			}
 			n := nodeFor(row.Name, kind, row.Org, row.Environment)
-			n.CanDelete = !n.Managed
+			n.CanDelete = !n.Managed && !n.Agent
 			roots = append(roots, n)
 		}
 		return roots
@@ -750,15 +775,15 @@ func buildOrgTreeSnapshot(cfg *Config, cov CoverageReport) []WorkplaceNodeSnapsh
 			sort.Strings(tenNames)
 			for _, tenName := range tenNames {
 				tenNode := nodeFor(tenName, "product-tenant", orgName, envName)
-				tenNode.CanDelete = !tenNode.Managed
+				tenNode.CanDelete = !tenNode.Managed && !tenNode.Agent
 				envNode.Children = append(envNode.Children, tenNode)
 				seen[tenName] = true
 			}
-			envNode.CanDelete = !envNode.Managed && len(envNode.Children) == 0
+			envNode.CanDelete = !envNode.Managed && !envNode.Agent && len(envNode.Children) == 0
 			root.Children = append(root.Children, envNode)
 			seen[envName] = true
 		}
-		root.CanDelete = !root.Managed && len(root.Children) == 0
+		root.CanDelete = !root.Managed && !root.Agent && len(root.Children) == 0
 		roots = append(roots, root)
 		seen[orgName] = true
 	}
@@ -768,7 +793,7 @@ func buildOrgTreeSnapshot(cfg *Config, cov CoverageReport) []WorkplaceNodeSnapsh
 		}
 		kind := row.Kind
 		n := nodeFor(row.Name, kind, row.Org, row.Environment)
-		n.CanDelete = !n.Managed
+		n.CanDelete = !n.Managed && !n.Agent
 		roots = append(roots, n)
 	}
 	return roots

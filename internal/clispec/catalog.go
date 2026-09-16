@@ -23,6 +23,7 @@ const (
 	MsgCmdAuth               = "cli.cmd.auth"
 	MsgCmdToken              = "cli.cmd.token"
 	MsgCmdCred               = "cli.cmd.cred"
+	MsgCmdAgent              = "cli.cmd.agent"
 	MsgCmdPolicy             = "cli.cmd.policy"
 	MsgCmdCategory           = "cli.cmd.category"
 	MsgCmdMacApp             = "cli.cmd.macapp"
@@ -87,6 +88,7 @@ var en = map[string]string{
 	MsgCmdAuth:               "Test authentication for the active tenant/auth",
 	MsgCmdToken:              "Mint a bearer token with one-shot flags (no config)",
 	MsgCmdCred:               "Manage tenants, auths, and secrets in the config file",
+	MsgCmdAgent:              "Inspect the optional macOS Buddy Agent (config, integrations, tokens)",
 	MsgCmdPolicy:             "Manage Jamf policies (list/get/set/create/delete/logs)",
 	MsgCmdCategory:           "Manage categories (list/get/create/delete)",
 	MsgCmdMacApp:             "Manage Classic Mac App Store apps (list/get/create/delete)",

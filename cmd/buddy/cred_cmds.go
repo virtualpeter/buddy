@@ -430,6 +430,13 @@ func runCredStatus(cfg *buddy.Config, args []string, log *slog.Logger) error {
 		}
 		testErr = err
 	}
+	if sum := cfg.AgentConfigSummary(); sum != "" {
+		fmt.Println(sum)
+		if dups := buddy.AgentDuplicates(cfg); len(dups) > 0 {
+			fmt.Printf("config.yaml duplicates %d of those entries and shadows them; 'buddy agent prune' hands them over\n", len(dups))
+		}
+		fmt.Println()
+	}
 	rep := buddy.BuildCoverageReportWith(cfg, buddy.CoverageOpts{UnlockSecrets: unlock})
 	buddy.FormatCoverageReport(rep, os.Stdout)
 	return testErr
@@ -1332,6 +1339,9 @@ func secretSelectionForAuthType(authType, authName string) (wantPassword, wantCl
 }
 
 func runCredSetSecret(cfg *buddy.Config, authName string, args []string) error {
+	if cfg.AuthFromAgent(authName) {
+		return fmt.Errorf("auth %q is owned by the Buddy Agent; set its secret in the Buddy Agent window (Integrations)", authName)
+	}
 	auth, err := cfg.ResolveAuth(authName)
 	if err != nil {
 		return err

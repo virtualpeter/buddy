@@ -15,6 +15,9 @@ const (
 	SecretPresenceNA      = "n/a"
 	// SecretPresenceLocked means vault-backed presence was not checked (no unlock).
 	SecretPresenceLocked = "locked"
+	// SecretPresenceAgent means the macOS Buddy Agent owns this secret: buddy
+	// never holds it and never opens the vault for it.
+	SecretPresenceAgent = "agent"
 )
 
 // CoverageOpts controls BuildCoverageReport / AuthSecretPresence vault access.
@@ -87,6 +90,9 @@ func AuthCoversCell(auth AuthEntry, tenant TenantConfig, surface string) bool {
 func AuthSecretPresence(cfg *Config, authName string, unlock bool) string {
 	if cfg == nil {
 		return SecretPresenceMissing
+	}
+	if cfg.AuthFromAgent(authName) {
+		return SecretPresenceAgent
 	}
 	auth, err := cfg.ResolveAuth(authName)
 	if err != nil {
@@ -299,6 +305,9 @@ func FormatCoverageReport(rep CoverageReport, w io.Writer) {
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Rows are org → environment → product-tenant. SURFACE is instance vs Platform gateway (not Account scope).")
+	if coverageHasAgentSecrets(rep) {
+		fmt.Fprintln(w, "SECRET=agent: the Buddy Agent holds that secret; unlock it from the menu bar to mint.")
+	}
 	if len(rep.UnlinkedAuths) > 0 {
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "UNLINKED AUTHS (no contexts:)")
@@ -317,6 +326,17 @@ func FormatCoverageReport(rep CoverageReport, w io.Writer) {
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "Gaps: add an auth with 'buddy cred add' or 'buddy setup secrets'; prove secrets with 'buddy auth test'.")
 	}
+}
+
+func coverageHasAgentSecrets(rep CoverageReport) bool {
+	for _, cell := range rep.Cells {
+		for _, a := range cell.Auths {
+			if a.Secret == SecretPresenceAgent {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // CoverageTestCells is every covering auth × tenant × surface for auth test --all.

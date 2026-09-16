@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Entitlements for the Xcode app target only. The Go CLI stays
+	     entitlement-free: it just dials the socket. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)virtualpete.buddy.agent</string>
+	</array>
+	<!-- Not sandboxed for the spike: the socket lives in Application Support
+	     and the CLI must reach it from outside a container. -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+</dict>
+</plist>

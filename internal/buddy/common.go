@@ -222,18 +222,23 @@ func cachedAuthenticator(cacheName, secretName string, cred CredentialConfig) (*
 	}
 	diskKey := sessionDiskCacheKeyFromParts(cacheName, cred)
 	auth := cred.Auth
+	// An Agent-owned auth has no vault copy: leave LoadSecrets unset so a locked
+	// or absent Agent fails loudly instead of prompting for a secret buddy does
+	// not have.
+	agentOwned := GetActiveConfig().AuthFromAgent(secretName)
 	cfg := tokenauth.Config{
-		Name:     secretName,
-		BaseURL:  baseURL,
-		CacheKey: diskKey,
-		Platform: cred.UsesPlatformAuth(),
-		Logger:   GetLogger(),
+		Name:       secretName,
+		BaseURL:    baseURL,
+		CacheKey:   diskKey,
+		Platform:   cred.UsesPlatformAuth(),
+		AgentOwned: agentOwned,
+		Logger:     GetLogger(),
 	}
 	switch auth.Type {
 	case "basic":
 		cfg.Username = auth.Username
 		cfg.Password = auth.Password // inline only; vault via LoadSecrets
-		if strings.TrimSpace(cfg.Password) == "" {
+		if strings.TrimSpace(cfg.Password) == "" && !agentOwned {
 			name := secretName
 			cc := cred
 			cfg.LoadSecrets = func() (string, string, error) {
@@ -247,7 +252,7 @@ func cachedAuthenticator(cacheName, secretName string, cred CredentialConfig) (*
 	case "oauth":
 		cfg.ClientId = auth.ClientID
 		cfg.ClientSecret = auth.ClientSecret // inline only; vault via LoadSecrets
-		if strings.TrimSpace(cfg.ClientSecret) == "" {
+		if strings.TrimSpace(cfg.ClientSecret) == "" && !agentOwned {
 			name := secretName
 			cc := cred
 			cfg.LoadSecrets = func() (string, string, error) {

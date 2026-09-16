@@ -20,6 +20,7 @@ func catalogBodies() map[string]string {
 		clispec.CmdAuth:       Auth,
 		clispec.CmdToken:      Token,
 		clispec.CmdCred:       Cred,
+		clispec.CmdAgent:      Agent,
 		clispec.CmdPolicy:     PoliciesCLIHelp,
 		clispec.CatalogID(clispec.CmdPolicy, clispec.SubList):   PolicyList,
 		clispec.CatalogID(clispec.CmdPolicy, clispec.SubGet):    PolicyGet,

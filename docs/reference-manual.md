@@ -80,11 +80,17 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of contexts, auths (with secrets), and channels; restore prompts once per auth (Enter restores, or `-y`)
 - `buddy setup` — first-run chooser when config is empty (instance, Platform, quickstart file, or MDM)
 - `buddy setup import <file>` — merge secrets-free YAML or ACS plist identity, then fill secrets
-- `buddy setup export [path]` — write secrets-free identity YAML (stdout if omitted); recipients `setup import`
+- `buddy setup export [path] [--json]` — write secrets-free identity YAML (stdout if omitted); recipients `setup import`, or `--json` for the Buddy Agent's import picker
 - `buddy setup secrets` — create missing context auths and surface-coverage gaps; store missing passwords / client secrets
 - `buddy setup managed-plist [path]` — same identity as ACS XML plist (no auths)
 - `buddy auth test` — ForceRenew + probe the active session (`--all` for every cell)
 - `buddy auth token refresh` — obtain, keep-alive, or replace the session token from cache state (`--raw` prints the bearer)
+- `buddy agent status` — the optional macOS Buddy Agent: socket path, present, unlocked, peer check, counts (`buddy auth agent` is an alias)
+- `buddy agent config [--json]` — the config document the Agent serves (identity only; served while locked)
+- `buddy agent integrations` — workplaces and auths the Agent owns, with secret presence
+- `buddy agent tokens` — bearers the Agent has cached this session (metadata only)
+- `buddy agent lock` — relock the Agent and drop its cached bearers
+- `buddy agent prune [--dry-run] [--secrets] [-y]` — remove `config.yaml` entries the Agent already provides (`--secrets` also deletes their vault copies)
 - `buddy auth authorization` — cached Jamf authorization details from `GET /api/v1/auth` (access level, privilege set, privileges); `--all` dumps every cache entry
 - `buddy auth token show` — print the session Authorization header (`--raw` for bearer only)
 - `buddy auth token status` — disk cache metadata (no bearer); `--all` lists every `tokens/` file
@@ -363,6 +369,9 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 | `BUDDY_ACS_PAYLOAD_UUID_<id>` | Bind ACS payload UUID for Classic profile id `<id>` when HTML scrape fails |
 | `BUDDY_SECRET_STORE` | Where the vault data key and recovery passphrase live: `file`, `pass`, or `keychain` (default: Keychain on macOS, `dek`/`master` files elsewhere) |
 | `BUDDY_VAULT_PASSPHRASE` | Override recovery passphrase (CI/tests; never written). A `dek:v1:…` value overrides the data key instead. |
+| `BUDDY_USE_AGENT` | Override `features.use_agent` (`true`/`false`): take workplaces, auths, and their secrets from the Buddy Agent. With it on, an absent Agent is an error, not a vault fallback |
+| `BUDDY_NO_AGENT` | `1` ignores the optional macOS Buddy Agent; buddy always uses the in-process vault |
+| `BUDDY_AGENT_SOCK` | Buddy Agent socket path (default `~/Library/Application Support/Buddy/agent.sock`) |
 | `BUDDY_MANAGED_PLIST` | Path to a managed-config plist (replaces Darwin `/Library/Managed Preferences/virtualpete.buddy.cli.plist`) |
 | `BUDDY_CLASSIC_INSTANCE_ONLY` | Override `features.classic_instance_only` (`true`/`false`). Default false: Classic may use `/api/proclassic/` (no `/JSSResource` in the path). `true` forces **Classic `/JSSResource` only** onto instance. Does not apply to ACS or `GET /api/v1/policies` (always instance). |
 

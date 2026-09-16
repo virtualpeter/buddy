@@ -128,7 +128,7 @@ func main() {
 	buddy.SetHTTPTrace(globals.trace)
 	logger := buddy.GetLogger()
 
-	if buddy.ConfigNeedsSetup(cfg) && buddy.StdinIsTerminal() && shouldOfferFirstTimeSetup(args) {
+	if buddy.ConfigNeedsSetup(cfg) && !cfg.UseAgent() && buddy.StdinIsTerminal() && shouldOfferFirstTimeSetup(args) {
 		if _, err := buddy.RunFirstTimeSetup(cfg, opts, logger); err != nil {
 			logger.Error("First-time setup failed", "error", err)
 			fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -190,6 +190,8 @@ func main() {
 		exitOnErr(logger, "Token command failed", runToken(args[1:], logger))
 	case clispec.CmdCred:
 		exitOnErr(logger, "Cred command failed", runCred(cfg, opts, args[1:], logger))
+	case clispec.CmdAgent:
+		exitOnErr(logger, "Agent command failed", runAgent(cfg, opts, args[1:]))
 	case clispec.CmdPolicy:
 		exitOnErr(logger, "Policy command failed", runPolicy(credName, opts, args[1:], logger))
 	case clispec.CmdCategory:
@@ -274,7 +276,7 @@ func shouldOfferFirstTimeSetup(args []string) bool {
 	switch cmd {
 	case clispec.CmdHelp, clispec.CmdVersion:
 		return false
-	case clispec.CmdSetup, clispec.CmdCred, clispec.CmdAuth, clispec.CmdToken:
+	case clispec.CmdSetup, clispec.CmdCred, clispec.CmdAuth, clispec.CmdToken, clispec.CmdAgent:
 		return false
 	case clispec.CmdServe, clispec.CmdLSP:
 		return false
@@ -2955,7 +2957,7 @@ func runBlueprint(credName string, opts buddy.Opts, args []string, log *slog.Log
 }
 
 func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if err := resolveArg0("auth", args, []string{"token", clispec.SubTest, clispec.SubAuthorization, clispec.SubRefresh, "caps", clispec.SubHelp}); err != nil {
+	if err := resolveArg0("auth", args, []string{"token", clispec.SubTest, clispec.SubAuthorization, clispec.SubRefresh, "agent", "caps", clispec.SubHelp}); err != nil {
 		return err
 	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
@@ -2964,40 +2966,25 @@ func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 	}
 	switch args[0] {
 	case clispec.SubTest:
-		all := false
-		for _, a := range args[1:] {
-			switch a {
-			case "--all":
-				all = true
-			case clispec.SubHelp:
-				fmt.Print(helpAuth)
-				return nil
-			default:
-				return fmt.Errorf("unknown argument %q; usage: buddy auth test [--all]", a)
-			}
-		}
-		if all {
-			cfg := buddy.GetActiveConfig()
-			results, err := buddy.AuthTestAll(cfg, log)
-			if len(results) == 0 {
-				return fmt.Errorf("no covering auths to test — run 'buddy cred status'")
-			}
-			buddy.PrintAuthTestAll(results)
+		all, showHelp, err := authAllFlag(clispec.SubTest, args[1:])
+		switch {
+		case err != nil:
 			return err
+		case showHelp:
+			fmt.Print(helpAuth)
+			return nil
+		case all:
+			return runAuthTestAll(log)
 		}
 		return buddy.AuthTest(credName, log)
 	case clispec.SubAuthorization:
-		all := false
-		for _, a := range args[1:] {
-			switch a {
-			case "--all":
-				all = true
-			case clispec.SubHelp:
-				fmt.Print(helpAuth)
-				return nil
-			default:
-				return fmt.Errorf("unknown argument %q; usage: buddy auth authorization [--all]", a)
-			}
+		all, showHelp, err := authAllFlag(clispec.SubAuthorization, args[1:])
+		if err != nil {
+			return err
+		}
+		if showHelp {
+			fmt.Print(helpAuth)
+			return nil
 		}
 		return buddy.PrintAuthCaps(buddy.GetActiveConfig(), credName, all)
 	case "token":
@@ -3006,13 +2993,40 @@ func runAuth(credName string, opts buddy.Opts, args []string, log *slog.Logger) 
 			return nil
 		}
 		return runAuthToken(credName, args[1:], log)
+	case "agent":
+		// Alias of 'buddy agent status'.
+		return runAgentStatus(args[1:])
 	case clispec.SubRefresh:
 		return fmt.Errorf("moved to 'buddy auth token refresh'; see 'buddy auth help'")
 	case "caps":
 		return fmt.Errorf("unknown auth subcommand %q (use: authorization)", args[0])
 	default:
-		return errUnknownSubcommand("auth", args[0], []string{"token", clispec.SubTest, clispec.SubAuthorization, clispec.SubHelp})
+		return errUnknownSubcommand("auth", args[0], []string{"token", clispec.SubTest, clispec.SubAuthorization, "agent", clispec.SubHelp})
 	}
+}
+
+// authAllFlag parses the shared "[--all]" argument list of an auth subcommand.
+func authAllFlag(sub string, args []string) (all, showHelp bool, err error) {
+	for _, a := range args {
+		switch a {
+		case "--all":
+			all = true
+		case clispec.SubHelp:
+			showHelp = true
+		default:
+			return false, false, fmt.Errorf("unknown argument %q; usage: buddy auth %s [--all]", a, sub)
+		}
+	}
+	return all, showHelp, nil
+}
+
+func runAuthTestAll(log *slog.Logger) error {
+	results, err := buddy.AuthTestAll(buddy.GetActiveConfig(), log)
+	if len(results) == 0 {
+		return fmt.Errorf("no covering auths to test — run 'buddy cred status'")
+	}
+	buddy.PrintAuthTestAll(results)
+	return err
 }
 
 func runToken(args []string, log *slog.Logger) error {
@@ -3233,12 +3247,28 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 		return nil
 	case "export":
 		path := ""
-		if len(args) > 0 {
-			path = args[0]
+		asJSON := false
+		for _, a := range args {
+			if a == "--json" {
+				asJSON = true
+				continue
+			}
+			path = a
 		}
 		data, err := buddy.MarshalQuickstartYAML(cfg)
 		if err != nil {
 			return fmt.Errorf("quickstart yaml: %w", err)
+		}
+		if asJSON {
+			// Same secrets-free content, in the format the Buddy Agent imports.
+			if err := writeSetupExportJSON(data, path); err != nil {
+				return err
+			}
+			if path != "" && path != "-" {
+				fmt.Printf("Wrote %s\n", path)
+				fmt.Println("Secrets-free identity as JSON. Import it in the Buddy Agent window.")
+			}
+			return nil
 		}
 		if path == "" {
 			_, err := os.Stdout.Write(data)

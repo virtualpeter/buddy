@@ -1,0 +1,218 @@
+import Darwin
+import Foundation
+
+/// Unix-domain socket server speaking newline-delimited JSON. One request and
+/// one response per connection is the normal CLI pattern, but the read loop
+/// keeps serving lines until the peer closes.
+final class AgentServer {
+	private let state: AgentState
+	private let store: AgentStore
+	private let queue = DispatchQueue(label: "buddy.agent.server")
+	private var listenFD: Int32 = -1
+	private(set) var socketPath: String = AgentPaths.socketPath
+
+	init(state: AgentState, store: AgentStore) {
+		self.state = state
+		self.store = store
+	}
+
+	func start() throws {
+		try AgentPaths.prepareSocketDirectory()
+		socketPath = AgentPaths.socketPath
+		unlink(socketPath)
+
+		let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+		guard fd >= 0 else { throw AgentServerError.posix("socket", errno) }
+
+		var address = sockaddr_un()
+		address.sun_family = sa_family_t(AF_UNIX)
+		let pathBytes = Array(socketPath.utf8)
+		guard pathBytes.count < MemoryLayout.size(ofValue: address.sun_path) else {
+			close(fd)
+			throw AgentServerError.message("socket path too long: \(socketPath)")
+		}
+		withUnsafeMutableBytes(of: &address.sun_path) { raw in
+			raw.copyBytes(from: pathBytes)
+		}
+		address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+
+		let bound = withUnsafePointer(to: &address) { pointer in
+			pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+				bind(fd, sa, socklen_t(MemoryLayout<sockaddr_un>.size))
+			}
+		}
+		guard bound == 0 else {
+			close(fd)
+			throw AgentServerError.posix("bind", errno)
+		}
+		// Only this user may connect; the codesign check narrows it further.
+		chmod(socketPath, 0o600)
+		guard listen(fd, 16) == 0 else {
+			close(fd)
+			throw AgentServerError.posix("listen", errno)
+		}
+		listenFD = fd
+		queue.async { [weak self] in self?.acceptLoop(fd) }
+	}
+
+	func stop() {
+		if listenFD >= 0 {
+			close(listenFD)
+			listenFD = -1
+		}
+		unlink(socketPath)
+	}
+
+	private func acceptLoop(_ fd: Int32) {
+		while true {
+			let conn = accept(fd, nil, nil)
+			if conn < 0 {
+				if errno == EINTR { continue }
+				return  // listener closed
+			}
+			let handler = DispatchQueue(label: "buddy.agent.conn", qos: .userInitiated)
+			handler.async { [weak self] in
+				self?.serve(conn)
+				close(conn)
+			}
+		}
+	}
+
+	private func serve(_ fd: Int32) {
+		if let reason = PeerCheck.reject(connection: fd) {
+			write(fd, AgentReply.failure(.denied, reason))
+			FileHandle.standardError.write(Data("buddy-agent: rejected peer: \(reason)\n".utf8))
+			return
+		}
+		var buffer = Data()
+		var chunk = [UInt8](repeating: 0, count: 4096)
+		while true {
+			let n = read(fd, &chunk, chunk.count)
+			if n <= 0 { return }
+			buffer.append(contentsOf: chunk[0..<n])
+			while let newline = buffer.firstIndex(of: 0x0A) {
+				let line = buffer[buffer.startIndex..<newline]
+				buffer = buffer[buffer.index(after: newline)...]
+				write(fd, handle(line: Data(line)))
+			}
+			if buffer.count > 64 * 1024 {
+				write(fd, AgentReply.failure(.badRequest, "request too large"))
+				return
+			}
+		}
+	}
+
+	private func handle(line: Data) -> [String: Any] {
+		guard !line.isEmpty else { return AgentReply.failure(.badRequest, "empty request") }
+		guard let request = try? JSONDecoder().decode(AgentRequest.self, from: line) else {
+			return AgentReply.failure(.badRequest, "malformed JSON request")
+		}
+		switch request.op {
+		case "status":
+			return statusReply()
+		case "config":
+			// Identity, not secrets: served while locked so buddy can resolve a
+			// session without a biometric prompt.
+			return AgentReply.config(onMain { self.store.configDocument() })
+		case "integrations":
+			return AgentReply.integrations(onMain { self.store.integrationSummaries() })
+		case "tokens":
+			return AgentReply.tokens(tokenRows())
+		case "lock":
+			state.lockVault()
+			return statusReply()
+		case "unlock":
+			// The tray is the only unlock UI; the CLI may not unlock us.
+			return AgentReply.failure(.denied, "unlock from the Buddy Agent menu")
+		case "token":
+			return mint(request)
+		default:
+			return AgentReply.failure(.badRequest, "unknown op \(request.op)")
+		}
+	}
+
+	private func statusReply() -> [String: Any] {
+		let count = onMain { self.store.integrations.count }
+		return AgentReply.status(
+			unlocked: state.unlocked, integrations: count, tokens: state.tokenCount)
+	}
+
+	private func tokenRows() -> [[String: Any]] {
+		let formatter = ISO8601DateFormatter()
+		return state.tokenSummaries.map { row in
+			[
+				"auth": row.auth,
+				"base_url": row.baseURL,
+				"expires_at": formatter.string(from: row.expiresAt),
+			]
+		}
+	}
+
+	private func mint(_ request: AgentRequest) -> [String: Any] {
+		let auth = (request.auth ?? "").trimmed
+		let baseURL = (request.baseURL ?? "").trimmed
+		let kind = (request.kind ?? "oauth").trimmed
+		guard !auth.isEmpty, !baseURL.isEmpty else {
+			return AgentReply.failure(.badRequest, "token requires auth and base_url")
+		}
+		guard let integration = onMain({ self.store.integration(forAuth: auth) }) else {
+			// Not ours: the CLI falls back to its own vault.
+			return AgentReply.failure(.unsupported, "no integration named \(auth)")
+		}
+		guard state.unlocked else {
+			return AgentReply.failure(.locked, "Buddy Agent is locked — unlock it from the menu bar")
+		}
+		let key = "\(auth)@\(baseURL)"
+		if request.force != true, let cached = state.cachedToken(key: key) {
+			return AgentReply.token(cached.value, expiresAt: cached.expiresAt)
+		}
+		do {
+			let minted = try TokenMinter.mint(
+				integration: integration, baseURL: baseURL, kind: kind)
+			state.store(
+				token: CachedToken(
+					auth: auth, baseURL: baseURL, value: minted.value,
+					expiresAt: minted.expiresAt),
+				key: key)
+			return AgentReply.token(minted.value, expiresAt: minted.expiresAt)
+		} catch MintError.unsupported(let why) {
+			return AgentReply.failure(.unsupported, why)
+		} catch MintError.failed(let why) {
+			return AgentReply.failure(.mintFailed, why)
+		} catch {
+			return AgentReply.failure(.mintFailed, "\(error)")
+		}
+	}
+
+	/// onMain reads Agent store state, which the GUI mutates on the main queue.
+	private func onMain<T>(_ body: @escaping () -> T) -> T {
+		if Thread.isMainThread { return body() }
+		return DispatchQueue.main.sync(execute: body)
+	}
+
+	private func write(_ fd: Int32, _ reply: [String: Any]) {
+		let data = AgentReply.encode(reply)
+		data.withUnsafeBytes { raw in
+			var offset = 0
+			while offset < raw.count {
+				let n = Darwin.write(fd, raw.baseAddress!.advanced(by: offset), raw.count - offset)
+				if n <= 0 { return }
+				offset += n
+			}
+		}
+	}
+}
+
+enum AgentServerError: Error, CustomStringConvertible {
+	case posix(String, Int32)
+	case message(String)
+
+	var description: String {
+		switch self {
+		case .posix(let call, let code):
+			return "\(call): \(String(cString: strerror(code)))"
+		case .message(let text):
+			return text
+		}
+	}
+}

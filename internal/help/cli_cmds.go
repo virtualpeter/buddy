@@ -23,6 +23,7 @@ Subcommands:
   token status [--all]         Show disk token cache metadata (no bearer)
   token drop [--all]           Invalidate the disk token cache (including still-valid files)
   token refresh [--raw]        Obtain, keep-alive, or replace the session token from cache state
+  agent                        Alias of 'buddy agent status'
 
 Flags for 'test':
   --all                        Test every covering auth × context × surface (not just the default session)
@@ -58,6 +59,12 @@ Notes:
   auth token drop removes still-valid cache files; cred clean tokens only deletes
   expired or corrupt leftovers. One-shot mint without config is 'buddy token direct'.
 
+  auth agent is an alias of 'buddy agent status'. The Agent is the optional
+  macOS menu-bar app that owns its own integrations and mints bearers over a
+  unix socket, so their secrets never enter the CLI. Absent Agent means today's
+  in-process vault; a running but locked Agent fails the mint instead of opening
+  the vault. See 'buddy agent help'.
+
 Examples:
   buddy auth test
   buddy auth test --all
@@ -73,6 +80,63 @@ Examples:
   buddy auth token drop
   buddy --user dev auth token refresh
   buddy auth token refresh --raw
+  buddy auth agent
+`
+const Agent = `buddy agent - Inspect the optional macOS Buddy Agent
+
+Usage:
+  buddy [global-flags] agent <subcommand> [args...]
+
+Subcommands:
+  status                       Socket path, present, unlocked, peer check, counts
+  config [--json]              The config document the Agent serves (no secrets)
+  integrations                 Workplaces and auths the Agent owns, with secret presence
+  tokens                       Bearers the Agent has cached this session (metadata only)
+  lock                         Tell the Agent to relock and drop its cached bearers
+  prune [--dry-run] [--secrets] [-y]
+                               Remove config.yaml entries the Agent already provides
+
+Flags for 'config':
+  --json                       Print the Agent's raw JSON document instead of YAML
+
+Flags for 'prune':
+  --dry-run                    List the duplicates and stop
+  --secrets                    Also delete the vault secrets for those auths
+  -y                           Skip the confirmation prompt
+
+Notes:
+  The Agent is a menu-bar app that owns its own integrations: workplace, auth,
+  and the secret, which stays in its Keychain. buddy never sends secrets to it.
+
+  Config is served while the Agent is locked, so 'buddy agent config' and
+  session resolution never prompt. Unlocking (from the tray) gates minting only.
+
+  Turn on features.use_agent (or BUDDY_USE_AGENT=1) to fold that document into
+  buddy's config beneath managed preferences and your own config.yaml — the user
+  file still wins per name, and the Agent's entries are never written to disk.
+  With the flag on, an absent Agent is a hard error rather than a silent
+  fallback to the local vault.
+
+  Agent-owned auths show SECRET=agent in 'buddy cred status'; edit them (and
+  their secrets) in the Buddy Agent window, not with 'buddy cred set'.
+
+  After importing an existing setup into the Agent, config.yaml still holds the
+  same contexts and auths, and the local copy wins. 'buddy agent prune' deletes
+  those duplicates so the Agent's copy is the live one; --secrets also clears
+  the vault copies it has made redundant (that one opens the vault).
+
+  BUDDY_NO_AGENT=1 ignores the Agent entirely; BUDDY_AGENT_SOCK overrides the
+  socket path. There is no unlock subcommand: unlock is a tray action.
+
+Examples:
+  buddy agent status
+  buddy agent config
+  buddy agent config --json
+  buddy agent integrations
+  buddy agent tokens
+  buddy agent lock
+  buddy agent prune --dry-run
+  buddy agent prune --secrets
 `
 const Token = `buddy token - Mint a bearer token without config
 

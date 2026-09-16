@@ -20,6 +20,13 @@
 # OS
 .DS_Store
 
+# Swift / Xcode (macos/BuddyAgent spike)
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+macos/BuddyAgent/Secrets.plist
+
 #random junk
 /*.xml
 /*.json

@@ -1269,6 +1269,11 @@ type FeatureFlags struct {
 	// undocumented Pro policy list (GET /api/v1/policies). Those are always
 	// instance — they are not published on the Platform gateway.
 	ClassicInstanceOnly *bool `yaml:"classic_instance_only,omitempty"`
+
+	// UseAgent takes workplaces and auths from the macOS Buddy Agent instead of
+	// (strictly: underneath) this file. The Agent owns those secrets, so buddy
+	// never opens its own vault for them. Default false; BUDDY_USE_AGENT wins.
+	UseAgent *bool `yaml:"use_agent,omitempty"`
 }
 
 // ClassicInstanceOnly reports whether Classic API routing must use an
@@ -1279,6 +1284,21 @@ func (cfg *Config) ClassicInstanceOnly() bool {
 	}
 	if cfg != nil && cfg.Features.ClassicInstanceOnly != nil {
 		return *cfg.Features.ClassicInstanceOnly
+	}
+	return false
+}
+
+// EnvUseAgent overrides features.use_agent (1/true/yes/on or 0/false/no/off).
+const EnvUseAgent = "BUDDY_USE_AGENT"
+
+// UseAgent reports whether workplaces, auths, and secrets come from the macOS
+// Buddy Agent. Env wins over YAML; omitted means false.
+func (cfg *Config) UseAgent() bool {
+	if v, ok := parseBoolishEnv(EnvUseAgent); ok {
+		return v
+	}
+	if cfg != nil && cfg.Features.UseAgent != nil {
+		return *cfg.Features.UseAgent
 	}
 	return false
 }
@@ -1327,10 +1347,13 @@ type Config struct {
 	Channels map[string]ChannelPolicy `yaml:"channels,omitempty"`
 	Features FeatureFlags             `yaml:"features,omitempty"`
 
-	// user is the YAML file as loaded (after migrate). mdm is managed prefs.
-	// Both are omitted from YAML; SaveConfig writes only the user overlay when mdm is set.
-	user *Config
-	mdm  *Config
+	// user is the YAML file as loaded (after migrate). mdm is managed prefs and
+	// agent is the Buddy Agent's document (features.use_agent). All three are
+	// omitted from YAML; SaveConfig writes only the user overlay when either
+	// base layer is present, so neither gets baked into config.yaml.
+	user  *Config
+	mdm   *Config
+	agent *Config
 }
 
 // UnmarshalYAML dual-reads context:/contexts: (canonical) and tenant:/tenants:.
@@ -1758,12 +1781,23 @@ func LoadConfig() (*Config, error) {
 		fmt.Fprintf(os.Stderr, "warning: managed preferences include inline secrets; the plist is typically world-readable — prefer 'buddy setup secrets' (or 'buddy cred set secret')\n")
 	}
 
-	merged := overlayConfig(mdm, user)
+	// features.use_agent: the Buddy Agent layer sits beneath managed prefs, so
+	// the user file still wins per name. Only dial the socket when asked.
+	var agentCfg *Config
+	if overlayConfig(mdm, user).UseAgent() {
+		agentCfg, err = loadAgentConfig()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	merged := overlayConfig(overlayConfig(agentCfg, mdm), user)
 	if merged == nil {
 		merged = &Config{}
 	}
 	merged.user = cloneConfig(user)
 	merged.mdm = cloneConfig(mdm)
+	merged.agent = cloneConfig(agentCfg)
 	if err := expandOrgs(merged); err != nil {
 		src := path
 		if !userExists && mdm != nil {
@@ -2541,12 +2575,20 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 		}
 	}
 
+	feat := &yaml.Node{Kind: yaml.MappingNode}
 	if cfg.Features.ClassicInstanceOnly != nil && *cfg.Features.ClassicInstanceOnly {
-		feat := &yaml.Node{Kind: yaml.MappingNode}
 		feat.Content = append(feat.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "classic_instance_only"},
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"},
 		)
+	}
+	if cfg.Features.UseAgent != nil && *cfg.Features.UseAgent {
+		feat.Content = append(feat.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "use_agent"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"},
+		)
+	}
+	if len(feat.Content) > 0 {
 		root.Content = append(root.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "features"},
 			feat,
@@ -2570,7 +2612,8 @@ func SaveConfig(cfg *Config) error {
 	snapshotLastGoodConfig(path, existing)
 	toWrite := cfg
 	opts := marshalConfigOptions{fillDefault: true}
-	if cfg != nil && cfg.mdm != nil {
+	hasBaseLayer := configBaseLayer(cfg) != nil
+	if hasBaseLayer {
 		toWrite = userOverlayForSave(cfg)
 		opts = marshalConfigOptions{fillDefault: false, omitEmptyMaps: true}
 	}
@@ -2590,7 +2633,7 @@ func SaveConfig(cfg *Config) error {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write config %s: %w", path, err)
 	}
-	if cfg != nil && cfg.mdm != nil && toWrite != nil {
+	if hasBaseLayer && toWrite != nil {
 		cfg.user = cloneConfig(toWrite)
 	}
 	return nil

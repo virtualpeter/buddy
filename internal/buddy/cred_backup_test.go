@@ -106,6 +106,74 @@ func TestCredBackupWrongPassphrase(t *testing.T) {
 	}
 }
 
+// The Buddy Agent reads these files directly (AgentBackup.swift) to import an
+// existing setup with its secrets, so the decrypted payload keys are a wire
+// contract. The Swift reader matches them case-insensitively; renaming one
+// outright would still break it.
+func TestCredBackupPayloadKeysForAgentImport(t *testing.T) {
+	prev := credBackupIter
+	credBackupIter = 10_000
+	t.Cleanup(func() { credBackupIter = prev })
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	cfg := &Config{
+		Tenant:  TenantSelection{Default: "sandbox"},
+		Tenants: map[string]TenantConfig{"sandbox": {URL: "https://example.jamfcloud.com"}},
+		Auths: map[string]AuthEntry{
+			"sandbox-cli": {Type: "oauth", ClientID: "cid", ClientSecret: "inline", Tenants: []string{"sandbox"}},
+		},
+	}
+	path := filepath.Join(dir, "b.json")
+	if _, err := BackupCreds(cfg, CredBackupOpts{Path: path, Passphrase: "pw", SkipConfirm: true}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := decryptCredBackup(raw, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(plain, &payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"tenant", "tenants", "auths"} {
+		if _, ok := payload[key]; !ok {
+			t.Fatalf("payload is missing %q: %v", key, payload)
+		}
+	}
+	var selection map[string]string
+	if err := json.Unmarshal(payload["tenant"], &selection); err != nil {
+		t.Fatal(err)
+	}
+	if selection["Default"] != "sandbox" {
+		t.Fatalf("tenant selection = %v", selection)
+	}
+	var tenants map[string]map[string]any
+	if err := json.Unmarshal(payload["tenants"], &tenants); err != nil {
+		t.Fatal(err)
+	}
+	if tenants["sandbox"]["URL"] != "https://example.jamfcloud.com" {
+		t.Fatalf("tenant = %v", tenants["sandbox"])
+	}
+	var auths map[string]map[string]any
+	if err := json.Unmarshal(payload["auths"], &auths); err != nil {
+		t.Fatal(err)
+	}
+	got := auths["sandbox-cli"]
+	if got["Type"] != "oauth" || got["ClientID"] != "cid" || got["ClientSecret"] != "inline" {
+		t.Fatalf("auth = %v", got)
+	}
+	if list, _ := got["Tenants"].([]any); len(list) != 1 || list[0] != "sandbox" {
+		t.Fatalf("auth tenants = %v", got["Tenants"])
+	}
+}
+
 func TestEncryptCredBackupRoundTrip(t *testing.T) {
 	prev := credBackupIter
 	credBackupIter = 10_000

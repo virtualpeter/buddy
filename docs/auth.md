@@ -215,13 +215,76 @@ Escape hatches (never written to disk as config):
 - **Cancel means locked:** if the DEK item exists but presence / LA fails or is cancelled, buddy does **not** fall back to the recovery passphrase. Recovery still works when the DEK is genuinely absent via typed `buddy cred set passphrase` or `BUDDY_VAULT_PASSPHRASE`
 - **User-held recovery:** `cred set passphrase` writes a DEK wrap into `secrets.enc` only. Older Keychain/`master` (or `master` file) items are deleted once a wrap is present. `cred backup` / `restore` always require a typed passphrase (or `--passphrase=` / `BUDDY_VAULT_PASSPHRASE`) — never a machine-stored default
 - Unsigned `dist/buddy` cannot use a meaningful app ACL; presence prompts are a signed-release feature. An unlocked mcp/serve process still holds the DEK in RAM
-- Hard biometrics belong in an optional future macOS Buddy Agent (Swift tray); the Go CLI stays soft LA + AFU DEK until then (see security canvas / Agent spike)
+- Hard biometrics belong in the optional macOS Buddy Agent (Swift tray, below); the Go CLI stays soft LA + AFU DEK until then
 
-### Optional Buddy Agent (design only)
+### Optional Buddy Agent
 
-An optional macOS menu-bar **Buddy Agent** (Swift, grow `Contents/MacOS/Buddy`) can own vault unlock and mint Jamf bearers. The Go CLI would dial a **unix-domain socket** with a **Team-ID codesign peer check**, receive `{access_token, expires_at}` only, and keep using disk `tokens/` for cache hits. When the agent is **absent** (Linux, CI, `BUDDY_NO_AGENT=1`, unsigned), today’s in-process vault remains. When the agent is **present but locked**, buddy errors or prompts — it must not silently load the DEK into Go.
+An optional macOS menu-bar **Buddy Agent** (Swift, [`macos/BuddyAgent/`](../macos/BuddyAgent/)) **owns its own integrations**: the workplace, the auth, and the secret, which lives in its Keychain under service `virtualpete.buddy.agent`. buddy never sends a secret to the Agent, and the Agent never returns one: the CLI dials a **unix-domain socket** with a **Team-ID codesign peer check** and receives config (identity) or `{access_token, expires_at}`. Nothing is installed by default: no LaunchAgent, no change to `Contents/MacOS/Buddy`, and no new entitlements on `Helpers/buddy`.
 
-Spike checklist (separate PR): Swift UDS stub → peer codesign → Go `AgentDial` + kill-switch → mcp soak. Do not re-ship Go helper Keychain Sharing / Secure Enclave packaging as the primary unlock story.
+**Config is served while the Agent is locked.** Workplaces and auth names are identity, not secrets, so resolving a session never prompts. Unlock (biometrics once the Agent is a signed app) gates **minting** only.
+
+| Op | Needs unlock | Returns |
+|---|---|---|
+| `status` | no | present, unlocked, version, peer check, integration/token counts |
+| `config` | no | config.yaml-shaped document, secrets stripped |
+| `integrations` | no | per-auth summary with `secret: stored/missing` |
+| `tokens` | no | cached bearer metadata, never a bearer |
+| `token` | **yes** | `access_token` + `expires_at` |
+| `lock` | no | relocks and drops cached bearers |
+
+`buddy agent status | config [--json] | integrations | tokens | lock` inspects it (`buddy auth agent` is an alias of `agent status`). There is no `unlock` and no `push`: unlock is a tray action, and secrets are typed into the Agent window — or imported by it. The Agent's **Import from buddy** menu reads two files an existing setup already has:
+
+| File | Carries | In the Agent |
+|---|---|---|
+| `buddy setup export --json` | workplaces and auth names, no secrets | seeds the rows; each secret is typed in afterwards |
+| `buddy cred backup <file>` | the same identity **plus** the secrets | asks for that backup's passphrase and writes the secrets into its own Keychain |
+
+The Agent opens the backup itself (the `buddy cred restore` envelope: PBKDF2-SHA256 then AES-256-GCM), so no secret passes through the CLI or the socket. The passphrase is used once, in memory. `internal/buddy/cred_backup_test.go` pins the payload keys that reader depends on.
+
+**After importing, hand the entries over.** `config.yaml` still holds the same contexts and auths, and the user file wins per name, so the local copy silently shadows the Agent's. `buddy cred status` says so, and `buddy agent prune` removes the duplicates — `--dry-run` lists them first, `--secrets` also deletes the vault copies the Agent has made redundant (that one opens the vault). A workplace stays until the workplaces under it are shared too, and anything the Agent does not serve is left alone. Run to completion, `config.yaml` is just `features.use_agent: true`.
+
+**`features.use_agent`** (or `BUDDY_USE_AGENT=1`) folds the Agent's document into buddy's config as a layer **beneath** managed preferences and your own `config.yaml` — the user file still wins per name, and `SaveConfig` never writes the Agent's entries to disk. With the flag on:
+
+- an absent Agent (or `BUDDY_NO_AGENT=1`) is a **hard error**, not a silent fallback to the local vault;
+- Agent-owned auths show `SECRET=agent` in `buddy cred status`, and buddy never resolves a vault secret for them;
+- `buddy cred set|delete|rename` refuse those contexts and auths, pointing at the Agent window;
+- an otherwise empty `config.yaml` does not trigger first-run setup.
+
+Without the flag, nothing dials the socket during config load, and the Agent is only consulted when a bearer is minted.
+
+Order of precedence when a bearer is needed:
+
+1. Valid disk token under `~/.config/buddy/tokens/` — the Agent is not dialled at all. **Agent-owned auths skip this step**: they always ask the Agent, and any file an older buddy left is deleted
+2. Agent, when `Enabled()` (macOS, `BUDDY_NO_AGENT` unset) and the credential has no inline secret
+3. In-process `secrets.enc` vault, as before
+
+**A bearer the Agent minted is never written to disk.** It lives in that one buddy process, so locking the Agent stops the next command instead of leaving buddy a usable copy for the rest of the token's life. The Agent keeps its own cache, so repeat commands cost a socket round trip, not a Jamf one. A 401 (or `buddy auth token refresh`) goes back to the Agent with `force`, bypassing that cache, rather than falling through to the vault for a secret buddy may not hold.
+
+| Agent result | buddy |
+|---|---|
+| Socket absent | falls back to the vault — unless the auth is Agent-owned, which fails |
+| `unsupported` (the Agent does not know that auth) | same: fallback, or fail when Agent-owned |
+| `locked` | **fails** — a running Agent is never bypassed by unlocking the local vault |
+| `denied` / `bad_request` / `mint_failed` | fails |
+
+| Variable | Effect |
+|---|---|
+| `BUDDY_USE_AGENT` | Overrides `features.use_agent` (`1`/`0`) |
+| `BUDDY_NO_AGENT=1` | Ignore the Agent entirely; bit-identical to the pre-Agent behaviour |
+| `BUDDY_AGENT_SOCK` | Socket path override (both sides); default `~/Library/Application Support/Buddy/agent.sock` |
+
+Current limits: the Agent is still a SwiftPM build (unsigned or ad-hoc), so unlock is a menu click rather than Touch ID, and its Keychain items are `WhenUnlockedThisDeviceOnly` rather than `userPresence`. Signing, the Xcode app target, and real biometric gating are the next phase — see [`macos/BuddyAgent/README.md`](../macos/BuddyAgent/README.md).
+
+**Manual soak** (Agent running from Xcode or `swift run`):
+
+1. Add an integration in the Agent window while it is locked, then `buddy agent integrations` → the row with `secret stored`, no prompt
+2. `buddy agent config` → the served document; with `features.use_agent: true`, `buddy cred status` shows the same context with `SECRET=agent`
+3. `buddy auth token drop` then `buddy auth test` → fails with `buddy agent is locked`, with no Touch ID prompt (the vault stayed shut)
+4. Unlock from the tray, `buddy auth token drop`, `buddy auth test` → bearer minted by the Agent, still no vault prompt; a second command hits the disk token cache
+5. Quit the Agent → with `use_agent` on, buddy aborts with "the Buddy Agent is not running"; with it off, vault-backed auths keep working as before
+6. `BUDDY_NO_AGENT=1` → same abort with `use_agent` on; without it, the vault path with the Agent untouched
+
+Do not re-ship Go helper Keychain Sharing / Secure Enclave packaging as the primary unlock story.
 
 A signed binary does not see a DEK stored by `dist/buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against `dist/buddy-darwin-arm64` (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. `make install-signed` puts Buddy.app in `~/Applications` and **symlinks** `~/go/bin/buddy` at `Contents/Helpers/buddy`. `buddy cred erase secrets` deletes the vault, the DEK, any leftover Keychain/file master item, the token-wrap key, token cache files, and leftover per-auth items from **both** Keychain services. Leftover `~/.config/buddy/dek.se` from an abandoned Secure Enclave experiment is unused and safe to delete.
 
