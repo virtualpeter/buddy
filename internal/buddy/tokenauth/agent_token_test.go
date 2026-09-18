@@ -372,6 +372,94 @@ func TestAgentRefreshGoesBackToTheAgent(t *testing.T) {
 	}
 }
 
+// A token request asks a locked Agent to raise its own prompt; the three ways
+// that can fail all have to reach the user intact and must never be papered
+// over by opening the local vault instead.
+func TestAgentUnlockFailuresAreFatal(t *testing.T) {
+	cases := []struct {
+		name  string
+		code  string
+		msg   string
+		wants string
+	}{
+		{"declined", "unlock_declined", "unlock declined", "declined at the presence prompt"},
+		{"timeout", "unlock_timeout", "unlock prompt went unanswered for 60s", "unlock timed out"},
+		{"unavailable", "unlock_unavailable", "no presence on this Mac", "cannot prompt for unlock"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Fatal("token endpoint must not be called when the unlock fails")
+			}))
+			t.Cleanup(srv.Close)
+			var allowed atomic.Int32
+			fakeAgentSocketRaw(t, func(req map[string]any) map[string]any {
+				if allow, _ := req["allow_unlock"].(bool); allow {
+					allowed.Add(1)
+				}
+				return map[string]any{"ok": false, "error": tc.code, "message": tc.msg}
+			})
+
+			var loads atomic.Int32
+			a := NewAuthenticator(Config{
+				Name:     "sandbox",
+				BaseURL:  srv.URL,
+				ClientId: "cid",
+				CacheKey: "agent-" + tc.code,
+				LoadSecrets: func() (string, string, error) {
+					loads.Add(1)
+					return "", "from-vault", nil
+				},
+			})
+			_, err := a.GetToken()
+			if err == nil || !strings.Contains(err.Error(), tc.wants) {
+				t.Fatalf("err = %v, want one mentioning %q", err, tc.wants)
+			}
+			if allowed.Load() == 0 {
+				t.Fatal("the token request should have allowed an unlock prompt")
+			}
+			if loads.Load() != 0 {
+				t.Fatalf("LoadSecrets called %d times; a failed unlock must not open the vault", loads.Load())
+			}
+		})
+	}
+}
+
+// BUDDY_AGENT_NO_PROMPT=1 keeps the pre-0.3 behaviour: the Agent is never asked
+// to prompt, so a locked one fails straight away.
+func TestAgentNoPromptOptOut(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("token endpoint must not be called when the agent is locked")
+	}))
+	t.Cleanup(srv.Close)
+	var asked, allowed atomic.Int32
+	fakeAgentSocketRaw(t, func(req map[string]any) map[string]any {
+		asked.Add(1)
+		if allow, _ := req["allow_unlock"].(bool); allow {
+			allowed.Add(1)
+		}
+		return map[string]any{"ok": false, "error": "locked", "message": "unlock it from the menu bar"}
+	})
+	t.Setenv(agent.EnvNoPrompt, "1")
+
+	a := NewAuthenticator(Config{
+		Name:     "sandbox",
+		BaseURL:  srv.URL,
+		ClientId: "cid",
+		CacheKey: "agent-no-prompt",
+	})
+	_, err := a.GetToken()
+	if err == nil || !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("err = %v, want the plain locked error", err)
+	}
+	if asked.Load() == 0 {
+		t.Fatal("the agent should still have been asked for a token")
+	}
+	if allowed.Load() != 0 {
+		t.Fatalf("allow_unlock was set %d times despite %s=1", allowed.Load(), agent.EnvNoPrompt)
+	}
+}
+
 func TestAgentIgnoredWhenDisabled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

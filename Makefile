@@ -14,6 +14,10 @@ BUDDY_CODESIGN_IDENTITY := $(shell security find-identity -v -p codesigning 2>/d
 endif
 BUDDY_CODESIGN_IDENTIFIER ?= virtualpete.buddy.cli
 BUDDY_APP_IDENTIFIER ?= virtualpete.buddy
+# Team for the Agent's Xcode automatic signing; derived from the same identity.
+ifeq ($(BUDDY_TEAM_ID),)
+BUDDY_TEAM_ID := $(shell printf '%s' "$(BUDDY_CODESIGN_IDENTITY)" | sed -nE 's/.*\(([A-Z0-9]+)\)$$/\1/p')
+endif
 
 # All build artefacts land under dist/ (override with DIST=…).
 DIST ?= dist
@@ -23,6 +27,7 @@ LITE_TARGET := $(DIST)/buddy-lite
 LINUX_TARGET := $(DIST)/buddy-linux-amd64
 WINDOWS_TARGET := $(DIST)/buddy-windows-amd64.exe
 APP_TARGET := $(DIST)/Buddy.app
+AGENT_TARGET := $(DIST)/BuddyAgent.app
 
 # Find all Go files with package main
 GO_MAIN_FILES := $(shell find . -name "*.go" -type f -exec grep -l "^package main" {} \; | grep -v vendor | grep -v ".git" | sort)
@@ -132,15 +137,36 @@ install: $(BUILDTARGET)
 	cp $(BUILDTARGET) ~/go/bin/buddy
 .PHONY: install
 
+# Buddy Agent: optional menu-bar app that owns its own integrations and mints
+# tokens for the CLI. Developer ID signing is not cosmetic here — the embedded
+# provisioning profile is what authorizes the Keychain userPresence ACL.
+AGENT_SWIFT_FILES := $(shell find macos/BuddyAgent/Sources -name '*.swift' 2>/dev/null)
+
+.PHONY: agent-app
+agent-app: $(AGENT_TARGET)
+
+$(AGENT_TARGET): $(AGENT_SWIFT_FILES) macos/BuddyAgent/BuddyAgent.xcodeproj/project.pbxproj macos/BuddyAgent/BuddyAgent.entitlements macos/BuddyAgent/Resources/Info.plist scripts/build-agent-app.sh | $(DIST)
+	@test "$$(uname -s)" = Darwin || { echo "make agent-app is macOS-only"; exit 1; }
+	./scripts/build-agent-app.sh "$(AGENT_TARGET)" "$(PKG_VERSION)" "$(BUDDY_TEAM_ID)"
+
+# Unsigned SwiftPM loop for editing the Agent: no entitlements, so the keychain
+# stays legacy and presence is simulated. Not shippable; see agent-app.
+.PHONY: agent-dev
+agent-dev:
+	@test "$$(uname -s)" = Darwin || { echo "make agent-dev is macOS-only"; exit 1; }
+	cd macos/BuddyAgent && swift build
+	@echo "Run: BUDDY_AGENT_ALLOW_UNSIGNED=1 macos/BuddyAgent/.build/debug/BuddyAgent"
+
 # Buddy.app: CLI at Contents/Helpers/buddy (codesign id virtualpete.buddy.cli).
 # MacOS/Buddy is a Finder stub (future GUI). PATH should symlink into Helpers, not copy.
+# The Agent rides along at Contents/Library/LoginItems.
 .PHONY: app
 app: $(APP_TARGET)
 
-$(APP_TARGET): $(SIGNED_TARGET) cmd/buddy-app/*.go packaging/Info.plist.in scripts/build-buddy-app.sh | $(DIST)
+$(APP_TARGET): $(SIGNED_TARGET) $(AGENT_TARGET) cmd/buddy-app/*.go packaging/Info.plist.in scripts/build-buddy-app.sh | $(DIST)
 	@test "$$(uname -s)" = Darwin || { echo "make app is macOS-only"; exit 1; }
 	BUDDY_CODESIGN_IDENTIFIER="$(BUDDY_CODESIGN_IDENTIFIER)" BUDDY_APP_IDENTIFIER="$(BUDDY_APP_IDENTIFIER)" \
-		./scripts/build-buddy-app.sh "$(SIGNED_TARGET)" "$(APP_TARGET)" "$(PKG_VERSION)" "$(BUDDY_CODESIGN_IDENTITY)"
+		./scripts/build-buddy-app.sh "$(SIGNED_TARGET)" "$(APP_TARGET)" "$(PKG_VERSION)" "$(BUDDY_CODESIGN_IDENTITY)" "$(AGENT_TARGET)"
 
 # Install Buddy.app to ~/Applications and symlink ~/go/bin/buddy at the helper.
 install-signed: $(APP_TARGET)
@@ -157,16 +183,65 @@ install-signed: $(APP_TARGET)
 # Optional: BUDDY_PKG_SIGN_IDENTITY='Developer ID Installer: …' to productsign the pkg.
 PKG_VERSION ?= $(shell v=$$(printf '%s' "$(BUDDY_VERSION)" | sed -E 's/^v//;s/-.*//'); printf '%s\n' "$${v:-0.0.0}")
 PKG_TARGET ?= $(DIST)/buddy-$(PKG_VERSION).pkg
+# Shared by package and notarize so the two cannot drift.
+BUILD_PKG = ./scripts/build-pkg.sh "$(APP_TARGET)" "$(PKG_TARGET)" "$(PKG_VERSION)" "$(BUDDY_APP_IDENTIFIER)" "$(BUDDY_PKG_SIGN_IDENTITY)"
 .PHONY: package
 package: $(APP_TARGET) | $(DIST)
 	@test "$$(uname -s)" = Darwin || { echo "make package is macOS-only"; exit 1; }
-	@./scripts/build-pkg.sh "$(APP_TARGET)" "$(PKG_TARGET)" "$(PKG_VERSION)" "$(BUDDY_APP_IDENTIFIER)" "$(BUDDY_PKG_SIGN_IDENTITY)"
+	@$(BUILD_PKG)
+
+# Notarize and staple. Two stages, in the order that leaves both artefacts
+# stapled: Buddy.app first, then a pkg built from the already-stapled app.
+# Needs a notarytool keychain profile and a Developer ID Installer identity:
+#   xcrun notarytool store-credentials <profile> --apple-id … --team-id …
+# The scripts read BUDDY_NOTARY_PROFILE to refuse anything the notary would
+# reject anyway (no secure timestamp, unsigned pkg).
+export BUDDY_NOTARY_PROFILE
+.PHONY: notarize
+notarize:
+	@test "$$(uname -s)" = Darwin || { echo "make notarize is macOS-only"; exit 1; }
+	@test -n "$(BUDDY_NOTARY_PROFILE)" || { echo "set BUDDY_NOTARY_PROFILE=<notarytool keychain profile>"; exit 1; }
+	@test -n "$(BUDDY_PKG_SIGN_IDENTITY)" || { echo "set BUDDY_PKG_SIGN_IDENTITY='Developer ID Installer: …'"; exit 1; }
+	$(MAKE) $(APP_TARGET)
+	./scripts/notarize.sh "$(APP_TARGET)" "$(BUDDY_NOTARY_PROFILE)"
+	@# Deliberately not a recursive 'make package': sync-docfs is phony, so the
+	@# signed CLI and then Buddy.app are always considered out of date.
+	@# Re-entering make here would rebuild the app and throw away the ticket
+	@# just stapled to it, leaving the pkg carrying an unstapled app — the thing
+	@# this two-stage order exists to prevent. Package the app on disk instead.
+	@$(BUILD_PKG)
+	./scripts/notarize.sh "$(PKG_TARGET)" "$(BUDDY_NOTARY_PROFILE)"
+
+# Finish a notarize run that was interrupted while waiting on Apple's queue.
+# stapler fetches the ticket by cdhash, so this needs no submission id and does
+# not resubmit — it only works once Apple has accepted, and only on the exact
+# files that were submitted. Rebuilding first invalidates the ticket.
+.PHONY: staple
+staple:
+	@test "$$(uname -s)" = Darwin || { echo "make staple is macOS-only"; exit 1; }
+	@found=0; failed=0; \
+	for artefact in "$(APP_TARGET)" "$(PKG_TARGET)"; do \
+		test -e "$$artefact" || continue; \
+		found=1; \
+		echo "Stapling $$artefact..."; \
+		if xcrun stapler staple "$$artefact"; then \
+			xcrun stapler validate "$$artefact"; \
+		else \
+			failed=1; \
+			echo "make staple: no ticket for $$artefact yet"; \
+			echo "make staple: if it was rebuilt since submission its cdhash changed — notarize it again"; \
+		fi; \
+	done; \
+	test "$$found" = 1 || { echo "make staple: nothing to staple; build and notarize first"; exit 1; }; \
+	test "$$failed" = 0 || { echo "make staple: check 'xcrun notarytool history --keychain-profile \$$BUDDY_NOTARY_PROFILE'"; exit 1; }
 
 # Clean dist/, then branded pkg + linux/windows cross-builds (macOS host required for pkg).
+# Notarizes when BUDDY_NOTARY_PROFILE is set, which also reorders app/pkg.
 .PHONY: release
 release: clean
 	@test "$$(uname -s)" = Darwin || { echo "make release is macOS-only (needs package)"; exit 1; }
-	$(MAKE) package buddy-linux buddy-windows
+	@if [ -n "$(BUDDY_NOTARY_PROFILE)" ]; then $(MAKE) notarize; else $(MAKE) package; fi
+	$(MAKE) buddy-linux buddy-windows
 	@ls -lh $(DIST)
 
 # Run unit tests (default Keychain: security(1) on Darwin, CGO off).
@@ -220,7 +295,9 @@ help:
 	@echo "Targets (artefacts under $(DIST)/):"
 	@echo "  buddy   - Sync embedded docs + build $(BUILDTARGET)"
 	@echo "  buddy-darwin-arm64 - Darwin/arm64 helper: -tags secitem + Developer ID → $(SIGNED_TARGET)"
-	@echo "  app / Buddy.app - Wrap helper in $(APP_TARGET) (Helpers/buddy + MacOS/Buddy stub)"
+	@echo "  app / Buddy.app - Wrap helper in $(APP_TARGET) (Helpers/buddy + MacOS/Buddy stub + Agent)"
+	@echo "  agent-app - Developer ID Buddy Agent → $(AGENT_TARGET) (Xcode; presence ACL)"
+	@echo "  agent-dev - Unsigned SwiftPM build of the Agent (legacy keychain, simulated presence)"
 	@echo "  buddy-lite - Build with TAGS=noserve,nomcp,nolsp → $(LITE_TARGET)"
 	@echo "  buddy-linux - Cross-compile linux/amd64 → $(LINUX_TARGET)"
 	@echo "  buddy-windows - Cross-compile windows/amd64 → $(WINDOWS_TARGET)"
@@ -230,7 +307,9 @@ help:
 	@echo "  install   - Install $(BUILDTARGET) CLI to ~/go/bin/buddy"
 	@echo "  install-signed - Buddy.app → ~/Applications; symlink ~/go/bin/buddy → Helpers/buddy"
 	@echo "  package   - Branded pkg: /Applications/Buddy.app + /usr/local/bin/buddy symlink → $(DIST)/buddy-<version>.pkg"
-	@echo "  release   - clean + package + buddy-linux + buddy-windows (macOS host)"
+	@echo "  notarize  - Notarize + staple Buddy.app then the pkg (BUDDY_NOTARY_PROFILE + BUDDY_PKG_SIGN_IDENTITY)"
+	@echo "  staple    - Staple $(APP_TARGET) and the pkg after an interrupted notarize wait (no rebuild)"
+	@echo "  release   - clean + package (or notarize) + buddy-linux + buddy-windows (macOS host)"
 	@echo "  test      - Run unit tests (default Keychain / CGO off)"
 	@echo "  test-signed - Darwin: unit tests with -tags secitem (Security.framework, CGO)"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"
@@ -246,4 +325,7 @@ help:
 	@echo "buddy-darwin-arm64: BUDDY_CODESIGN_IDENTITY defaults to first Developer ID Application (security find-identity); override with BUDDY_CODESIGN_IDENTITY=…; BUDDY_CODESIGN_IDENTIFIER=$(BUDDY_CODESIGN_IDENTIFIER)"
 	@echo "app: BUDDY_APP_IDENTIFIER=$(BUDDY_APP_IDENTIFIER)"
 	@echo "package: $(APP_TARGET) into a branded installer; optional BUDDY_PKG_SIGN_IDENTITY (Developer ID Installer)"
+	@echo "agent-app: Xcode automatic signing, BUDDY_TEAM_ID=$(BUDDY_TEAM_ID) (derived from the Developer ID identity)"
+	@echo "notarize: BUDDY_NOTARY_PROFILE=<notarytool keychain profile>; required for a stapled release"
+	@echo "notarize: BUDDY_NOTARY_WAIT=30m bounds the wait on Apple's queue; on timeout resume with 'make staple'"
 .PHONY: help

@@ -4,20 +4,27 @@
 <dict>
 	<key>CFBundleName</key>
 	<string>Buddy Agent</string>
+	<key>CFBundleDisplayName</key>
+	<string>Buddy Agent</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
-	<string>virtualpete.buddy.agent</string>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<!-- make passes MARKETING_VERSION / CURRENT_PROJECT_VERSION. -->
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<!-- Menu-bar only: no Dock tile, no main window. -->
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>MIT. Not affiliated with or endorsed by Jamf.</string>
+	<string>Copyright © 2026 Peter Viertel.</string>
 </dict>
 </plist>

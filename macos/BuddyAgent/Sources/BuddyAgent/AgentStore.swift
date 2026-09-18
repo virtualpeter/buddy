@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 
 /// One integration the Agent owns: a buddy workplace (context) plus the auth
 /// that covers it. Secrets live in the Keychain, never in this JSON.
@@ -142,8 +143,9 @@ final class AgentStore: ObservableObject {
 		save()
 	}
 
-	func setSecret(_ value: String, for integration: Integration) {
-		AgentKeychain.set(value, auth: integration.authName, kind: integration.secretKind)
+	func setSecret(_ value: String, for integration: Integration, context: LAContext? = nil) {
+		AgentKeychain.set(
+			value, auth: integration.authName, kind: integration.secretKind, context: context)
 		objectWillChange.send()
 	}
 
@@ -162,21 +164,63 @@ final class AgentStore: ObservableObject {
 		return try importDocument(root)
 	}
 
+	/// Result of importing a cred backup. `secrets` is how many Keychain writes
+	/// `has()` can see afterwards — not how many the file contained.
+	struct BackupImportResult {
+		var integrations: Int
+		var secrets: Int
+		var ephemeral: Int
+		var failed: Int
+		var inBackup: Int
+	}
+
+	/// Identity half of a cred-backup import (no Keychain writes). Used so the
+	/// GUI can merge workplaces on the main queue and write secrets off it.
+	@discardableResult
+	func importDocumentForBackup(_ root: [String: Any]) throws -> Int {
+		try importDocument(root)
+	}
+
 	/// Imports the encrypted file `buddy cred backup` writes, which carries the
 	/// secrets as well as the identity. The passphrase is the one typed when
 	/// the backup was made; it is used once here and never stored.
+	///
+	/// `presence` is optional and only used when replacing an existing
+	/// presence-gated Keychain item (delete/update). New items are created
+	/// without it — SecItemAdd attaches the ACL itself.
 	@discardableResult
-	func importBackup(_ data: Data, passphrase: String) throws -> (integrations: Int, secrets: Int) {
+	func importBackup(
+		_ data: Data, passphrase: String, presence: LAContext? = nil
+	) throws -> BackupImportResult {
 		let contents = try AgentBackup.read(data, passphrase: passphrase)
 		let added = try importDocument(contents.document)
 		var stored = 0
+		var ephemeral = 0
+		var failed = 0
 		for (authName, secret) in contents.secrets {
-			guard let row = integration(forAuth: authName) else { continue }
-			AgentKeychain.set(secret, auth: authName, kind: row.secretKind)
-			stored += 1
+			guard let row = integration(forAuth: authName) else {
+				failed += 1
+				continue
+			}
+			let ok = AgentKeychain.set(
+				secret, auth: authName, kind: row.secretKind, context: presence)
+			if AgentKeychain.has(auth: authName, kind: row.secretKind) {
+				if ok {
+					stored += 1
+				} else {
+					ephemeral += 1
+				}
+			} else {
+				failed += 1
+			}
 		}
 		objectWillChange.send()
-		return (added, stored)
+		return BackupImportResult(
+			integrations: added,
+			secrets: stored,
+			ephemeral: ephemeral,
+			failed: failed,
+			inBackup: contents.secrets.count)
 	}
 
 	@discardableResult

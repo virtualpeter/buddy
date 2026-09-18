@@ -41,6 +41,37 @@ func TestHelperPathFromMacOSExecutable(t *testing.T) {
 	}
 }
 
+func TestNestedAgentPathFromMacOSExecutable(t *testing.T) {
+	root := t.TempDir()
+	macos := filepath.Join(root, "Contents", "MacOS")
+	agent := filepath.Join(root, "Contents", "Library", "LoginItems", "BuddyAgent.app")
+	if err := os.MkdirAll(macos, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(agent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(macos, "Buddy")
+	if err := os.WriteFile(exe, []byte("stub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := nestedAgentPath(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = filepath.EvalSymlinks(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("nestedAgentPath = %q, want %q", got, want)
+	}
+}
+
 func TestDefaultArgsServeOpenWhenEmpty(t *testing.T) {
 	old := os.Args
 	t.Cleanup(func() { os.Args = old })

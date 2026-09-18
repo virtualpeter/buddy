@@ -1,4 +1,5 @@
 import SwiftUI
+import LocalAuthentication
 import UniformTypeIdentifiers
 
 /// Main window: what the Agent owns (integrations), what it has minted
@@ -7,11 +8,12 @@ import UniformTypeIdentifiers
 struct AgentRootView: View {
 	@ObservedObject var store: AgentStore
 	@ObservedObject var state: AgentState
+	let gate: UnlockGate
 	let socketPath: String
 
 	var body: some View {
 		TabView {
-			IntegrationsView(store: store)
+			IntegrationsView(store: store, gate: gate)
 				.tabItem { Label("Integrations", systemImage: "building.2") }
 			TokensView(state: state)
 				.tabItem { Label("Tokens", systemImage: "key") }
@@ -25,6 +27,7 @@ struct AgentRootView: View {
 
 struct IntegrationsView: View {
 	@ObservedObject var store: AgentStore
+	let gate: UnlockGate
 	@State private var editing: Integration?
 	@State private var backup: BackupPrompt?
 	@State private var message: String?
@@ -74,7 +77,7 @@ struct IntegrationsView: View {
 			.foregroundStyle(.secondary)
 		}
 		.sheet(item: $editing) { row in
-			IntegrationEditor(store: store, draft: row)
+			IntegrationEditor(store: store, gate: gate, draft: row)
 		}
 		.sheet(item: $backup) { prompt in
 			BackupPassphraseSheet(url: prompt.url) { passphrase in
@@ -111,12 +114,67 @@ struct IntegrationsView: View {
 	}
 
 	private func importBackup(_ url: URL, passphrase: String) {
-		do {
-			let result = try store.importBackup(Data(contentsOf: url), passphrase: passphrase)
-			message =
-				"Imported \(result.integrations) integration(s) and \(result.secrets) secret(s) from \(url.lastPathComponent)."
-		} catch {
-			message = "Import failed: \(error)"
+		message = "Importing \(url.lastPathComponent)…"
+		DispatchQueue.global(qos: .userInitiated).async { [gate, store] in
+			let finish: (String) -> Void = { text in
+				DispatchQueue.main.async { self.message = text }
+			}
+			do {
+				let data = try Data(contentsOf: url)
+				let contents = try AgentBackup.read(data, passphrase: passphrase)
+				var added = 0
+				DispatchQueue.main.sync {
+					added = (try? store.importDocumentForBackup(contents.document)) ?? 0
+				}
+				var stored = 0
+				var ephemeral = 0
+				var failed = 0
+				for (authName, secret) in contents.secrets {
+					let kind: AgentKeychain.Kind = DispatchQueue.main.sync {
+						store.integration(forAuth: authName)?.secretKind ?? .clientSecret
+					}
+					guard DispatchQueue.main.sync(execute: { store.integration(forAuth: authName) }) != nil
+					else {
+						failed += 1
+						continue
+					}
+					var ok = AgentKeychain.set(secret, auth: authName, kind: kind)
+					// Replacing an existing presence-gated item needs the session.
+					if !ok, AgentKeychain.backend == .dataProtection,
+						gate.authorize(reason: "Buddy Agent wants to replace stored secrets")
+							== .unlocked
+					{
+						ok = AgentKeychain.set(
+							secret, auth: authName, kind: kind, context: gate.presenceContext)
+					}
+					if AgentKeychain.storedInKeychain(auth: authName, kind: kind) {
+						stored += 1
+					} else if AgentKeychain.has(auth: authName, kind: kind) {
+						ephemeral += 1
+					} else {
+						failed += 1
+					}
+				}
+				DispatchQueue.main.async { store.objectWillChange.send() }
+				var parts: [String] = []
+				if stored > 0 {
+					parts.append(
+						"Imported \(added) integration(s) and \(stored) secret(s) into the data-protection keychain (Keychain Access → Local Items, not login).")
+				} else {
+					parts.append("Imported \(added) integration(s) from \(url.lastPathComponent).")
+				}
+				if ephemeral > 0 {
+					parts.append(
+						"\(ephemeral) secret(s) are memory-only until quit — Keychain write did not stick; check Status and agent-keychain.log.")
+				}
+				if failed > 0 {
+					parts.append(
+						"\(failed) of \(contents.secrets.count) secret(s) did not land. See ~/Library/Application Support/Buddy/agent-keychain.log")
+				}
+				finish(parts.joined(separator: " "))
+			} catch {
+				finish("Import failed: \(error)")
+			}
 		}
 	}
 
@@ -205,8 +263,10 @@ struct IntegrationRow: View {
 
 struct IntegrationEditor: View {
 	@ObservedObject var store: AgentStore
+	let gate: UnlockGate
 	@State var draft: Integration
 	@State private var secret: String = ""
+	@State private var saveError: String?
 	@Environment(\.dismiss) private var dismiss
 
 	private let types = ["oauth", "basic", "platform"]
@@ -253,6 +313,10 @@ struct IntegrationEditor: View {
 			}
 			.formStyle(.grouped)
 
+			if let saveError {
+				Text(saveError).font(.callout).foregroundStyle(.red)
+			}
+
 			HStack {
 				if store.integration(forAuth: draft.authName) != nil {
 					Button("Delete", role: .destructive) {
@@ -276,11 +340,41 @@ struct IntegrationEditor: View {
 		draft.authName = draft.authName.trimmed
 		draft.url = draft.url.trimmed
 		store.upsert(draft)
-		if !secret.isEmpty {
-			store.setSecret(secret, for: draft)
-			secret = ""
+		guard !secret.isEmpty else {
+			dismiss()
+			return
 		}
-		dismiss()
+		let secretValue = secret
+		let row = draft
+		saveError = nil
+		// New ACL items need no prior LA prompt. Retry with the session only
+		// when replacing an existing presence-gated item.
+		DispatchQueue.global(qos: .userInitiated).async { [gate] in
+			var ok = AgentKeychain.set(secretValue, auth: row.authName, kind: row.secretKind)
+			if !ok, AgentKeychain.backend == .dataProtection,
+				gate.authorize(reason: "Buddy Agent wants to store the secret for \(row.authName)")
+					== .unlocked
+			{
+				ok = AgentKeychain.set(
+					secretValue, auth: row.authName, kind: row.secretKind,
+					context: gate.presenceContext)
+			}
+			DispatchQueue.main.async {
+				self.store.objectWillChange.send()
+				self.secret = ""
+				if !AgentKeychain.has(auth: row.authName, kind: row.secretKind) {
+					self.saveError = "Keychain write failed — secret not stored."
+					return
+				}
+				// Unsigned agent-dev is memory-only by design; Status says so.
+				if !ok, AgentKeychain.backend == .dataProtection {
+					self.saveError =
+						"Secret is memory-only until quit — Keychain ACL write failed. See Status."
+					return
+				}
+				self.dismiss()
+			}
+		}
 	}
 }
 
@@ -329,11 +423,14 @@ struct StatusView: View {
 			.font(.headline)
 
 			Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
-				row("Version", agentVersion)
+				row("Version", AgentBranding.marketingVersion)
 				row("Socket", socketPath)
 				row("Config", store.path.path)
 				row("Integrations", "\(store.integrations.count)")
 				row("Peer check", PeerCheck.allowUnsigned ? "unsigned allowed (dev)" : "codesign")
+				row("Secrets", keychainText)
+				row("Presence", presenceText)
+				row("Idle lock", idleLockText)
 			}
 			.font(.callout)
 
@@ -355,11 +452,48 @@ struct StatusView: View {
 				Label(error, systemImage: "xmark.octagon").foregroundStyle(.red)
 			}
 			Spacer()
-			Text("Config is served to buddy while locked. Unlock gates minting only.")
-				.font(.caption)
-				.foregroundStyle(.secondary)
+			Text(
+				"Config is served to buddy while locked. Unlock gates minting only, "
+					+ "and buddy can ask for that unlock when it needs a token."
+			)
+			.font(.caption)
+			.foregroundStyle(.secondary)
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
+	}
+
+	private var keychainText: String {
+		switch AgentKeychain.backend {
+		case .dataProtection: return "data protection keychain, presence ACL"
+		case .memory:
+			if AgentKeychain.keychainAccessGroup == nil {
+				return "memory only (unsigned — run signed BuddyAgent.app)"
+			}
+			return "memory only (ACL probe failed)"
+		}
+	}
+
+	private var presenceText: String {
+		switch UnlockGate.mode {
+		case .acl: return "Keychain userPresence"
+		case .simulated:
+			if UnlockGate.promptingDisabled { return "LocalAuthentication (prompting off)" }
+			if AgentKeychain.keychainAccessGroup == nil {
+				return "LocalAuthentication (unsigned — secrets are memory-only)"
+			}
+			return "LocalAuthentication (ACL unavailable — secrets are memory-only)"
+		case .unavailable: return "unavailable - unlock from the menu bar"
+		}
+	}
+
+	private var idleLockText: String {
+		let after = AgentState.idleLockAfter
+		guard after > 0 else { return "never" }
+		let minutes = Int(after) / 60
+		let base = minutes > 0 ? "\(minutes) min idle" : "\(Int(after))s idle"
+		guard let until = state.unlockedUntil else { return base }
+		let remaining = max(0, Int(until.timeIntervalSinceNow))
+		return "\(base) (relocks in \(remaining)s)"
 	}
 
 	private func row(_ label: String, _ value: String) -> some View {

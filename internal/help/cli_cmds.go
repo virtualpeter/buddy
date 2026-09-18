@@ -88,7 +88,8 @@ Usage:
   buddy [global-flags] agent <subcommand> [args...]
 
 Subcommands:
-  status                       Socket path, present, unlocked, peer check, counts
+  status                       Socket path, present, unlocked, peer check, counts,
+                               presence mode, idle lock
   config [--json]              The config document the Agent serves (no secrets)
   integrations                 Workplaces and auths the Agent owns, with secret presence
   tokens                       Bearers the Agent has cached this session (metadata only)
@@ -109,7 +110,25 @@ Notes:
   and the secret, which stays in its Keychain. buddy never sends secrets to it.
 
   Config is served while the Agent is locked, so 'buddy agent config' and
-  session resolution never prompt. Unlocking (from the tray) gates minting only.
+  session resolution never prompt. Unlocking gates minting only.
+
+  When buddy needs a token from a locked Agent, the Agent raises its own
+  presence prompt and buddy waits for the answer, so there is no trip to the
+  menu bar mid-command. A successful prompt unlocks the Agent's session, which
+  relocks after an idle period (BUDDY_AGENT_IDLE_LOCK seconds, default 900) and
+  drops its cached bearers with it. BUDDY_AGENT_NO_PROMPT=1 opts out: a locked
+  Agent then just fails.
+
+  'buddy agent status' reports what that prompt is worth. A Developer ID Agent
+  (make agent-app) shows 'Keychain userPresence': the prompt releases the
+  keychain item itself, and relocking invalidates it. An unsigned build
+  (make agent-dev) shows 'LocalAuthentication, unsigned agent': a pass/fail
+  answer over a memory-only secret (no Keychain ACL). 'unavailable' means this
+  Mac cannot prompt at all, so unlock from the menu bar.
+
+  A signed Agent also enforces the peer check, so an unsigned buddy is refused.
+  Use the helper inside Buddy.app, or start the Agent with
+  BUDDY_AGENT_ALLOW_UNSIGNED=1 while developing.
 
   Turn on features.use_agent (or BUDDY_USE_AGENT=1) to fold that document into
   buddy's config beneath managed preferences and your own config.yaml — the user
@@ -126,7 +145,8 @@ Notes:
   the vault copies it has made redundant (that one opens the vault).
 
   BUDDY_NO_AGENT=1 ignores the Agent entirely; BUDDY_AGENT_SOCK overrides the
-  socket path. There is no unlock subcommand: unlock is a tray action.
+  socket path. There is no unlock subcommand: buddy can ask the Agent to prompt,
+  but it cannot unlock it over the socket.
 
 Examples:
   buddy agent status

@@ -31,11 +31,18 @@ const (
 	EnvDisable = "BUDDY_NO_AGENT"
 	// EnvSocket overrides the socket path (same variable on the Swift side).
 	EnvSocket = "BUDDY_AGENT_SOCK"
+	// EnvNoPrompt stops buddy asking a locked Agent to raise its presence
+	// prompt; a locked Agent then fails the way it did before v0.3.
+	EnvNoPrompt = "BUDDY_AGENT_NO_PROMPT"
 
 	// dialTimeout keeps a wedged Agent from stalling every buddy command.
 	dialTimeout = 2 * time.Second
 	// callTimeout covers the Agent's own round trip to the Jamf token endpoint.
 	callTimeout = 35 * time.Second
+	// unlockCallTimeout also covers a person walking back to the Mac. It sits
+	// above the Agent's own 60s prompt timeout so the Agent's answer wins the
+	// race and buddy can report why the unlock failed.
+	unlockCallTimeout = 90 * time.Second
 )
 
 var (
@@ -58,6 +65,16 @@ type Info struct {
 	Integrations int
 	// Tokens is how many bearers the Agent has cached this session.
 	Tokens int
+	// Presence is how the Agent proves the person is there: "acl" (Keychain
+	// userPresence), "simulated" (LocalAuthentication on an unsigned build),
+	// or "unavailable". Empty from a pre-0.3 Agent.
+	Presence string
+	// IdleLock is the idle period after which the Agent relocks itself; 0 means
+	// never.
+	IdleLock time.Duration
+	// UnlockTimeout is how long the Agent leaves its prompt on screen; 0 means
+	// it will not prompt at all.
+	UnlockTimeout time.Duration
 }
 
 // Integration is one workplace+auth pair the Agent owns. Secret is "stored" or
@@ -88,6 +105,20 @@ type TokenRequest struct {
 	Kind string
 	// Force skips the Agent's own token cache.
 	Force bool
+	// AllowUnlock lets a locked Agent raise its own presence prompt and keeps
+	// this call waiting for the answer. Off by default so a caller has to mean
+	// it; a pre-0.3 Agent ignores the field and still answers "locked".
+	AllowUnlock bool
+}
+
+// PromptSuppressed reports whether the user has asked buddy never to trigger
+// the Agent's presence prompt (BUDDY_AGENT_NO_PROMPT=1).
+func PromptSuppressed() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvNoPrompt))) {
+	case "1", "true", "yes":
+		return true
+	}
+	return false
 }
 
 // Bearer is a minted access token. No secret material ever crosses the socket.
@@ -147,13 +178,16 @@ func statusOp(ctx context.Context, path, op string) (Info, error) {
 		return Info{Socket: path}, err
 	}
 	return Info{
-		Present:      true,
-		Unlocked:     resp.Unlocked,
-		Version:      resp.Version,
-		Socket:       path,
-		PeerCheck:    resp.PeerCheck,
-		Integrations: resp.IntegrationCount,
-		Tokens:       resp.TokenCount,
+		Present:       true,
+		Unlocked:      resp.Unlocked,
+		Version:       resp.Version,
+		Socket:        path,
+		PeerCheck:     resp.PeerCheck,
+		Integrations:  resp.IntegrationCount,
+		Tokens:        resp.TokenCount,
+		Presence:      strings.TrimSpace(resp.Presence),
+		IdleLock:      time.Duration(resp.IdleLockSeconds) * time.Second,
+		UnlockTimeout: time.Duration(resp.UnlockTimeoutSeconds) * time.Second,
 	}, nil
 }
 
@@ -208,12 +242,21 @@ func Token(ctx context.Context, req TokenRequest) (Bearer, error) {
 	if err != nil {
 		return Bearer{}, err
 	}
+	allowUnlock := req.AllowUnlock && !PromptSuppressed()
+	if allowUnlock {
+		if _, ok := ctx.Deadline(); !ok {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(orBackground(ctx), unlockCallTimeout)
+			defer cancel()
+		}
+	}
 	resp, err := call(ctx, path, request{
-		Op:      "token",
-		Auth:    req.Auth,
-		BaseURL: req.BaseURL,
-		Kind:    req.Kind,
-		Force:   req.Force,
+		Op:          "token",
+		Auth:        req.Auth,
+		BaseURL:     req.BaseURL,
+		Kind:        req.Kind,
+		Force:       req.Force,
+		AllowUnlock: allowUnlock,
 	})
 	if err != nil {
 		return Bearer{}, err
@@ -233,34 +276,43 @@ func Token(ctx context.Context, req TokenRequest) (Bearer, error) {
 }
 
 type request struct {
-	Op      string `json:"op"`
-	Auth    string `json:"auth,omitempty"`
-	BaseURL string `json:"base_url,omitempty"`
-	Kind    string `json:"kind,omitempty"`
-	Force   bool   `json:"force,omitempty"`
+	Op          string `json:"op"`
+	Auth        string `json:"auth,omitempty"`
+	BaseURL     string `json:"base_url,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	Force       bool   `json:"force,omitempty"`
+	AllowUnlock bool   `json:"allow_unlock,omitempty"`
 }
 
 type response struct {
-	OK               bool            `json:"ok"`
-	Present          bool            `json:"present"`
-	Unlocked         bool            `json:"unlocked"`
-	Version          string          `json:"version"`
-	PeerCheck        string          `json:"peer_check"`
-	IntegrationCount int             `json:"integration_count"`
-	TokenCount       int             `json:"token_count"`
-	Config           json.RawMessage `json:"config"`
-	Integrations     []Integration   `json:"integrations"`
-	Tokens           []TokenInfo     `json:"tokens"`
-	AccessToken      string          `json:"access_token"`
-	ExpiresAt        string          `json:"expires_at"`
-	Error            string          `json:"error"`
-	Message          string          `json:"message"`
+	OK                   bool            `json:"ok"`
+	Present              bool            `json:"present"`
+	Unlocked             bool            `json:"unlocked"`
+	Version              string          `json:"version"`
+	PeerCheck            string          `json:"peer_check"`
+	IntegrationCount     int             `json:"integration_count"`
+	TokenCount           int             `json:"token_count"`
+	Presence             string          `json:"presence"`
+	IdleLockSeconds      int             `json:"idle_lock_seconds"`
+	UnlockTimeoutSeconds int             `json:"unlock_timeout_seconds"`
+	Config               json.RawMessage `json:"config"`
+	Integrations         []Integration   `json:"integrations"`
+	Tokens               []TokenInfo     `json:"tokens"`
+	AccessToken          string          `json:"access_token"`
+	ExpiresAt            string          `json:"expires_at"`
+	Error                string          `json:"error"`
+	Message              string          `json:"message"`
+}
+
+func orBackground(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }
 
 func call(ctx context.Context, path string, req request) (response, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = orBackground(ctx)
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, callTimeout)
@@ -307,12 +359,43 @@ func agentError(resp response) error {
 	msg := strings.TrimSpace(resp.Message)
 	switch code {
 	case "unsupported":
+		if msg != "" {
+			return fmt.Errorf("%w: %s", ErrUnsupported, msg)
+		}
 		return ErrUnsupported
 	case "locked":
 		if msg == "" {
 			msg = "unlock it from the menu bar"
 		}
 		return fmt.Errorf("buddy agent is locked: %s", msg)
+	case "unlock_declined":
+		return fmt.Errorf(
+			"buddy agent: unlock declined at the presence prompt (set %s=1 to stop buddy asking)",
+			EnvNoPrompt)
+	case "unlock_timeout":
+		if msg == "" {
+			msg = "the presence prompt went unanswered"
+		}
+		return fmt.Errorf("buddy agent: unlock timed out — %s", msg)
+	case "unlock_unavailable":
+		if msg == "" {
+			msg = "unlock it from the menu bar"
+		}
+		return fmt.Errorf("buddy agent: cannot prompt for unlock — %s", msg)
+	case "denied":
+		// Nearly always the signed-Agent / unsigned-buddy mismatch: the Agent
+		// checks the caller's Team ID, and a `go build` or `make buddy` binary
+		// has no team at all.
+		if msg == "" {
+			msg = "the agent refused this process"
+		}
+		return fmt.Errorf(
+			"buddy agent refused this buddy: %s\n"+
+				"run the signed CLI (/usr/local/bin/buddy, or "+
+				"Buddy.app/Contents/Helpers/buddy) — an unsigned build has no Team ID "+
+				"for the agent to match. For a dev build, start the agent with "+
+				"BUDDY_AGENT_ALLOW_UNSIGNED=1",
+			msg)
 	case "":
 		if msg == "" {
 			msg = "request refused"

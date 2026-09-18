@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 
 /// Mints Jamf bearers from the Agent's own credentials. The secret is read from
 /// the Agent Keychain inside this call and never leaves the process: only the
@@ -14,8 +15,13 @@ struct MintedToken {
 }
 
 enum TokenMinter {
-	static func mint(integration: Integration, baseURL: String, kind: String) throws -> MintedToken {
-		guard let secret = secret(for: integration) else {
+	/// `presence` is the LAContext UnlockGate authenticated for this session.
+	/// On a signed Agent it is what releases the keychain item; without it the
+	/// read fails rather than raising a second prompt.
+	static func mint(
+		integration: Integration, baseURL: String, kind: String, presence: LAContext? = nil
+	) throws -> MintedToken {
+		guard let secret = secret(for: integration, presence: presence) else {
 			throw MintError.unsupported(
 				"no secret stored for \(integration.authName) — add it in the Buddy Agent window")
 		}
@@ -43,11 +49,15 @@ enum TokenMinter {
 		throw MintError.failed("token endpoint returned no access_token")
 	}
 
-	private static func secret(for integration: Integration) -> String? {
-		if let stored = AgentKeychain.get(auth: integration.authName, kind: integration.secretKind) {
+	private static func secret(for integration: Integration, presence: LAContext?) -> String? {
+		if let stored = AgentKeychain.get(
+			auth: integration.authName, kind: integration.secretKind, context: presence)
+		{
 			return stored
 		}
-		// Dev fallback for a spike run with no stored secret yet.
+		// Dev fallback for a run with no stored secret yet. Refused on a signed
+		// Agent: an env var is not something a presence prompt can gate.
+		guard PeerCheck.allowUnsigned else { return nil }
 		let env = ProcessInfo.processInfo.environment
 		if integration.secretKind == .clientSecret,
 			let value = env["BUDDY_AGENT_SPIKE_CLIENT_SECRET"], !value.isEmpty

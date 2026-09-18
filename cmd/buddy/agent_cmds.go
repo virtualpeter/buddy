@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"buddy/internal/buddy"
 	"buddy/internal/buddy/agent"
@@ -159,10 +160,62 @@ func runAgentStatus(args []string) error {
 	}
 	fmt.Printf("integrations: %d\n", info.Integrations)
 	fmt.Printf("tokens:       %d\n", info.Tokens)
+	if info.Presence != "" {
+		fmt.Printf("presence:     %s\n", describePresence(info))
+	}
+	fmt.Printf("idle lock:    %s\n", describeIdleLock(info.IdleLock))
 	if !info.Unlocked {
-		fmt.Println("\nConfig is served while locked. Unlock from the Buddy Agent menu bar item before minting.")
+		fmt.Println("\nConfig is served while locked. " + describeLockedHint(info))
 	}
 	return nil
+}
+
+func describePresence(info agent.Info) string {
+	switch info.Presence {
+	case "acl":
+		// Signed Agent: the prompt releases the keychain item itself.
+		return "Keychain userPresence" + describePromptWait(info)
+	case "simulated":
+		// Unsigned Agent: LocalAuthentication answers yes or no and the Agent
+		// chooses to honour it. The secret is not behind the prompt.
+		return "LocalAuthentication, unsigned agent" + describePromptWait(info)
+	case "unavailable":
+		return "unavailable (menu bar only)"
+	}
+	return info.Presence
+}
+
+func describePromptWait(info agent.Info) string {
+	if info.UnlockTimeout == 0 {
+		return " (prompting disabled)"
+	}
+	return fmt.Sprintf(" (prompt waits %s)", info.UnlockTimeout)
+}
+
+func describeIdleLock(d time.Duration) string {
+	if d <= 0 {
+		return "never"
+	}
+	return d.String()
+}
+
+func describeLockedHint(info agent.Info) string {
+	if agent.PromptSuppressed() {
+		return fmt.Sprintf(
+			"%s=1 is set, so unlock from the Buddy Agent menu bar item before minting.",
+			agent.EnvNoPrompt)
+	}
+	switch info.Presence {
+	case "unavailable":
+		return "This Mac cannot show a presence prompt; unlock from the Buddy Agent menu bar item."
+	case "":
+		// Pre-0.3 Agent: it will not prompt.
+		return "Unlock from the Buddy Agent menu bar item before minting."
+	}
+	if info.UnlockTimeout == 0 {
+		return "Prompting is switched off; unlock from the Buddy Agent menu bar item before minting."
+	}
+	return "buddy will ask the Agent to unlock when it next needs a token."
 }
 
 // runAgentConfig prints the config document the Agent serves. It is identity

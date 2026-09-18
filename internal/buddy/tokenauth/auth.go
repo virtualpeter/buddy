@@ -367,6 +367,9 @@ func (a *Authenticator) agentToken() (bool, error) {
 		BaseURL: a.baseURL,
 		Kind:    kind,
 		Force:   force,
+		// A locked Agent raises its own presence prompt and this call waits for
+		// the answer, so the user is not sent to the menu bar mid-command.
+		AllowUnlock: !agent.PromptSuppressed(),
 	})
 	switch {
 	case errors.Is(err, agent.ErrAbsent), errors.Is(err, agent.ErrUnsupported):

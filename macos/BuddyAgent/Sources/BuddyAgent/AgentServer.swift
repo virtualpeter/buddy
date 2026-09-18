@@ -7,13 +7,15 @@ import Foundation
 final class AgentServer {
 	private let state: AgentState
 	private let store: AgentStore
+	private let gate: UnlockGate
 	private let queue = DispatchQueue(label: "buddy.agent.server")
 	private var listenFD: Int32 = -1
 	private(set) var socketPath: String = AgentPaths.socketPath
 
-	init(state: AgentState, store: AgentStore) {
+	init(state: AgentState, store: AgentStore, gate: UnlockGate) {
 		self.state = state
 		self.store = store
+		self.gate = gate
 	}
 
 	func start() throws {
@@ -159,16 +161,56 @@ final class AgentServer {
 			// Not ours: the CLI falls back to its own vault.
 			return AgentReply.failure(.unsupported, "no integration named \(auth)")
 		}
-		guard state.unlocked else {
-			return AgentReply.failure(.locked, "Buddy Agent is locked — unlock it from the menu bar")
+		if !state.unlocked {
+			guard request.allowUnlock == true else {
+				return AgentReply.failure(
+					.locked, "Buddy Agent is locked — unlock it from the menu bar")
+			}
+			// Blocks this connection thread while the system prompt is up; the
+			// CLI is waiting on the socket for exactly this.
+			switch gate.authorize(reason: "mint a Jamf token for \(auth)") {
+			case .unlocked:
+				break
+			case .declined:
+				return AgentReply.failure(.unlockDeclined, "unlock declined")
+			case .timedOut:
+				return AgentReply.failure(
+					.unlockTimeout, "unlock prompt went unanswered for \(Int(UnlockGate.timeout))s")
+			case .unavailable:
+				let why =
+					UnlockGate.promptingDisabled
+					? "unlock prompting is off (BUDDY_AGENT_UNLOCK_TIMEOUT=0)"
+					: "this Mac has no presence check available"
+				return AgentReply.failure(
+					.unlockUnavailable, "\(why) — unlock from the menu bar")
+			}
 		}
 		let key = "\(auth)@\(baseURL)"
 		if request.force != true, let cached = state.cachedToken(key: key) {
 			return AgentReply.token(cached.value, expiresAt: cached.expiresAt)
 		}
 		do {
+			// One LA prompt owns the session. Keychain reads must use that
+			// context with AuthenticationUIFail — otherwise SecItemCopyMatching
+			// draws a second password sheet for the same userPresence item.
+			var presence = gate.presenceContext
+			if presence == nil {
+				switch gate.authorize(reason: "mint a Jamf token for \(auth)") {
+				case .unlocked:
+					presence = gate.presenceContext
+				case .declined:
+					return AgentReply.failure(.unlockDeclined, "unlock declined")
+				case .timedOut:
+					return AgentReply.failure(
+						.unlockTimeout,
+						"unlock prompt went unanswered for \(Int(UnlockGate.timeout))s")
+				case .unavailable:
+					return AgentReply.failure(
+						.unlockUnavailable, "presence unavailable — unlock from the menu bar")
+				}
+			}
 			let minted = try TokenMinter.mint(
-				integration: integration, baseURL: baseURL, kind: kind)
+				integration: integration, baseURL: baseURL, kind: kind, presence: presence)
 			state.store(
 				token: CachedToken(
 					auth: auth, baseURL: baseURL, value: minted.value,

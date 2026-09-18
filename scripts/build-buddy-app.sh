@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Assemble and sign Buddy.app: CLI at Contents/Helpers/buddy, GUI stub at Contents/MacOS/Buddy.
-# Args: <helper-binary> <out-app> <version> <codesign-identity>
+# Args: <helper-binary> <out-app> <version> <codesign-identity> [agent-app]
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
@@ -9,6 +9,7 @@ helper="${1:?signed or unsigned helper Mach-O}"
 out="${2:?output .app path}"
 version="${3:?version}"
 identity="${4:?Developer ID Application identity}"
+agent="${5:-}"
 
 cli_ident="${BUDDY_CODESIGN_IDENTIFIER:-virtualpete.buddy.cli}"
 app_ident="${BUDDY_APP_IDENTIFIER:-virtualpete.buddy}"
@@ -32,6 +33,24 @@ mkdir -p "$macos" "$helpers" "$res"
 
 cp "$helper" "$helpers/buddy"
 chmod 755 "$helpers/buddy"
+
+# The Agent ships already signed, with its own entitlements and provisioning
+# profile. Nest it at the SMAppService location and leave the signature alone:
+# `codesign --force` here would re-sign it without those entitlements and
+# quietly cost it the keychain presence ACL. The outer signature seals nested
+# bundles by hash, so copying is enough.
+if [[ -n "$agent" ]]; then
+	test -d "$agent" || { echo "build-buddy-app: missing agent bundle $agent" >&2; exit 1; }
+	agent_info="$(codesign -dv --verbose=2 "$agent" 2>&1)"
+	case "$agent_info" in *Signature=adhoc*) echo "build-buddy-app: agent is ad-hoc signed" >&2; exit 1;; esac
+	test -f "$agent/Contents/embedded.provisionprofile" || {
+		echo "build-buddy-app: agent has no embedded.provisionprofile (build it with make agent-app)" >&2
+		exit 1
+	}
+	codesign --verify --strict --verbose=2 "$agent"
+	mkdir -p "$app/Contents/Library/LoginItems"
+	ditto "$agent" "$app/Contents/Library/LoginItems/BuddyAgent.app"
+fi
 
 echo "Building Buddy.app stub (version $version)..."
 # CGO + AppKit so Finder launch finishes (Dock bounce stops) while serve runs.
@@ -62,10 +81,19 @@ xattr -cr "$work/buddy.iconset" 2>/dev/null || true
 iconutil -c icns "$work/buddy.iconset" -o "$res/AppIcon.icns"
 
 # Hardened Runtime; no extra entitlements (Keychain Sharing is not in this cut).
+# The --timestamp=none fallback exists for signing with no network. Notarization
+# rejects a signature without a secure timestamp, so a notarizing build must not
+# take that path silently: BUDDY_NOTARY_PROFILE turns it into a failure.
 sign() {
 	if codesign --force --sign "$identity" --options runtime --timestamp "$@" 2>/dev/null; then
 		return 0
 	fi
+	if [[ -n "${BUDDY_NOTARY_PROFILE:-}" ]]; then
+		echo "build-buddy-app: could not reach Apple's timestamp server; notarization needs one" >&2
+		codesign --force --sign "$identity" --options runtime --timestamp "$@"
+		exit 1
+	fi
+	echo "build-buddy-app: signing without a secure timestamp (not notarizable)" >&2
 	codesign --force --sign "$identity" --options runtime --timestamp=none "$@"
 }
 
@@ -89,4 +117,14 @@ mkdir -p "$(dirname "$out")"
 ditto "$app" "$out"
 codesign --verify --verbose=2 "$out" "$out/Contents/Helpers/buddy" "$out/Contents/MacOS/Buddy"
 ls -lh "$out/Contents/Helpers/buddy" "$out/Contents/MacOS/Buddy"
+if [[ -n "$agent" ]]; then
+	nested="$out/Contents/Library/LoginItems/BuddyAgent.app"
+	# --deep: the outer signing must not have disturbed the Agent's own seal.
+	codesign --verify --deep --strict --verbose=2 "$nested"
+	codesign -d --entitlements - "$nested" 2>/dev/null | grep -q keychain-access-groups || {
+		echo "Buddy.app: nested agent lost keychain-access-groups" >&2
+		exit 1
+	}
+	echo "Buddy.app: agent at Contents/Library/LoginItems/BuddyAgent.app"
+fi
 echo "Buddy.app: $out (CLI Helpers/buddy, stub MacOS/Buddy)"

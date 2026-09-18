@@ -3,13 +3,19 @@
 <plist version="1.0">
 <dict>
 	<!-- Entitlements for the Xcode app target only. The Go CLI stays
-	     entitlement-free: it just dials the socket. -->
+	     entitlement-free: it just dials the socket.
+
+	     keychain-access-groups is restricted, so it only takes effect with the
+	     provisioning profile Xcode automatic signing embeds. It is what admits
+	     the app to the data protection keychain, which is the only one that
+	     honours a userPresence SecAccessControl. Without it the Agent keeps
+	     secrets in process memory only (no login-keychain fallback). -->
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)virtualpete.buddy.agent</string>
 	</array>
-	<!-- Not sandboxed for the spike: the socket lives in Application Support
-	     and the CLI must reach it from outside a container. -->
+	<!-- Not sandboxed: the socket lives in Application Support and the CLI must
+	     reach it from outside a container. -->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
 </dict>

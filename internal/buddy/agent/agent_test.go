@@ -225,6 +225,93 @@ func TestDeniedIsFatal(t *testing.T) {
 	}
 }
 
+// Status carries the v0.3 presence fields so 'buddy agent status' can say
+// whether a locked Agent is able to prompt at all.
+func TestStatusCarriesPresenceFields(t *testing.T) {
+	fakeAgent(t, func(request) response {
+		return response{
+			OK: true, Present: true, Unlocked: false, Version: "0.3.0",
+			Presence: "simulated", IdleLockSeconds: 900, UnlockTimeoutSeconds: 60,
+		}
+	})
+	info, err := Status(context.Background())
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if info.Presence != "simulated" {
+		t.Fatalf("presence = %q", info.Presence)
+	}
+	if info.IdleLock != 15*time.Minute || info.UnlockTimeout != time.Minute {
+		t.Fatalf("idle lock = %v, unlock timeout = %v", info.IdleLock, info.UnlockTimeout)
+	}
+}
+
+// Each unlock failure keeps its own wording: "declined" and "timed out" are
+// different problems for the user, and neither is a reason to open the vault.
+func TestUnlockOutcomesAreDistinctAndFatal(t *testing.T) {
+	cases := map[string]string{
+		"unlock_declined":    "declined at the presence prompt",
+		"unlock_timeout":     "unlock timed out",
+		"unlock_unavailable": "cannot prompt for unlock",
+	}
+	for code, want := range cases {
+		t.Run(code, func(t *testing.T) {
+			fakeAgent(t, func(req request) response {
+				if !req.AllowUnlock {
+					return response{Error: "locked", Message: "allow_unlock was not set"}
+				}
+				return response{Error: code, Message: "from the agent"}
+			})
+			_, err := Token(context.Background(), TokenRequest{
+				Auth: "a", BaseURL: "https://x", Kind: "oauth", AllowUnlock: true,
+			})
+			if err == nil || errors.Is(err, ErrAbsent) || errors.Is(err, ErrUnsupported) {
+				t.Fatalf("err = %v, want a fatal error", err)
+			}
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("err = %v, want one mentioning %q", err, want)
+			}
+		})
+	}
+}
+
+// A signed Agent rejects an unsigned buddy on the Team ID, which is the most
+// likely way anyone meets "denied". The error has to name the fix.
+func TestDeniedExplainsTheSigningMismatch(t *testing.T) {
+	fakeAgent(t, func(req request) response {
+		return response{Error: "denied", Message: "peer is not signed by this team"}
+	})
+	_, err := Token(context.Background(), TokenRequest{
+		Auth: "a", BaseURL: "https://x", Kind: "oauth",
+	})
+	if err == nil || errors.Is(err, ErrAbsent) || errors.Is(err, ErrUnsupported) {
+		t.Fatalf("err = %v, want a fatal error that does not fall back to the vault", err)
+	}
+	for _, want := range []string{"peer is not signed by this team", "Helpers/buddy", "BUDDY_AGENT_ALLOW_UNSIGNED=1"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %v, want one mentioning %q", err, want)
+		}
+	}
+}
+
+func TestNoPromptClearsAllowUnlock(t *testing.T) {
+	fakeAgent(t, func(req request) response {
+		if req.AllowUnlock {
+			return response{Error: "bad_request", Message: "allow_unlock leaked past the opt-out"}
+		}
+		return response{OK: true, AccessToken: "bearer"}
+	})
+	t.Setenv(EnvNoPrompt, "1")
+	if !PromptSuppressed() {
+		t.Fatal("BUDDY_AGENT_NO_PROMPT=1 should suppress prompting")
+	}
+	if _, err := Token(context.Background(), TokenRequest{
+		Auth: "a", BaseURL: "https://x", Kind: "oauth", AllowUnlock: true,
+	}); err != nil {
+		t.Fatalf("token: %v", err)
+	}
+}
+
 func TestEnabledKillSwitch(t *testing.T) {
 	t.Setenv(EnvSocket, filepath.Join(t.TempDir(), "agent.sock"))
 	t.Setenv(EnvDisable, "")

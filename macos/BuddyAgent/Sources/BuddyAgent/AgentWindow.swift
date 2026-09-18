@@ -8,17 +8,23 @@ final class AgentWindowController {
 	private var window: NSWindow?
 	private let store: AgentStore
 	private let state: AgentState
+	private let gate: UnlockGate
 	private let socketPath: () -> String
 
-	init(store: AgentStore, state: AgentState, socketPath: @escaping () -> String) {
+	init(
+		store: AgentStore, state: AgentState, gate: UnlockGate,
+		socketPath: @escaping () -> String
+	) {
 		self.store = store
 		self.state = state
+		self.gate = gate
 		self.socketPath = socketPath
 	}
 
 	func show() {
 		if window == nil {
-			let root = AgentRootView(store: store, state: state, socketPath: socketPath())
+			let root = AgentRootView(
+				store: store, state: state, gate: gate, socketPath: socketPath())
 			let window = NSWindow(contentViewController: NSHostingController(rootView: root))
 			window.title = "Buddy Agent"
 			window.styleMask = [.titled, .closable, .miniaturizable, .resizable]

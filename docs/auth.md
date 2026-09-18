@@ -221,16 +221,28 @@ Escape hatches (never written to disk as config):
 
 An optional macOS menu-bar **Buddy Agent** (Swift, [`macos/BuddyAgent/`](../macos/BuddyAgent/)) **owns its own integrations**: the workplace, the auth, and the secret, which lives in its Keychain under service `virtualpete.buddy.agent`. buddy never sends a secret to the Agent, and the Agent never returns one: the CLI dials a **unix-domain socket** with a **Team-ID codesign peer check** and receives config (identity) or `{access_token, expires_at}`. Nothing is installed by default: no LaunchAgent, no change to `Contents/MacOS/Buddy`, and no new entitlements on `Helpers/buddy`.
 
-**Config is served while the Agent is locked.** Workplaces and auth names are identity, not secrets, so resolving a session never prompts. Unlock (biometrics once the Agent is a signed app) gates **minting** only.
+**Config is served while the Agent is locked.** Workplaces and auth names are identity, not secrets, so resolving a session never prompts. Unlock gates **minting** only.
 
 | Op | Needs unlock | Returns |
 |---|---|---|
-| `status` | no | present, unlocked, version, peer check, integration/token counts |
+| `status` | no | present, unlocked, version, peer check, integration/token counts, presence mode, idle lock |
 | `config` | no | config.yaml-shaped document, secrets stripped |
 | `integrations` | no | per-auth summary with `secret: stored/missing` |
 | `tokens` | no | cached bearer metadata, never a bearer |
-| `token` | **yes** | `access_token` + `expires_at` |
+| `token` | **yes — the Agent prompts** | `access_token` + `expires_at` |
 | `lock` | no | relocks and drops cached bearers |
+
+**A locked Agent raises the prompt itself.** When buddy needs a bearer it sets `allow_unlock`, and the Agent puts up a LocalAuthentication prompt and holds the connection open until it is answered (60s, `BUDDY_AGENT_UNLOCK_TIMEOUT`; buddy waits 90s). A successful prompt unlocks the **session**, which then relocks after 15 minutes with no minting (`BUDDY_AGENT_IDLE_LOCK`, `0` = never) — locking also drops the Agent's cached bearers. Concurrent commands share one prompt. `BUDDY_AGENT_NO_PROMPT=1` opts out and a locked Agent simply fails, which is the pre-0.3 behaviour. The tray `Unlock` item goes through the same gate.
+
+**What the prompt actually buys depends on how the Agent was built.** `buddy agent status` reports it:
+
+| `presence:` | Build | What the prompt does |
+|---|---|---|
+| `Keychain userPresence` | Developer ID app (`make agent-app`) | Authenticates against the `SecAccessControl` guarding the secret, so Touch ID **releases the keychain item**. The Agent holds that `LAContext` for the session; locking or the idle relock invalidates it, which genuinely revokes access |
+| `LocalAuthentication, unsigned agent` | SwiftPM (`make agent-dev`) | `evaluatePolicy` returns pass/fail and the Agent chooses to honour it. Secrets stay **in process memory** only (cleared on Lock / Quit) — there is no login-keychain fallback |
+| `unavailable` | either | No device-owner authentication on this Mac; the menu bar is the only way in |
+
+The difference is the entitlement. A `userPresence` ACL only works on the **data protection** keychain, which on macOS needs `keychain-access-groups` — a restricted entitlement authorized by a provisioning profile. Xcode automatic signing embeds one; a `swift build` binary has none, so the Agent detects that at launch and keeps secrets in memory rather than failing open into the login keychain. The Status tab shows which backend is in use.
 
 `buddy agent status | config [--json] | integrations | tokens | lock` inspects it (`buddy auth agent` is an alias of `agent status`). There is no `unlock` and no `push`: unlock is a tray action, and secrets are typed into the Agent window — or imported by it. The Agent's **Import from buddy** menu reads two files an existing setup already has:
 
@@ -264,7 +276,10 @@ Order of precedence when a bearer is needed:
 |---|---|
 | Socket absent | falls back to the vault — unless the auth is Agent-owned, which fails |
 | `unsupported` (the Agent does not know that auth) | same: fallback, or fail when Agent-owned |
-| `locked` | **fails** — a running Agent is never bypassed by unlocking the local vault |
+| `locked` (prompting opted out or a pre-0.3 Agent) | **fails** — a running Agent is never bypassed by unlocking the local vault |
+| `unlock_declined` | fails; the prompt was answered with no |
+| `unlock_timeout` | fails; nobody answered the prompt |
+| `unlock_unavailable` | fails; this Mac cannot prompt, so unlock from the menu bar |
 | `denied` / `bad_request` / `mint_failed` | fails |
 
 | Variable | Effect |
@@ -272,17 +287,40 @@ Order of precedence when a bearer is needed:
 | `BUDDY_USE_AGENT` | Overrides `features.use_agent` (`1`/`0`) |
 | `BUDDY_NO_AGENT=1` | Ignore the Agent entirely; bit-identical to the pre-Agent behaviour |
 | `BUDDY_AGENT_SOCK` | Socket path override (both sides); default `~/Library/Application Support/Buddy/agent.sock` |
+| `BUDDY_AGENT_NO_PROMPT=1` | buddy never asks the Agent to prompt; a locked Agent just fails |
+| `BUDDY_AGENT_UNLOCK_TIMEOUT` | Agent-side seconds the prompt stays up (default 60, `0` disables prompting) |
+| `BUDDY_AGENT_IDLE_LOCK` | Agent-side seconds of no minting before it relocks (default 900, `0` = never) |
+| `BUDDY_AGENT_FAKE_PRESENCE` | `allow`/`deny` answers without a prompt, for soaks; dev Agents only (`BUDDY_AGENT_ALLOW_UNSIGNED=1`) |
 
-Current limits: the Agent is still a SwiftPM build (unsigned or ad-hoc), so unlock is a menu click rather than Touch ID, and its Keychain items are `WhenUnlockedThisDeviceOnly` rather than `userPresence`. Signing, the Xcode app target, and real biometric gating are the next phase — see [`macos/BuddyAgent/README.md`](../macos/BuddyAgent/README.md).
+**Building and shipping it.** `make agent-app` archives and exports `dist/BuddyAgent.app` with Developer ID automatic signing, then refuses the result unless it carries a hardened runtime, a secure timestamp, an `embedded.provisionprofile`, and the `keychain-access-groups` entitlement — without those the Agent would silently lose the presence ACL. `make app` nests that bundle at `Buddy.app/Contents/Library/LoginItems/BuddyAgent.app` (the `SMAppService` location, for a later "Open at Login") and **verifies rather than re-signs** it: `codesign --force` there would strip the profile. The pkg carries it with no extra `/Applications` entry and no postinstall change. `make agent-dev` is the unsigned SwiftPM loop over the same sources.
 
-**Manual soak** (Agent running from Xcode or `swift run`):
+`make notarize` submits and staples in the order that leaves both artefacts stapled — `Buddy.app` first, then a pkg built from the stapled app. It needs `BUDDY_NOTARY_PROFILE` (`xcrun notarytool store-credentials`) and `BUDDY_PKG_SIGN_IDENTITY` (a **Developer ID Installer** identity; the Application one will not sign a pkg). With `BUDDY_NOTARY_PROFILE` set, `make release` notarizes instead of just packaging, and the `--timestamp=none` fallback in the signing script becomes a hard failure rather than a quietly un-notarizable build.
+
+That order is load-bearing, so it is enforced rather than assumed: `notarize` packages the app **on disk** instead of re-entering `make package`, because `sync-docfs` is phony and a recursive make would rebuild `Buddy.app` and discard the ticket just stapled to it. `build-pkg.sh` refuses to package an unstapled app whenever `BUDDY_NOTARY_PROFILE` is set, which catches that class of mistake instead of shipping a pkg whose inner app needs a network round trip on first launch.
+
+Apple's queue is unpredictable — the same build can clear as a zipped app in seconds and sit for hours as an installer package — so the wait is bounded by `BUDDY_NOTARY_WAIT` (default `30m`). A timeout is "not yet", not a rejection: the submitted file stays valid, and `make staple` finishes the run once Apple answers. `stapler` fetches the ticket by cdhash, so that needs no submission id and no resubmission, but it only works on the exact files that were submitted — rebuilding first invalidates the ticket. A genuine rejection is reported separately, with `notarytool log` output inline.
+
+Still out of scope: `SMAppService` login-item registration and an "Open at Login" toggle, auto-starting a stopped Agent, an update channel, and sandboxed / App Store distribution.
+
+**Manual soak** (Agent running from `dist/BuddyAgent.app`, or `make agent-dev` for the unsigned path):
 
 1. Add an integration in the Agent window while it is locked, then `buddy agent integrations` → the row with `secret stored`, no prompt
 2. `buddy agent config` → the served document; with `features.use_agent: true`, `buddy cred status` shows the same context with `SECRET=agent`
-3. `buddy auth token drop` then `buddy auth test` → fails with `buddy agent is locked`, with no Touch ID prompt (the vault stayed shut)
-4. Unlock from the tray, `buddy auth token drop`, `buddy auth test` → bearer minted by the Agent, still no vault prompt; a second command hits the disk token cache
-5. Quit the Agent → with `use_agent` on, buddy aborts with "the Buddy Agent is not running"; with it off, vault-backed auths keep working as before
-6. `BUDDY_NO_AGENT=1` → same abort with `use_agent` on; without it, the vault path with the Agent untouched
+3. `buddy auth token drop` then `buddy auth test` with the Agent locked → the Agent prompts, and approving it mints without touching the tray; `buddy agent status` then shows `unlocked: true`
+4. Decline the prompt → `unlock declined at the presence prompt`, the Agent stays locked, and the vault was never opened
+5. `BUDDY_AGENT_NO_PROMPT=1 buddy auth test` against a locked Agent → `buddy agent is locked`, with no prompt at all
+6. `BUDDY_AGENT_IDLE_LOCK=5`, unlock, wait → `buddy agent status` shows it relocked and its cached bearers gone
+7. Quit the Agent → with `use_agent` on, buddy aborts with "the Buddy Agent is not running"; with it off, vault-backed auths keep working as before
+8. `BUDDY_NO_AGENT=1` → same abort with `use_agent` on; without it, the vault path with the Agent untouched
+
+Unattended runs of steps 3–6 can use `BUDDY_AGENT_FAKE_PRESENCE=allow|deny` instead of a finger, but that hook is dev-only and cannot prove the prompt works — do one real pass by hand.
+
+On a signed Agent, four more that only signing can demonstrate:
+
+9. `buddy agent status` → `presence: Keychain userPresence`, and the Status tab says "data protection keychain, presence ACL"
+10. An unsigned `dist/buddy` against it → `buddy agent refused this buddy`, naming `Contents/Helpers/buddy` and `BUDDY_AGENT_ALLOW_UNSIGNED=1`. Use the helper inside `Buddy.app`
+11. Mint, `buddy agent lock`, mint again → two prompts. The first `LAContext` was invalidated, so the second read genuinely needs presence again rather than re-checking a flag
+12. `spctl -a -vvv -t install` on the stapled pkg, then install it on a Mac that has never seen the app — quarantine is what ended the original Go entitlement experiment, so it is worth proving once
 
 Do not re-ship Go helper Keychain Sharing / Secure Enclave packaging as the primary unlock story.
 

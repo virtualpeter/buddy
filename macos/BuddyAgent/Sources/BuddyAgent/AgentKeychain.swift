@@ -1,13 +1,17 @@
 import Foundation
+import LocalAuthentication
 import Security
 
 /// Per-auth secret storage owned by the Agent. One generic-password item per
 /// secret, service `virtualpete.buddy.agent`, account `<auth>/<kind>`.
 ///
 /// The buddy CLI never reads these and never writes them: the user types a
-/// secret into the Agent GUI, and only the mint path reads it back. A
-/// `userPresence` SecAccessControl (real biometrics) needs the signed Xcode
-/// target, so the spike stores plain items accessible when unlocked.
+/// secret into the Agent GUI, and only the mint path reads it back.
+///
+/// A signed Agent stores each secret in the **data protection** keychain behind
+/// a `userPresence` SecAccessControl (Keychain Access shows these under
+/// Local Items / iCloud Keychain — not the login keychain). An unsigned build
+/// (or one whose ACL probe fails) keeps secrets in process memory only.
 enum AgentKeychain {
 	static let service = "virtualpete.buddy.agent"
 
@@ -16,78 +20,236 @@ enum AgentKeychain {
 		case password
 	}
 
+	/// Where secrets live for this process.
+	enum Backend {
+		/// Data-protection keychain, userPresence ACL on every item.
+		case dataProtection
+		/// In-memory only (unsigned / no ACL). Cleared on Lock and Quit.
+		case memory
+	}
+
 	static func account(auth: String, kind: Kind) -> String {
 		"\(auth)/\(kind.rawValue)"
 	}
 
-	/// memoryFallback keeps the Agent usable when the keychain refuses writes
-	/// (an unsigned build with no code signature at all). Cleared on quit.
-	private static var memoryFallback: [String: String] = [:]
+	private static var memoryStore: [String: String] = [:]
 	private static let lock = NSLock()
+	/// True when at least one secret is held only in memory (Status warning).
 	private(set) static var usingFallback = false
 
+	/// The app's keychain-access-groups entry, when the profile granted one.
+	static let keychainAccessGroup: String? = {
+		guard let task = SecTaskCreateFromSelf(nil) else { return nil }
+		var error: Unmanaged<CFError>?
+		guard let value = SecTaskCopyValueForEntitlement(
+			task, "keychain-access-groups" as CFString, &error) as? [String],
+			let first = value.first, !first.isEmpty
+		else { return nil }
+		return first
+	}()
+
+	static let backend: Backend = probeBackend()
+
+	private static func probeBackend() -> Backend {
+		guard let control = accessControl() else {
+			log("no SecAccessControl; memory-only secrets")
+			return .memory
+		}
+		let acct = "__buddy_acl_probe__"
+		var add = dpQuery(account: acct)
+		add[kSecAttrAccessControl] = control
+		add[kSecValueData] = Data("probe".utf8)
+		let status = SecItemAdd(add as CFDictionary, nil)
+		silentDelete(account: acct)
+		if status == errSecSuccess || status == errSecDuplicateItem {
+			log("data protection + userPresence ACL available\(keychainAccessGroup.map { " (group \($0))" } ?? "")")
+			return .dataProtection
+		}
+		log("userPresence ACL probe failed (OSStatus \(status)); memory-only secrets")
+		return .memory
+	}
+
+	/// Wipe pre-publish login-keychain leftovers for this service without
+	/// reading them. Explicitly targets the file-based keychain only — never
+	/// the data-protection items the Agent actually uses.
+	static func purgeLoginLeftovers() {
+		var query: [CFString: Any] = [
+			kSecClass: kSecClassGenericPassword,
+			kSecAttrService: service,
+			kSecUseDataProtectionKeychain: false,
+			kSecUseAuthenticationUI: kSecUseAuthenticationUIFail,
+		]
+		let status = SecItemDelete(query as CFDictionary)
+		switch status {
+		case errSecSuccess:
+			log("purged login-keychain leftovers for \(service)")
+		case errSecItemNotFound:
+			break
+		default:
+			log("login-keychain purge OSStatus \(status)")
+		}
+	}
+
 	@discardableResult
-	static func set(_ value: String, auth: String, kind: Kind) -> Bool {
-		let acct = account(auth: auth, kind: kind)
-		let query: [CFString: Any] = [
+	private static func silentDelete(account acct: String) -> OSStatus {
+		var query = dpQuery(account: acct)
+		query[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
+		return SecItemDelete(query as CFDictionary)
+	}
+
+	private static func dpQuery(account acct: String) -> [CFString: Any] {
+		var query: [CFString: Any] = [
 			kSecClass: kSecClassGenericPassword,
 			kSecAttrService: service,
 			kSecAttrAccount: acct,
+			kSecUseDataProtectionKeychain: true,
 		]
-		SecItemDelete(query as CFDictionary)
-		var add = query
+		if let accessGroup = keychainAccessGroup {
+			query[kSecAttrAccessGroup] = accessGroup
+		}
+		return query
+	}
+
+	private static func accessControl() -> SecAccessControl? {
+		var error: Unmanaged<CFError>?
+		let control = SecAccessControlCreateWithFlags(
+			nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .userPresence, &error)
+		if control == nil {
+			let reason = error?.takeRetainedValue().localizedDescription ?? "unknown"
+			log("could not build a presence ACL (\(reason))")
+		}
+		return control
+	}
+
+	/// True when a data-protection item exists for this account. Never prompts:
+	/// UIFail + InteractionNotAllowed / AuthFailed mean "present but gated".
+	private static func keychainExists(account acct: String) -> Bool {
+		var query = dpQuery(account: acct)
+		query[kSecMatchLimit] = kSecMatchLimitOne
+		query[kSecReturnAttributes] = true
+		query[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
+		var item: CFTypeRef?
+		let status = SecItemCopyMatching(query as CFDictionary, &item)
+		switch status {
+		case errSecSuccess, errSecInteractionNotAllowed, errSecAuthFailed, errSecUserCanceled:
+			return true
+		case errSecItemNotFound:
+			return false
+		default:
+			log("keychainExists(\(acct)) OSStatus \(status); treating as absent")
+			return false
+		}
+	}
+
+	/// Returns true only when the secret is durable in the data-protection
+	/// keychain. Memory-only writes return false; `has` still sees them until
+	/// Lock/Quit so mint can work for unsigned agent-dev.
+	@discardableResult
+	static func set(_ value: String, auth: String, kind: Kind, context: LAContext? = nil) -> Bool {
+		let acct = account(auth: auth, kind: kind)
+
+		guard backend == .dataProtection, let control = accessControl() else {
+			remember(acct, value)
+			usingFallback = true
+			log("memory write \(acct)")
+			return false
+		}
+
+		let base = dpQuery(account: acct)
+		var deleteStatus = silentDelete(account: acct)
+		if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound,
+			let context
+		{
+			var authed = base
+			authed[kSecUseAuthenticationContext] = context
+			deleteStatus = SecItemDelete(authed as CFDictionary)
+		}
+
+		var add = base
 		add[kSecAttrLabel] = "Buddy Agent (\(auth))"
-		add[kSecAttrAccessible] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+		add[kSecAttrAccessControl] = control
 		add[kSecValueData] = Data(value.utf8)
-		let status = SecItemAdd(add as CFDictionary, nil)
-		if status == errSecSuccess {
+		var status = SecItemAdd(add as CFDictionary, nil)
+		if status == errSecDuplicateItem {
+			if let context {
+				var updateQuery = base
+				updateQuery[kSecUseAuthenticationContext] = context
+				let update: [CFString: Any] = [kSecValueData: Data(value.utf8)]
+				status = SecItemUpdate(updateQuery as CFDictionary, update as CFDictionary)
+			} else {
+				// Stale presence-gated item: cannot replace without a session.
+				log("ACL write \(acct) blocked by existing item (delete \(deleteStatus)); need unlock")
+				remember(acct, value)
+				usingFallback = true
+				return false
+			}
+		}
+		if status == errSecSuccess, keychainExists(account: acct) {
+			forget(acct)
+			log("ACL write \(acct) ok")
 			return true
 		}
-		FileHandle.standardError.write(
-			Data("buddy-agent: keychain write failed (OSStatus \(status)); keeping \(acct) in memory only\n".utf8))
-		lock.lock()
-		memoryFallback[acct] = value
+		if status == errSecSuccess {
+			// SecItemAdd sometimes reports success while the item is not
+			// queryable — do not tell the UI the secret is in the keychain.
+			log("ACL write \(acct) Add ok but not readable (delete \(deleteStatus)); memory-only")
+		} else {
+			log("ACL write \(acct) failed (OSStatus \(status), delete \(deleteStatus)); memory-only")
+		}
+		remember(acct, value)
 		usingFallback = true
-		lock.unlock()
 		return false
 	}
 
-	static func get(auth: String, kind: Kind) -> String? {
+	/// Prefer the presence-gated item with UnlockGate's LAContext. Never draw a
+	/// Keychain password sheet. Memory is the unsigned/dev path only.
+	static func get(auth: String, kind: Kind, context: LAContext? = nil) -> String? {
 		let acct = account(auth: auth, kind: kind)
-		let query: [CFString: Any] = [
-			kSecClass: kSecClassGenericPassword,
-			kSecAttrService: service,
-			kSecAttrAccount: acct,
-			kSecReturnData: true,
-			kSecMatchLimit: kSecMatchLimitOne,
-		]
+		if backend == .dataProtection, let context {
+			if let value = copySecret(account: acct, context: context) {
+				return value
+			}
+		}
+		return recalled(acct)
+	}
+
+	private static func copySecret(account acct: String, context: LAContext) -> String? {
+		var query = dpQuery(account: acct)
+		query[kSecUseAuthenticationContext] = context
+		query[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
+		query[kSecReturnData] = true
+		query[kSecMatchLimit] = kSecMatchLimitOne
 		var item: CFTypeRef?
-		if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-			let data = item as? Data,
+		let status = SecItemCopyMatching(query as CFDictionary, &item)
+		if status == errSecSuccess, let data = item as? Data,
 			let value = String(data: data, encoding: .utf8), !value.isEmpty
 		{
 			return value
 		}
-		lock.lock()
-		defer { lock.unlock() }
-		return memoryFallback[acct]
+		log("\(acct) ACL read OSStatus \(status)")
+		return nil
 	}
 
+	/// Existence only — never prompts. Safe while the Agent is locked.
 	static func has(auth: String, kind: Kind) -> Bool {
-		get(auth: auth, kind: kind) != nil
+		let acct = account(auth: auth, kind: kind)
+		if recalled(acct) != nil { return true }
+		guard backend == .dataProtection else { return false }
+		return keychainExists(account: acct)
+	}
+
+	/// True when the secret is in the data-protection keychain (not memory).
+	static func storedInKeychain(auth: String, kind: Kind) -> Bool {
+		guard backend == .dataProtection else { return false }
+		return keychainExists(account: account(auth: auth, kind: kind))
 	}
 
 	static func delete(auth: String, kind: Kind) {
 		let acct = account(auth: auth, kind: kind)
-		let query: [CFString: Any] = [
-			kSecClass: kSecClassGenericPassword,
-			kSecAttrService: service,
-			kSecAttrAccount: acct,
-		]
-		SecItemDelete(query as CFDictionary)
-		lock.lock()
-		memoryFallback.removeValue(forKey: acct)
-		lock.unlock()
+		if backend == .dataProtection {
+			_ = silentDelete(account: acct)
+		}
+		forget(acct)
 	}
 
 	static func deleteAll(auth: String) {
@@ -96,10 +258,52 @@ enum AgentKeychain {
 		}
 	}
 
-	/// Drops the in-memory fallback copies (Lock / Quit). Keychain items stay.
+	/// Drops in-memory copies (Lock / Quit). Keychain items stay.
 	static func forgetMemory() {
 		lock.lock()
-		memoryFallback.removeAll()
+		memoryStore.removeAll()
+		usingFallback = false
 		lock.unlock()
+	}
+
+	// MARK: memory
+
+	private static func remember(_ acct: String, _ value: String) {
+		lock.lock()
+		memoryStore[acct] = value
+		lock.unlock()
+	}
+
+	private static func forget(_ acct: String) {
+		lock.lock()
+		memoryStore.removeValue(forKey: acct)
+		lock.unlock()
+	}
+
+	private static func recalled(_ acct: String) -> String? {
+		lock.lock()
+		defer { lock.unlock() }
+		return memoryStore[acct]
+	}
+
+	// MARK: logging
+
+	private static func log(_ line: String) {
+		let text = "buddy-agent: \(line)\n"
+		FileHandle.standardError.write(Data(text.utf8))
+		let dir = FileManager.default.urls(
+			for: .applicationSupportDirectory, in: .userDomainMask
+		).first?.appendingPathComponent("Buddy", isDirectory: true)
+		guard let dir else { return }
+		try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+		let url = dir.appendingPathComponent("agent-keychain.log")
+		let stamped = "\(ISO8601DateFormatter().string(from: Date())) \(line)\n"
+		if let handle = try? FileHandle(forWritingTo: url) {
+			defer { try? handle.close() }
+			_ = try? handle.seekToEnd()
+			try? handle.write(contentsOf: Data(stamped.utf8))
+		} else {
+			try? stamped.write(to: url, atomically: true, encoding: .utf8)
+		}
 	}
 }
