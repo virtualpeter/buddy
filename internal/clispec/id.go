@@ -12,6 +12,7 @@ const (
 	CmdAuth               = "auth"
 	CmdToken              = "token"
 	CmdCred               = "cred"
+	CmdAgent              = "agent"
 	CmdPolicy             = "policy"
 	CmdCategory           = "category"
 	CmdMacApp             = "macapp"
@@ -73,6 +74,7 @@ const (
 	SubRefresh       = "refresh"
 	SubCheck         = "check"
 	SubDownload      = "download"
+	SubRename        = "rename"
 )
 
 // Flag names without leading dashes (never translated).

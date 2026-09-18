@@ -8,9 +8,9 @@ Notable features since the v11 line (last tag **v11.4.1**).
 
 ### Contexts and Account organizations
 
-- Workplaces are **contexts** (`context:` / `contexts:` / `--context`). `tenant:` / `--tenant` still work for this release and are rewritten on load.
-- Nested `orgs:` YAML expands into the same context tree: organization → environment → product tenant. Organization workplaces mint against `us.api.jamfcloud.com` with **no** `X-Environment-Id` / `X-Tenant-Id`. `orgs.*.id` is not sent as a header.
-- `buddy cred list` and the config page show that tree. Auth rows show Account scope.
+- Workplaces are **contexts** (`context:` / `--context`). Nested `orgs:` is the on-disk shape (organization → environment → product tenant). Flat `contexts:` / `tenant:` still load and are rewritten. `--tenant` remains a dual-read alias for this release.
+- Instance-only configs fold into `orgs.default.environments.<name>.url`. Rename `default` in the config tree (pencil) or `buddy cred rename context`.
+- The config page is a tree (not blank-cell tables): pencil rename, trash delete (parents with children are blocked). `buddy cred restore-config` recovers `config.yaml.ok` after a YAML parse failure; leading tabs are rewritten to spaces on load.
 
 ### Account licenses
 

@@ -1,7 +1,9 @@
 package tokenauth
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 
 	"log/slog"
 
+	"buddy/internal/buddy/agent"
 	"buddy/internal/redact"
 )
 
@@ -31,6 +34,11 @@ type Authenticator struct {
 	tokenExpiry  time.Time
 	httpClient   *http.Client
 	logger       *slog.Logger
+	// forceAgentMint makes the next Buddy Agent call skip the Agent's own
+	// token cache (set by ForceRenew, which must prove the secret).
+	forceAgentMint bool
+	// agentOwned means the Agent holds this credential; there is no vault copy.
+	agentOwned bool
 }
 
 // Config holds authentication configuration
@@ -50,7 +58,11 @@ type Config struct {
 	// LoadSecrets fills Password / ClientSecret from the vault when a token must
 	// be minted or refreshed. Not called when a usable disk/memory token exists.
 	LoadSecrets func() (password, clientSecret string, err error)
-	Logger      *slog.Logger
+	// AgentOwned marks an auth the macOS Buddy Agent owns (features.use_agent).
+	// buddy holds no secret for it, so an Agent that cannot serve it is fatal
+	// rather than a fallback to the vault.
+	AgentOwned bool
+	Logger     *slog.Logger
 }
 
 // TokenResponse represents the standard token response from Jamf Pro
@@ -85,6 +97,7 @@ func NewAuthenticator(cfg Config) *Authenticator {
 		platform:     cfg.Platform,
 		cacheKey:     cfg.CacheKey,
 		loadSecrets:  cfg.LoadSecrets,
+		agentOwned:   cfg.AgentOwned,
 		httpClient:   httpClient,
 		logger:       redact.Logger(cfg.Logger),
 	}
@@ -114,6 +127,7 @@ func (a *Authenticator) GetToken() (string, error) {
 func (a *Authenticator) ForceRenew() error {
 	a.clearMemoryToken()
 	a.InvalidateDiskCache()
+	a.forceAgentMint = true
 	return a.ensureValidToken()
 }
 
@@ -153,6 +167,14 @@ func (a *Authenticator) RefreshSession() (TokenRefreshResult, error) {
 		if err := a.getTokenFromCommand(); err != nil {
 			return TokenRefreshResult{}, err
 		}
+		return TokenRefreshResult{Action: TokenActionReplace, Token: a.token, Expiry: a.tokenExpiry}, nil
+	}
+
+	// A Buddy Agent credential is replaced by the Agent, past its own cache.
+	a.forceAgentMint = true
+	if minted, err := a.agentToken(); err != nil {
+		return TokenRefreshResult{}, err
+	} else if minted {
 		return TokenRefreshResult{Action: TokenActionReplace, Token: a.token, Expiry: a.tokenExpiry}, nil
 	}
 
@@ -213,6 +235,13 @@ func (a *Authenticator) loadFromDiskIfValid() bool {
 	if a.cacheKey == "" || len(a.tokenCommand) > 0 {
 		return false
 	}
+	if a.agentOwned {
+		// The Agent owns this credential, so buddy must ask it every time: a
+		// cached file would keep working after the Agent is locked. Sweep any
+		// left by an earlier release.
+		a.InvalidateDiskCache()
+		return false
+	}
 	tok, exp, ok := loadDiskToken(a.cacheKey, a.baseURL, clockSkewWindow)
 	if !ok {
 		return false
@@ -268,6 +297,11 @@ func (a *Authenticator) ensureOAuth2Token() error {
 	if a.memoryTokenUsable() {
 		return nil
 	}
+	if minted, err := a.agentToken(); err != nil {
+		return err
+	} else if minted {
+		return nil
+	}
 	if err := a.loadSecretsIfNeeded(); err != nil {
 		return err
 	}
@@ -285,6 +319,11 @@ func (a *Authenticator) ensureBasicAuthToken() error {
 	if a.memoryTokenUsable() {
 		return nil
 	}
+	if minted, err := a.agentToken(); err != nil {
+		return err
+	} else if minted {
+		return nil
+	}
 	if err := a.loadSecretsIfNeeded(); err != nil {
 		return err
 	}
@@ -293,6 +332,63 @@ func (a *Authenticator) ensureBasicAuthToken() error {
 		a.clearMemoryToken()
 	}
 	return a.getTokenFromCredentials()
+}
+
+// agentToken asks the optional macOS Buddy Agent to mint the bearer, so the
+// vault DEK never enters this process. Reports whether a token was set.
+//
+// Absent Agent (or one that cannot serve this auth) falls through to the vault.
+// Any other Agent error is fatal: a running Agent owning the credential must
+// not be bypassed by quietly unlocking the local vault instead. For an
+// Agent-owned auth there is no vault copy at all, so absent and unsupported are
+// fatal too.
+func (a *Authenticator) agentToken() (bool, error) {
+	force := a.forceAgentMint
+	a.forceAgentMint = false
+	if len(a.tokenCommand) > 0 || strings.TrimSpace(a.name) == "" || !agent.Enabled() {
+		if a.agentOwned {
+			return false, fmt.Errorf("auth %q is owned by the Buddy Agent, but the Agent is disabled (%s)", a.name, agent.EnvDisable)
+		}
+		return false, nil
+	}
+	kind := "basic"
+	switch {
+	case a.clientId != "" && a.platform:
+		kind = "platform"
+	case a.clientId != "":
+		kind = "oauth"
+	}
+	// An inline secret is already in memory, so the Agent buys nothing.
+	if (kind == "basic" && a.password != "") || (kind != "basic" && a.clientSecret != "") {
+		return false, nil
+	}
+	tok, err := agent.Token(context.Background(), agent.TokenRequest{
+		Auth:    a.name,
+		BaseURL: a.baseURL,
+		Kind:    kind,
+		Force:   force,
+		// A locked Agent raises its own presence prompt and this call waits for
+		// the answer, so the user is not sent to the menu bar mid-command.
+		AllowUnlock: !agent.PromptSuppressed(),
+	})
+	switch {
+	case errors.Is(err, agent.ErrAbsent), errors.Is(err, agent.ErrUnsupported):
+		if a.agentOwned {
+			return false, fmt.Errorf("auth %q is owned by the Buddy Agent and buddy holds no secret for it: %w", a.name, err)
+		}
+		a.debugf("buddy agent not used (%v); falling back to the local vault", err)
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	// Memory only, and drop any file left by an earlier vault mint: the Agent
+	// is the one holding this bearer, so locking it must stop the next process
+	// rather than leave buddy a usable copy on disk.
+	a.token = tok.AccessToken
+	a.tokenExpiry = tok.ExpiresAt
+	a.InvalidateDiskCache()
+	a.debugf("bearer minted by buddy agent (expires %v; not cached on disk)", tok.ExpiresAt)
+	return true, nil
 }
 
 // loadSecretsIfNeeded calls LoadSecrets when password/client secret are still empty.
@@ -606,6 +702,16 @@ func (a *Authenticator) RefreshToken() error {
 		// Clear current token to force refresh
 		a.clearMemoryToken()
 		return a.getTokenFromCommand()
+	}
+
+	// The Agent minted the stale bearer, so it mints the replacement: going to
+	// the vault here would ask for a secret buddy may not even hold. Force it
+	// past the Agent's own cache, which is what returned the stale one.
+	a.forceAgentMint = true
+	if minted, err := a.agentToken(); err != nil {
+		return err
+	} else if minted {
+		return nil
 	}
 
 	// If using OAuth2, get a new token (OAuth2 client credentials doesn't support keep-alive)

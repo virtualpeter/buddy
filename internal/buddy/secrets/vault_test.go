@@ -113,6 +113,7 @@ func TestVaultSetPassphraseRotate(t *testing.T) {
 	prev := EnvelopeIter
 	EnvelopeIter = 10_000
 	t.Cleanup(func() { EnvelopeIter = prev })
+	t.Setenv(EnvVaultPassphrase, "")
 
 	path := filepath.Join(t.TempDir(), "secrets.enc")
 	dek := &MemoryMaster{}
@@ -125,8 +126,8 @@ func TestVaultSetPassphraseRotate(t *testing.T) {
 	if err := store.SetPassphrase("new"); err != nil {
 		t.Fatal(err)
 	}
-	if recovery.Phrase != "new" {
-		t.Fatalf("recovery = %q", recovery.Phrase)
+	if recovery.Phrase != "" {
+		t.Fatalf("recovery must not stay machine-stored, got %q", recovery.Phrase)
 	}
 	if dek.Phrase != dekCopy {
 		t.Fatal("SetPassphrase must not rotate the DEK")
@@ -137,13 +138,58 @@ func TestVaultSetPassphraseRotate(t *testing.T) {
 		t.Fatalf("Get = %q err=%v", got, err)
 	}
 	empty := NewVaultStore(path, &MemoryMaster{})
-	got, err = empty.WithRecovery(&MemoryMaster{Phrase: "new"}).Get("a", KindPassword)
+	if err := empty.SetPassphrase("new"); err != nil {
+		t.Fatalf("typed recovery unwrap: %v", err)
+	}
+	got, err = empty.Get("a", KindPassword)
 	if err != nil || got != "pw" {
 		t.Fatalf("unwrap Get = %q err=%v", got, err)
 	}
-	_, err = NewVaultStore(path, &MemoryMaster{Phrase: "old"}).Get("a", KindPassword)
+	_, err = NewVaultStore(path, &MemoryMaster{}).WithRecovery(&MemoryMaster{Phrase: "old"}).Get("a", KindPassword)
 	if err == nil {
-		t.Fatal("old recovery phrase must not be a DEK")
+		t.Fatal("old recovery phrase / stored master must not unlock")
+	}
+}
+
+func TestVaultPreservesWrapWithoutStoredMaster(t *testing.T) {
+	prev := EnvelopeIter
+	EnvelopeIter = 10_000
+	t.Cleanup(func() { EnvelopeIter = prev })
+	t.Setenv(EnvVaultPassphrase, "")
+
+	path := filepath.Join(t.TempDir(), "secrets.enc")
+	dek := &MemoryMaster{}
+	store := NewVaultStore(path, dek)
+	if err := store.Set("a", KindPassword, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPassphrase("held-by-user"); err != nil {
+		t.Fatal(err)
+	}
+	raw1, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env1, err := ParseEnvelope(raw1)
+	if err != nil || env1.Wrap == nil {
+		t.Fatalf("expected wrap after SetPassphrase: %+v err=%v", env1, err)
+	}
+	wrapJSON, _ := json.Marshal(env1.Wrap)
+
+	if err := store.Set("a", KindClientSecret, "cs"); err != nil {
+		t.Fatal(err)
+	}
+	raw2, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env2, err := ParseEnvelope(raw2)
+	if err != nil || env2.Wrap == nil {
+		t.Fatalf("wrap must survive save without stored master: %+v", env2)
+	}
+	wrapJSON2, _ := json.Marshal(env2.Wrap)
+	if string(wrapJSON) != string(wrapJSON2) {
+		t.Fatal("existing wrap bytes must be preserved unchanged")
 	}
 }
 

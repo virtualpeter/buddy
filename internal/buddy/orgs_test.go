@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"buddy/internal/buddy/secrets"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -290,6 +292,168 @@ contexts:
 	}
 	if dumped.Contexts["other"].URL != "https://other.example.jamfcloud.com" {
 		t.Fatalf("other leftover=%+v", dumped.Contexts["other"])
+	}
+}
+
+func TestUnmarshalOrgs_InstanceEnvURL(t *testing.T) {
+	data := []byte(`
+context:
+  default: sandbox
+orgs:
+  default:
+    environments:
+      sandbox:
+        url: https://example.jamfcloud.com
+`)
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Tenants["default"].IsOrganizationWorkplace() {
+		t.Fatalf("org=%+v", cfg.Tenants["default"])
+	}
+	got := cfg.Tenants["sandbox"]
+	if got.URL != "https://example.jamfcloud.com" || got.Org != "default" {
+		t.Fatalf("sandbox=%+v", got)
+	}
+	if got.WorkplaceKind() != "instance" {
+		t.Fatalf("kind=%q", got.WorkplaceKind())
+	}
+}
+
+func TestFoldFlatIntoOrgs_InstanceOnly(t *testing.T) {
+	cfg := &Config{
+		Tenant:  TenantSelection{Default: "sandbox"},
+		Tenants: map[string]TenantConfig{"sandbox": {URL: "https://example.jamfcloud.com"}},
+	}
+	folded, err := foldFlatIntoOrgs(cfg)
+	if err != nil || !folded {
+		t.Fatalf("folded=%v err=%v", folded, err)
+	}
+	if cfg.Orgs["default"].Environments["sandbox"].EffectiveURL() != "https://example.jamfcloud.com" {
+		t.Fatalf("orgs=%+v", cfg.Orgs)
+	}
+	if cfg.Tenants["sandbox"].Org != "default" {
+		t.Fatalf("sandbox=%+v", cfg.Tenants["sandbox"])
+	}
+	out, err := marshalConfig(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if yamlHasTopLevelKey(s, "contexts") {
+		t.Fatalf("expected orgs-only:\n%s", s)
+	}
+	folded2, err := foldFlatIntoOrgs(cfg)
+	if err != nil || folded2 {
+		t.Fatalf("second fold should be no-op: folded=%v err=%v", folded2, err)
+	}
+}
+
+func TestFoldFlatIntoOrgs_SeveralInstances(t *testing.T) {
+	cfg := &Config{
+		Tenants: map[string]TenantConfig{
+			"sandbox": {URL: "https://sandbox.example.jamfcloud.com"},
+			"prod":    {URL: "https://prod.example.jamfcloud.com"},
+		},
+	}
+	if _, err := foldFlatIntoOrgs(cfg); err != nil {
+		t.Fatal(err)
+	}
+	org := cfg.Orgs["default"]
+	if org.Environments["sandbox"].EffectiveURL() == "" || org.Environments["prod"].EffectiveURL() == "" {
+		t.Fatalf("expected one env per instance: %+v", org)
+	}
+}
+
+func TestFoldFlatIntoOrgs_SharedEnvironmentID(t *testing.T) {
+	cfg := &Config{
+		Tenants: map[string]TenantConfig{
+			"sandbox": {URL: "https://sandbox.example.jamfcloud.com", Region: "us", EnvironmentID: "e1", TenantID: "t1"},
+			"prod":    {URL: "https://prod.example.jamfcloud.com", Region: "us", EnvironmentID: "e1", TenantID: "t2"},
+		},
+	}
+	if _, err := foldFlatIntoOrgs(cfg); err != nil {
+		t.Fatal(err)
+	}
+	org := cfg.Orgs["default"]
+	var envName string
+	for n, e := range org.Environments {
+		if e.EffectiveID() == "e1" {
+			envName = n
+			if len(e.Tenants) != 2 {
+				t.Fatalf("want 2 tenants under shared env: %+v", e)
+			}
+		}
+	}
+	if envName == "" {
+		t.Fatalf("missing shared env: %+v", org)
+	}
+}
+
+func TestDeleteWorkplace_BlocksParentWithChildren(t *testing.T) {
+	cfg := &Config{}
+	if _, err := SetTenantMetadata(cfg, "sandbox", SetTenantOpts{URL: "https://example.jamfcloud.com", Overwrite: true}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := DeleteTenantMetadata(cfg, "default")
+	if err == nil || !strings.Contains(err.Error(), "cannot delete") {
+		t.Fatalf("expected parent blocked, got %v", err)
+	}
+	if _, err := DeleteTenantMetadata(cfg, "sandbox"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DeleteTenantMetadata(cfg, "default"); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Orgs) != 0 {
+		t.Fatalf("orgs leftover %+v", cfg.Orgs)
+	}
+}
+
+func TestRenameWorkplaceAndAuth(t *testing.T) {
+	secrets.SetStore(&mockSecretStore{values: map[string]string{"sandgod/client-secret": "s3cret"}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+	cfg := &Config{
+		Tenant: TenantSelection{Default: "sandbox"},
+		Auths: map[string]AuthEntry{
+			"sandgod": {Type: AuthTypeOAuth, ClientID: "cid", Tenants: []string{"sandbox"}, JamfPro: "sandbox"},
+		},
+	}
+	if _, err := SetTenantMetadata(cfg, "sandbox", SetTenantOpts{URL: "https://example.jamfcloud.com", Overwrite: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenameWorkplace(cfg, "default", "acme"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg.Orgs["acme"]; !ok {
+		t.Fatalf("orgs=%+v", cfg.Orgs)
+	}
+	if cfg.Tenants["sandbox"].Org != "acme" {
+		t.Fatalf("sandbox=%+v", cfg.Tenants["sandbox"])
+	}
+	if err := RenameWorkplace(cfg, "sandbox", "lab"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tenant.Default != "lab" {
+		t.Fatalf("default=%q", cfg.Tenant.Default)
+	}
+	if cfg.Auths["sandgod"].JamfPro != "lab" {
+		t.Fatalf("auth=%+v", cfg.Auths["sandgod"])
+	}
+	if err := RenameAuth(cfg, "sandgod", "labgod"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg.Auths["labgod"]; !ok {
+		t.Fatalf("auth missing: %+v", cfg.Auths)
+	}
+	ok, err := HasCredentialSecret("labgod", secrets.KindClientSecret)
+	if err != nil || !ok {
+		t.Fatalf("secret moved? %v %v", ok, err)
+	}
+	hasOld, _ := HasCredentialSecret("sandgod", secrets.KindClientSecret)
+	if hasOld {
+		t.Fatal("old secret still present")
 	}
 }
 

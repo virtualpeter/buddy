@@ -70,6 +70,15 @@ const (
 	SecretKindClientSecret = secrets.KindClientSecret
 )
 
+// GetCredentialSecret returns a secret from the platform store.
+func GetCredentialSecret(credName string, kind secrets.Kind) (string, error) {
+	store, err := secrets.DefaultStore()
+	if err != nil {
+		return "", err
+	}
+	return store.Get(credName, kind)
+}
+
 // SetCredentialSecret stores a secret for a credential in the platform store.
 func SetCredentialSecret(credName string, kind secrets.Kind, value string) error {
 	store, err := secrets.DefaultStore()
@@ -102,7 +111,8 @@ func SecretStoreInfo() (kind, detail string, err error) {
 	return secrets.StoreInfo()
 }
 
-// SecretStoreDetails is the vault + DEK + recovery-passphrase backends for `cred store`.
+// SecretStoreDetails is the vault + DEK + recovery status for `cred store`.
+// masterKind/masterDetail describe recovery wrap configuration (not Keychain master).
 func SecretStoreDetails() (kind, vaultPath, masterKind, masterDetail, dekKind, dekDetail string, err error) {
 	kind, detail, err := secrets.StoreInfo()
 	if err != nil {
@@ -115,13 +125,10 @@ func SecretStoreDetails() (kind, vaultPath, masterKind, masterDetail, dekKind, d
 	if err != nil {
 		return kind, detail, "", "", "", "", err
 	}
-	m, err := secrets.DefaultMasterStore()
-	if err != nil {
-		return kind, vp, secrets.MasterKindName(), "", secrets.DEKKindName(), "", err
-	}
+	status, statusDetail := secrets.RecoveryStatus()
 	d, derr := secrets.DefaultDEKStore()
 	if derr != nil {
-		return kind, vp, secrets.MasterKindName(), m.Description(), secrets.DEKKindName(), "", derr
+		return kind, vp, status, statusDetail, secrets.DEKKindName(), "", derr
 	}
-	return kind, vp, secrets.MasterKindName(), m.Description(), secrets.DEKKindName(), d.Description(), nil
+	return kind, vp, status, statusDetail, secrets.DEKKindName(), d.Description(), nil
 }

@@ -71,6 +71,7 @@ func SetStore(s Store) {
 	overrideStoreMu.Unlock()
 	if s == nil {
 		resetCachedDefaultStore()
+		resetDeviceOwnerConfirm()
 	}
 }
 

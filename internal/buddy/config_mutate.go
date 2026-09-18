@@ -2,8 +2,11 @@ package buddy
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
+
+	"buddy/internal/buddy/secrets"
 )
 
 // SetTenantOpts controls SetTenantMetadata.
@@ -11,6 +14,7 @@ type SetTenantOpts struct {
 	URL           string
 	Region        string
 	Org           string
+	OrgID         string
 	EnvironmentID string
 	TenantID      string
 	DenyBuiltins  []string
@@ -33,6 +37,9 @@ func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bo
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return false, fmt.Errorf("tenant name required")
+	}
+	if cfg.ContextFromAgent(name) {
+		return false, errAgentOwned("context", name)
 	}
 	prev, existing := cfg.Tenants[name]
 	if existing && !opts.Overwrite {
@@ -80,13 +87,30 @@ func SetTenantMetadata(cfg *Config, name string, opts SetTenantOpts) (created bo
 	if err := t.Validate(); err != nil {
 		return false, err
 	}
-	if err := cfg.validateContextOrg(name, t); err != nil {
-		return false, err
-	}
 	if cfg.Tenants == nil {
 		cfg.Tenants = map[string]TenantConfig{}
 	}
 	cfg.Tenants[name] = t
+	if err := upsertWorkplaceInOrgs(cfg, name, t); err != nil {
+		return false, err
+	}
+	if loc, ok := locateInOrgs(cfg.Orgs, name); ok && loc.Kind == "organization" {
+		if id := strings.TrimSpace(opts.OrgID); id != "" {
+			org := cfg.Orgs[name]
+			org.ID = id
+			cfg.Orgs[name] = org
+		}
+	}
+	if err := expandOrgs(cfg); err != nil {
+		return false, err
+	}
+	t = cfg.Tenants[name]
+	if err := t.Validate(); err != nil {
+		return false, err
+	}
+	if err := cfg.validateContextOrg(name, t); err != nil {
+		return false, err
+	}
 	if strings.TrimSpace(cfg.Tenant.Default) == "" {
 		cfg.SetDefaultTenant(name)
 	}
@@ -122,6 +146,9 @@ func SetAuthMetadata(cfg *Config, name string, opts SetAuthMetadataOpts) (create
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return false, fmt.Errorf("auth name required")
+	}
+	if cfg.AuthFromAgent(name) {
+		return false, errAgentOwned("auth", name)
 	}
 	prev, existing := cfg.Auths[name]
 	if existing && !opts.Overwrite {
@@ -214,6 +241,12 @@ func DeleteTenantMetadata(cfg *Config, name string) (DeleteTenantResult, error) 
 	if _, ok := cfg.Tenants[name]; !ok {
 		return res, fmt.Errorf("tenant %q not found", name)
 	}
+	if cfg.ContextFromAgent(name) {
+		return res, errAgentOwned("context", name)
+	}
+	if err := removeWorkplaceFromOrgs(cfg, name); err != nil {
+		return res, err
+	}
 	var deleteAuths, unlinkAuths []string
 	for an, a := range cfg.Auths {
 		if !a.LinkedTo(name) {
@@ -282,6 +315,7 @@ func DeleteTenantMetadata(cfg *Config, name string) (DeleteTenantResult, error) 
 			cfg.Channels[ch] = p
 		}
 	}
+	_ = expandOrgs(cfg)
 	return res, nil
 }
 
@@ -295,12 +329,192 @@ func DeleteAuthMetadata(cfg *Config, name string) error {
 	if _, ok := cfg.Auths[name]; !ok {
 		return fmt.Errorf("auth %q not found", name)
 	}
+	if cfg.AuthFromAgent(name) {
+		return errAgentOwned("auth", name)
+	}
 	return deleteAuthRecord(cfg, name)
 }
 
 func deleteAuthRecord(cfg *Config, name string) error {
 	delete(cfg.Auths, name)
 	_ = DeleteCredentialSecrets(name, true, true) // store may be unavailable
+	return nil
+}
+
+// RenameWorkplace renames a context in the orgs tree and rewrites auth/default/channel links.
+func RenameWorkplace(cfg *Config, oldName, newName string) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	oldName = strings.TrimSpace(oldName)
+	newName = strings.TrimSpace(newName)
+	if oldName == "" || newName == "" {
+		return fmt.Errorf("rename requires from and to names")
+	}
+	if oldName == newName {
+		return nil
+	}
+	if cfg.TenantFromManagedPrefs(oldName) {
+		return fmt.Errorf("context %q is managed (MDM); rename it in the profile, not here", oldName)
+	}
+	if cfg.ContextFromAgent(oldName) {
+		return errAgentOwned("context", oldName)
+	}
+	if _, ok := cfg.Tenants[oldName]; !ok {
+		return fmt.Errorf("tenant %q not found", oldName)
+	}
+	if _, ok := cfg.Tenants[newName]; ok {
+		return fmt.Errorf("name %q already exists", newName)
+	}
+	if _, ok := locateInOrgs(cfg.Orgs, oldName); ok {
+		if err := renameOrgKey(cfg, oldName, newName); err != nil {
+			return err
+		}
+		delete(cfg.Tenants, oldName)
+		for n, t := range cfg.Tenants {
+			if strings.TrimSpace(t.Org) == oldName {
+				t.Org = newName
+				cfg.Tenants[n] = t
+			}
+		}
+	} else {
+		t := cfg.Tenants[oldName]
+		delete(cfg.Tenants, oldName)
+		cfg.Tenants[newName] = t
+		if err := upsertWorkplaceInOrgs(cfg, newName, t); err != nil {
+			return err
+		}
+	}
+	rewriteWorkplaceLinks(cfg, oldName, newName)
+	if err := expandOrgs(cfg); err != nil {
+		return err
+	}
+	if _, ok := cfg.Tenants[oldName]; ok {
+		delete(cfg.Tenants, oldName)
+	}
+	return nil
+}
+
+func rewriteWorkplaceLinks(cfg *Config, oldName, newName string) {
+	if cfg == nil {
+		return
+	}
+	if cfg.Tenant.Default == oldName {
+		cfg.Tenant.Default = newName
+	}
+	for name, a := range cfg.Auths {
+		changed := false
+		if a.JamfPro == oldName {
+			a.JamfPro = newName
+			changed = true
+		}
+		a.Contexts = rewriteNameSlice(a.Contexts, oldName, newName)
+		a.Tenants = rewriteNameSlice(a.Tenants, oldName, newName)
+		if changed || containsName(a.Contexts, newName) || containsName(a.Tenants, newName) {
+			cfg.Auths[name] = a
+		}
+	}
+	for ch, p := range cfg.Channels {
+		changed := false
+		if p.Tenant == oldName {
+			p.Tenant = newName
+			changed = true
+		}
+		kept, did := rewriteNameSliceCopy(p.Tenants, oldName, newName)
+		if did {
+			p.Tenants = kept
+			changed = true
+		}
+		if changed {
+			cfg.Channels[ch] = p
+		}
+	}
+}
+
+func rewriteNameSlice(in []string, oldName, newName string) []string {
+	out, _ := rewriteNameSliceCopy(in, oldName, newName)
+	return out
+}
+
+func rewriteNameSliceCopy(in []string, oldName, newName string) ([]string, bool) {
+	if len(in) == 0 {
+		return in, false
+	}
+	changed := false
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, s := range in {
+		if s == oldName {
+			s = newName
+			changed = true
+		}
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out, changed
+}
+
+func containsName(in []string, name string) bool {
+	for _, s := range in {
+		if s == name {
+			return true
+		}
+	}
+	return false
+}
+
+// RenameAuth renames an auth map key and moves vault secret identities.
+func RenameAuth(cfg *Config, oldName, newName string) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	oldName = strings.TrimSpace(oldName)
+	newName = strings.TrimSpace(newName)
+	if oldName == "" || newName == "" {
+		return fmt.Errorf("rename requires from and to names")
+	}
+	if oldName == newName {
+		return nil
+	}
+	if cfg.AuthFromManagedPrefs(oldName) {
+		return fmt.Errorf("auth %q is managed (MDM); rename it in the profile, not here", oldName)
+	}
+	if cfg.AuthFromAgent(oldName) {
+		return errAgentOwned("auth", oldName)
+	}
+	entry, ok := cfg.Auths[oldName]
+	if !ok {
+		return fmt.Errorf("auth %q not found", oldName)
+	}
+	if _, exists := cfg.Auths[newName]; exists {
+		return fmt.Errorf("name %q already exists", newName)
+	}
+	if err := moveAuthSecrets(oldName, newName); err != nil {
+		return err
+	}
+	delete(cfg.Auths, oldName)
+	cfg.Auths[newName] = entry
+	return nil
+}
+
+func moveAuthSecrets(oldName, newName string) error {
+	for _, kind := range []secrets.Kind{secrets.KindPassword, secrets.KindClientSecret} {
+		has, err := HasCredentialSecret(oldName, kind)
+		if err != nil || !has {
+			continue
+		}
+		val, err := GetCredentialSecret(oldName, kind)
+		if err != nil {
+			return fmt.Errorf("read secret for %q: %w", oldName, err)
+		}
+		if err := SetCredentialSecret(newName, kind, val); err != nil {
+			return fmt.Errorf("store secret for %q: %w", newName, err)
+		}
+		_ = DeleteCredentialSecret(oldName, kind)
+	}
 	return nil
 }
 
@@ -342,16 +556,37 @@ func SetSelection(cfg *Config, opts SetSelectionOpts) error {
 
 // ConfigSnapshot is the JSON-friendly view for GET /api/config.
 type ConfigSnapshot struct {
-	NeedsSetup      bool              `json:"needs_setup"`
-	ConfigFile      bool              `json:"config_file"` // user config.yaml exists
-	DefaultContext  string            `json:"default_context"`
-	DefaultTenant   string            `json:"default_tenant"`   // dual-read alias of default_context
-	ChannelContexts map[string]string `json:"channel_contexts"` // cli/mcp/ide → effective default
-	ChannelTenants  map[string]string `json:"channel_tenants"`  // dual-read alias of channel_contexts
-	Contexts        []TenantSnapshot  `json:"contexts"`
-	Tenants         []TenantSnapshot  `json:"tenants"` // dual-read alias of contexts
-	Auths           []AuthSnapshot    `json:"auths"`
-	Coverage        CoverageReport    `json:"coverage"`
+	NeedsSetup      bool                    `json:"needs_setup"`
+	ConfigFile      bool                    `json:"config_file"` // user config.yaml exists
+	DefaultContext  string                  `json:"default_context"`
+	DefaultTenant   string                  `json:"default_tenant"`   // dual-read alias of default_context
+	ChannelContexts map[string]string       `json:"channel_contexts"` // cli/mcp/ide → effective default
+	ChannelTenants  map[string]string       `json:"channel_tenants"`  // dual-read alias of channel_contexts
+	Contexts        []TenantSnapshot        `json:"contexts"`
+	Tenants         []TenantSnapshot        `json:"tenants"` // dual-read alias of contexts
+	Auths           []AuthSnapshot          `json:"auths"`
+	Tree            []WorkplaceNodeSnapshot `json:"tree,omitempty"`
+	Coverage        CoverageReport          `json:"coverage"`
+	ParseError      string                  `json:"parse_error,omitempty"`
+	LastGood        bool                    `json:"last_good,omitempty"`
+}
+
+// WorkplaceNodeSnapshot is one org/env/tenant node for the config tree UI.
+type WorkplaceNodeSnapshot struct {
+	Name          string                  `json:"name"`
+	Kind          string                  `json:"kind"`
+	URL           string                  `json:"url,omitempty"`
+	Region        string                  `json:"region,omitempty"`
+	Org           string                  `json:"org,omitempty"`
+	Env           string                  `json:"env,omitempty"`
+	EnvironmentID string                  `json:"environment_id,omitempty"`
+	TenantID      string                  `json:"tenant_id,omitempty"`
+	OrgID         string                  `json:"org_id,omitempty"`
+	Managed       bool                    `json:"managed,omitempty"`
+	Agent         bool                    `json:"agent,omitempty"`
+	CanDelete     bool                    `json:"can_delete"`
+	Gap           bool                    `json:"gap,omitempty"`
+	Children      []WorkplaceNodeSnapshot `json:"children,omitempty"`
 }
 
 // TenantSnapshot is one context row for the config UI.
@@ -366,6 +601,7 @@ type TenantSnapshot struct {
 	Kind          string `json:"kind,omitempty"`      // organization | environment | product-tenant | instance
 	Organization  bool   `json:"organization,omitempty"`
 	Managed       bool   `json:"managed,omitempty"`
+	Agent         bool   `json:"agent,omitempty"`
 }
 
 // AuthSnapshot is one auth row for the config UI (metadata + secret presence).
@@ -379,8 +615,10 @@ type AuthSnapshot struct {
 	Channels []string `json:"channels,omitempty"`
 	Username string   `json:"username,omitempty"`
 	ClientID string   `json:"client_id,omitempty"`
-	Secret   string   `json:"secret"` // missing | stored | inline | n/a
+	Secret   string   `json:"secret"` // missing | stored | inline | n/a | locked | agent
 	Managed  bool     `json:"managed,omitempty"`
+	// Agent means the macOS Buddy Agent owns this auth and its secret.
+	Agent bool `json:"agent,omitempty"`
 }
 
 // BuildConfigSnapshot builds the serve/API view of config (no secret values).
@@ -392,6 +630,14 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 	}
 	if exists, err := ConfigFileExists(); err == nil {
 		snap.ConfigFile = exists
+	}
+	if err := ConfigLoadError(); err != nil {
+		snap.ParseError = err.Error()
+		if path, e := configPath(); e == nil {
+			if fi, statErr := os.Stat(lastGoodConfigPath(path)); statErr == nil && !fi.IsDir() {
+				snap.LastGood = true
+			}
+		}
 	}
 	if cfg == nil {
 		return snap
@@ -420,6 +666,7 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 			Kind:          row.Kind,
 			Organization:  t.IsOrganizationWorkplace(),
 			Managed:       cfg.TenantFromManagedPrefs(row.Name),
+			Agent:         cfg.ContextFromAgent(row.Name),
 		})
 	}
 	snap.Contexts = snap.Tenants
@@ -442,8 +689,112 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 			ClientID: a.ClientID,
 			Secret:   AuthSecretPresence(cfg, n, false),
 			Managed:  cfg.AuthFromManagedPrefs(n),
+			Agent:    cfg.AuthFromAgent(n),
 		})
 	}
 	snap.Coverage = BuildCoverageReport(cfg)
+	snap.Tree = buildOrgTreeSnapshot(cfg, snap.Coverage)
 	return snap
+}
+
+func workplaceHasCoverageGap(cov CoverageReport, name string) bool {
+	for _, c := range cov.Cells {
+		if (c.Context == name || c.Tenant == name) && c.Gap {
+			return true
+		}
+	}
+	return false
+}
+
+func buildOrgTreeSnapshot(cfg *Config, cov CoverageReport) []WorkplaceNodeSnapshot {
+	if cfg == nil {
+		return nil
+	}
+	nodeFor := func(name string, kind, org, env string) WorkplaceNodeSnapshot {
+		t := cfg.Tenants[name]
+		n := WorkplaceNodeSnapshot{
+			Name:          name,
+			Kind:          kind,
+			URL:           t.URL,
+			Region:        t.Region,
+			Org:           org,
+			Env:           env,
+			EnvironmentID: t.EnvironmentID,
+			TenantID:      t.TenantID,
+			Managed:       cfg.TenantFromManagedPrefs(name),
+			Agent:         cfg.ContextFromAgent(name),
+			Gap:           workplaceHasCoverageGap(cov, name),
+		}
+		if kind == "organization" {
+			if o, ok := cfg.Orgs[name]; ok {
+				n.OrgID = strings.TrimSpace(o.ID)
+			}
+			n.Org = name
+		}
+		return n
+	}
+	if len(cfg.Orgs) == 0 {
+		var roots []WorkplaceNodeSnapshot
+		for _, row := range WorkplaceTree(cfg.Tenants) {
+			kind := row.Kind
+			if kind == "product-tenant" {
+				kind = "tenant"
+			}
+			n := nodeFor(row.Name, kind, row.Org, row.Environment)
+			n.CanDelete = !n.Managed && !n.Agent
+			roots = append(roots, n)
+		}
+		return roots
+	}
+	orgNames := make([]string, 0, len(cfg.Orgs))
+	for n := range cfg.Orgs {
+		orgNames = append(orgNames, n)
+	}
+	sort.Strings(orgNames)
+	var roots []WorkplaceNodeSnapshot
+	seen := map[string]bool{}
+	for _, orgName := range orgNames {
+		org := cfg.Orgs[orgName]
+		root := nodeFor(orgName, "organization", orgName, "")
+		envNames := make([]string, 0, len(org.Environments))
+		for n := range org.Environments {
+			envNames = append(envNames, n)
+		}
+		sort.Strings(envNames)
+		for _, envName := range envNames {
+			env := org.Environments[envName]
+			kind := "environment"
+			if env.EffectiveID() == "" && env.EffectiveURL() != "" && len(env.Tenants) == 0 {
+				kind = "instance"
+			}
+			envNode := nodeFor(envName, kind, orgName, envName)
+			tenNames := make([]string, 0, len(env.Tenants))
+			for n := range env.Tenants {
+				tenNames = append(tenNames, n)
+			}
+			sort.Strings(tenNames)
+			for _, tenName := range tenNames {
+				tenNode := nodeFor(tenName, "product-tenant", orgName, envName)
+				tenNode.CanDelete = !tenNode.Managed && !tenNode.Agent
+				envNode.Children = append(envNode.Children, tenNode)
+				seen[tenName] = true
+			}
+			envNode.CanDelete = !envNode.Managed && !envNode.Agent && len(envNode.Children) == 0
+			root.Children = append(root.Children, envNode)
+			seen[envName] = true
+		}
+		root.CanDelete = !root.Managed && !root.Agent && len(root.Children) == 0
+		roots = append(roots, root)
+		seen[orgName] = true
+	}
+	for _, row := range WorkplaceTree(cfg.Tenants) {
+		if seen[row.Name] {
+			continue
+		}
+		kind := row.Kind
+		n := nodeFor(row.Name, kind, row.Org, row.Environment)
+		n.CanDelete = !n.Managed && !n.Agent
+		roots = append(roots, n)
+	}
+	return roots
 }

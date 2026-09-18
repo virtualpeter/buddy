@@ -2,9 +2,9 @@
 
 Buddy talks to Jamf using a **context** (a named workplace in config) plus an **auth** (which principal). Passwords and OAuth client secrets belong in the encrypted vault, not in `config.yaml`. Tokens are cached and refreshed automatically.
 
-First-time install: [Getting started](getting-started.md). With an empty config, any interactive Jamf command (or `buddy setup` / `buddy cred add`) runs the chooser: instance JSON or basic, Platform curl, a secrets-free quickstart file, or an org MDM profile. `buddy cred add --paste` accepts the JSON Jamf Pro shows when creating an API client, or the curl sample from a Platform API client. `buddy setup export` writes that YAML from a working config; `buddy setup import` / `cred add --from=` load it. With an org MDM profile, use `buddy setup secrets`. The docs UI **config** page edits context/auth metadata only — secrets stay in the terminal vault. YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
+First-time install: [Getting started](getting-started.md). With an empty config, any interactive Jamf command (or `buddy setup` / `buddy cred add`) runs the chooser: instance JSON or basic, Platform curl, a secrets-free quickstart file, or an org MDM profile. `buddy cred add --paste` accepts the JSON Jamf Pro shows when creating an API client, or the curl sample from a Platform API client. `buddy setup export` writes that YAML from a working config; `buddy setup import` / `cred add --from=` load it. With an org MDM profile, use `buddy setup secrets`. The docs UI **config** page is a workplace tree (rename with the pencil, delete with the trash — parents that still have children are blocked). Secrets stay in the terminal vault. YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
 
-Maintenance: `buddy cred status` and `buddy cred list` walk workplaces as **org → environment → product-tenant** (ORG / ENVIRONMENT / CONTEXT). SURFACE on status is instance URL vs Platform gateway — not Jamf Account scope (that lives on the auth). Account UUIDs stay on `buddy cred get`. Covering auths, whether a secret is **locked** / **stored** / missing, and the last `auth test` result. Default status does not open the vault (`SECRET=locked`); `--unlock` or `--test` classifies stored vs missing. Gaps are workplaces that have an identity but no covering auth (or no secret after unlock). Low-level `buddy cred set context|auth|secret` still works (`tenant` is a dual-read alias).
+Maintenance: `buddy cred status` and `buddy cred list` walk workplaces as **org → environment → product-tenant** (ORG / ENVIRONMENT / CONTEXT). SURFACE on status is instance URL vs Platform gateway — not Jamf Account scope (that lives on the auth). Account UUIDs stay on `buddy cred get`. Covering auths, whether a secret is **locked** / **stored** / missing, and the last `auth test` result. Default status does not open the vault (`SECRET=locked`); `--unlock` or `--test` classifies stored vs missing. Gaps are workplaces that have an identity but no covering auth (or no secret after unlock). Low-level `buddy cred set context|auth|secret` still works (`tenant` is a dual-read alias). `buddy cred rename context|auth` renames a workplace or auth (vault secrets move with the auth). If `config.yaml` will not parse, `buddy cred restore-config` copies the last-good `config.yaml.ok`. Loading also rewrites leading tabs to spaces.
 
 ---
 
@@ -12,9 +12,9 @@ Maintenance: `buddy cred status` and `buddy cred list` walk workplaces as **org 
 
 Jamf **scope** is organization / environment / tenant — which Account header, if any, an API client sends. It lives on the **auth** (`scope: organization|environment|tenant`). Buddy **context** is only a named workplace you pass to `--context` (dual-read `--tenant`). Those are different words on purpose.
 
-A context is a named buddy workplace (e.g. `sandbox`). The default path is **instance-only**: a Jamf Pro `jamfpro.url` and an `oauth`/`basic` auth. No Account environment, region, platform auth, or `orgs:` tree is required.
+A context is a named buddy workplace (e.g. `sandbox`). The default path is **instance-only**: a Jamf Pro URL and an `oauth`/`basic` auth. On disk that lives under nested `orgs:` (an invented organization named `default` until you rename it). No Account environment, region, or platform auth is required.
 
-When you adopt Jamf Account / Platform, Jamf’s hierarchy is **organization → environment → product tenant**. Optional nested `orgs:` YAML expresses that tree; load expands it into the same flat `contexts:` map `--context` already uses. Auths stay in `auths:`.
+When you adopt Jamf Account / Platform, Jamf’s hierarchy is **organization → environment → product tenant**. Nested `orgs:` YAML is the on-disk shape; load expands it into the same flat workplace map `--context` already uses. Auths stay in `auths:`. Old flat `contexts:` files are folded into `orgs:` on load.
 
 | Nested node | Workplace (`--context`) | What you get |
 |-------------|-------------------------|--------------|
@@ -22,9 +22,9 @@ When you adopt Jamf Account / Platform, Jamf’s hierarchy is **organization →
 | `environments.commercial` | `commercial` | Environment workplace: `region` + `id`, parent org `acme`. |
 | `tenants.sandbox` | `sandbox` | Product-tenant workplace: `jamfpro.tenantId` + optional URL; inherits environment id + region; parent org `acme`. |
 
-Org, environment, nested tenant, and a bare `contexts:` key share **one** workplace namespace. The same name overlays (instance URL + nested tenant ids = today’s hybrid). A name used twice in the nested tree, or an overlay with two different URLs / environment ids, is an error.
+Org, environment, and nested tenant names share **one** workplace namespace. A leftover flat `contexts:` key with the same name overlays (instance URL + nested tenant ids = today’s hybrid) and is then folded into the tree. A name used twice in the nested tree, or an overlay with two different URLs / environment ids, is an error.
 
-Root dual-read `tenants:` is the old name for workplaces (one release). Nested `orgs.*.environments.*.tenants` is Jamf’s product-tenant list inside the sugar tree — not a second root `tenants:` meaning.
+Root dual-read `tenants:` is the old name for workplaces (one release). Nested `orgs.*.environments.*.tenants` is Jamf’s product-tenant list inside the orgs tree — not a second root `tenants:` meaning.
 
 | Auth `scope:` | Header | What it is |
 |---------------|--------|------------|
@@ -50,17 +50,18 @@ Optional auth fields:
 
 `type` encodes the Jamf surface: `basic` / `oauth` / `command` are instance; `platform` is the API Gateway. An OAuth client is never valid on both. Legacy `surface: platform` on `type: oauth` migrates to `type: platform` on load.
 
-`credentials:`, a bare string `tenant:`/`context:`, `defaults:`, and `allow_auths:` are rejected. Dual-read `tenants:` / `tenant.default` / auth `tenants:` for one release. Loading config rewrites those keys to `contexts:` / `context.default` / `jamfpro:` / auth `contexts:` + `scope:`.
+`credentials:`, a bare string `tenant:`/`context:`, `defaults:`, and `allow_auths:` are rejected. Dual-read `tenants:` / `tenant.default` / auth `tenants:` for one release. Loading config rewrites those keys to `context.default` / `jamfpro:` / auth `contexts:` + `scope:`, and folds leftover flat `contexts:` into `orgs:`.
 
-Instance-only example:
+Instance-only example (invented org `default` — rename it in the config page or with `buddy cred rename context default acme`):
 
 ```yaml
 context:
   default: sandbox
-contexts:
-  sandbox:
-    jamfpro:
-      url: https://example.jamfcloud.com
+orgs:
+  default:
+    environments:
+      sandbox:
+        url: https://example.jamfcloud.com
 auths:
   sandgod:
     type: oauth
@@ -98,28 +99,7 @@ auths:
     jamfpro: sandbox
 ```
 
-Same name after adding Platform without `orgs:` (flat `contexts:` stays valid):
-
-```yaml
-contexts:
-  sandbox:
-    id: 11111111-1111-1111-1111-111111111111
-    region: us
-    jamfpro:
-      url: https://example.jamfcloud.com
-      tenantId: 22222222-2222-2222-2222-222222222222
-auths:
-  sandgod:
-    type: oauth
-    jamfpro: sandbox
-  sandbox-platform:
-    type: platform
-    scope: environment
-    contexts: [sandbox]
-    clientId: …
-```
-
-Empty `contexts.acme: {}` is still a valid organization workplace if you do not want nested YAML. `buddy cred set context acme` (no `--region`) creates that row. `--context=sandbox` still sees `acme-org` for Account org APIs when the child has `org: acme` (derived from `orgs:` or written by hand).
+Old flat `contexts:` files still load once and are rewritten into `orgs:`. `buddy cred set context acme` (no `--region`) creates an organization workplace. `--context=sandbox` still sees `acme-org` for Account org APIs when the child has `org: acme` (derived from `orgs:`).
 
 ---
 
@@ -201,16 +181,16 @@ Keep production passwords and OAuth client secrets **out of YAML**. Inline secre
 
 Resolution order: **inline config → vault → error**. Vault keys are **auth names**.
 
-Passwords and client secrets are stored in **`~/.config/buddy/secrets.enc`** (AES-256-GCM) next to `config.yaml`. A **random 256-bit data key (DEK)** decrypts the vault. After the DEK is loaded once into **process memory**, further secret reads in that process do not call Keychain again (no PBKDF2). A **recovery passphrase** is only for `cred backup` / `restore` and for unwrapping that DEK onto a new binary or Mac.
+Passwords and client secrets are stored in **`~/.config/buddy/secrets.enc`** (AES-256-GCM) next to `config.yaml`. A **random 256-bit data key (DEK)** decrypts the vault. After the DEK is loaded once into **process memory**, further secret reads in that process do not call Keychain again (no PBKDF2). A **user-held recovery passphrase** wraps that DEK inside `secrets.enc` and encrypts `cred backup` / `restore` — it is **not** stored in Keychain/file.
 
-| `BUDDY_SECRET_STORE` | Platform | Data key (DEK) | Recovery passphrase |
-|----------------------|----------|----------------|---------------------|
-| (default) | macOS (`make buddy`) | Keychain, service `buddy`, account `dek`, via `security(1)` | same service, account `master` |
-| (default) | macOS (`make buddy-darwin-arm64`) | Keychain, service `virtualpete.buddy.cli` (label Buddy), account `dek`, `AfterFirstUnlockThisDeviceOnly` + LocalAuthentication presence gate (SecAccessControl when entitled), via Security.framework | same service, account `master` (no presence ACL) |
-| (default) | Linux / Windows | `~/.config/buddy/dek` (mode `0600`) | `~/.config/buddy/master` (mode `0600`; Windows: `%APPDATA%\buddy\…`) |
-| `file` | any | Same as the Linux DEK file | Same as the Linux master file |
-| `pass` | Unix | `pass show buddy/dek` | `pass show buddy/master` |
-| `keychain` | macOS only | Explicit Keychain (same backend as the binary: CLI or SecItem) | same |
+| `BUDDY_SECRET_STORE` | Platform | Data key (DEK) | Recovery |
+|----------------------|----------|----------------|----------|
+| (default) | macOS (`make buddy`) | Keychain, service `buddy`, account `dek`, via `security(1)` | DEK wrap in `secrets.enc` (typed passphrase; leftover Keychain `master` is deleted once a wrap exists) |
+| (default) | macOS (`make buddy-darwin-arm64`) | Keychain, service `virtualpete.buddy.cli` (label Buddy), account `dek`, `AfterFirstUnlockThisDeviceOnly` + LocalAuthentication presence gate (SecAccessControl when entitled), via Security.framework | Same wrap in `secrets.enc` |
+| (default) | Linux / Windows | `~/.config/buddy/dek` (mode `0600`) | Wrap in `secrets.enc` (leftover `master` file deleted once wrap exists) |
+| `file` | any | Same as the Linux DEK file | Same wrap model |
+| `pass` | Unix | `pass show buddy/dek` | Wrap in `secrets.enc` |
+| `keychain` | macOS only | Explicit Keychain (same backend as the binary: CLI or SecItem) | Wrap in `secrets.enc` |
 
 Escape hatches (never written to disk as config):
 
@@ -229,13 +209,122 @@ Escape hatches (never written to disk as config):
 - Uses Security.framework so the ACL is buddy’s Developer ID
 - Upgrades keep working as long as the Team ID and identifier stay the same
 - Separate Keychain service (`virtualpete.buddy.cli`, Keychain Access label **Buddy**) — never shares ACL or items with `dist/buddy`; the vault file is shared
-- **Presence unlock:** ideally Keychain `SecAccessControl` `userPresence`. A bare Developer ID CLI **cannot** store that ACL today (`errSecMissingEntitlement` — needs `keychain-access-groups` + provisioning profile / `.app` packaging). Buddy falls back to **LocalAuthentication** (`evaluatePolicy` device-owner) once per process before releasing the DEK into memory, then reads an `AfterFirstUnlockThisDeviceOnly` Keychain item
+- **Presence unlock:** ideally Keychain `SecAccessControl` `userPresence`. A bare Developer ID CLI **cannot** store that ACL today (`errSecMissingEntitlement` — needs `keychain-access-groups` + provisioning profile / `.app` packaging). Buddy falls back to **LocalAuthentication** (`evaluatePolicy` device-owner; no Mac-unlock reuse; unavailable policy fails closed) once per process before releasing the DEK into memory, then reads an `AfterFirstUnlockThisDeviceOnly` Keychain item
 - First vault use in a process loads the DEK into memory (**process session**): CLI, `buddy mcp`, and `buddy serve` unlock lazily on the first vault-backed secret resolve. A valid token cache skips the vault. `cred status` / `cred store` alone do not unlock the vault (`cred status --unlock` or `--test` does).
 - Escape: `BUDDY_VAULT_UNLOCK=after-first-unlock` skips the LocalAuthentication gate (and ACL attempts)
-- Recovery `master` item stays non-presence so vault writes do not prompt for every save
+- **Cancel means locked:** if the DEK item exists but presence / LA fails or is cancelled, buddy does **not** fall back to the recovery passphrase. Recovery still works when the DEK is genuinely absent via typed `buddy cred set passphrase` or `BUDDY_VAULT_PASSPHRASE`
+- **User-held recovery:** `cred set passphrase` writes a DEK wrap into `secrets.enc` only. Older Keychain/`master` (or `master` file) items are deleted once a wrap is present. `cred backup` / `restore` always require a typed passphrase (or `--passphrase=` / `BUDDY_VAULT_PASSPHRASE`) — never a machine-stored default
 - Unsigned `dist/buddy` cannot use a meaningful app ACL; presence prompts are a signed-release feature. An unlocked mcp/serve process still holds the DEK in RAM
+- Hard biometrics belong in the optional macOS Buddy Agent (Swift tray, below); the Go CLI stays soft LA + AFU DEK until then
 
-A signed binary does not see a DEK stored by `dist/buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against `dist/buddy-darwin-arm64` (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. `make install-signed` puts Buddy.app in `~/Applications` and **symlinks** `~/go/bin/buddy` at `Contents/Helpers/buddy`. `buddy cred erase secrets` deletes the vault, the DEK, the recovery passphrase, the token-wrap key, token cache files, and leftover per-auth items from **both** Keychain services.
+### Optional Buddy Agent
+
+An optional macOS menu-bar **Buddy Agent** (Swift, [`macos/BuddyAgent/`](../macos/BuddyAgent/)) **owns its own integrations**: the workplace, the auth, and the secret, which lives in its Keychain under service `virtualpete.buddy.agent`. buddy never sends a secret to the Agent, and the Agent never returns one: the CLI dials a **unix-domain socket** with a **Team-ID codesign peer check** and receives config (identity) or `{access_token, expires_at}`. Nothing is installed by default: no LaunchAgent, no change to `Contents/MacOS/Buddy`, and no new entitlements on `Helpers/buddy`.
+
+**Config is served while the Agent is locked.** Workplaces and auth names are identity, not secrets, so resolving a session never prompts. Unlock gates **minting** only.
+
+| Op | Needs unlock | Returns |
+|---|---|---|
+| `status` | no | present, unlocked, version, peer check, integration/token counts, presence mode, idle lock |
+| `config` | no | config.yaml-shaped document, secrets stripped |
+| `integrations` | no | per-auth summary with `secret: stored/missing` |
+| `tokens` | no | cached bearer metadata, never a bearer |
+| `token` | **yes — the Agent prompts** | `access_token` + `expires_at` |
+| `lock` | no | relocks and drops cached bearers |
+
+**A locked Agent raises the prompt itself.** When buddy needs a bearer it sets `allow_unlock`, and the Agent puts up a LocalAuthentication prompt and holds the connection open until it is answered (60s, `BUDDY_AGENT_UNLOCK_TIMEOUT`; buddy waits 90s). A successful prompt unlocks the **session**, which then relocks after 15 minutes with no minting (`BUDDY_AGENT_IDLE_LOCK`, `0` = never) — locking also drops the Agent's cached bearers. Concurrent commands share one prompt. `BUDDY_AGENT_NO_PROMPT=1` opts out and a locked Agent simply fails, which is the pre-0.3 behaviour. The tray `Unlock` item goes through the same gate.
+
+**What the prompt actually buys depends on how the Agent was built.** `buddy agent status` reports it:
+
+| `presence:` | Build | What the prompt does |
+|---|---|---|
+| `Keychain userPresence` | Developer ID app (`make agent-app`) | Authenticates against the `SecAccessControl` guarding the secret, so Touch ID **releases the keychain item**. The Agent holds that `LAContext` for the session; locking or the idle relock invalidates it, which genuinely revokes access |
+| `LocalAuthentication, unsigned agent` | SwiftPM (`make agent-dev`) | `evaluatePolicy` returns pass/fail and the Agent chooses to honour it. Secrets stay **in process memory** only (cleared on Lock / Quit) — there is no login-keychain fallback |
+| `unavailable` | either | No device-owner authentication on this Mac; the menu bar is the only way in |
+
+The difference is the entitlement. A `userPresence` ACL only works on the **data protection** keychain, which on macOS needs `keychain-access-groups` — a restricted entitlement authorized by a provisioning profile. Xcode automatic signing embeds one; a `swift build` binary has none, so the Agent detects that at launch and keeps secrets in memory rather than failing open into the login keychain. The Status tab shows which backend is in use.
+
+`buddy agent status | config [--json] | integrations | tokens | lock` inspects it (`buddy auth agent` is an alias of `agent status`). There is no `unlock` and no `push`: unlock is a tray action, and secrets are typed into the Agent window — or imported by it. The Agent's **Import from buddy** menu reads two files an existing setup already has:
+
+| File | Carries | In the Agent |
+|---|---|---|
+| `buddy setup export --json` | workplaces and auth names, no secrets | seeds the rows; each secret is typed in afterwards |
+| `buddy cred backup <file>` | the same identity **plus** the secrets | asks for that backup's passphrase and writes the secrets into its own Keychain |
+
+The Agent opens the backup itself (the `buddy cred restore` envelope: PBKDF2-SHA256 then AES-256-GCM), so no secret passes through the CLI or the socket. The passphrase is used once, in memory. `internal/buddy/cred_backup_test.go` pins the payload keys that reader depends on.
+
+**After importing, hand the entries over.** `config.yaml` still holds the same contexts and auths, and the user file wins per name, so the local copy silently shadows the Agent's. `buddy cred status` says so, and `buddy agent prune` removes the duplicates — `--dry-run` lists them first, `--secrets` also deletes the vault copies the Agent has made redundant (that one opens the vault). A workplace stays until the workplaces under it are shared too, and anything the Agent does not serve is left alone. Run to completion, `config.yaml` is just `features.use_agent: true`.
+
+**`features.use_agent`** (or `BUDDY_USE_AGENT=1`) folds the Agent's document into buddy's config as a layer **beneath** managed preferences and your own `config.yaml` — the user file still wins per name, and `SaveConfig` never writes the Agent's entries to disk. With the flag on:
+
+- an absent Agent (or `BUDDY_NO_AGENT=1`) is a **hard error**, not a silent fallback to the local vault;
+- Agent-owned auths show `SECRET=agent` in `buddy cred status`, and buddy never resolves a vault secret for them;
+- `buddy cred set|delete|rename` refuse those contexts and auths, pointing at the Agent window;
+- an otherwise empty `config.yaml` does not trigger first-run setup.
+
+Without the flag, nothing dials the socket during config load, and the Agent is only consulted when a bearer is minted.
+
+Order of precedence when a bearer is needed:
+
+1. Valid disk token under `~/.config/buddy/tokens/` — the Agent is not dialled at all. **Agent-owned auths skip this step**: they always ask the Agent, and any file an older buddy left is deleted
+2. Agent, when `Enabled()` (macOS, `BUDDY_NO_AGENT` unset) and the credential has no inline secret
+3. In-process `secrets.enc` vault, as before
+
+**A bearer the Agent minted is never written to disk.** It lives in that one buddy process, so locking the Agent stops the next command instead of leaving buddy a usable copy for the rest of the token's life. The Agent keeps its own cache, so repeat commands cost a socket round trip, not a Jamf one. A 401 (or `buddy auth token refresh`) goes back to the Agent with `force`, bypassing that cache, rather than falling through to the vault for a secret buddy may not hold.
+
+| Agent result | buddy |
+|---|---|
+| Socket absent | falls back to the vault — unless the auth is Agent-owned, which fails |
+| `unsupported` (the Agent does not know that auth) | same: fallback, or fail when Agent-owned |
+| `locked` (prompting opted out or a pre-0.3 Agent) | **fails** — a running Agent is never bypassed by unlocking the local vault |
+| `unlock_declined` | fails; the prompt was answered with no |
+| `unlock_timeout` | fails; nobody answered the prompt |
+| `unlock_unavailable` | fails; this Mac cannot prompt, so unlock from the menu bar |
+| `denied` / `bad_request` / `mint_failed` | fails |
+
+| Variable | Effect |
+|---|---|
+| `BUDDY_USE_AGENT` | Overrides `features.use_agent` (`1`/`0`) |
+| `BUDDY_NO_AGENT=1` | Ignore the Agent entirely; bit-identical to the pre-Agent behaviour |
+| `BUDDY_AGENT_SOCK` | Socket path override (both sides); default `~/Library/Application Support/Buddy/agent.sock` |
+| `BUDDY_AGENT_NO_PROMPT=1` | buddy never asks the Agent to prompt; a locked Agent just fails |
+| `BUDDY_AGENT_UNLOCK_TIMEOUT` | Agent-side seconds the prompt stays up (default 60, `0` disables prompting) |
+| `BUDDY_AGENT_IDLE_LOCK` | Agent-side seconds of no minting before it relocks (default 900, `0` = never) |
+| `BUDDY_AGENT_FAKE_PRESENCE` | `allow`/`deny` answers without a prompt, for soaks; dev Agents only (`BUDDY_AGENT_ALLOW_UNSIGNED=1`) |
+
+**Building and shipping it.** `make agent-app` archives and exports `dist/BuddyAgent.app` with Developer ID automatic signing, then refuses the result unless it carries a hardened runtime, a secure timestamp, an `embedded.provisionprofile`, and the `keychain-access-groups` entitlement — without those the Agent would silently lose the presence ACL. `make app` nests that bundle at `Buddy.app/Contents/Library/LoginItems/BuddyAgent.app` (the `SMAppService` location, for a later "Open at Login") and **verifies rather than re-signs** it: `codesign --force` there would strip the profile. The pkg carries it with no extra `/Applications` entry and no postinstall change. `make agent-dev` is the unsigned SwiftPM loop over the same sources.
+
+`make notarize` submits and staples in the order that leaves both artefacts stapled — `Buddy.app` first, then a pkg built from the stapled app. It needs `BUDDY_NOTARY_PROFILE` (`xcrun notarytool store-credentials`) and `BUDDY_PKG_SIGN_IDENTITY` (a **Developer ID Installer** identity; the Application one will not sign a pkg). With `BUDDY_NOTARY_PROFILE` set, `make release` notarizes instead of just packaging, and the `--timestamp=none` fallback in the signing script becomes a hard failure rather than a quietly un-notarizable build.
+
+That order is load-bearing, so it is enforced rather than assumed: `notarize` packages the app **on disk** instead of re-entering `make package`, because `sync-docfs` is phony and a recursive make would rebuild `Buddy.app` and discard the ticket just stapled to it. `build-pkg.sh` refuses to package an unstapled app whenever `BUDDY_NOTARY_PROFILE` is set, which catches that class of mistake instead of shipping a pkg whose inner app needs a network round trip on first launch.
+
+Apple's queue is unpredictable — the same build can clear as a zipped app in seconds and sit for hours as an installer package — so the wait is bounded by `BUDDY_NOTARY_WAIT` (default `30m`). A timeout is "not yet", not a rejection: the submitted file stays valid, and `make staple` finishes the run once Apple answers. `stapler` fetches the ticket by cdhash, so that needs no submission id and no resubmission, but it only works on the exact files that were submitted — rebuilding first invalidates the ticket. A genuine rejection is reported separately, with `notarytool log` output inline.
+
+Still out of scope: `SMAppService` login-item registration and an "Open at Login" toggle, auto-starting a stopped Agent, an update channel, and sandboxed / App Store distribution.
+
+**Manual soak** (Agent running from `dist/BuddyAgent.app`, or `make agent-dev` for the unsigned path):
+
+1. Add an integration in the Agent window while it is locked, then `buddy agent integrations` → the row with `secret stored`, no prompt
+2. `buddy agent config` → the served document; with `features.use_agent: true`, `buddy cred status` shows the same context with `SECRET=agent`
+3. `buddy auth token drop` then `buddy auth test` with the Agent locked → the Agent prompts, and approving it mints without touching the tray; `buddy agent status` then shows `unlocked: true`
+4. Decline the prompt → `unlock declined at the presence prompt`, the Agent stays locked, and the vault was never opened
+5. `BUDDY_AGENT_NO_PROMPT=1 buddy auth test` against a locked Agent → `buddy agent is locked`, with no prompt at all
+6. `BUDDY_AGENT_IDLE_LOCK=5`, unlock, wait → `buddy agent status` shows it relocked and its cached bearers gone
+7. Quit the Agent → with `use_agent` on, buddy aborts with "the Buddy Agent is not running"; with it off, vault-backed auths keep working as before
+8. `BUDDY_NO_AGENT=1` → same abort with `use_agent` on; without it, the vault path with the Agent untouched
+
+Unattended runs of steps 3–6 can use `BUDDY_AGENT_FAKE_PRESENCE=allow|deny` instead of a finger, but that hook is dev-only and cannot prove the prompt works — do one real pass by hand.
+
+On a signed Agent, four more that only signing can demonstrate:
+
+9. `buddy agent status` → `presence: Keychain userPresence`, and the Status tab says "data protection keychain, presence ACL"
+10. An unsigned `dist/buddy` against it → `buddy agent refused this buddy`, naming `Contents/Helpers/buddy` and `BUDDY_AGENT_ALLOW_UNSIGNED=1`. Use the helper inside `Buddy.app`
+11. Mint, `buddy agent lock`, mint again → two prompts. The first `LAContext` was invalidated, so the second read genuinely needs presence again rather than re-checking a flag
+12. `spctl -a -vvv -t install` on the stapled pkg, then install it on a Mac that has never seen the app — quarantine is what ended the original Go entitlement experiment, so it is worth proving once
+
+Do not re-ship Go helper Keychain Sharing / Secure Enclave packaging as the primary unlock story.
+
+A signed binary does not see a DEK stored by `dist/buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against `dist/buddy-darwin-arm64` (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. `make install-signed` puts Buddy.app in `~/Applications` and **symlinks** `~/go/bin/buddy` at `Contents/Helpers/buddy`. `buddy cred erase secrets` deletes the vault, the DEK, any leftover Keychain/file master item, the token-wrap key, token cache files, and leftover per-auth items from **both** Keychain services. Leftover `~/.config/buddy/dek.se` from an abandoned Secure Enclave experiment is unused and safe to delete.
 
 **Codesign**
 
@@ -255,20 +344,20 @@ pbpaste | buddy cred add --paste --context=sandbox -y
 buddy cred add --from=./quickstart.yaml
 buddy setup export ./quickstart.yaml
 buddy setup import ./quickstart.yaml
-buddy cred set passphrase                        # create / rotate the recovery passphrase (backups)
+buddy cred set passphrase                        # create / rotate user-held recovery wrap in secrets.enc
 buddy cred set secret sandbox-admin                  # password (basic)
 buddy cred set secret sandbox-admin --client-secret  # OAuth
 buddy cred migrate                                   # inline YAML + old per-auth store → vault
-buddy cred backup ./buddy.creds                      # uses stored recovery passphrase by default; AES-GCM file
-buddy cred restore ./buddy.creds                     # recovery passphrase; confirm each auth; new local DEK
+buddy cred backup ./buddy.creds                      # typed passphrase (prompt / --passphrase=); AES-GCM file
+buddy cred restore ./buddy.creds                     # typed passphrase; confirm each auth; new local DEK
 buddy cred clean secrets                             # review / delete orphaned vault entries
-buddy cred erase secrets                             # wipe vault + DEK + recovery passphrase + token wrap/cache
+buddy cred erase secrets                             # wipe vault + DEK + leftover keys + token wrap/cache
 buddy cred delete auth sandbox-admin                 # also clears vault secrets
 ```
 
-`buddy cred get secret` and the SECRET column on `cred status` are **presence only**. `buddy auth test` discards any cached token and mints a new one: missing secret / token POST failure is an error; probe 403 after a good token is `live=token-ok` (the secret works, the role lacks that probe). On an **organization** workplace the probe is `GET /licensing/v1/licenses` (org from the token; no `X-Environment-Id` / `X-Tenant-Id`). 200 is `live=ok`; 403 is `live=token-ok` (need the licensing privilege on the org integration). Buildings is skipped — that Pro path needs a scope header. Use `--context` on an environment or product tenant to probe Pro.
+`buddy cred get secret` and the SECRET column on `cred status` (with `--unlock`) are **presence only**. `buddy auth test` discards any cached token and mints a new one: missing secret / token POST failure is an error; probe 403 after a good token is `live=token-ok` (the secret works, the role lacks that probe). On an **organization** workplace the probe is `GET /licensing/v1/licenses` (org from the token; no `X-Environment-Id` / `X-Tenant-Id`). 200 is `live=ok`; 403 is `live=token-ok` (need the licensing privilege on the org integration). Buildings is skipped — that Pro path needs a scope header. Use `--context` on an environment or product tenant to probe Pro.
 
-`buddy cred backup` / `restore` encrypt contexts, auths (including vault secrets), and channel policy with a **recovery passphrase** (AES-256-GCM, PBKDF2-SHA256). The DEK and any biometric/Keychain material are never written into `buddy.creds`. Backup defaults to the stored recovery passphrase (`--passphrase=` overrides). Restore applies contexts and channels, then prompts once per auth unless `-y` (Enter/y writes that auth from the backup; `n` leaves the existing config entry). Auths not in the backup are kept. Secrets go back to the vault under a **new** local DEK. If no recovery passphrase is stored yet, restore saves the backup passphrase as the recovery phrase.
+`buddy cred backup` / `restore` encrypt contexts, auths (including vault secrets), and channel policy with a **typed passphrase** (AES-256-GCM, PBKDF2-SHA256). The DEK and any biometric/Keychain material are never written into `buddy.creds`. Backup never defaults to a machine-stored Keychain/file secret — you must prompt or pass `--passphrase=` (CI may use `BUDDY_VAULT_PASSPHRASE`). Restore applies contexts and channels, then prompts once per auth unless `-y` (Enter/y writes that auth from the backup; `n` leaves the existing config entry). Auths not in the backup are kept. Secrets go back to the vault under a **new** local DEK. If `secrets.enc` has no recovery wrap yet, restore wraps the DEK with the backup passphrase (still not stored in Keychain).
 
 Config and tokens live under `~/.config/buddy` on macOS/Linux (`$XDG_CONFIG_HOME/buddy` when set), and `%APPDATA%\buddy` on Windows.
 
@@ -276,7 +365,7 @@ Config and tokens live under `~/.config/buddy` on macOS/Linux (`$XDG_CONFIG_HOME
 
 ## How tokens are cached
 
-Buddy reuses a bearer token until shortly before it expires (about 15 seconds of clock skew), then obtains a new one. There is no proactive keep-alive while the token is still valid. On CLI, the vault (Touch ID / presence unlock) is opened only when a token must be **minted or refreshed** — a still-valid disk cache under `~/.config/buddy/tokens/` skips the vault entirely. `buddy mcp` / `buddy serve` still unlock once at process start.
+Buddy reuses a bearer token until shortly before it expires (about 15 seconds of clock skew), then obtains a new one. There is no proactive keep-alive while the token is still valid. On CLI, the vault (Touch ID / presence unlock) is opened only when a token must be **minted or refreshed** — a still-valid disk cache under `~/.config/buddy/tokens/` skips the vault entirely. `buddy mcp` / `buddy serve` also unlock lazily on first vault-backed secret resolve (not at process start).
 
 | Auth type | Token source | Refresh |
 |-----------|--------------|---------|

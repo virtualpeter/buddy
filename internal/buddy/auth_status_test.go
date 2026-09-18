@@ -400,8 +400,8 @@ func TestCredAddFromPastedInstanceJSON(t *testing.T) {
 	if err != nil || !okHas {
 		t.Fatalf("secret stored? %v %v", okHas, err)
 	}
-	if len(cfg.Orgs) != 0 {
-		t.Fatalf("instance paste must write flat contexts only, got orgs=%+v", cfg.Orgs)
+	if len(cfg.Orgs) == 0 {
+		t.Fatalf("instance paste must write orgs tree, got orgs=%+v", cfg.Orgs)
 	}
 	if cfg.Tenants["sandbox"].URL != "https://example.jamfcloud.com" {
 		t.Fatalf("instance url=%+v", cfg.Tenants["sandbox"])

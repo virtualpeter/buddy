@@ -189,8 +189,8 @@ func (v *VaultStore) Erase() (int, error) {
 }
 
 // UnlockSession loads the vault DEK into process memory (one Keychain presence
-// prompt on signed macOS). MCP and serve call this at start; CLI unlocks lazily
-// via dekOptional on first vault use.
+// / LocalAuthentication prompt on signed macOS). CLI, mcp, and serve unlock
+// lazily via ensureSessionDEKOptional on first vault use.
 func (v *VaultStore) UnlockSession(reason string) error {
 	if v == nil {
 		return fmt.Errorf("vault store is nil")
@@ -235,17 +235,15 @@ func UnlockDefaultStore(reason string) error {
 	return vs.UnlockSession(reason)
 }
 
-// SetPassphrase stores newPass as the recovery passphrase (backups) and
-// rewraps the DEK in the vault file. It does not change the DEK used to
-// encrypt secrets.
+// SetPassphrase rewraps the DEK inside secrets.enc with newPass (user-held
+// knowledge factor). It does not store the passphrase in Keychain/file and
+// does not change the DEK used to encrypt secrets. When the DEK is missing,
+// newPass must match the existing wrap so the vault can be unlocked and the
+// DEK re-materialized into the local store.
 func (v *VaultStore) SetPassphrase(newPass string) error {
 	newPass = strings.TrimSpace(newPass)
 	if newPass == "" {
 		return fmt.Errorf("passphrase must not be empty")
-	}
-	rec := v.recoveryStore()
-	if rec == nil {
-		return fmt.Errorf("recovery store is nil")
 	}
 
 	path, err := v.vaultPath()
@@ -261,11 +259,15 @@ func (v *VaultStore) SetPassphrase(newPass string) error {
 	}
 
 	if !exists {
-		if err := rec.Set(newPass); err != nil {
+		dek, err := v.ensureDEK(true)
+		if err != nil {
 			return err
 		}
-		_, err := v.ensureDEK(true)
-		return err
+		if err := v.saveWithDEK(vaultPayload{Secrets: map[string]secretFile{}}, dek, newPass); err != nil {
+			return err
+		}
+		v.forgetStoredMaster()
+		return nil
 	}
 
 	raw, err := os.ReadFile(path)
@@ -281,10 +283,11 @@ func (v *VaultStore) SetPassphrase(newPass string) error {
 	if err != nil {
 		return err
 	}
-	if err := rec.Set(newPass); err != nil {
+	if err := v.saveWithDEK(payload, dek, newPass); err != nil {
 		return err
 	}
-	return v.saveWithDEK(payload, dek, newPass)
+	v.forgetStoredMaster()
+	return nil
 }
 
 func (v *VaultStore) load() (vaultPayload, error) {
@@ -373,7 +376,9 @@ func (v *VaultStore) save(payload vaultPayload) error {
 	if err != nil {
 		return err
 	}
-	return v.saveWithDEK(payload, dek, v.recoveryOptional())
+	// Empty recovery pass: preserve any existing wrap (user-held passphrase is
+	// not stored on the machine).
+	return v.saveWithDEK(payload, dek, "")
 }
 
 func (v *VaultStore) saveWithDEK(payload vaultPayload, dek []byte, recoveryPass string) error {
@@ -398,6 +403,10 @@ func (v *VaultStore) saveWithDEK(payload vaultPayload, dek []byte, recoveryPass 
 			return werr
 		}
 		env.Wrap = &wrap
+	} else if existing := v.readExistingWrap(path); existing != nil {
+		env.Wrap = existing
+	} else {
+		warnRecoveryWrapMissingOnce()
 	}
 	raw, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
@@ -421,7 +430,122 @@ func (v *VaultStore) saveWithDEK(payload vaultPayload, dek []byte, recoveryPass 
 		key:     enc,
 		payload: cloneVaultPayload(payload),
 	})
+	if env.Wrap != nil {
+		v.forgetStoredMaster()
+	}
 	return nil
+}
+
+// readExistingWrap returns a copy of the on-disk vault wrap, if any.
+func (v *VaultStore) readExistingWrap(path string) *Envelope {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	env, err := ParseEnvelope(raw)
+	if err != nil || env.Wrap == nil {
+		return nil
+	}
+	wrapCopy := *env.Wrap
+	return &wrapCopy
+}
+
+var recoveryWrapMissingOnce sync.Once
+
+func warnRecoveryWrapMissingOnce() {
+	recoveryWrapMissingOnce.Do(func() {
+		fmt.Fprintln(os.Stderr, "warning: vault has no recovery wrap — run 'buddy cred set passphrase' so you can recover secrets.enc if the Keychain vault key is lost (the passphrase is not stored on this machine)")
+	})
+}
+
+// forgetStoredMaster deletes any leftover Keychain/file recovery passphrase.
+// The passphrase is user-held; wrapping lives only inside secrets.enc.
+// Does not treat BUDDY_VAULT_PASSPHRASE as machine-stored.
+func (v *VaultStore) forgetStoredMaster() {
+	rec := v.recoveryStore()
+	if rec == nil {
+		m, err := DefaultMasterStore()
+		if err != nil {
+			return
+		}
+		rec = m
+	}
+	if !platformMasterHas(rec) {
+		return
+	}
+	if err := deletePlatformMaster(rec); err != nil {
+		return
+	}
+	forgotStoredMasterOnce.Do(func() {
+		fmt.Fprintln(os.Stderr, "note: removed machine-stored recovery passphrase (Keychain/file); recovery uses the passphrase you type with 'buddy cred set passphrase' / backup")
+	})
+}
+
+var forgotStoredMasterOnce sync.Once
+
+// platformMasterHas reports whether the platform backend (not env override) holds a passphrase.
+func platformMasterHas(m MasterStore) bool {
+	if m == nil {
+		return false
+	}
+	if em, ok := m.(*envMaster); ok {
+		has, err := em.inner.Has()
+		return err == nil && has
+	}
+	has, err := m.Has()
+	return err == nil && has
+}
+
+func deletePlatformMaster(m MasterStore) error {
+	if m == nil {
+		return nil
+	}
+	if em, ok := m.(*envMaster); ok {
+		return em.inner.Delete()
+	}
+	return m.Delete()
+}
+
+// VaultHasRecoveryWrap reports whether secrets.enc has a DEK recovery wrap.
+func VaultHasRecoveryWrap() (bool, error) {
+	path, err := VaultPath()
+	if err != nil {
+		return false, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if info.Size() == 0 {
+		return false, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	env, err := ParseEnvelope(raw)
+	if err != nil {
+		return false, err
+	}
+	return env.Wrap != nil, nil
+}
+
+// RecoveryStatus is the cred-store line for recovery (user-held wrap, not Keychain master).
+func RecoveryStatus() (status, detail string) {
+	if p := envRecoveryPassphrase(); p != "" {
+		return "env", EnvVaultPassphrase + " (CI override; not written)"
+	}
+	ok, err := VaultHasRecoveryWrap()
+	if err != nil {
+		return "error", err.Error()
+	}
+	if ok {
+		return "configured", "DEK wrap in secrets.enc (passphrase is not stored on this machine)"
+	}
+	return "missing", "run 'buddy cred set passphrase' (user-held; not stored in Keychain)"
 }
 
 func (v *VaultStore) unlockExisting(env Envelope, raw []byte, typedPass string) (vaultPayload, []byte, error) {
@@ -465,12 +589,8 @@ func (v *VaultStore) unlockExisting(env Envelope, raw []byte, typedPass string) 
 		if err != nil {
 			return vaultPayload{}, nil, err
 		}
-		if rec := v.recoveryStore(); rec != nil {
-			if ok, _ := rec.Has(); !ok && strings.TrimSpace(pass) != "" {
-				_ = rec.Set(pass)
-			}
-		}
-		if err := v.saveWithDEK(payload, dek, v.recoveryOptional()); err != nil {
+		// Migrate to DEK + wrap using the v1 passphrase; do not keep it in Keychain/file.
+		if err := v.saveWithDEK(payload, dek, pass); err != nil {
 			return vaultPayload{}, nil, err
 		}
 		return payload, dek, nil
@@ -497,17 +617,30 @@ func (v *VaultStore) resolveDEK(env Envelope, typedPass string) ([]byte, error) 
 		return key, nil
 	}
 	v.mu.Unlock()
-	if enc, err := v.fetchDEK(DefaultUnlockReason); err == nil {
-		if key, ok := ParseDEK(enc); ok {
+	fetchEnc, fetchErr := v.fetchDEK(DefaultUnlockReason)
+	if fetchErr == nil {
+		if key, ok := ParseDEK(fetchEnc); ok {
 			v.mu.Lock()
-			v.sessionDEK = enc
+			v.sessionDEK = fetchEnc
 			v.mu.Unlock()
 			return key, nil
 		}
 	}
 	pass := strings.TrimSpace(typedPass)
 	if pass == "" {
-		pass = v.recoveryOptional()
+		// A presence-gated DEK that exists but failed to unlock (cancel/deny)
+		// must not fall back to any recovery path — that bypasses the gate the
+		// user just refused. Recovery stays available when the DEK is genuinely
+		// absent via an explicit typed passphrase ('buddy cred set passphrase')
+		// or BUDDY_VAULT_PASSPHRASE (CI; never written).
+		if fetchErr != nil && VaultUnlockUsesPresence() {
+			if _, ok := v.dek.(presenceDEKStore); ok {
+				if has, herr := v.dek.Has(); herr == nil && has {
+					return nil, fmt.Errorf("vault key exists but presence unlock failed: %w — not falling back to the recovery passphrase silently (run 'buddy cred set passphrase' and enter the recovery passphrase to recover)", fetchErr)
+				}
+			}
+		}
+		pass = envRecoveryPassphrase()
 	}
 	if env.Wrap != nil && pass != "" {
 		wrapRaw, err := json.Marshal(env.Wrap)
@@ -528,9 +661,15 @@ func (v *VaultStore) resolveDEK(env Envelope, typedPass string) ([]byte, error) 
 		if v.dek == nil {
 			return nil, fmt.Errorf("dek store is nil")
 		}
+		if _, ok := v.dek.(presenceDEKStore); ok && VaultUnlockUsesPresence() {
+			if err := confirmDeviceOwner("Buddy wants to unwrap the vault key"); err != nil {
+				return nil, err
+			}
+		}
 		if err := v.storeDEK(enc, "Buddy wants to store the vault key"); err != nil {
 			return nil, err
 		}
+		v.forgetStoredMaster()
 		v.mu.Lock()
 		v.sessionDEK = enc
 		v.mu.Unlock()
@@ -539,10 +678,28 @@ func (v *VaultStore) resolveDEK(env Envelope, typedPass string) ([]byte, error) 
 	return nil, fmt.Errorf("vault key not available — restore from backup, or run 'buddy cred set passphrase' with the recovery phrase")
 }
 
+// envRecoveryPassphrase returns BUDDY_VAULT_PASSPHRASE when it is a passphrase
+// (not a dek:v1:… override). Never reads Keychain/file master.
+func envRecoveryPassphrase() string {
+	p := envVaultPassphrase()
+	if p == "" {
+		return ""
+	}
+	if _, ok := ParseDEK(p); ok {
+		return ""
+	}
+	return p
+}
+
 func (v *VaultStore) resolveV1Passphrase(typedPass string) (string, error) {
 	if p := strings.TrimSpace(typedPass); p != "" {
 		return p, nil
 	}
+	if p := envRecoveryPassphrase(); p != "" {
+		return p, nil
+	}
+	// One-shot legacy: older installs kept the v1 passphrase in Keychain/file.
+	// Prefer that only to migrate, then forgetStoredMaster clears it.
 	if p := v.recoveryOptional(); p != "" {
 		return p, nil
 	}
@@ -551,7 +708,7 @@ func (v *VaultStore) resolveV1Passphrase(typedPass string) (string, error) {
 			return enc, nil
 		}
 	}
-	return "", fmt.Errorf("vault passphrase not set — run 'buddy cred set passphrase'")
+	return "", fmt.Errorf("vault passphrase not set — run 'buddy cred set passphrase' with the legacy vault passphrase")
 }
 
 func (v *VaultStore) ensureDEK(create bool) ([]byte, error) {

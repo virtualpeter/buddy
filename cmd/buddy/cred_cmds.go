@@ -17,7 +17,7 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, log *slog.Logger
 		return nil
 	}
 	if err := resolveArg0("cred", args, []string{
-		clispec.SubAdd, clispec.SubSet, clispec.SubStatus, clispec.SubList, clispec.SubGet, clispec.SubDelete, "use", "allow", "store", "migrate", "clean", "erase", "backup", "restore", clispec.SubHelp,
+		clispec.SubAdd, clispec.SubSet, clispec.SubStatus, clispec.SubList, clispec.SubGet, clispec.SubDelete, clispec.SubRename, "use", "allow", "store", "migrate", "clean", "erase", "backup", "restore", "restore-config", clispec.SubHelp,
 	}); err != nil {
 		return err
 	}
@@ -38,6 +38,8 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, log *slog.Logger
 		return runCredSet(cfg, opts, args[1:])
 	case clispec.SubDelete:
 		return runCredDelete(cfg, opts, args[1:])
+	case clispec.SubRename:
+		return runCredRename(cfg, opts, args[1:])
 	case "use":
 		return runCredUse(cfg, args[1:])
 	case "allow":
@@ -54,9 +56,11 @@ func runCred(cfg *buddy.Config, opts buddy.Opts, args []string, log *slog.Logger
 		return runCredBackup(cfg, opts, args[1:])
 	case "restore":
 		return runCredRestore(cfg, opts, args[1:])
+	case "restore-config":
+		return runCredRestoreConfig()
 	default:
 		return errUnknownSubcommand("cred", args[0], []string{
-			clispec.SubAdd, clispec.SubSet, clispec.SubStatus, clispec.SubList, clispec.SubGet, clispec.SubDelete, "use", "store", "migrate", "clean", "erase", "backup", "restore", clispec.SubHelp,
+			clispec.SubAdd, clispec.SubSet, clispec.SubStatus, clispec.SubList, clispec.SubGet, clispec.SubDelete, clispec.SubRename, "use", "store", "migrate", "clean", "erase", "backup", "restore", "restore-config", clispec.SubHelp,
 		})
 	}
 }
@@ -425,6 +429,13 @@ func runCredStatus(cfg *buddy.Config, args []string, log *slog.Logger) error {
 			fmt.Println()
 		}
 		testErr = err
+	}
+	if sum := cfg.AgentConfigSummary(); sum != "" {
+		fmt.Println(sum)
+		if dups := buddy.AgentDuplicates(cfg); len(dups) > 0 {
+			fmt.Printf("config.yaml duplicates %d of those entries and shadows them; 'buddy agent prune' hands them over\n", len(dups))
+		}
+		fmt.Println()
 	}
 	rep := buddy.BuildCoverageReportWith(cfg, buddy.CoverageOpts{UnlockSecrets: unlock})
 	buddy.FormatCoverageReport(rep, os.Stdout)
@@ -1191,6 +1202,51 @@ func splitCSV(s string) []string {
 	return out
 }
 
+func runCredRename(cfg *buddy.Config, opts buddy.Opts, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("missing item; usage: buddy cred rename context|auth <old> <new>")
+	}
+	if match, amb := clispec.MatchToken(args[0], []string{"tenant", "context", "auth"}); match != "" {
+		args[0] = match
+	} else if len(amb) > 0 {
+		return errAmbiguousSubcommand("cred rename", args[0], amb)
+	}
+	if len(args) < 3 {
+		return fmt.Errorf("usage: buddy cred rename context|auth <old> <new>")
+	}
+	kind, oldName, newName := args[0], args[1], args[2]
+	if !opts.SkipConfirm {
+		if !buddy.AskYesNo(fmt.Sprintf("Rename %s %q → %q?", kind, oldName, newName), false, nil) {
+			return nil
+		}
+	}
+	var err error
+	switch kind {
+	case "tenant", "context":
+		err = buddy.RenameWorkplace(cfg, oldName, newName)
+	case "auth":
+		err = buddy.RenameAuth(cfg, oldName, newName)
+	default:
+		return fmt.Errorf("unknown item %q; usage: buddy cred rename context|auth <old> <new>", kind)
+	}
+	if err != nil {
+		return err
+	}
+	if err := buddy.SaveConfig(cfg); err != nil {
+		return err
+	}
+	fmt.Printf("Renamed %s %q → %q\n", kind, oldName, newName)
+	return nil
+}
+
+func runCredRestoreConfig() error {
+	if err := buddy.RestoreLastGoodConfig(); err != nil {
+		return err
+	}
+	fmt.Println("Restored last-good config.yaml")
+	return nil
+}
+
 func runCredDeleteTenant(cfg *buddy.Config, opts buddy.Opts, name string) error {
 	if _, ok := cfg.Tenants[name]; !ok {
 		return fmt.Errorf("tenant %q not found", name)
@@ -1283,6 +1339,9 @@ func secretSelectionForAuthType(authType, authName string) (wantPassword, wantCl
 }
 
 func runCredSetSecret(cfg *buddy.Config, authName string, args []string) error {
+	if cfg.AuthFromAgent(authName) {
+		return fmt.Errorf("auth %q is owned by the Buddy Agent; set its secret in the Buddy Agent window (Integrations)", authName)
+	}
 	auth, err := cfg.ResolveAuth(authName)
 	if err != nil {
 		return err
@@ -1379,16 +1438,16 @@ func runCredSetPassphrase(opts buddy.Opts, args []string) error {
 		case a == "-y":
 			opts.SkipConfirm = true
 		case a == clispec.SubHelp:
-			fmt.Print(`buddy cred set passphrase - Create or rotate the recovery passphrase
+			fmt.Print(`buddy cred set passphrase - Create or rotate the user-held recovery passphrase
 
 Usage:
   buddy [global-flags] cred set passphrase [--passphrase=]
 
 Notes:
-  The recovery passphrase encrypts cred backup files (PBKDF2). Day-to-day CLI
-  unlocks ~/.config/buddy/secrets.enc with a random Keychain data key (no
-  fingerprint prompt). On macOS the recovery phrase is Keychain account
-  "master"; on Linux/Windows it is ~/.config/buddy/master (mode 0600).
+  Writes a DEK wrap into secrets.enc only. The passphrase is not stored in
+  Keychain/file — you type it for backup/restore and for DEK recovery when the
+  Keychain vault key is missing. Day-to-day unlock uses the Keychain data key
+  (Touch ID / LocalAuthentication on the signed Mac helper).
   Switching from unsigned ./buddy to the signed binary: use the same recovery
   phrase (unwraps the vault key into this binary's Keychain) or cred backup /
   restore.

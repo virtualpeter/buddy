@@ -64,7 +64,7 @@ func TestCredBackupRestoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Tenants != 1 || got.Auths != 1 || got.Stored != 1 {
+	if got.Auths != 1 || got.Stored != 1 {
 		t.Fatalf("restore %+v", got)
 	}
 	if empty.Tenants["sandbox"].URL != "https://example.jamfcloud.com" {
@@ -103,6 +103,74 @@ func TestCredBackupWrongPassphrase(t *testing.T) {
 	_, err := RestoreCreds(&Config{}, CredBackupOpts{Path: path, Passphrase: "wrong", SkipConfirm: true})
 	if err == nil || !strings.Contains(err.Error(), "wrong passphrase") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// The Buddy Agent reads these files directly (AgentBackup.swift) to import an
+// existing setup with its secrets, so the decrypted payload keys are a wire
+// contract. The Swift reader matches them case-insensitively; renaming one
+// outright would still break it.
+func TestCredBackupPayloadKeysForAgentImport(t *testing.T) {
+	prev := credBackupIter
+	credBackupIter = 10_000
+	t.Cleanup(func() { credBackupIter = prev })
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	cfg := &Config{
+		Tenant:  TenantSelection{Default: "sandbox"},
+		Tenants: map[string]TenantConfig{"sandbox": {URL: "https://example.jamfcloud.com"}},
+		Auths: map[string]AuthEntry{
+			"sandbox-cli": {Type: "oauth", ClientID: "cid", ClientSecret: "inline", Tenants: []string{"sandbox"}},
+		},
+	}
+	path := filepath.Join(dir, "b.json")
+	if _, err := BackupCreds(cfg, CredBackupOpts{Path: path, Passphrase: "pw", SkipConfirm: true}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := decryptCredBackup(raw, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(plain, &payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"tenant", "tenants", "auths"} {
+		if _, ok := payload[key]; !ok {
+			t.Fatalf("payload is missing %q: %v", key, payload)
+		}
+	}
+	var selection map[string]string
+	if err := json.Unmarshal(payload["tenant"], &selection); err != nil {
+		t.Fatal(err)
+	}
+	if selection["Default"] != "sandbox" {
+		t.Fatalf("tenant selection = %v", selection)
+	}
+	var tenants map[string]map[string]any
+	if err := json.Unmarshal(payload["tenants"], &tenants); err != nil {
+		t.Fatal(err)
+	}
+	if tenants["sandbox"]["URL"] != "https://example.jamfcloud.com" {
+		t.Fatalf("tenant = %v", tenants["sandbox"])
+	}
+	var auths map[string]map[string]any
+	if err := json.Unmarshal(payload["auths"], &auths); err != nil {
+		t.Fatal(err)
+	}
+	got := auths["sandbox-cli"]
+	if got["Type"] != "oauth" || got["ClientID"] != "cid" || got["ClientSecret"] != "inline" {
+		t.Fatalf("auth = %v", got)
+	}
+	if list, _ := got["Tenants"].([]any); len(list) != 1 || list[0] != "sandbox" {
+		t.Fatalf("auth tenants = %v", got["Tenants"])
 	}
 }
 
@@ -401,6 +469,31 @@ func TestCredBackupSkipsCommandAuthSecrets(t *testing.T) {
 	}
 }
 
+func TestResolveBackupPassphraseIgnoresStoredMaster(t *testing.T) {
+	t.Setenv(secrets.EnvVaultPassphrase, "")
+	secrets.SetStore(nil)
+	secrets.SetMasterStore(&secrets.MemoryMaster{Phrase: "machine-master"})
+	t.Cleanup(func() { secrets.SetMasterStore(nil) })
+	_, err := resolveBackupPassphrase("", false)
+	if err == nil {
+		t.Fatal("backup must not default to machine-stored master")
+	}
+}
+
+func TestResolveBackupPassphraseEnv(t *testing.T) {
+	t.Setenv(secrets.EnvVaultPassphrase, "from-env")
+	t.Cleanup(func() { t.Setenv(secrets.EnvVaultPassphrase, "") })
+	secrets.SetMasterStore(&secrets.MemoryMaster{Phrase: "ignored-master"})
+	t.Cleanup(func() { secrets.SetMasterStore(nil) })
+	pass, err := resolveBackupPassphrase("", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pass != "from-env" {
+		t.Fatalf("pass = %q", pass)
+	}
+}
+
 func TestResolveBackupPassphraseIgnoresDEK(t *testing.T) {
 	t.Setenv(secrets.EnvVaultPassphrase, "")
 	secrets.SetStore(nil)
@@ -414,11 +507,15 @@ func TestResolveBackupPassphraseIgnoresDEK(t *testing.T) {
 		secrets.SetDEKStore(nil)
 		secrets.SetMasterStore(nil)
 	})
-	pass, err := resolveBackupPassphrase("", false)
+	_, err = resolveBackupPassphrase("", false)
+	if err == nil {
+		t.Fatal("must not use DEK or stored master as backup passphrase")
+	}
+	pass, err := resolveBackupPassphrase("explicit", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pass != "recovery-only" {
-		t.Fatalf("backup passphrase = %q (must not be the DEK)", pass)
+	if pass != "explicit" {
+		t.Fatalf("pass = %q", pass)
 	}
 }

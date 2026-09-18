@@ -29,3 +29,18 @@ func TestDefaultStoreReusesProcessInstance(t *testing.T) {
 		t.Fatal("DefaultStore should reuse one VaultStore per process (one Touch ID unlock)")
 	}
 }
+
+func TestDeviceOwnerConfirmMemo(t *testing.T) {
+	resetDeviceOwnerConfirm()
+	if deviceOwnerAlreadyConfirmed() {
+		t.Fatal("expected unconfirmed")
+	}
+	markDeviceOwnerConfirmed()
+	if !deviceOwnerAlreadyConfirmed() {
+		t.Fatal("expected confirmed")
+	}
+	resetDeviceOwnerConfirm()
+	if deviceOwnerAlreadyConfirmed() {
+		t.Fatal("reset should clear memo")
+	}
+}

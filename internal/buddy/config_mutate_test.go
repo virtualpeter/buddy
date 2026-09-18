@@ -47,14 +47,21 @@ func TestSetTenantAndAuthMetadata(t *testing.T) {
 		t.Fatalf("create auth: created=%v err=%v", created, err)
 	}
 	snap := BuildConfigSnapshot(cfg)
-	if snap.NeedsSetup || len(snap.Tenants) != 1 || len(snap.Contexts) != 1 || len(snap.Auths) != 1 {
+	if snap.NeedsSetup || len(snap.Auths) != 1 {
 		t.Fatalf("snapshot %+v", snap)
 	}
 	if snap.DefaultContext != "sandbox" || snap.DefaultTenant != "sandbox" {
 		t.Fatalf("default context = %q / %q", snap.DefaultContext, snap.DefaultTenant)
 	}
-	if snap.Tenants[0].Kind != "instance" {
-		t.Fatalf("kind = %q", snap.Tenants[0].Kind)
+	var inst *TenantSnapshot
+	for i := range snap.Tenants {
+		if snap.Tenants[i].Name == "sandbox" {
+			inst = &snap.Tenants[i]
+			break
+		}
+	}
+	if inst == nil || inst.Kind != "instance" {
+		t.Fatalf("sandbox tenant missing: %+v", snap.Tenants)
 	}
 	if len(snap.Auths[0].Contexts) != 1 || snap.Auths[0].Contexts[0] != "sandbox" {
 		t.Fatalf("auth contexts = %v", snap.Auths[0].Contexts)

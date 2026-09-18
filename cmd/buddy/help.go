@@ -16,6 +16,7 @@ var helpAuth = help.Auth
 var helpToken = help.Token
 
 var helpCred = help.Cred
+var helpAgent = help.Agent
 
 var helpCredShort = help.CredShort
 
@@ -138,6 +139,7 @@ func printCommandHelp(path []string) {
 		clispec.CmdToken: helpToken,
 		clispec.HelpPath(clispec.CmdToken, clispec.SubDirect): helpToken,
 		clispec.CmdCred:       helpCred,
+		clispec.CmdAgent:      helpAgent,
 		clispec.CmdVersion:    helpVersion,
 		clispec.CmdShell:      help.Shell,
 		clispec.TopicStarlark: help.Starlark,

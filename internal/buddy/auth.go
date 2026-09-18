@@ -563,6 +563,12 @@ func authSecretMissing(sess *Session) bool {
 	if sess == nil {
 		return false
 	}
+	// The Buddy Agent holds this secret, so there is nothing local to check:
+	// let the mint run and report the Agent's own answer (locked, or unknown
+	// auth) instead of pointing at 'cred set secret'.
+	if GetActiveConfig().AuthFromAgent(sess.AuthName) {
+		return false
+	}
 	switch sess.Auth.Type {
 	case AuthTypeCommand:
 		return strings.TrimSpace(sess.Auth.RunCommand) == ""

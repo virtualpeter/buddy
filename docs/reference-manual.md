@@ -57,8 +57,8 @@ Config is split into:
 
 - **Context selection** — `context.default` (dual-read `tenant.default` for one release).
 - **Channel policies** — `channels.cli|mcp|ide` with optional `access` / `context` / `contexts` / `deny_builtins` / `allow_builtins`. MCP defaults deny `jamf_*`.
-- **Orgs** (optional) — nested Jamf organization → environment → product tenant sugar. Load expands it into `contexts:`; `--context` still picks a workplace name. See [Auth](auth.md#contexts-and-auths).
-- **Contexts** — named workplaces. Default is instance-only (`jamfpro.url`). Platform is additive (`id` + `region`, optional `jamfpro.tenantId`). The config name is not a Jamf environment UUID.
+- **Orgs** — nested Jamf organization → environment → product tenant. This is the on-disk workplace tree; load expands it into the in-memory map `--context` uses. See [Auth](auth.md#contexts-and-auths).
+- **Contexts** — named workplaces (`--context`). Default is instance-only (`orgs.<org>.environments.<name>.url`). Platform is additive (`id` + `region`, optional product `tenantId`). The config name is not a Jamf environment UUID. Flat `contexts:` still loads and is folded.
 - **Auths** — command/basic/oauth/platform principals. Instance auths use `jamfpro:`; platform auths use `scope:` plus `contexts:` or `jamfpro:`. Optional auth `channels:` (`cli`/`mcp`/`ide`; omit = all) limits which buddy clients may use that auth.
 
 Builtin deny/allow is per layer (channel allow cannot unblock a context deny). `deny_builtins: ["*"]` is an allowlist at that layer. `credentials:` / string `tenant:` / `defaults:` / `allow_auths:` and the `serve` / `notebook` client names are removed (use `contexts:` / `auths:` and `channels.ide`). Dual-read `tenants:` / `--tenant` / `tenant=` for one release (root `tenants:` means workplaces; nested `orgs.*.environments.*.tenants` is Jamf’s product-tenant list).
@@ -70,7 +70,9 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred add` — guided context + auth + secret (optional live test)
 - `buddy cred set secret <auth>` — store password/client secret in the vault
 - `buddy cred set passphrase` — create or rotate the recovery passphrase (backups; does not wrap the live vault)
-- `buddy cred delete auth|context <name>` — remove auth (+store secrets) or context (cascades sole-linked auths)
+- `buddy cred delete auth|context <name>` — remove auth (+store secrets) or context (blocked if it still has children; cascades sole-linked auths)
+- `buddy cred rename context|auth <old> <new>` — rename a workplace or auth (vault secrets move with the auth)
+- `buddy cred restore-config` — copy last-good `config.yaml.ok` over a broken `config.yaml`
 - `buddy cred clean secrets` — review secret-store entries and prompt to delete orphans
 - `buddy cred erase secrets` — wipe the vault, data key, recovery passphrase, token-wrap key, token cache files, and leftover Keychain items
 - `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`
@@ -78,11 +80,17 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of contexts, auths (with secrets), and channels; restore prompts once per auth (Enter restores, or `-y`)
 - `buddy setup` — first-run chooser when config is empty (instance, Platform, quickstart file, or MDM)
 - `buddy setup import <file>` — merge secrets-free YAML or ACS plist identity, then fill secrets
-- `buddy setup export [path]` — write secrets-free identity YAML (stdout if omitted); recipients `setup import`
+- `buddy setup export [path] [--json]` — write secrets-free identity YAML (stdout if omitted); recipients `setup import`, or `--json` for the Buddy Agent's import picker
 - `buddy setup secrets` — create missing context auths and surface-coverage gaps; store missing passwords / client secrets
 - `buddy setup managed-plist [path]` — same identity as ACS XML plist (no auths)
 - `buddy auth test` — ForceRenew + probe the active session (`--all` for every cell)
 - `buddy auth token refresh` — obtain, keep-alive, or replace the session token from cache state (`--raw` prints the bearer)
+- `buddy agent status` — the optional macOS Buddy Agent: socket path, present, unlocked, peer check, counts (`buddy auth agent` is an alias)
+- `buddy agent config [--json]` — the config document the Agent serves (identity only; served while locked)
+- `buddy agent integrations` — workplaces and auths the Agent owns, with secret presence
+- `buddy agent tokens` — bearers the Agent has cached this session (metadata only)
+- `buddy agent lock` — relock the Agent and drop its cached bearers
+- `buddy agent prune [--dry-run] [--secrets] [-y]` — remove `config.yaml` entries the Agent already provides (`--secrets` also deletes their vault copies)
 - `buddy auth authorization` — cached Jamf authorization details from `GET /api/v1/auth` (access level, privilege set, privileges); `--all` dumps every cache entry
 - `buddy auth token show` — print the session Authorization header (`--raw` for bearer only)
 - `buddy auth token status` — disk cache metadata (no bearer); `--all` lists every `tokens/` file
@@ -361,6 +369,9 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 | `BUDDY_ACS_PAYLOAD_UUID_<id>` | Bind ACS payload UUID for Classic profile id `<id>` when HTML scrape fails |
 | `BUDDY_SECRET_STORE` | Where the vault data key and recovery passphrase live: `file`, `pass`, or `keychain` (default: Keychain on macOS, `dek`/`master` files elsewhere) |
 | `BUDDY_VAULT_PASSPHRASE` | Override recovery passphrase (CI/tests; never written). A `dek:v1:…` value overrides the data key instead. |
+| `BUDDY_USE_AGENT` | Override `features.use_agent` (`true`/`false`): take workplaces, auths, and their secrets from the Buddy Agent. With it on, an absent Agent is an error, not a vault fallback |
+| `BUDDY_NO_AGENT` | `1` ignores the optional macOS Buddy Agent; buddy always uses the in-process vault |
+| `BUDDY_AGENT_SOCK` | Buddy Agent socket path (default `~/Library/Application Support/Buddy/agent.sock`) |
 | `BUDDY_MANAGED_PLIST` | Path to a managed-config plist (replaces Darwin `/Library/Managed Preferences/virtualpete.buddy.cli.plist`) |
 | `BUDDY_CLASSIC_INSTANCE_ONLY` | Override `features.classic_instance_only` (`true`/`false`). Default false: Classic may use `/api/proclassic/` (no `/JSSResource` in the path). `true` forces **Classic `/JSSResource` only** onto instance. Does not apply to ACS or `GET /api/v1/policies` (always instance). |
 
