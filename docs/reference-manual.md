@@ -36,7 +36,7 @@ This project is released under the MIT License. See the [`LICENSE`](../LICENSE) 
 
 ## Installation
 
-Build from a checkout with Go 1.26+:
+Build from a checkout with Go 1.27+:
 
 ```sh
 make buddy

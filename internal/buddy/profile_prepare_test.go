@@ -4,7 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
+	"uuid"
+
 	"howett.net/plist"
 )
 
@@ -717,11 +718,11 @@ func TestIsUUID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Version() != 4 {
-		t.Fatalf("uuid_new version = %s, want VERSION_4", u.Version())
+	if v := u[6] >> 4; v != 4 {
+		t.Fatalf("uuid_new version = %d, want 4", v)
 	}
-	if u.Variant() != uuid.RFC4122 {
-		t.Fatalf("uuid_new variant = %s, want RFC4122", u.Variant())
+	if variant := u[8] >> 6; variant != 0b10 {
+		t.Fatalf("uuid_new variant = %02b, want RFC 9562 variant 10", variant)
 	}
 	if got != strings.ToLower(got) {
 		t.Fatalf("uuid_new should be lowercase, got %q", got)

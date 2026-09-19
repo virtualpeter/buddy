@@ -32,7 +32,7 @@ New install: if there isn’t a released binary available and you have Go instal
 
 ## Prerequisites
 
-- Go 1.26+
+- Go 1.27+
 - Optional: `pass` on Linux when using `BUDDY_SECRET_STORE=pass`
 
 ## Build

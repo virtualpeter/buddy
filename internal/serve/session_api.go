@@ -11,8 +11,6 @@ import (
 
 	"buddy/internal/buddy"
 	"buddy/internal/script"
-
-	"github.com/google/uuid"
 )
 
 type liveSession struct {
@@ -206,7 +204,7 @@ func (s *sessionStore) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	id := uuid.NewString()
+	id := buddy.NewUUID()
 	s.mu.Lock()
 	s.sessions[id] = &liveSession{sess: sess, tenant: tenant, auth: auth, channel: channel}
 	s.mu.Unlock()

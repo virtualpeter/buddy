@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
+	"uuid"
 	"howett.net/plist"
 )
 
@@ -49,7 +49,7 @@ type ProfileMigrateOutcome struct {
 // NewUUID returns a random version-4 UUID in the canonical 8-4-4-4-12
 // lowercase hex form (RFC 9562 / formerly RFC 4122 variant 1).
 func NewUUID() string {
-	return uuid.New().String()
+	return uuid.NewV4().String()
 }
 
 // IsUUID reports whether s is the canonical hyphenated UUID text form
@@ -60,7 +60,8 @@ func IsUUID(s string) bool {
 	if len(s) != 36 {
 		return false
 	}
-	return uuid.Validate(s) == nil
+	_, err := uuid.Parse(s)
+	return err == nil
 }
 
 var generalUUIDRe = regexp.MustCompile(`(?i)<uuid>\s*([a-fA-F0-9\-]{36})\s*</uuid>`)
@@ -105,7 +106,7 @@ func plistRemapPayloadUUIDs(payloadsRaw, oldGeneral, newGeneral string) (string,
 	mapping := map[string]string{oldGeneral: newGeneral}
 	for _, u := range uuids {
 		if _, ok := mapping[u]; !ok {
-			mapping[u] = uuid.New().String()
+			mapping[u] = NewUUID()
 		}
 	}
 	oldIDs := make([]string, 0, len(mapping))
@@ -155,7 +156,7 @@ func buildPayloadUUIDMapping(encodedPayloads, oldGeneral, newGeneral string) map
 	for _, u := range collectPayloadUUIDsFromEncodedKeys(encodedPayloads) {
 		norm := normalizeUUID(u)
 		if _, ok := normToNew[norm]; !ok {
-			normToNew[norm] = uuid.New().String()
+			normToNew[norm] = NewUUID()
 		}
 	}
 	mapping := map[string]string{oldGeneral: normToNew[normalizeUUID(oldGeneral)]}
@@ -172,7 +173,7 @@ func RandomizeProfileUUIDs(profileXML []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	newGeneral := uuid.New().String()
+	newGeneral := NewUUID()
 
 	encodedPayloads, err := extractPayloadsEncodedFromProfileXML(profileXML)
 	if err != nil {

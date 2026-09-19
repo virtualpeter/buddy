@@ -1,15 +1,14 @@
 module buddy
 
-go 1.26
+go 1.27
 
 require (
 	github.com/alecthomas/chroma/v2 v2.14.0
 	github.com/beevik/etree v1.6.0
-	github.com/google/uuid v1.6.0
 	github.com/itchyny/gojq v0.12.19
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/qri-io/starlib v0.5.0
-	github.com/yuin/goldmark v1.7.8
+	github.com/yuin/goldmark v1.8.6
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
 	go.starlark.net v0.0.0-20260210143700-b62fd896b91b
 	golang.org/x/term v0.45.0

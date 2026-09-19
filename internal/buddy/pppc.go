@@ -3,8 +3,6 @@ package buddy
 import (
 	"fmt"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 // PPPCFDA builds a SystemPolicyAllFiles (Full Disk Access) service entry for a PPPC payload.
@@ -39,11 +37,11 @@ func PPPCPayload(services map[string]interface{}, opts PayloadMetaOpts) (map[str
 	}
 	id := strings.TrimSpace(opts.PayloadIdentifier)
 	if id == "" {
-		id = "com.apple.TCC.configuration-profile-policy." + uuid.New().String()
+		id = "com.apple.TCC.configuration-profile-policy." + NewUUID()
 	}
 	puuid := strings.TrimSpace(opts.PayloadUUID)
 	if puuid == "" {
-		puuid = uuid.New().String()
+		puuid = NewUUID()
 	}
 	out := map[string]interface{}{
 		"PayloadType":       "com.apple.TCC.configuration-profile-policy",
@@ -72,7 +70,7 @@ func PrefsPayload(domain string, settings map[string]interface{}, opts PayloadMe
 	}
 	puuid := strings.TrimSpace(opts.PayloadUUID)
 	if puuid == "" {
-		puuid = uuid.New().String()
+		puuid = NewUUID()
 	}
 	out := map[string]interface{}{
 		"PayloadType":       domain,

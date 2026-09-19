@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
 	"howett.net/plist"
 )
 
@@ -730,7 +729,7 @@ func BuildProfileCreateXML(spec ProfileCreateSpec) ([]byte, error) {
 	if !scopeAll && len(spec.ScopeGroupIDs) == 0 {
 		scopeAll = true
 	}
-	puuid := uuid.New().String()
+	puuid := NewUUID()
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
 	b.WriteString(`<os_x_configuration_profile><general>`)
