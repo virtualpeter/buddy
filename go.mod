@@ -10,14 +10,14 @@ require (
 	github.com/qri-io/starlib v0.5.0
 	github.com/yuin/goldmark v1.8.6
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
-	go.starlark.net v0.0.0-20260210143700-b62fd896b91b
+	go.starlark.net v0.0.0-20260908191801-89a6a09411d5
 	golang.org/x/term v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
 	howett.net/plist v1.0.1
 )
 
 require (
-	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e // indirect
+	github.com/chzyer/readline v1.5.1 // indirect
 	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/itchyny/timefmt-go v0.1.8 // indirect
