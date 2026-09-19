@@ -3,7 +3,7 @@ module buddy
 go 1.27
 
 require (
-	github.com/alecthomas/chroma/v2 v2.14.0
+	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/beevik/etree v1.8.0
 	github.com/itchyny/gojq v0.12.19
 	github.com/modelcontextprotocol/go-sdk v1.8.0
@@ -18,7 +18,7 @@ require (
 
 require (
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e // indirect
-	github.com/dlclark/regexp2 v1.11.0 // indirect
+	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/itchyny/timefmt-go v0.1.8 // indirect
 	github.com/kr/text v0.2.0 // indirect
