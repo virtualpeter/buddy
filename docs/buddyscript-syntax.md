@@ -22,12 +22,15 @@ buddy help starlark
 
 `None` · `bool` · `int` · `float` · `str` · `bytes` · `list` · `dict` · `tuple`
 
+`bytes` concatenate with `+` (and `+=`), including when both sides are variables — the same rule as `str` / `list` / `tuple`.
+
 ```python
 x = 42
 name = "chrome"
 items = [1, 2, 3]
 meta = {"id": "10", "name": "Demo"}
 a, b = 1, 2
+blob = file_read_bytes("icon.png") + b"\n"
 ```
 
 ## Control flow and functions

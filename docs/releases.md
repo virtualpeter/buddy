@@ -2,6 +2,43 @@
 
 buddy did not keep a changelog before v12. This page is the user-facing list of notable changes per tagged release. Version strings come from git tags (`git describe`).
 
+## v12.1.0
+
+Since **v12.0.0**. Human docs: [Auth](auth.md) (Agent + vault recovery), [Getting started](getting-started.md), [BuddyScript syntax](buddyscript-syntax.md).
+
+### Buddy Agent (macOS)
+
+- Optional menu-bar **Buddy Agent** owns its own workplaces, auths, and secrets (Keychain service `virtualpete.buddy.agent`). buddy never sends a secret to it and never gets one back — only identity and minted bearers over the unix socket.
+- Config and integrations are served **while locked**. Unlock (tray or a `token` request with `allow_unlock`) gates minting only. Idle relock drops cached bearers so `agent lock` stops the next process.
+- `features.use_agent` / `BUDDY_USE_AGENT` folds the Agent document under managed prefs and `config.yaml`. `features.force_agent` / `BUDDY_FORCE_AGENT` / MDM `force_agent: true` does the same but skips the user file (MDM true is sticky). An absent Agent is then fatal.
+- `buddy agent status|config|integrations|tokens|lock|prune` inspects and hands over shadowed user-file entries. `buddy agent enable|disable` writes `use_agent`; `buddy agent force [--off]` writes `force_agent`.
+- Empty or missing `config.yaml` on macOS uses a running Agent in memory without writing `use_agent`. A contactable Agent with no workplaces errors until you add them there.
+- Import identity from `buddy setup export --json`, or identity **and** secrets from a `buddy cred backup` file (the Agent decrypts that envelope itself).
+- Signed `make agent-app` / nested LoginItem in Buddy.app is the `userPresence` ACL path. `make agent-dev` is unsigned (in-memory secrets, simulated presence). No auto-start or sandboxing yet.
+
+### Buddy.app
+
+- **`Contents/MacOS/Buddy`** is a SwiftUI shell (`macos/Buddy/`) that hosts `buddy serve --embed` (Docs, Config, IDE tabs; native appearance menu; Agent Settings shortcut). The app starts the nested Agent.
+- `buddy serve --embed` (or `?embed=1`) strips in-page nav for embed hosts. When the Agent owns workplaces, `/config` is read-only (`config_readonly`) and Buddy.app hides the Config tab — edit identity in Agent Settings.
+
+### Secrets
+
+- Recovery passphrase is **user-held**: it wraps the DEK inside `secrets.enc` and encrypts `cred backup` / `restore`. It is not stored in Keychain or a `master` file (legacy `master` items are deleted once a wrap exists). Cancelled Touch ID / LA does not fall through to recovery.
+- `cred backup` / `restore` always need a typed `--passphrase=` or a prompt (`BUDDY_VAULT_PASSPHRASE` for CI).
+
+### Build and runtime
+
+- Source builds need **Go 1.27+**. `uuid_new()` is still an RFC 9562 **v4** UUID (stdlib `uuid.NewV4`); `uuid_is` still requires the 36-character hyphenated form.
+- Starlark: `bytes + bytes` works at runtime (not only on literals). Excessively nested brackets are rejected instead of crashing eval/LSP.
+- Docs UI (`buddy serve`): goldmark past the link/image XSS advisory; chroma 2.27 for fenced highlighting (Try-it still reads the python source).
+- MCP stdio SDK 1.8 (same protocol revision; transport hardening). XML sort uses etree 1.8.
+
+### Upgrade notes
+
+- Building from a checkout older than Go 1.27 will fail.
+- If you still have a Keychain/file `master` recovery item, run `buddy cred set passphrase` once so the wrap lives in `secrets.enc` and the leftover item is dropped.
+- Vault installs stay on the vault until you import into the Agent and `buddy agent prune`. `features.use_agent` / `BUDDY_USE_AGENT` is the explicit hand-over; Buddy.app starts the nested Agent, and an empty macOS config uses a running Agent without writing that flag.
+
 ## v12.0.0
 
 Notable features since the v11 line (last tag **v11.4.1**).
@@ -28,8 +65,7 @@ Notable features since the v11 line (last tag **v11.4.1**).
 
 - First-run is a chooser: paste Jamf Pro JSON / Account curl, import a secrets-free YAML/plist, or fill secrets for an existing MDM profile. `buddy setup export` / `import` / `secrets` / `managed-plist` replace the old write-script / store-oauth / basic-setup helpers.
 - `buddy cred add --paste` / `--from=` share that parser.
-- `make install-signed` installs **Buddy.app** under `~/Applications` with `~/go/bin/buddy` as a symlink into the helper. **`Contents/MacOS/Buddy`** is a SwiftUI shell (`macos/Buddy/`) that hosts `buddy serve --embed` (Docs, Config, IDE tabs; native appearance menu; Agent Settings shortcut). Vault unlock is lazy (mcp/serve and `cred status` do not prompt at start).
-- `buddy serve --embed` (or `?embed=1`) strips in-page nav for embed hosts; `/config` is read-only when a running Buddy Agent owns workplaces (`config_readonly`).
+- `make install-signed` installs **Buddy.app** under `~/Applications` with `~/go/bin/buddy` as a symlink into the helper. The Finder stub no longer bounce-waits in the Dock. Vault unlock is lazy (mcp/serve and `cred status` do not prompt at start).
 
 ### CLI
 

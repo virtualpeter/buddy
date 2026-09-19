@@ -8,7 +8,7 @@
 
 Day-to-day work can follow several different styles - you can work with **buddyscript** (an extended version of Starlark) via an interactive shell, `.buddy` script files, or via a local docs UI with script IDE (`buddy serve`). Alternatively, connect it as an MCP server for AI hosts (`buddy mcp`) and let the agent learn how to use buddyscript.
 
-The only required config is a **context** plus an **auth**; passwords or oauth secrets get stored in the encrypted vault (`secrets.enc`), with a random Keychain data key and a recovery passphrase for backups — [docs/auth.md](docs/auth.md). Instance-only (Jamf Pro URL + oauth/basic) is enough; Platform is optional.
+The only required config is a **context** plus an **auth**; passwords or oauth secrets get stored in the encrypted vault (`secrets.enc`), with a random Keychain data key and a **user-held** recovery passphrase for backups — [docs/auth.md](docs/auth.md). Optional macOS **Buddy Agent** can own integrations and mint tokens instead of the vault. Instance-only (Jamf Pro URL + oauth/basic) is enough; Platform is optional.
 
 New install: if there isn’t a released binary available and you have Go installed you can `make install-signed` (preferred) or `make install` (if you don’t have a signing cert), then run any Jamf command (e.g. `buddy policy list`). On macOS buddy first looks for a running Buddy Agent; otherwise you get the first-run chooser (or [`buddy cred add`](docs/getting-started.md)). 
 
@@ -131,16 +131,16 @@ features:
   classic_instance_only: true      # optional: force Classic onto instance. Default false lets Classic use /proclassic. ACS and GET /api/v1/policies are always instance.
 ```
 
-**Storage:** Nested `orgs:` is the on-disk workplace tree (organization → environment → product tenant). `--context` is only a workplace name; Jamf `scope:` stays on the auth. Instance-only URLs live on the environment node (`orgs.default.environments.sandbox.url` until you rename `default`). Old flat `contexts:` files still load and are folded. Auths hold type/username/clientId and link with `jamfpro:` or `contexts:`. Passwords and OAuth client secrets can stay inline for **dev/test**, or live in the encrypted vault (`secrets.enc`, keyed by **auth name**). The vault data key is one Keychain item (macOS) or `dek` (Linux/Windows); backups use a recovery passphrase (`master`):
+**Storage:** Nested `orgs:` is the on-disk workplace tree (organization → environment → product tenant). `--context` is only a workplace name; Jamf `scope:` stays on the auth. Instance-only URLs live on the environment node (`orgs.default.environments.sandbox.url` until you rename `default`). Old flat `contexts:` files still load and are folded. Auths hold type/username/clientId and link with `jamfpro:` or `contexts:`. Passwords and OAuth client secrets can stay inline for **dev/test**, or live in the encrypted vault (`secrets.enc`, keyed by **auth name**). The vault data key is one Keychain item (macOS) or `dek` (Linux/Windows). Recovery passphrase is **user-held**: it wraps the DEK inside `secrets.enc` and encrypts `cred backup` / `restore` (not a Keychain/file `master` item).
 
-| Platform | Vault | Data key / recovery (`BUDDY_SECRET_STORE`) |
-|----------|-------|--------------------------------------------|
-| macOS (`make buddy`) | `~/.config/buddy/secrets.enc` | Keychain service `buddy`, accounts `dek` / `master`, via `security(1)` (default / `keychain`) |
-| macOS (`make buddy-darwin-arm64`) | same vault file | Keychain service `virtualpete.buddy.cli` (label Buddy); `cred set passphrase` unwraps the DEK |
-| Linux | same | `~/.config/buddy/dek` and `master` (mode 0600), or `pass` (`buddy/dek`, `buddy/master`) |
-| Windows | `%APPDATA%\buddy\secrets.enc` | `%APPDATA%\buddy\dek` and `master` |
+| Platform | Vault | Data key (`BUDDY_SECRET_STORE`) |
+|----------|-------|----------------------------------|
+| macOS (`make buddy`) | `~/.config/buddy/secrets.enc` | Keychain service `buddy`, account `dek`, via `security(1)` (default / `keychain`) |
+| macOS (`make buddy-darwin-arm64`) | same vault file | Keychain service `virtualpete.buddy.cli` (label Buddy); `cred set passphrase` writes the recovery wrap |
+| Linux | same | `~/.config/buddy/dek` (mode 0600), or `pass` (`buddy/dek`) |
+| Windows | `%APPDATA%\buddy\secrets.enc` | `%APPDATA%\buddy\dek` |
 
-`BUDDY_VAULT_PASSPHRASE` overrides the recovery passphrase (never written).
+`BUDDY_VAULT_PASSPHRASE` overrides the recovery passphrase (never written). Optional macOS **Buddy Agent** can own integrations instead of the vault — see [docs/auth.md](docs/auth.md).
 
 ```sh
 buddy cred set context acme

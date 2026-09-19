@@ -4,6 +4,8 @@ Install buddy, connect to Jamf, and run a first command. New here? Start with th
 
 ## 1. Install
 
+Source builds need **Go 1.27+**. Released binaries do not.
+
 ```sh
 make buddy
 make install          # optional: copy unsigned CLI to ~/go/bin/buddy
@@ -32,7 +34,7 @@ pbpaste | buddy cred add --paste --context=sandbox -y
 buddy auth test
 ```
 
-Secrets go into the encrypted vault. In the local docs UI (`buddy serve` → `/config`), edit workplace/auth **metadata** after you have identity — `/config` is not first-run. Empty config: on macOS a running Buddy Agent is used first; otherwise `buddy setup` in a terminal. Vault secrets stay in the terminal (`buddy cred set secret` / `buddy setup secrets`).
+Secrets go into the encrypted vault (recovery passphrase is **user-held** — typed for `cred backup` / `restore`, not stored in Keychain). In the local docs UI (`buddy serve` → `/config`), edit workplace/auth **metadata** after you have identity — `/config` is not first-run. Vault secrets stay in the terminal (`buddy cred set secret` / `buddy setup secrets`).
 
 If this Mac already has an org MDM profile (or you imported a quickstart), skip identity and run:
 
@@ -71,7 +73,7 @@ In the IDE, open **Libraries** → **Getting started** for a short list of built
 |-------|----------------|
 | [About](index.md) | Docs map: resources, Platform, guides |
 | [Release notes](releases.md) | Notable changes per tagged version |
-| [Auth, secrets, and tokens](auth.md) | Contexts, vault, channel policy |
+| [Auth, secrets, and tokens](auth.md) | Contexts, vault, Buddy Agent, channel policy |
 | [Reference manual](reference-manual.md) | Config, CLI, buddyscript, env vars |
 | [Script IDE](/ide) | Single-buffer runner |
 | [BuddyScript overview](buddyscript.md) | Language, runners, conventions |

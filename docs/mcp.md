@@ -23,7 +23,7 @@ Three different “tokens” get confused. Only the middle one is Jamf:
 | Layer | What it is | Buddy stdio? |
 |-------|------------|--------------|
 | **Host → buddy** | Cursor/Claude spawn a local process; no MCP Bearer | Yes — this is how buddy MCP works |
-| **Buddy → Jamf** | Config + vault (`secrets.enc`) + Keychain DEK (`dek`) / recovery passphrase (`master`) → Jamf bearer inside buddy | Yes — tools call Jamf; the host never sees that bearer |
+| **Buddy → Jamf** | Config + vault (`secrets.enc`) + Keychain DEK (`dek`); recovery wrap is user-held → Jamf bearer inside buddy | Yes — tools call Jamf; the host never sees that bearer |
 | **Remote MCP OAuth** | HTTPS MCP (e.g. `developer.jamf.com/mcp`) may require OAuth / `Authorization: Bearer` to talk to *that* server | No — unrelated to `buddy mcp` |
 
 **MCP Inspector 2.x** adds a fourth layer that is *neither* Jamf nor buddy:
@@ -287,6 +287,6 @@ def main():
 
 ## Security
 
-- MCP runs as your user and uses your buddy vault (`secrets.enc`) and Keychain data key (or `dek` / `master` files).
+- MCP runs as your user and uses your buddy vault (`secrets.enc`) and Keychain data key (or `dek` file). Recovery passphrase is user-held, not a `master` file.
 - Do not point a remote or shared MCP host at production credentials without review.
 - Prefer read-only exploration first; treat `buddyscript` like an interactive shell.

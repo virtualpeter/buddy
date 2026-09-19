@@ -69,12 +69,12 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred status` — org → environment → product-tenant coverage (gaps, last live check); SECRET is locked unless `--unlock` or `--test` (`--test` runs `auth test --all` first). SURFACE is instance vs gateway, not Account scope.
 - `buddy cred add` — guided context + auth + secret (optional live test)
 - `buddy cred set secret <auth>` — store password/client secret in the vault
-- `buddy cred set passphrase` — create or rotate the recovery passphrase (backups; does not wrap the live vault)
+- `buddy cred set passphrase` — create or rotate the user-held recovery wrap inside `secrets.enc` (backup/restore; leftover Keychain/file `master` items are deleted)
 - `buddy cred delete auth|context <name>` — remove auth (+store secrets) or context (blocked if it still has children; cascades sole-linked auths)
 - `buddy cred rename context|auth <old> <new>` — rename a workplace or auth (vault secrets move with the auth)
 - `buddy cred restore-config` — copy last-good `config.yaml.ok` over a broken `config.yaml`
 - `buddy cred clean secrets` — review secret-store entries and prompt to delete orphans
-- `buddy cred erase secrets` — wipe the vault, data key, recovery passphrase, token-wrap key, token cache files, and leftover Keychain items
+- `buddy cred erase secrets` — wipe the vault (including the recovery wrap), data key, leftover Keychain/file `master` items, token-wrap key, token cache files, and leftover Keychain items
 - `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`
 - `buddy cred migrate` — move inline YAML secrets and old per-auth store items into the vault
 - `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of contexts, auths (with secrets), and channels; restore prompts once per auth (Enter restores, or `-y`)
@@ -111,7 +111,7 @@ buddy cred set auth gateway --type=platform --client-id=<client-id> --contexts=g
 
 Classic (`/JSSResource/…`) calls are rewritten to `/proclassic/…` (the `/JSSResource` prefix is stripped). Classic follows a platform pin by default (`features.classic_instance_only`, false). Set it true (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force Classic onto instance. ACS (`/api/config-profiles/…`) and undocumented Pro `GET /api/v1/policies` are always instance; they are not on the gateway and are **not** gated by that flag.
 
-**Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate`). Secrets live in `secrets.enc` under a random data key (Keychain account `dek` on macOS, or `~/.config/buddy/dek` on Linux). `buddy cred set passphrase` stores a recovery passphrase (account `master` / `~/.config/buddy/master`) used for `cred backup` / `restore`, not for every CLI invoke. `BUDDY_SECRET_STORE=file|pass|keychain` selects where those keys live. Never commit `secrets.enc`, `dek`, or `master` to source control.
+**Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate`). Secrets live in `secrets.enc` under a random data key (Keychain account `dek` on macOS, or `~/.config/buddy/dek` on Linux). `buddy cred set passphrase` writes a **user-held** recovery wrap into `secrets.enc` for `cred backup` / `restore` — it is not stored in Keychain or a `master` file. `BUDDY_SECRET_STORE=file|pass|keychain` selects where the **DEK** lives. Never commit `secrets.enc` or `dek` to source control.
 
 Full YAML shape and field descriptions are in the [README](../README.md#configuration).
 
@@ -371,7 +371,7 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 | `BUDDY_IDE_ROOT` | Root directory for `/ide` open/save (default: process working directory) |
 | `BUDDY_LANG` | CLI message locale (wins over `LANG`; unknown tags fall back to `en`) |
 | `BUDDY_ACS_PAYLOAD_UUID_<id>` | Bind ACS payload UUID for Classic profile id `<id>` when HTML scrape fails |
-| `BUDDY_SECRET_STORE` | Where the vault data key and recovery passphrase live: `file`, `pass`, or `keychain` (default: Keychain on macOS, `dek`/`master` files elsewhere) |
+| `BUDDY_SECRET_STORE` | Where the vault data key lives: `file`, `pass`, or `keychain` (default: Keychain on macOS, `dek` file elsewhere). Recovery passphrase is user-held in `secrets.enc`, not this store. |
 | `BUDDY_VAULT_PASSPHRASE` | Override recovery passphrase (CI/tests; never written). A `dek:v1:…` value overrides the data key instead. |
 | `BUDDY_USE_AGENT` | Override `features.use_agent` (`true`/`false`): take workplaces, auths, and their secrets from the Buddy Agent. With it on, an absent Agent is an error, not a vault fallback |
 | `BUDDY_FORCE_AGENT` | Override `features.force_agent` (`true`/`false`): require the Agent and ignore `config.yaml` (managed prefs still overlay) |
