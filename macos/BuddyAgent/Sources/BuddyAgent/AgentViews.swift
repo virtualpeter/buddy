@@ -2,93 +2,272 @@ import SwiftUI
 import LocalAuthentication
 import UniformTypeIdentifiers
 
-/// Main window: what the Agent owns (integrations), what it has minted
-/// (tokens), and how the CLI reaches it (status). No secret value is ever
-/// displayed - only whether one is stored.
+/// Main window: config the Agent owns, minted tokens, and CLI status.
 struct AgentRootView: View {
 	@ObservedObject var store: AgentStore
 	@ObservedObject var state: AgentState
+	@ObservedObject var log: AgentLog
 	let gate: UnlockGate
 	let socketPath: String
+	var onImportFinished: () -> Void = {}
+
+	@State private var showHelp = false
 
 	var body: some View {
 		TabView {
-			IntegrationsView(store: store, gate: gate)
-				.tabItem { Label("Integrations", systemImage: "building.2") }
-			TokensView(state: state)
-				.tabItem { Label("Tokens", systemImage: "key") }
-			StatusView(store: store, state: state, socketPath: socketPath)
+			ConfigView(
+				store: store, state: state, gate: gate, showHelp: $showHelp,
+				onImportFinished: onImportFinished)
+				.tabItem { Label("Setup", systemImage: "list.bullet.indent") }
+			PolicyView(store: store)
+				.tabItem { Label("Policy", systemImage: "slider.horizontal.3") }
+			LogView(log: log)
+				.tabItem { Label("Log", systemImage: "list.bullet.rectangle") }
+			StatusView(store: store, state: state, gate: gate, socketPath: socketPath)
 				.tabItem { Label("Status", systemImage: "info.circle") }
 		}
-		.padding()
-		.frame(minWidth: 640, minHeight: 440)
+		.padding(12)
+		.frame(minWidth: 720, minHeight: 520)
+		.sheet(isPresented: $showHelp) {
+			AgentHelpView()
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .agentShowHelp)) { _ in
+			showHelp = true
+		}
 	}
 }
 
-struct IntegrationsView: View {
+private enum ConfigActiveSheet: Identifiable {
+	case workplace(WorkplaceEditDraft)
+	case auth(AuthEditDraft)
+	case backup(BackupPrompt)
+	case exportBackup
+	case bearer(BearerDetailsDraft)
+
+	var id: String {
+		switch self {
+		case .workplace(let draft): return "workplace-\(draft.id.uuidString)"
+		case .auth(let draft): return "auth-\(draft.id.uuidString)"
+		case .backup(let prompt): return "backup-\(prompt.id.uuidString)"
+		case .exportBackup: return "export-backup"
+		case .bearer(let draft): return "bearer-\(draft.authName)"
+		}
+	}
+}
+
+struct ConfigView: View {
 	@ObservedObject var store: AgentStore
+	@ObservedObject var state: AgentState
 	let gate: UnlockGate
-	@State private var editing: Integration?
-	@State private var backup: BackupPrompt?
+	@Binding var showHelp: Bool
+	var onImportFinished: () -> Void = {}
+	@State private var selectedWorkplace: String?
+	@State private var activeSheet: ConfigActiveSheet?
 	@State private var message: String?
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: 12) {
-			if store.integrations.isEmpty {
-				VStack(alignment: .leading, spacing: 6) {
-					Text("No integrations yet").font(.headline)
-					Text(
-						"Add a Jamf Pro workplace and its API client here. buddy reads this list over the socket and never sees the secret."
-					)
-					.foregroundStyle(.secondary)
-				}
-				.frame(maxWidth: .infinity, alignment: .leading)
-			} else {
-				List {
-					ForEach(store.integrations) { row in
-						IntegrationRow(row: row)
-							.contentShape(Rectangle())
-							.onTapGesture { editing = row }
+		ScrollView(.vertical, showsIndicators: true) {
+			VStack(alignment: .leading, spacing: 20) {
+				HStack(alignment: .firstTextBaseline) {
+					Text("Setup").font(.title3)
+					Spacer()
+					Button { showHelp = true } label: {
+						Image(systemName: "questionmark.circle")
+							.font(.title3)
+							.foregroundStyle(.secondary)
 					}
+					.buttonStyle(.plain)
+					.accessibilityLabel("Buddy Agent Help")
+				}
+				workplacesSection
+				authsSection
+				transferSection
+				if let message {
+					Text(message).font(.callout).foregroundStyle(.secondary)
 				}
 			}
+			.frame(maxWidth: .infinity, alignment: .leading)
+		}
+		.sheet(item: $activeSheet, content: sheetContent)
+	}
 
-			if let message {
-				Text(message).font(.callout).foregroundStyle(.secondary)
+	@ViewBuilder
+	private func sheetContent(_ sheet: ConfigActiveSheet) -> some View {
+		switch sheet {
+		case .workplace(let draft):
+			WorkplaceEditor(store: store, draft: draft)
+		case .auth(let draft):
+			AuthEditor(store: store, gate: gate, draft: draft)
+		case .backup(let prompt):
+			BackupPassphraseSheet(url: prompt.url) { passphrase in
+				importBackup(prompt.url, passphrase: passphrase)
+			}
+		case .exportBackup:
+			BackupExportPassphraseSheet { passphrase in
+				exportBackupFile(passphrase: passphrase)
+			}
+		case .bearer(let draft):
+			AuthTokenSheet(
+				state: state, authName: draft.authName,
+				onDismiss: { activeSheet = nil })
+		}
+	}
+
+	private var workplacesSection: some View {
+		VStack(alignment: .leading, spacing: 8) {
+			HStack {
+				Text("Workplaces").font(.headline)
+				Spacer()
+				if let def = defaultContextLabel {
+					Text("default: \(def)").font(.callout).foregroundStyle(.secondary)
+				}
+			}
+			Text(
+				"Org → environment → product-tenant, matching `buddy cred list`. Scope lives on each auth."
+			)
+			.font(.caption)
+			.foregroundStyle(.secondary)
+
+			if store.configTree.isEmpty {
+				Text("No workplaces yet").foregroundStyle(.secondary)
+			} else {
+				WorkplaceTreeList(
+					store: store,
+					nodes: store.configTree,
+					selectedWorkplace: selectedWorkplace,
+					onSelect: { selectedWorkplace = $0 },
+					onEdit: { node in
+						activeSheet = .workplace(
+							WorkplaceEditDraft(
+								name: node.name, previousName: node.name, workplace: node.workplace,
+								kind: node.kind))
+					},
+					onDelete: { store.removeWorkplace($0) })
+					.padding(8)
+					.background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+					.overlay(
+						RoundedRectangle(cornerRadius: 8)
+							.strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
 			}
 
 			HStack {
-				Button("Add Integration") { editing = Integration() }
+				Button("Add Organization") {
+					activeSheet = .workplace(
+						WorkplaceEditDraft(
+							name: "", previousName: nil, workplace: Workplace(), kind: "organization"))
+				}
+				Button("Add Child") {
+					let parent = selectedNode
+					let kind: String
+					if parent == nil || parent?.kind == "organization" {
+						kind = "environment"
+					} else if parent?.kind == "environment" || parent?.kind == "instance" {
+						kind = "product-tenant"
+					} else {
+						kind = "instance"
+					}
+					activeSheet = .workplace(
+						WorkplaceEditDraft(
+							name: "", previousName: nil,
+							workplace: Workplace(org: parent?.kind == "organization" ? parent?.name ?? "" : parent?.org ?? ""),
+							kind: kind, parent: parent))
+				}
+			}
+		}
+	}
+
+	private var authsSection: some View {
+		VStack(alignment: .leading, spacing: 8) {
+			HStack {
+				Text("Auths").font(.headline)
+				Spacer()
+				Button("Add Auth") {
+					activeSheet = .auth(AuthEditDraft(name: "", previousName: nil, auth: AgentAuth()))
+				}
+			}
+			Text("oauth/basic → Jamf Pro. platform → Account gateway; scope picks the header.")
+				.font(.caption)
+				.foregroundStyle(.secondary)
+
+			if store.sortedAuthNames.isEmpty {
+				Text("No auths yet").foregroundStyle(.secondary)
+			} else {
+				VStack(spacing: 0) {
+					AuthTableHeader()
+					Divider()
+					ForEach(store.sortedAuthNames, id: \.self) { name in
+						AuthTableRow(
+							store: store,
+							state: state,
+							gate: gate,
+							name: name,
+							auth: store.auths[name] ?? AgentAuth(),
+							workplaces: store.workplaces,
+							selectedWorkplace: selectedWorkplace,
+							onShowBearerDetails: {
+								activeSheet = .bearer(BearerDetailsDraft(authName: $0))
+							},
+							onEdit: {
+								activeSheet = .auth(
+									AuthEditDraft(
+										name: name, previousName: name,
+										auth: store.auths[name] ?? AgentAuth()))
+							},
+							onDelete: { store.removeAuth(name) })
+						if name != store.sortedAuthNames.last {
+							Divider()
+						}
+					}
+				}
+				.frame(minWidth: 680, alignment: .leading)
+				.background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+				.overlay(
+					RoundedRectangle(cornerRadius: 8)
+						.strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+			}
+		}
+	}
+
+	private var transferSection: some View {
+		VStack(alignment: .leading, spacing: 6) {
+			HStack(spacing: 12) {
 				Menu("Import from buddy") {
 					Button("Config only (setup export --json)...") { importConfig() }
 					Button("Config and secrets (cred backup)...") { pickBackup() }
 				}
 				.menuStyle(.borderlessButton)
 				.fixedSize()
-				Spacer()
-				if let def = defaultContextLabel {
-					Text("default context: \(def)").font(.callout).foregroundStyle(.secondary)
+				Menu("Export for buddy") {
+					Button("Config only (setup export --json)...") { exportConfig() }
+					Button("Config and secrets (cred backup)...") { activeSheet = .exportBackup }
 				}
+				.menuStyle(.borderlessButton)
+				.fixedSize()
 			}
 			Text(
-				"A 'setup export --json' file is identity only - workplaces and auth names, no secrets. A 'cred backup' file also carries the secrets and needs its passphrase."
+				"Setup export is identity only. Cred backup also carries secrets and uses a passphrase you choose."
 			)
 			.font(.caption)
 			.foregroundStyle(.secondary)
 		}
-		.sheet(item: $editing) { row in
-			IntegrationEditor(store: store, gate: gate, draft: row)
-		}
-		.sheet(item: $backup) { prompt in
-			BackupPassphraseSheet(url: prompt.url) { passphrase in
-				importBackup(prompt.url, passphrase: passphrase)
-			}
-		}
+	}
+
+	private var selectedNode: WorkplaceTreeNode? {
+		guard let name = selectedWorkplace else { return nil }
+		return findNode(name: name, in: store.configTree)
 	}
 
 	private var defaultContextLabel: String? {
 		let value = store.defaultContext.trimmed
 		return value.isEmpty ? nil : value
+	}
+
+	private func findNode(name: String, in nodes: [WorkplaceTreeNode]) -> WorkplaceTreeNode? {
+		for node in nodes {
+			if node.name == name { return node }
+			if let hit = findNode(name: name, in: node.children) { return hit }
+		}
+		return nil
 	}
 
 	private func importConfig() {
@@ -99,7 +278,8 @@ struct IntegrationsView: View {
 		do {
 			let added = try store.importExport(Data(contentsOf: url))
 			message =
-				"Imported \(added) integration(s) from \(url.lastPathComponent). Add each secret before minting."
+				"Imported \(added) item(s) from \(url.lastPathComponent). Add secrets before minting."
+			onImportFinished()
 		} catch {
 			message = "Import failed: \(error)"
 		}
@@ -110,70 +290,113 @@ struct IntegrationsView: View {
 			let url = chooseFile(
 				types: [.json, .data], prompt: "Choose the file written by 'buddy cred backup'")
 		else { return }
-		backup = BackupPrompt(url: url)
+		activeSheet = .backup(BackupPrompt(url: url))
 	}
 
 	private func importBackup(_ url: URL, passphrase: String) {
 		message = "Importing \(url.lastPathComponent)…"
-		DispatchQueue.global(qos: .userInitiated).async { [gate, store] in
-			let finish: (String) -> Void = { text in
-				DispatchQueue.main.async { self.message = text }
-			}
+		Task { @MainActor in
 			do {
 				let data = try Data(contentsOf: url)
 				let contents = try AgentBackup.read(data, passphrase: passphrase)
-				var added = 0
-				DispatchQueue.main.sync {
-					added = (try? store.importDocumentForBackup(contents.document)) ?? 0
-				}
-				var stored = 0
-				var ephemeral = 0
-				var failed = 0
-				for (authName, secret) in contents.secrets {
-					let kind: AgentKeychain.Kind = DispatchQueue.main.sync {
-						store.integration(forAuth: authName)?.secretKind ?? .clientSecret
+				let added = try store.importDocumentForBackup(contents.document)
+				let secrets = contents.secrets
+				let fileName = url.lastPathComponent
+				DispatchQueue.global(qos: .userInitiated).async { [gate, store] in
+					var presence: LAContext?
+					if AgentKeychain.backend == .dataProtection {
+						switch gate.authorize(reason: "import secrets from your cred backup") {
+						case .unlocked:
+							presence = gate.presenceContext
+						default:
+							break
+						}
 					}
-					guard DispatchQueue.main.sync(execute: { store.integration(forAuth: authName) }) != nil
-					else {
-						failed += 1
-						continue
-					}
-					var ok = AgentKeychain.set(secret, auth: authName, kind: kind)
-					// Replacing an existing presence-gated item needs the session.
-					if !ok, AgentKeychain.backend == .dataProtection,
-						gate.authorize(reason: "Buddy Agent wants to replace stored secrets")
-							== .unlocked
-					{
-						ok = AgentKeychain.set(
-							secret, auth: authName, kind: kind, context: gate.presenceContext)
-					}
-					if AgentKeychain.storedInKeychain(auth: authName, kind: kind) {
-						stored += 1
-					} else if AgentKeychain.has(auth: authName, kind: kind) {
-						ephemeral += 1
-					} else {
-						failed += 1
+					let result = store.importBackupSecrets(secrets, presence: presence)
+					DispatchQueue.main.async {
+						var parts: [String] = []
+						parts.append("Imported \(added) item(s) from \(fileName).")
+						if result.secrets > 0 {
+							parts.append("\(result.secrets) secret(s) stored in the keychain.")
+						}
+						if result.ephemeral > 0 {
+							parts.append(
+								"\(result.ephemeral) secret(s) are memory-only until quit — unlock and re-import if needed.")
+						}
+						if result.failed > 0 {
+							parts.append("\(result.failed) secret(s) did not land.")
+						}
+						message = parts.joined(separator: " ")
+						onImportFinished()
 					}
 				}
-				DispatchQueue.main.async { store.objectWillChange.send() }
-				var parts: [String] = []
-				if stored > 0 {
-					parts.append(
-						"Imported \(added) integration(s) and \(stored) secret(s) into the data-protection keychain (Keychain Access → Local Items, not login).")
-				} else {
-					parts.append("Imported \(added) integration(s) from \(url.lastPathComponent).")
-				}
-				if ephemeral > 0 {
-					parts.append(
-						"\(ephemeral) secret(s) are memory-only until quit — Keychain write did not stick; check Status and agent-keychain.log.")
-				}
-				if failed > 0 {
-					parts.append(
-						"\(failed) of \(contents.secrets.count) secret(s) did not land. See ~/Library/Application Support/Buddy/agent-keychain.log")
-				}
-				finish(parts.joined(separator: " "))
 			} catch {
-				finish("Import failed: \(error)")
+				message = "Import failed: \(error)"
+			}
+		}
+	}
+
+	private func exportConfig() {
+		do {
+			let data = try store.exportSetupJSON()
+			guard
+				let url = chooseSaveFile(
+					name: "buddy-agent-export.json",
+					types: [.json],
+					prompt: "Save JSON for 'buddy setup import' or the Agent import picker")
+			else { return }
+			try writeExport(data, to: url)
+			message = "Exported identity to \(url.lastPathComponent) (no secrets)."
+		} catch {
+			message = "Export failed: \(error)"
+		}
+	}
+
+	private func exportBackupFile(passphrase: String) {
+		message = "Writing cred backup…"
+		Task { @MainActor in
+			DispatchQueue.global(qos: .userInitiated).async { [gate, store] in
+				var presence: LAContext?
+				if AgentKeychain.backend == .dataProtection {
+					switch gate.authorize(reason: "export secrets for your cred backup") {
+					case .unlocked:
+						presence = gate.presenceContext
+					default:
+						break
+					}
+				}
+				do {
+					let packed = try store.credBackupData(
+						passphrase: passphrase, presence: presence)
+					DispatchQueue.main.async {
+						guard
+							let url = chooseSaveFile(
+								name: "buddy-agent.creds",
+								types: [.json, .data],
+								prompt: "Save encrypted backup for 'buddy cred restore' or Agent import")
+						else {
+							message = "Export cancelled."
+							return
+						}
+						do {
+							try writeExport(packed.data, to: url)
+							var parts = [
+								"Exported \(packed.result.auths) auth(s) to \(url.lastPathComponent).",
+							]
+							if !packed.result.missingSecrets.isEmpty {
+								parts.append(
+									"Missing secrets: \(packed.result.missingSecrets.joined(separator: ", ")).")
+							}
+							message = parts.joined(separator: " ")
+						} catch {
+							message = "Export failed: \(error)"
+						}
+					}
+				} catch {
+					DispatchQueue.main.async {
+						message = "Export failed: \(error)"
+					}
+				}
 			}
 		}
 	}
@@ -186,6 +409,22 @@ struct IntegrationsView: View {
 		guard panel.runModal() == .OK else { return nil }
 		return panel.url
 	}
+
+	private func chooseSaveFile(name: String, types: [UTType], prompt: String) -> URL? {
+		let panel = NSSavePanel()
+		panel.allowedContentTypes = types
+		panel.canCreateDirectories = true
+		panel.nameFieldStringValue = name
+		panel.message = prompt
+		guard panel.runModal() == .OK, let url = panel.url else { return nil }
+		return url
+	}
+
+	private func writeExport(_ data: Data, to url: URL) throws {
+		try data.write(to: url, options: [.atomic])
+		try FileManager.default.setAttributes(
+			[.posixPermissions: 0o600], ofItemAtPath: url.path)
+	}
 }
 
 private struct BackupPrompt: Identifiable {
@@ -193,8 +432,874 @@ private struct BackupPrompt: Identifiable {
 	let url: URL
 }
 
-/// Asks for the passphrase typed at `buddy cred backup` time. It is used once,
-/// to decrypt the file in memory, and never stored.
+struct WorkplaceEditDraft: Identifiable {
+	let id = UUID()
+	var name: String
+	var previousName: String?
+	var workplace: Workplace
+	var kind: String
+	var parent: WorkplaceTreeNode?
+
+	var isNew: Bool { previousName == nil || previousName?.isEmpty == true }
+}
+
+struct AuthEditDraft: Identifiable {
+	let id = UUID()
+	var name: String
+	var previousName: String?
+	var auth: AgentAuth
+}
+
+private struct BearerDetailsDraft: Identifiable {
+	let authName: String
+	var id: String { authName }
+}
+
+private enum WorkplaceTreeStyle {
+	static let indent: CGFloat = 24
+	static let line = Color.primary.opacity(0.28)
+}
+
+/// Recursive org → environment → tenant list with indent guides (like serve /config).
+private struct WorkplaceTreeList: View {
+	@ObservedObject var store: AgentStore
+	let nodes: [WorkplaceTreeNode]
+	let selectedWorkplace: String?
+	let onSelect: (String) -> Void
+	let onEdit: (WorkplaceTreeNode) -> Void
+	let onDelete: (String) -> Void
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: 0) {
+			ForEach(Array(nodes.enumerated()), id: \.element.id) { index, node in
+				if index > 0 {
+					Divider().opacity(0.45)
+				}
+				WorkplaceTreeRow(
+					store: store,
+					node: node,
+					isSelected: selectedWorkplace == node.name,
+					onSelect: { onSelect(node.name) },
+					onEdit: { onEdit(node) },
+					onDelete: { onDelete(node.name) })
+				if !node.children.isEmpty {
+					HStack(alignment: .top, spacing: 0) {
+						Rectangle()
+							.fill(WorkplaceTreeStyle.line)
+							.frame(width: 1)
+							.padding(.top, 2)
+							.padding(.bottom, 2)
+						WorkplaceTreeList(
+							store: store,
+							nodes: node.children,
+							selectedWorkplace: selectedWorkplace,
+							onSelect: onSelect,
+							onEdit: onEdit,
+							onDelete: onDelete)
+					}
+					.padding(.leading, 12)
+				}
+			}
+		}
+	}
+}
+
+private struct WorkplaceTreeRow: View {
+	@ObservedObject var store: AgentStore
+	let node: WorkplaceTreeNode
+	let isSelected: Bool
+	let onSelect: () -> Void
+	let onEdit: () -> Void
+	let onDelete: () -> Void
+
+	private var isDefault: Bool {
+		store.defaultContext.trimmed == node.name
+	}
+
+	var body: some View {
+		HStack(spacing: 8) {
+			DefaultContextButton(isDefault: isDefault) {
+				store.setDefaultContext(node.name)
+			}
+			Button(action: onSelect) {
+				HStack(spacing: 8) {
+					WorkplaceKindBadge(kind: node.kind)
+					Text(node.name)
+						.font(.callout.monospaced())
+						.fontWeight(.medium)
+					if !node.url.isEmpty {
+						Text(node.url)
+							.font(.caption.monospaced())
+							.foregroundStyle(.secondary)
+							.lineLimit(1)
+							.truncationMode(.middle)
+					}
+					if let problem = node.workplace.problem() {
+						Image(systemName: "exclamationmark.triangle.fill")
+							.font(.caption)
+							.foregroundStyle(.orange)
+							.accessibilityLabel(problem)
+					}
+				}
+				.frame(maxWidth: .infinity, alignment: .leading)
+			}
+			.buttonStyle(.plain)
+			HStack(spacing: 2) {
+				Button(action: onEdit) {
+					Image(systemName: "pencil")
+				}
+				.buttonStyle(.borderless)
+				.accessibilityLabel("Edit")
+				Button(role: .destructive, action: onDelete) {
+					Image(systemName: "trash")
+				}
+				.buttonStyle(.borderless)
+				.disabled(!node.canDelete)
+				.accessibilityLabel(node.canDelete ? "Delete" : "Remove children first")
+			}
+		}
+		.padding(.vertical, 6)
+		.padding(.horizontal, 8)
+		.background(
+			isSelected ? Color.accentColor.opacity(0.14) : Color.clear,
+			in: RoundedRectangle(cornerRadius: 6))
+		.contentShape(RoundedRectangle(cornerRadius: 6))
+	}
+}
+
+private struct DefaultContextButton: View {
+	let isDefault: Bool
+	let action: () -> Void
+
+	var body: some View {
+		Button(action: action) {
+			Image(systemName: isDefault ? "largecircle.fill.circle" : "circle")
+				.font(.body)
+				.foregroundStyle(isDefault ? Color.accentColor : Color.secondary.opacity(0.75))
+				.frame(width: 18, height: 18)
+		}
+		.buttonStyle(.plain)
+		.accessibilityLabel(isDefault ? "Default context" : "Set as default context")
+	}
+}
+
+private enum AuthTableLayout {
+	static let bearerWidth: CGFloat = 52
+}
+
+private struct AuthTableHeader: View {
+	var body: some View {
+		HStack(spacing: 8) {
+			Text("Name").frame(maxWidth: .infinity, alignment: .leading)
+			Text("Type").frame(width: 72, alignment: .leading)
+			Text("Scope").frame(width: 88, alignment: .leading)
+			Text("Contexts").frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+			Text("Secret").frame(width: 64, alignment: .leading)
+			Text("Bearer")
+				.lineLimit(1)
+				.fixedSize(horizontal: true, vertical: false)
+				.frame(width: AuthTableLayout.bearerWidth, alignment: .center)
+			Spacer().frame(width: 56)
+		}
+		.font(.caption.weight(.semibold))
+		.foregroundStyle(.secondary)
+		.padding(.horizontal, 10)
+		.padding(.vertical, 6)
+	}
+}
+
+private struct AuthTableRow: View {
+	@ObservedObject var store: AgentStore
+	@ObservedObject var state: AgentState
+	let gate: UnlockGate
+	let name: String
+	let auth: AgentAuth
+	let workplaces: [String: Workplace]
+	let selectedWorkplace: String?
+	let onShowBearerDetails: (String) -> Void
+	let onEdit: () -> Void
+	let onDelete: () -> Void
+
+	var body: some View {
+		HStack(spacing: 8) {
+			AuthNameCell(
+				store: store, name: name, auth: auth, workplaces: workplaces,
+				selectedWorkplace: selectedWorkplace)
+				.frame(maxWidth: .infinity, alignment: .leading)
+			Text(auth.type).frame(width: 72, alignment: .leading)
+			Text(auth.displayScope(workplaces: workplaces)).frame(width: 88, alignment: .leading)
+			Text(auth.contexts.joined(separator: ", "))
+				.lineLimit(2)
+				.frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+			SecretBadge(store: store, name: name).frame(width: 64, alignment: .leading)
+			AuthTokenCell(
+				store: store, state: state, gate: gate, authName: name,
+				onShowDetails: { onShowBearerDetails(name) })
+				.frame(width: AuthTableLayout.bearerWidth, alignment: .center)
+			HStack(spacing: 4) {
+				Button(action: onEdit) { Image(systemName: "pencil") }
+					.buttonStyle(.borderless)
+				Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
+					.buttonStyle(.borderless)
+			}
+			.frame(width: 56)
+		}
+		.font(.callout)
+		.padding(.horizontal, 10)
+		.padding(.vertical, 6)
+	}
+}
+
+private struct WorkplaceKindBadge: View {
+	let kind: String
+
+	private var label: String {
+		switch kind {
+		case "product-tenant", "tenant": return "jamfpro"
+		default: return kind
+		}
+	}
+
+	var body: some View {
+		Text(label)
+			.font(.caption2.weight(.semibold))
+			.foregroundStyle(.secondary)
+			.padding(.horizontal, 6)
+			.padding(.vertical, 2)
+			.background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
+			.overlay(
+				RoundedRectangle(cornerRadius: 4)
+					.strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
+	}
+}
+
+private struct AuthNameCell: View {
+	@ObservedObject var store: AgentStore
+	let name: String
+	let auth: AgentAuth
+	let workplaces: [String: Workplace]
+	let selectedWorkplace: String?
+
+	var body: some View {
+		HStack(spacing: 4) {
+			Text(name)
+				.font(.body.monospaced())
+				.lineLimit(1)
+				.truncationMode(.tail)
+			if auth.contexts.contains(where: { $0 == selectedWorkplace }) {
+				Circle().fill(Color.accentColor).frame(width: 6, height: 6)
+			}
+			if let problem = auth.problem(name: name, workplaces: workplaces),
+				!(store.hasSecret(forAuth: name) && problem == "secret not stored yet")
+			{
+				Image(systemName: "exclamationmark.triangle")
+					.foregroundStyle(.orange)
+					.accessibilityLabel(problem)
+			}
+		}
+	}
+}
+
+private struct SecretBadge: View {
+	@ObservedObject var store: AgentStore
+	let name: String
+
+	var body: some View {
+		let stored = store.hasSecret(forAuth: name)
+		Text(stored ? "stored" : "missing")
+			.font(.caption)
+			.padding(.horizontal, 6)
+			.padding(.vertical, 2)
+			.background(stored ? Color.green.opacity(0.15) : Color.orange.opacity(0.15),
+				in: RoundedRectangle(cornerRadius: 4))
+			.foregroundStyle(stored ? Color.secondary : Color.orange)
+	}
+}
+
+private struct AuthTokenCell: View {
+	@ObservedObject var store: AgentStore
+	@ObservedObject var state: AgentState
+	let gate: UnlockGate
+	let authName: String
+	let onShowDetails: () -> Void
+	@State private var minting = false
+	@State private var mintError: String?
+
+	private var tokens: [TokenSummary] { state.tokens(forAuth: authName) }
+	private var canMint: Bool { store.canMint(forAuth: authName) }
+	private var hasTokens: Bool { !tokens.isEmpty }
+
+	var body: some View {
+		Button(action: primaryAction) {
+			Group {
+				if minting {
+					ProgressView().controlSize(.small)
+				} else if hasTokens {
+					Image(systemName: "key.fill")
+						.foregroundStyle(tokenColor)
+				} else if canMint {
+					Image(systemName: "key")
+						.font(.caption)
+						.foregroundStyle(Color.accentColor)
+				} else {
+					Image(systemName: "key")
+						.font(.caption)
+						.foregroundStyle(.quaternary)
+				}
+			}
+			.frame(width: 28, height: 20)
+		}
+		.buttonStyle(.borderless)
+		.disabled(minting || (!hasTokens && !canMint))
+		.accessibilityHint(hasTokens ? "Cached bearer — click for status" : bearerHelp)
+	}
+
+	private func primaryAction() {
+		if hasTokens {
+			onShowDetails()
+		} else {
+			mintBearer()
+		}
+	}
+
+	private var bearerHelp: String {
+		if let mintError { return mintError }
+		if canMint { return "No bearer cached — click to mint" }
+		return store.mintUnavailableReason(forAuth: authName)
+	}
+
+	private var tokenColor: Color {
+		tokens.contains(where: \.usable) ? .green : .orange
+	}
+
+	private func mintBearer() {
+		minting = true
+		mintError = nil
+		DispatchQueue.global(qos: .userInitiated).async {
+			let error = store.mintTokens(forAuth: authName, gate: gate, state: state)
+			DispatchQueue.main.async {
+				minting = false
+				mintError = error
+			}
+		}
+	}
+}
+
+private struct AuthTokenSheet: View {
+	@ObservedObject var state: AgentState
+	let authName: String
+	let onDismiss: () -> Void
+
+	private var tokens: [TokenSummary] { state.tokens(forAuth: authName) }
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: 12) {
+			HStack {
+				Text("Cached bearer — \(authName)").font(.headline)
+				Spacer()
+				Button("Done", action: onDismiss)
+			}
+			if tokens.isEmpty {
+				Text("No bearer cached.").foregroundStyle(.secondary)
+			} else {
+				ForEach(tokens) { token in
+					VStack(alignment: .leading, spacing: 6) {
+						Text(token.baseURL).font(.caption.monospaced()).textSelection(.enabled)
+						Text(tokenExpiryText(token))
+							.font(.callout)
+							.foregroundStyle(token.usable ? Color.secondary : Color.orange)
+						Button("Drop bearer") {
+							state.dropToken(key: token.key)
+							if state.tokens(forAuth: authName).isEmpty {
+								DispatchQueue.main.async { onDismiss() }
+							}
+						}
+					}
+					if token.id != tokens.last?.id {
+						Divider()
+					}
+				}
+			}
+			Text("Lock clears every cached bearer.").font(.caption2).foregroundStyle(.tertiary)
+		}
+		.padding()
+		.frame(minWidth: 300)
+	}
+
+	private func tokenExpiryText(_ token: TokenSummary) -> String {
+		let remaining = Int(token.expiresAt.timeIntervalSinceNow)
+		if remaining <= 0 { return "Expired — drop to force a fresh mint" }
+		let minutes = remaining / 60
+		return minutes > 0 ? "Expires in \(minutes) min" : "Expires in \(remaining)s"
+	}
+}
+
+struct WorkplaceEditor: View {
+	@ObservedObject var store: AgentStore
+	@State var draft: WorkplaceEditDraft
+	@State private var useAsDefault = false
+	@State private var saveError: String?
+	@Environment(\.dismiss) private var dismiss
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: 12) {
+			Text(draft.isNew ? "New workplace" : draft.name).font(.title3)
+			if store.isManagedWorkplace(draft.name) || store.isManagedWorkplace(draft.previousName ?? "") {
+				Label("This workplace is managed by MDM.", systemImage: "lock.fill")
+					.font(.callout)
+					.foregroundStyle(.secondary)
+			}
+			Form {
+				Section("Identity") {
+					TextField("Name", text: $draft.name)
+					TextField("Kind", text: .constant(kindLabel))
+						.disabled(true)
+				}
+				if draft.kind != "organization" {
+					Section("Jamf Account") {
+						if draft.kind == "environment" {
+							TextField("Region", text: $draft.workplace.region)
+							TextField("Environment ID", text: $draft.workplace.environmentId)
+						}
+						if draft.kind == "product-tenant" || draft.kind == "tenant" {
+							TextField("Jamf Pro tenant ID", text: $draft.workplace.tenantId)
+						}
+						if draft.kind == "instance" || draft.kind == "product-tenant" || draft.kind == "tenant" {
+							TextField("Jamf Pro URL", text: $draft.workplace.url)
+						}
+						if draft.kind != "organization" {
+							TextField("Parent org", text: $draft.workplace.org)
+						}
+					}
+				} else {
+					Section("Organization") {
+						Text("Organization workplaces sit above environments. No URL or region.")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
+				}
+				Section("Default") {
+					Toggle("Use as default context", isOn: $useAsDefault)
+						.disabled(store.managedPolicyLocked("defaultContext"))
+				}
+				Section("Builtin policy") {
+					Text("Optional deny/allow lists for this workplace (`deny_builtins` / `allow_builtins`).")
+						.font(.caption)
+						.foregroundStyle(.secondary)
+					BuiltinPatternsField(
+						title: "Deny builtins",
+						help: "One pattern per line.",
+						patterns: $draft.workplace.denyBuiltins)
+					BuiltinPatternsField(
+						title: "Allow builtins",
+						help: "Overrides deny at this workplace.",
+						patterns: $draft.workplace.allowBuiltins)
+				}
+			}
+			.formStyle(.grouped)
+
+			if let saveError {
+				Text(saveError).font(.callout).foregroundStyle(.red)
+			}
+
+			HStack {
+				if !draft.isNew {
+					Button("Delete", role: .destructive) {
+						if let prev = draft.previousName {
+							store.removeWorkplace(prev)
+						}
+						dismiss()
+					}
+				}
+				Spacer()
+				Button("Cancel") { dismiss() }
+				Button("Save") { save() }
+					.keyboardShortcut(.defaultAction)
+					.disabled(draft.name.trimmed.isEmpty || store.isManagedWorkplace(draft.name) || store.isManagedWorkplace(draft.previousName ?? ""))
+			}
+		}
+		.padding()
+		.frame(minWidth: 440, minHeight: 380)
+		.onAppear {
+			let name = draft.previousName ?? draft.name
+			useAsDefault = store.defaultContext == name && !name.trimmed.isEmpty
+		}
+	}
+
+	private var kindLabel: String {
+		switch draft.kind {
+		case "tenant": return "product-tenant"
+		default: return draft.kind
+		}
+	}
+
+	private func save() {
+		let name = draft.name.trimmed
+		guard !name.isEmpty else { return }
+		guard !store.isManagedWorkplace(name), !store.isManagedWorkplace(draft.previousName ?? "") else { return }
+		if draft.isNew {
+			if draft.kind == "organization" {
+				store.addOrganization(name: name)
+			} else {
+				store.addChildWorkplace(
+					name: name, parent: draft.parent, kind: draft.kind,
+					orgName: draft.workplace.org)
+			}
+			store.upsertWorkplace(name: name, workplace: draft.workplace)
+		} else {
+			store.upsertWorkplace(
+				name: name, workplace: draft.workplace, previousName: draft.previousName)
+		}
+		if useAsDefault {
+			store.setDefaultContext(name)
+		} else if store.defaultContext.trimmed.isEmpty {
+			store.setDefaultContext(name)
+		}
+		dismiss()
+	}
+}
+
+private struct FormMenuPicker: View {
+	let label: String
+	@Binding var selection: String
+	let choices: [(label: String, value: String)]
+	var onChange: (() -> Void)? = nil
+
+	var body: some View {
+		HStack {
+			Text(label)
+			Spacer()
+			Menu {
+				ForEach(choices, id: \.value) { choice in
+					Button {
+						selection = choice.value
+						onChange?()
+					} label: {
+						if selection == choice.value {
+							Label(choice.label, systemImage: "checkmark")
+						} else {
+							Text(choice.label)
+						}
+					}
+				}
+			} label: {
+				Text(displayLabel)
+			}
+			.menuStyle(.borderlessButton)
+			.fixedSize()
+		}
+	}
+
+	private var displayLabel: String {
+		choices.first { $0.value == selection }?.label ?? selection
+	}
+}
+
+struct AuthEditor: View {
+	@ObservedObject var store: AgentStore
+	let gate: UnlockGate
+	@State var draft: AuthEditDraft
+	@State private var secret: String = ""
+	@State private var pasteBlob: String = ""
+	@State private var pasteError: String?
+	@State private var pasteHint: String?
+	@State private var saveError: String?
+	@Environment(\.dismiss) private var dismiss
+
+	private let types = ["oauth", "basic", "platform"]
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: 12) {
+			Text(draft.name.isEmpty ? "New auth" : draft.name).font(.title3)
+			if store.isManagedAuth(draft.name) || store.isManagedAuth(draft.previousName ?? "") {
+				Label("This auth is managed by MDM.", systemImage: "lock.fill")
+					.font(.callout)
+					.foregroundStyle(.secondary)
+			}
+			Form {
+				Section("Paste from Jamf") {
+					Text(
+						"Jamf Pro API-client JSON or Platform integration curl — same as `buddy cred add --paste`."
+					)
+					.font(.caption)
+					.foregroundStyle(.secondary)
+					TextEditor(text: $pasteBlob)
+						.font(.system(.caption, design: .monospaced))
+						.frame(minHeight: 72, maxHeight: 120)
+						.overlay(alignment: .topLeading) {
+							if pasteBlob.isEmpty {
+								Text("Paste JSON or curl here…")
+									.font(.caption)
+									.foregroundStyle(.tertiary)
+									.padding(.top, 8)
+									.padding(.leading, 4)
+									.allowsHitTesting(false)
+							}
+						}
+					HStack {
+						Button("Apply paste") { applyPaste() }
+							.disabled(pasteBlob.trimmed.isEmpty)
+						Button("Clear") {
+							pasteBlob = ""
+							pasteError = nil
+							pasteHint = nil
+						}
+						.disabled(pasteBlob.isEmpty && pasteError == nil && pasteHint == nil)
+					}
+					if let pasteError {
+						Text(pasteError).font(.caption).foregroundStyle(.red)
+					}
+					if let pasteHint {
+						Text(pasteHint).font(.caption).foregroundStyle(.secondary)
+					}
+				}
+				Section("Identity") {
+					TextField("Auth name", text: $draft.name)
+					FormMenuPicker(
+						label: "Type", selection: $draft.auth.type,
+						choices: types.map { ($0, $0) },
+						onChange: { pruneInvalidWorkplaceLinks() })
+					if draft.auth.type == "platform" {
+						FormMenuPicker(
+							label: "Scope", selection: $draft.auth.scope,
+							choices: [
+								("environment", "environment"),
+								("organization", "organization"),
+								("tenant", "tenant"),
+							],
+							onChange: { pruneInvalidWorkplaceLinks() })
+					}
+					FormMenuPicker(
+						label: "Access", selection: $draft.auth.access,
+						choices: [("full", ""), ("readonly", "readonly")])
+				}
+				Section("Credentials") {
+					if draft.auth.type == "basic" {
+						TextField("Username", text: $draft.auth.username)
+							.textContentType(.username)
+							.autocorrectionDisabled()
+					} else {
+						TextField("Client ID", text: $draft.auth.clientId)
+							.textContentType(.username)
+							.autocorrectionDisabled()
+					}
+					SecureField(
+						draft.auth.hasSecret(name: draft.name) ? "Replace stored secret" : "Secret",
+						text: $secret)
+					.textContentType(.password)
+				}
+				Section("Linked workplaces") {
+					Text(draft.auth.linkableWorkplaceHint())
+						.font(.caption)
+						.foregroundStyle(.secondary)
+					if store.workplaces.isEmpty {
+						Text("Add a workplace first").foregroundStyle(.secondary)
+					} else {
+						let linkable = linkableWorkplaceNames
+						if linkable.isEmpty {
+							Text("No workplaces match this auth type and scope.")
+								.foregroundStyle(.secondary)
+						} else {
+							ForEach(linkable, id: \.self) { ctx in
+								Toggle(
+									ctx,
+									isOn: Binding(
+										get: { draft.auth.contexts.contains(ctx) },
+										set: { on in
+											if on {
+												if !draft.auth.contexts.contains(ctx) {
+													draft.auth.contexts.append(ctx)
+												}
+											} else {
+												draft.auth.contexts.removeAll { $0 == ctx }
+											}
+										}))
+							}
+						}
+					}
+				}
+				Section("Channel & builtin policy") {
+					AuthChannelsField(channels: $draft.auth.channels)
+					BuiltinPatternsField(
+						title: "Deny builtins",
+						help: "One pattern per line.",
+						patterns: $draft.auth.denyBuiltins)
+					BuiltinPatternsField(
+						title: "Allow builtins",
+						help: "Overrides deny on this auth.",
+						patterns: $draft.auth.allowBuiltins)
+				}
+			}
+			.formStyle(.grouped)
+			.onAppear { pruneInvalidWorkplaceLinks() }
+
+			if let saveError {
+				Text(saveError).font(.callout).foregroundStyle(.red)
+			}
+
+			HStack {
+				if draft.previousName != nil {
+					Button("Delete", role: .destructive) {
+						store.removeAuth(draft.previousName ?? draft.name)
+						dismiss()
+					}
+				}
+				Spacer()
+				Button("Cancel") { dismiss() }
+				Button("Save") { save() }
+					.keyboardShortcut(.defaultAction)
+					.disabled(
+						draft.name.trimmed.isEmpty || draft.auth.contexts.isEmpty
+							|| store.isManagedAuth(draft.name)
+							|| store.isManagedAuth(draft.previousName ?? ""))
+			}
+		}
+		.padding()
+		.frame(minWidth: 480, minHeight: 560)
+	}
+
+	private var linkableWorkplaceNames: [String] {
+		store.workplaces.keys.sorted().filter { name in
+			draft.auth.fitsWorkplace(store.workplaces[name] ?? Workplace())
+		}
+	}
+
+	private func pruneInvalidWorkplaceLinks() {
+		draft.auth.contexts.removeAll { name in
+			guard let wp = store.workplaces[name] else { return true }
+			return !draft.auth.fitsWorkplace(wp)
+		}
+	}
+
+	private func applyPaste() {
+		pasteError = nil
+		pasteHint = nil
+		do {
+			let parsed = try AgentPasteCreds.parse(pasteBlob)
+			if draft.name.trimmed.isEmpty, !parsed.clientName.isEmpty {
+				draft.name = parsed.clientName
+			}
+			draft.auth.type = parsed.type
+			if !parsed.clientId.isEmpty {
+				draft.auth.clientId = parsed.clientId
+			}
+			if !parsed.clientSecret.isEmpty {
+				secret = parsed.clientSecret
+			}
+			if parsed.type == "platform", !parsed.scope.isEmpty {
+				draft.auth.scope = parsed.scope
+			}
+			pruneInvalidWorkplaceLinks()
+			var hints: [String] = []
+			switch parsed.type {
+			case "platform":
+				if parsed.scope == "organization" {
+					hints.append("Platform auth — organization scope (US gateway, no env header).")
+				} else if !parsed.region.isEmpty {
+					hints.append("Platform auth — region \(parsed.region). Set region on linked workplace(s).")
+				} else {
+					hints.append("Platform auth — pick scope and link workplace(s).")
+				}
+			case "oauth":
+				if !parsed.instanceURL.isEmpty {
+					hints.append(
+						"Instance oauth — set Jamf Pro URL to \(parsed.instanceURL) on linked workplace(s).")
+				} else {
+					hints.append("Instance oauth — link workplace(s) and set their Jamf Pro URL.")
+				}
+			default:
+				break
+			}
+			pasteHint = hints.joined(separator: " ")
+			pasteBlob = ""
+		} catch {
+			pasteError = error.localizedDescription
+		}
+	}
+
+	private func save() {
+		let name = draft.name.trimmed
+		guard !name.isEmpty else { return }
+		guard !store.isManagedAuth(name), !store.isManagedAuth(draft.previousName ?? "") else { return }
+		store.upsertAuth(name: name, auth: draft.auth, previousName: draft.previousName)
+		guard !secret.isEmpty else {
+			dismiss()
+			return
+		}
+		let secretValue = secret
+		let row = draft.auth
+		saveError = nil
+		DispatchQueue.global(qos: .userInitiated).async { [gate] in
+			var ok = AgentKeychain.set(secretValue, auth: name, kind: row.secretKind)
+			if !ok, AgentKeychain.backend == .dataProtection,
+				gate.authorize(reason: "Buddy Agent wants to store the secret for \(name)")
+					== .unlocked
+			{
+				ok = AgentKeychain.set(
+					secretValue, auth: name, kind: row.secretKind, context: gate.presenceContext)
+			}
+			DispatchQueue.main.async {
+				self.store.markSecretsChanged()
+				self.secret = ""
+				if !AgentKeychain.hasAny(auth: name) {
+					self.saveError = "Keychain write failed — secret not stored."
+					return
+				}
+				if !ok, AgentKeychain.backend == .dataProtection {
+					self.saveError = "Secret is memory-only until quit — Keychain ACL write failed."
+					return
+				}
+				self.dismiss()
+			}
+		}
+	}
+}
+
+struct BackupExportPassphraseSheet: View {
+	let onExport: (String) -> Void
+
+	@State private var passphrase: String = ""
+	@State private var confirm: String = ""
+	@Environment(\.dismiss) private var dismiss
+
+	private var canSubmit: Bool {
+		!passphrase.isEmpty && passphrase == confirm
+	}
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: 12) {
+			Text("Export cred backup").font(.title3)
+			Text(
+				"Choose a passphrase for this file. You will need it for `buddy cred restore` or Agent import."
+			)
+			.font(.callout)
+			.foregroundStyle(.secondary)
+			SecureField("Passphrase", text: $passphrase)
+				.textContentType(.password)
+			SecureField("Confirm passphrase", text: $confirm)
+				.textContentType(.password)
+				.onSubmit(submit)
+			HStack {
+				Spacer()
+				Button("Cancel") { dismiss() }
+				Button("Export", action: submit)
+					.keyboardShortcut(.defaultAction)
+					.disabled(!canSubmit)
+			}
+		}
+		.padding()
+		.frame(minWidth: 420)
+	}
+
+	private func submit() {
+		guard canSubmit else { return }
+		onExport(passphrase)
+		passphrase = ""
+		confirm = ""
+		dismiss()
+	}
+}
+
 struct BackupPassphraseSheet: View {
 	let url: URL
 	let onImport: (String) -> Void
@@ -205,12 +1310,11 @@ struct BackupPassphraseSheet: View {
 	var body: some View {
 		VStack(alignment: .leading, spacing: 12) {
 			Text("Import \(url.lastPathComponent)").font(.title3)
-			Text(
-				"Type the passphrase used for this backup. Its secrets go straight into the Agent's Keychain."
-			)
-			.font(.callout)
-			.foregroundStyle(.secondary)
+			Text("Type the passphrase used for this backup.")
+				.font(.callout)
+				.foregroundStyle(.secondary)
 			SecureField("Backup passphrase", text: $passphrase)
+				.textContentType(.password)
 				.onSubmit(submit)
 			HStack {
 				Spacer()
@@ -232,187 +1336,109 @@ struct BackupPassphraseSheet: View {
 	}
 }
 
-struct IntegrationRow: View {
-	let row: Integration
+struct LogView: View {
+	@ObservedObject var log: AgentLog
 
-	var body: some View {
-		HStack(alignment: .firstTextBaseline) {
-			VStack(alignment: .leading, spacing: 2) {
-				Text(row.context.isEmpty ? "(no context)" : row.context).font(.headline)
-				Text("\(row.authName) · \(row.authType)")
-					.font(.callout)
-					.foregroundStyle(.secondary)
-				if !row.url.isEmpty {
-					Text(row.url).font(.caption).foregroundStyle(.secondary)
-				}
-			}
-			Spacer()
-			if let problem = row.problem {
-				Label(problem, systemImage: "exclamationmark.triangle")
-					.font(.caption)
-					.foregroundStyle(.orange)
-			} else {
-				Label("ready", systemImage: "checkmark.seal")
-					.font(.caption)
-					.foregroundStyle(.secondary)
-			}
-		}
-		.padding(.vertical, 2)
-	}
-}
-
-struct IntegrationEditor: View {
-	@ObservedObject var store: AgentStore
-	let gate: UnlockGate
-	@State var draft: Integration
-	@State private var secret: String = ""
-	@State private var saveError: String?
-	@Environment(\.dismiss) private var dismiss
-
-	private let types = ["oauth", "basic", "platform"]
-
-	var body: some View {
-		VStack(alignment: .leading, spacing: 12) {
-			Text(draft.authName.isEmpty ? "New integration" : draft.authName).font(.title3)
-			Form {
-				Section("Workplace") {
-					TextField("Context name", text: $draft.context)
-					TextField("Jamf Pro URL", text: $draft.url)
-						.help("https://example.jamfcloud.com")
-				}
-				Section("Auth") {
-					TextField("Auth name", text: $draft.authName)
-					Picker("Type", selection: $draft.authType) {
-						ForEach(types, id: \.self) { Text($0) }
-					}
-					if draft.authType == "basic" {
-						TextField("Username", text: $draft.username)
-					} else {
-						TextField("Client ID", text: $draft.clientID)
-					}
-					SecureField(
-						draft.hasSecret ? "Replace stored secret" : "Secret", text: $secret)
-					Picker("Access", selection: $draft.access) {
-						Text("full").tag("")
-						Text("readonly").tag("readonly")
-					}
-				}
-				if draft.authType == "platform" {
-					Section("Jamf Account (optional)") {
-						TextField("Region", text: $draft.region)
-						TextField("Environment ID", text: $draft.environmentID)
-						TextField("Tenant ID", text: $draft.tenantID)
-						Picker("Scope", selection: $draft.scope) {
-							Text("(none)").tag("")
-							Text("organization").tag("organization")
-							Text("environment").tag("environment")
-							Text("tenant").tag("tenant")
-						}
-					}
-				}
-			}
-			.formStyle(.grouped)
-
-			if let saveError {
-				Text(saveError).font(.callout).foregroundStyle(.red)
-			}
-
-			HStack {
-				if store.integration(forAuth: draft.authName) != nil {
-					Button("Delete", role: .destructive) {
-						store.remove(draft)
-						dismiss()
-					}
-				}
-				Spacer()
-				Button("Cancel") { dismiss() }
-				Button("Save") { save() }
-					.keyboardShortcut(.defaultAction)
-					.disabled(draft.context.trimmed.isEmpty || draft.authName.trimmed.isEmpty)
-			}
-		}
-		.padding()
-		.frame(minWidth: 480, minHeight: 460)
-	}
-
-	private func save() {
-		draft.context = draft.context.trimmed
-		draft.authName = draft.authName.trimmed
-		draft.url = draft.url.trimmed
-		store.upsert(draft)
-		guard !secret.isEmpty else {
-			dismiss()
-			return
-		}
-		let secretValue = secret
-		let row = draft
-		saveError = nil
-		// New ACL items need no prior LA prompt. Retry with the session only
-		// when replacing an existing presence-gated item.
-		DispatchQueue.global(qos: .userInitiated).async { [gate] in
-			var ok = AgentKeychain.set(secretValue, auth: row.authName, kind: row.secretKind)
-			if !ok, AgentKeychain.backend == .dataProtection,
-				gate.authorize(reason: "Buddy Agent wants to store the secret for \(row.authName)")
-					== .unlocked
-			{
-				ok = AgentKeychain.set(
-					secretValue, auth: row.authName, kind: row.secretKind,
-					context: gate.presenceContext)
-			}
-			DispatchQueue.main.async {
-				self.store.objectWillChange.send()
-				self.secret = ""
-				if !AgentKeychain.has(auth: row.authName, kind: row.secretKind) {
-					self.saveError = "Keychain write failed — secret not stored."
-					return
-				}
-				// Unsigned agent-dev is memory-only by design; Status says so.
-				if !ok, AgentKeychain.backend == .dataProtection {
-					self.saveError =
-						"Secret is memory-only until quit — Keychain ACL write failed. See Status."
-					return
-				}
-				self.dismiss()
-			}
-		}
-	}
-}
-
-struct TokensView: View {
-	@ObservedObject var state: AgentState
+	private static let timeFormatter: DateFormatter = {
+		let f = DateFormatter()
+		f.dateFormat = "HH:mm:ss"
+		return f
+	}()
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 8) {
-			if state.tokenSummaries.isEmpty {
-				Text("No bearers minted in this session.").foregroundStyle(.secondary)
+			HStack {
+				Text("Activity").font(.headline)
+				Spacer()
+				Button("Clear") { log.clear() }
+					.disabled(log.entries.isEmpty)
+			}
+			if log.entries.isEmpty {
+				Text("Config edits, token mints, buddy socket requests, and keychain diagnostics appear here.")
+					.foregroundStyle(.secondary)
+				Spacer()
 			} else {
-				List {
-					ForEach(state.tokenSummaries, id: \.baseURL) { row in
-						VStack(alignment: .leading, spacing: 2) {
-							Text(row.auth).font(.headline)
-							Text(row.baseURL).font(.caption).foregroundStyle(.secondary)
-							Text(expiryText(row.expiresAt)).font(.callout)
+				ScrollViewReader { proxy in
+					ScrollView {
+						LazyVStack(alignment: .leading, spacing: 4) {
+							ForEach(log.entries) { entry in
+								logRow(entry)
+									.id(entry.id)
+							}
 						}
-						.padding(.vertical, 2)
+					}
+					.onChange(of: log.entries.last?.id) { target in
+						guard let target else { return }
+						withAnimation(.easeOut(duration: 0.15)) {
+							proxy.scrollTo(target, anchor: .bottom)
+						}
+					}
+					.onAppear {
+						if let target = log.entries.last?.id {
+							proxy.scrollTo(target, anchor: .bottom)
+						}
 					}
 				}
 			}
-			Text("Lock clears every cached bearer.").font(.caption).foregroundStyle(.secondary)
+			Text(
+				"Also in Unified Log: log stream --predicate 'subsystem == \"\(AgentLog.subsystem)\"'"
+			)
+			.font(.caption2)
+			.foregroundStyle(.tertiary)
+			.textSelection(.enabled)
+		}
+		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+	}
+
+	private func logRow(_ entry: AgentLogEntry) -> some View {
+		HStack(alignment: .firstTextBaseline, spacing: 8) {
+			Text(Self.timeFormatter.string(from: entry.date))
+				.font(.caption.monospaced())
+				.foregroundStyle(.secondary)
+				.frame(width: 64, alignment: .leading)
+			Text(entry.category.label)
+				.font(.caption.weight(.semibold))
+				.foregroundStyle(categoryColor(entry.category))
+				.frame(width: 60, alignment: .leading)
+			Text(entry.message)
+				.font(.caption.monospaced())
+				.textSelection(.enabled)
+				.frame(maxWidth: .infinity, alignment: .leading)
 		}
 	}
 
-	private func expiryText(_ date: Date) -> String {
-		let remaining = Int(date.timeIntervalSinceNow)
-		if remaining <= 0 { return "expired" }
-		let minutes = remaining / 60
-		return minutes > 0 ? "expires in \(minutes) min" : "expires in \(remaining)s"
+	private func categoryColor(_ category: AgentLogCategory) -> Color {
+		switch category {
+		case .config: return .secondary
+		case .mint: return .green
+		case .buddy: return .accentColor
+		case .keychain: return .orange
+		}
 	}
 }
 
 struct StatusView: View {
 	@ObservedObject var store: AgentStore
 	@ObservedObject var state: AgentState
+	let gate: UnlockGate
 	let socketPath: String
+	@AppStorage(AgentIdleLock.userDefaultsKey) private var idleLockSeconds: Double =
+		AgentIdleLock.defaultSeconds
+	@AppStorage(AgentIdleLock.lastSecondsKey) private var lastIdleLockSeconds: Double =
+		AgentIdleLock.defaultSeconds
+	@AppStorage(AgentUnlockTimeout.userDefaultsKey) private var unlockTimeoutSeconds: Double =
+		AgentUnlockTimeout.defaultSeconds
+	@AppStorage(AgentUnlockTimeout.lastSecondsKey) private var lastUnlockTimeoutSeconds: Double =
+		AgentUnlockTimeout.defaultSeconds
+
+	private let idleLockChoices: [(label: String, seconds: TimeInterval)] = [
+		("5 minutes", 5 * 60),
+		("15 minutes", 15 * 60),
+		("30 minutes", 30 * 60),
+		("1 hour", 60 * 60),
+		("3 hours", 3 * 60 * 60),
+		("8 hours", 8 * 60 * 60),
+	]
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 10) {
@@ -426,13 +1452,25 @@ struct StatusView: View {
 				row("Version", AgentBranding.marketingVersion)
 				row("Socket", socketPath)
 				row("Config", store.path.path)
-				row("Integrations", "\(store.integrations.count)")
+				row("Workplaces", "\(store.workplaces.count)")
+				row("Auths", "\(store.authCount)")
+				row(
+					"Config integrity",
+					store.configIntegrity(
+						unlocked: state.unlocked,
+						presence: state.unlocked ? gate.presenceContext : nil
+					).wireValue)
+				if !store.managedPrefs.isEmpty {
+					row("Managed prefs", store.managedPrefs.summaryLine())
+				}
 				row("Peer check", PeerCheck.allowUnsigned ? "unsigned allowed (dev)" : "codesign")
 				row("Secrets", keychainText)
 				row("Presence", presenceText)
-				row("Idle lock", idleLockText)
 			}
 			.font(.callout)
+
+			idleLockSettings
+			unlockTimeoutSettings
 
 			if PeerCheck.allowUnsigned {
 				Label(
@@ -448,13 +1486,22 @@ struct StatusView: View {
 				)
 				.foregroundStyle(.orange)
 			}
+			if store.configIntegrity(
+				unlocked: state.unlocked, presence: state.unlocked ? gate.presenceContext : nil)
+				== .tampered
+			{
+				Label(
+					"Config was edited outside the Agent — minting is blocked until you review and save in Setup/Policy.",
+					systemImage: "exclamationmark.triangle"
+				)
+				.foregroundStyle(.orange)
+			}
 			if let error = store.lastError {
 				Label(error, systemImage: "xmark.octagon").foregroundStyle(.red)
 			}
 			Spacer()
 			Text(
-				"Config is served to buddy while locked. Unlock gates minting only, "
-					+ "and buddy can ask for that unlock when it needs a token."
+				"Config is served while locked. Minting requires unlock and a verified config seal (Keychain-protected)."
 			)
 			.font(.caption)
 			.foregroundStyle(.secondary)
@@ -486,14 +1533,208 @@ struct StatusView: View {
 		}
 	}
 
-	private var idleLockText: String {
-		let after = AgentState.idleLockAfter
-		guard after > 0 else { return "never" }
-		let minutes = Int(after) / 60
-		let base = minutes > 0 ? "\(minutes) min idle" : "\(Int(after))s idle"
-		guard let until = state.unlockedUntil else { return base }
-		let remaining = max(0, Int(until.timeIntervalSinceNow))
-		return "\(base) (relocks in \(remaining)s)"
+	private var idleLockDisabled: Bool { idleLockSeconds <= 0 }
+
+	private var autoLockEnabled: Binding<Bool> {
+		Binding(
+			get: { idleLockSeconds > 0 },
+			set: { enabled in
+				if enabled {
+					idleLockSeconds =
+						lastIdleLockSeconds > 0 ? lastIdleLockSeconds : AgentIdleLock.defaultSeconds
+				} else {
+					if idleLockSeconds > 0 {
+						lastIdleLockSeconds = idleLockSeconds
+					}
+					idleLockSeconds = 0
+				}
+				state.refreshIdleLockTimer()
+			})
+	}
+
+	private var idleLockInterval: Binding<Double> {
+		Binding(
+			get: { idleLockSeconds > 0 ? idleLockSeconds : lastIdleLockSeconds },
+			set: { newValue in
+				lastIdleLockSeconds = newValue
+				if idleLockSeconds > 0 {
+					idleLockSeconds = newValue
+				}
+			})
+	}
+
+	private var idleLockIntervalLabel: String {
+		let current = idleLockSeconds > 0 ? idleLockSeconds : lastIdleLockSeconds
+		return idleLockChoices.first { $0.seconds == current }?.label ?? "15 minutes"
+	}
+
+	private var idleLockSettings: some View {
+		VStack(alignment: .leading, spacing: 8) {
+			Toggle("Auto-lock when idle", isOn: autoLockEnabled)
+				.disabled(AgentIdleLock.envOverrideActive)
+
+			if idleLockDisabled {
+				Label(
+					"Auto-lock is off — minting stays unlocked until you lock from the menu or quit.",
+					systemImage: "exclamationmark.triangle.fill"
+				)
+				.font(.callout)
+				.foregroundStyle(.primary)
+			} else {
+				HStack {
+					Text("Interval")
+					Spacer()
+					Menu {
+						ForEach(idleLockChoices, id: \.seconds) { choice in
+							Button {
+								idleLockInterval.wrappedValue = choice.seconds
+							} label: {
+								if idleLockInterval.wrappedValue == choice.seconds {
+									Label(choice.label, systemImage: "checkmark")
+								} else {
+									Text(choice.label)
+								}
+							}
+						}
+					} label: {
+						Text(idleLockIntervalLabel)
+					}
+					.menuStyle(.borderlessButton)
+					.fixedSize()
+				}
+				.disabled(AgentIdleLock.envOverrideActive)
+
+				if state.unlocked, let until = state.unlockedUntil {
+					let remaining = max(0, Int(until.timeIntervalSinceNow))
+					Text("Relocks in \(remaining)s if idle")
+						.font(.caption)
+						.foregroundStyle(.secondary)
+				}
+			}
+
+			if AgentIdleLock.envOverrideActive {
+				Text("BUDDY_AGENT_IDLE_LOCK overrides this setting.")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+		}
+		.padding(10)
+		.background(idleLockBackground, in: RoundedRectangle(cornerRadius: 8))
+		.overlay(
+			RoundedRectangle(cornerRadius: 8)
+				.strokeBorder(idleLockBorder, lineWidth: 1))
+		.onChange(of: idleLockSeconds) { _ in
+			state.refreshIdleLockTimer()
+		}
+	}
+
+	private var idleLockBackground: Color {
+		if idleLockDisabled {
+			return Color(red: 0.42, green: 0.28, blue: 0.08).opacity(0.22)
+		}
+		return Color.primary.opacity(0.04)
+	}
+
+	private var idleLockBorder: Color {
+		idleLockDisabled ? Color.brown.opacity(0.45) : Color.primary.opacity(0.08)
+	}
+
+	private let unlockTimeoutChoices: [(label: String, seconds: TimeInterval)] = [
+		("30 seconds", 30),
+		("1 minute", 60),
+		("2 minutes", 2 * 60),
+		("5 minutes", 5 * 60),
+	]
+
+	private var unlockPromptDisabled: Bool { unlockTimeoutSeconds <= 0 }
+
+	private var unlockPromptEnabled: Binding<Bool> {
+		Binding(
+			get: { unlockTimeoutSeconds > 0 },
+			set: { enabled in
+				if enabled {
+					unlockTimeoutSeconds =
+						lastUnlockTimeoutSeconds > 0
+						? lastUnlockTimeoutSeconds : AgentUnlockTimeout.defaultSeconds
+				} else {
+					if unlockTimeoutSeconds > 0 {
+						lastUnlockTimeoutSeconds = unlockTimeoutSeconds
+					}
+					unlockTimeoutSeconds = 0
+				}
+			})
+	}
+
+	private var unlockTimeoutInterval: Binding<Double> {
+		Binding(
+			get: { unlockTimeoutSeconds > 0 ? unlockTimeoutSeconds : lastUnlockTimeoutSeconds },
+			set: { newValue in
+				lastUnlockTimeoutSeconds = newValue
+				if unlockTimeoutSeconds > 0 {
+					unlockTimeoutSeconds = newValue
+				}
+			})
+	}
+
+	private var unlockTimeoutLabel: String {
+		let current = unlockTimeoutSeconds > 0 ? unlockTimeoutSeconds : lastUnlockTimeoutSeconds
+		return unlockTimeoutChoices.first { $0.seconds == current }?.label ?? "1 minute"
+	}
+
+	private var unlockTimeoutSettings: some View {
+		VStack(alignment: .leading, spacing: 8) {
+			Toggle("Allow unlock prompts from buddy", isOn: unlockPromptEnabled)
+				.disabled(AgentUnlockTimeout.envOverrideActive)
+
+			if unlockPromptDisabled {
+				Label(
+					"Buddy CLI cannot trigger unlock — use Lock/Unlock in the menu bar.",
+					systemImage: "exclamationmark.triangle.fill"
+				)
+				.font(.callout)
+				.foregroundStyle(.primary)
+			} else {
+				HStack {
+					Text("Prompt timeout")
+					Spacer()
+					Menu {
+						ForEach(unlockTimeoutChoices, id: \.seconds) { choice in
+							Button {
+								unlockTimeoutInterval.wrappedValue = choice.seconds
+							} label: {
+								if unlockTimeoutInterval.wrappedValue == choice.seconds {
+									Label(choice.label, systemImage: "checkmark")
+								} else {
+									Text(choice.label)
+								}
+							}
+						}
+					} label: {
+						Text(unlockTimeoutLabel)
+					}
+					.menuStyle(.borderlessButton)
+					.fixedSize()
+				}
+				.disabled(AgentUnlockTimeout.envOverrideActive)
+			}
+
+			if AgentUnlockTimeout.envOverrideActive {
+				Text("BUDDY_AGENT_UNLOCK_TIMEOUT overrides this setting.")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+		}
+		.padding(10)
+		.background(
+			unlockPromptDisabled
+				? Color(red: 0.42, green: 0.28, blue: 0.08).opacity(0.22)
+				: Color.primary.opacity(0.04),
+			in: RoundedRectangle(cornerRadius: 8))
+		.overlay(
+			RoundedRectangle(cornerRadius: 8)
+				.strokeBorder(
+					unlockPromptDisabled ? Color.brown.opacity(0.45) : Color.primary.opacity(0.08),
+					lineWidth: 1))
 	}
 
 	private func row(_ label: String, _ value: String) -> some View {

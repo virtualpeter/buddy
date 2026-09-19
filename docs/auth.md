@@ -219,13 +219,13 @@ Escape hatches (never written to disk as config):
 
 ### Optional Buddy Agent
 
-An optional macOS menu-bar **Buddy Agent** (Swift, [`macos/BuddyAgent/`](../macos/BuddyAgent/)) **owns its own integrations**: the workplace, the auth, and the secret, which lives in its Keychain under service `virtualpete.buddy.agent`. buddy never sends a secret to the Agent, and the Agent never returns one: the CLI dials a **unix-domain socket** with a **Team-ID codesign peer check** and receives config (identity) or `{access_token, expires_at}`. Nothing is installed by default: no LaunchAgent, no change to `Contents/MacOS/Buddy`, and no new entitlements on `Helpers/buddy`.
+An optional macOS menu-bar **Buddy Agent** (Swift, [`macos/BuddyAgent/`](../macos/BuddyAgent/)) **owns its own workplaces and auths**: identity in `agent-config.json`, secrets in its Keychain under service `virtualpete.buddy.agent`. buddy never sends a secret to the Agent, and the Agent never returns one: the CLI dials a **unix-domain socket** with a **Team-ID codesign peer check** and receives config (identity) or `{access_token, expires_at}`. Nothing is installed by default: no LaunchAgent, no change to `Contents/MacOS/Buddy`, and no new entitlements on `Helpers/buddy`.
 
 **Config is served while the Agent is locked.** Workplaces and auth names are identity, not secrets, so resolving a session never prompts. Unlock gates **minting** only.
 
 | Op | Needs unlock | Returns |
 |---|---|---|
-| `status` | no | present, unlocked, version, peer check, integration/token counts, presence mode, idle lock |
+| `status` | no | present, unlocked, version, peer check, integration/token counts, presence mode, idle lock, `config_integrity`, optional `managed_prefs` |
 | `config` | no | config.yaml-shaped document, secrets stripped |
 | `integrations` | no | per-auth summary with `secret: stored/missing` |
 | `tokens` | no | cached bearer metadata, never a bearer |
@@ -244,7 +244,7 @@ An optional macOS menu-bar **Buddy Agent** (Swift, [`macos/BuddyAgent/`](../maco
 
 The difference is the entitlement. A `userPresence` ACL only works on the **data protection** keychain, which on macOS needs `keychain-access-groups` — a restricted entitlement authorized by a provisioning profile. Xcode automatic signing embeds one; a `swift build` binary has none, so the Agent detects that at launch and keeps secrets in memory rather than failing open into the login keychain. The Status tab shows which backend is in use.
 
-`buddy agent status | config [--json] | integrations | tokens | lock` inspects it (`buddy auth agent` is an alias of `agent status`). There is no `unlock` and no `push`: unlock is a tray action, and secrets are typed into the Agent window — or imported by it. The Agent's **Import from buddy** menu reads two files an existing setup already has:
+`buddy agent status | config [--json] | integrations | tokens | lock` inspects it (`buddy auth agent` is an alias of `agent status`). There is no `unlock` and no `push`: unlock is a tray action, and secrets are typed into the Agent window — or imported by it. The Agent's **Setup** tab **Import from buddy** reads two files an existing setup already has:
 
 | File | Carries | In the Agent |
 |---|---|---|
@@ -281,6 +281,7 @@ Order of precedence when a bearer is needed:
 | `unlock_timeout` | fails; nobody answered the prompt |
 | `unlock_unavailable` | fails; this Mac cannot prompt, so unlock from the menu bar |
 | `denied` / `bad_request` / `mint_failed` | fails |
+| `config_tampered` | fails — `agent-config.json` was edited outside the Agent or no longer matches its Keychain seal |
 
 | Variable | Effect |
 |---|---|
@@ -304,7 +305,7 @@ Still out of scope: `SMAppService` login-item registration and an "Open at Login
 
 **Manual soak** (Agent running from `dist/BuddyAgent.app`, or `make agent-dev` for the unsigned path):
 
-1. Add an integration in the Agent window while it is locked, then `buddy agent integrations` → the row with `secret stored`, no prompt
+1. Add a workplace and auth in the Agent **Setup** tab while it is locked, then `buddy agent integrations` → the row with `secret stored`, no prompt
 2. `buddy agent config` → the served document; with `features.use_agent: true`, `buddy cred status` shows the same context with `SECRET=agent`
 3. `buddy auth token drop` then `buddy auth test` with the Agent locked → the Agent prompts, and approving it mints without touching the tray; `buddy agent status` then shows `unlocked: true`
 4. Decline the prompt → `unlock declined at the presence prompt`, the Agent stays locked, and the vault was never opened

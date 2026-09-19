@@ -55,7 +55,12 @@ enum AgentLoginItem {
 enum AgentBranding {
 	static var marketingVersion: String {
 		Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-			?? agentVersion
+			?? AgentBuildVersion.marketing
+	}
+
+	/// Wire \`status\` version — matches buddy CLI \`git describe\`.
+	static var wireVersion: String {
+		AgentBuildVersion.describe
 	}
 
 	static var buildNumber: String {
@@ -64,7 +69,32 @@ enum AgentBranding {
 
 	static var copyright: String {
 		Bundle.main.object(forInfoDictionaryKey: "NSHumanReadableCopyright") as? String
-			?? "Copyright © 2026 Peter Viertel. MIT License."
+			?? "Copyright © 2026 Peter Viertel."
+	}
+
+	static var licenseURL: URL? {
+		Bundle.main.url(forResource: "LICENSE", withExtension: nil)
+	}
+
+	static func aboutCredits() -> NSAttributedString {
+		let disclaimer = "Not affiliated with or endorsed by Jamf.\n"
+		let licenseText = "MIT License"
+		let full = disclaimer + licenseText
+		let attr = NSMutableAttributedString(
+			string: full,
+			attributes: [
+				.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+				.foregroundColor: NSColor.secondaryLabelColor,
+			])
+		if let url = licenseURL {
+			let range = (full as NSString).range(of: licenseText)
+			attr.addAttributes(
+				[
+					.link: url,
+					.foregroundColor: NSColor.linkColor,
+				], range: range)
+		}
+		return attr
 	}
 
 	/// Buddy.app next to a nested Agent, or the usual Applications locations.

@@ -145,7 +145,7 @@ AGENT_SWIFT_FILES := $(shell find macos/BuddyAgent/Sources -name '*.swift' 2>/de
 .PHONY: agent-app
 agent-app: $(AGENT_TARGET)
 
-$(AGENT_TARGET): $(AGENT_SWIFT_FILES) macos/BuddyAgent/BuddyAgent.xcodeproj/project.pbxproj macos/BuddyAgent/BuddyAgent.entitlements macos/BuddyAgent/Resources/Info.plist scripts/build-agent-app.sh | $(DIST)
+$(AGENT_TARGET): $(AGENT_SWIFT_FILES) macos/BuddyAgent/BuddyAgent.xcodeproj/project.pbxproj macos/BuddyAgent/BuddyAgent.entitlements macos/BuddyAgent/Resources/Info.plist scripts/build-agent-app.sh scripts/gen-agent-version.sh | $(DIST)
 	@test "$$(uname -s)" = Darwin || { echo "make agent-app is macOS-only"; exit 1; }
 	./scripts/build-agent-app.sh "$(AGENT_TARGET)" "$(PKG_VERSION)" "$(BUDDY_TEAM_ID)"
 
@@ -154,6 +154,7 @@ $(AGENT_TARGET): $(AGENT_SWIFT_FILES) macos/BuddyAgent/BuddyAgent.xcodeproj/proj
 .PHONY: agent-dev
 agent-dev:
 	@test "$$(uname -s)" = Darwin || { echo "make agent-dev is macOS-only"; exit 1; }
+	./scripts/gen-agent-version.sh
 	cd macos/BuddyAgent && swift build
 	@echo "Run: BUDDY_AGENT_ALLOW_UNSIGNED=1 macos/BuddyAgent/.build/debug/BuddyAgent"
 

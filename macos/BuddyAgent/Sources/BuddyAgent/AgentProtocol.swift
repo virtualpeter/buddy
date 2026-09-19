@@ -1,9 +1,5 @@
 import Foundation
 
-/// Wire version reported by `status` (protocol shape, not marketing).
-/// Marketing / About use CFBundleShortVersionString via AgentBranding.
-let agentVersion = "0.3.0"
-
 /// Error codes returned to the CLI. `unsupported` is the only code the Go side
 /// treats as "fall back to the in-process vault"; everything else is fatal for
 /// that call so a running Agent never silently hands secrets back to Go.
@@ -19,6 +15,8 @@ enum AgentErrorCode: String {
 	case unlockTimeout = "unlock_timeout"
 	/// No device-owner authentication on this Mac: the tray is the only way in.
 	case unlockUnavailable = "unlock_unavailable"
+	/// agent-config.json no longer matches its HMAC seal.
+	case configTampered = "config_tampered"
 }
 
 /// One newline-delimited JSON request.
@@ -49,19 +47,30 @@ struct AgentRequest: Decodable {
 /// Replies are built as dictionaries because `config` carries an arbitrary
 /// config.yaml-shaped document. No reply ever carries a secret value.
 enum AgentReply {
-	static func status(unlocked: Bool, integrations: Int, tokens: Int) -> [String: Any] {
-		[
+	static func status(
+		unlocked: Bool,
+		integrations: Int,
+		tokens: Int,
+		configIntegrity: String,
+		managedPrefs: String?
+	) -> [String: Any] {
+		var out: [String: Any] = [
 			"ok": true,
 			"present": true,
 			"unlocked": unlocked,
-			"version": agentVersion,
+			"version": AgentBranding.wireVersion,
 			"peer_check": PeerCheck.allowUnsigned ? "unsigned-allowed" : "codesign",
 			"integration_count": integrations,
 			"token_count": tokens,
 			"presence": UnlockGate.mode.rawValue,
 			"idle_lock_seconds": Int(AgentState.idleLockAfter),
 			"unlock_timeout_seconds": Int(UnlockGate.timeout),
+			"config_integrity": configIntegrity,
 		]
+		if let managedPrefs, !managedPrefs.isEmpty {
+			out["managed_prefs"] = managedPrefs
+		}
+		return out
 	}
 
 	static func config(_ document: [String: Any]) -> [String: Any] {

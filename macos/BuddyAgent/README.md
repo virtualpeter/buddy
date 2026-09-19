@@ -1,7 +1,7 @@
 # Buddy Agent (macOS)
 
-Optional menu-bar app that **owns its own Jamf integrations** — workplace, auth,
-and the secret, which lives in its Keychain — and mints bearer tokens for the
+Optional menu-bar app that **owns its own Jamf workplaces and auths** — identity
+in `agent-config.json`, secrets in its Keychain — and mints bearer tokens for the
 `buddy` CLI over a unix-domain socket. buddy never pushes a secret to the Agent,
 and the Agent never returns one: the CLI receives config (identity) or
 `{access_token, expires_at}`.
@@ -35,6 +35,12 @@ or a secure timestamp.
 The Xcode target uses a **synchronized folder group** on `Sources/BuddyAgent`,
 so a new `.swift` file is picked up by both builds with no file-list edit.
 `Package.swift` is the dev loop only; it is never shipped.
+
+Version strings come from the same git tags as the CLI (`git describe` → wire
+`status.version`; the tag's semver prefix → About / `CFBundleShortVersionString`).
+`scripts/gen-agent-version.sh` writes `AgentVersion.generated.swift` and
+`Version.xcconfig`; `make agent-dev` and `make agent-app` run it, and the Xcode
+target has a **Generate Version** build phase for direct builds.
 
 ```sh
 BUDDY_AGENT_ALLOW_UNSIGNED=1 macos/BuddyAgent/.build/debug/BuddyAgent    # dev run
@@ -73,21 +79,23 @@ Apple answers. Do not rebuild before stapling.
 
 A padlock appears in the menu bar (`lock.fill` locked, `lock.open.fill`
 unlocked). The menu opens with a **Buddy Agent** title (app icon), lock state,
-Unlock / Lock, **Open Buddy Agent…**, **Open Buddy…** (launches Buddy.app when
+Unlock / Lock, **Settings…**, **Open Buddy…** (launches Buddy.app when
 found), **Open at Login** (`SMAppService.mainApp` — Apple's API for registering
 this process to launch at login; System Settings approval when required),
-**About Buddy Agent…**, Copy Socket Path, and Quit. Unlock goes through the same
+**Help** (⌘?), **About Buddy Agent…**, and Quit. Unlock goes through the same
 presence gate a token request does; the CLI still cannot unlock the Agent over
 the socket, it can only ask the Agent to put up its own prompt.
 
 `make agent-app` stamps `AppIcon.icns` from `internal/serve/buddy.png` (same
 logo as Buddy.app) and the copyright string from the MIT LICENSE.
 
-The window has three tabs:
+The window has four tabs. User-facing setup guide: `Resources/AgentHelp.md`
+(in-app via **Help** in the menu bar or the **?** icon on the Setup tab).
 
-- **Integrations** — add, edit, and delete workplace+auth pairs. The secret
-  field is write-only; rows show `stored` or `missing`, never a value. **Import
-  from buddy** takes either file an existing setup can provide:
+- **Setup** — add, edit, and delete workplaces and auths. The secret
+  field is write-only; rows show `stored` or `missing`, never a value. The
+  key icon on an auth row mints or shows cached bearer metadata (when unlocked).
+  **Import from buddy** takes either file an existing setup can provide:
   - *Config only* — the JSON from `buddy setup export --json`: workplaces and
     auth names, no secrets, so each secret is still typed in here.
   - *Config and secrets* — the encrypted file from `buddy cred backup`. The
@@ -95,14 +103,19 @@ The window has three tabs:
     (PBKDF2-SHA256 + AES-GCM, same envelope `buddy cred restore` reads), and
     writes each secret straight into its own Keychain. The passphrase is used
     once and never stored; the CLI is not involved.
-- **Tokens** — bearers minted this session and when they expire. Lock clears them.
-- **Status** — socket path, config path, version, peer-check mode, presence mode,
-  idle lock, warnings.
+  **Export for buddy** (beside Import) writes the same two formats: identity JSON
+  for `buddy setup import`, or an encrypted cred backup for `buddy cred restore`.
+- **Policy** — `features` and `channels` policy (draft until **Save**). MDM-locked
+  fields are read-only.
+- **Log** — Activity log (config, mint, buddy socket, keychain diagnostics); also
+  in Unified Log.
+- **Status** — socket path, config path, config integrity, managed prefs, version,
+  peer-check mode, presence mode, idle lock, unlock-prompt preference, warnings.
 
 From the CLI side:
 
 ```sh
-buddy agent status          # present / unlocked / version / peer check / counts
+buddy agent status          # present / unlocked / version / peer check / counts / config_integrity
 buddy agent config          # the document the Agent serves (no secrets)
 buddy agent integrations    # what it owns, with secret presence
 buddy agent tokens          # cached bearer metadata
@@ -119,8 +132,9 @@ and your own `config.yaml`, is never written to disk, and its auths show
 
 | What | Where |
 |---|---|
-| Integrations (identity only) | `~/Library/Application Support/Buddy/agent-config.json` (0600) |
+| Workplaces, auths, policy (identity only) | `~/Library/Application Support/Buddy/agent-config.json` (0600) |
 | Secrets | Keychain generic passwords, service `virtualpete.buddy.agent`, account `<auth>/client_secret` or `<auth>/password` |
+| Config seal | Keychain (HMAC key + signature, same presence ACL as secrets) |
 | Socket | `~/Library/Application Support/Buddy/agent.sock` (directory 0700, socket 0600) |
 
 Items are `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`. A `userPresence`
@@ -141,8 +155,8 @@ then relocks on an idle timer, which also drops every cached bearer.
 
 | Variable | Use |
 |---|---|
-| `BUDDY_AGENT_UNLOCK_TIMEOUT` | Seconds the prompt stays up (default 60; `0` disables prompting, leaving the tray) |
-| `BUDDY_AGENT_IDLE_LOCK` | Seconds of no minting before the Agent relocks (default 900; `0` = never) |
+| `BUDDY_AGENT_UNLOCK_TIMEOUT` | Dev override for unlock-prompt seconds (`0` disables buddy-triggered prompts). When unset, the Status tab preference applies. |
+| `BUDDY_AGENT_IDLE_LOCK` | Dev override for idle relock seconds (`0` = never). When unset, the Status tab preference applies. |
 | `BUDDY_AGENT_FAKE_PRESENCE` | `allow` / `deny` answers without a prompt, for unattended soaks; needs `BUDDY_AGENT_ALLOW_UNSIGNED=1` |
 
 `status` reports the mode: `simulated` (LocalAuthentication, today), `acl`
@@ -156,7 +170,7 @@ Newline-delimited JSON. `BUDDY_AGENT_SOCK` overrides the path on both sides.
 
 | Request | Unlock | Response |
 |---|---|---|
-| `{"op":"status"}` | no | `{"ok":true,"present":true,"unlocked":false,"version":"0.3.0","peer_check":"codesign","integration_count":1,"token_count":0,"presence":"simulated","idle_lock_seconds":900,"unlock_timeout_seconds":60}` |
+| `{"op":"status"}` | no | `{"ok":true,"present":true,"unlocked":false,"version":"v12.0.0-9-ge63c95a","peer_check":"codesign","integration_count":1,"token_count":0,"presence":"simulated","idle_lock_seconds":900,"unlock_timeout_seconds":60,"config_integrity":"sealed","managed_prefs":"…"}` (optional) |
 | `{"op":"config"}` | no | `{"ok":true,"config":{…}}` — config.yaml-shaped, no secrets |
 | `{"op":"integrations"}` | no | `{"ok":true,"integrations":[{"context":…,"auth":…,"secret":"stored"}]}` |
 | `{"op":"tokens"}` | no | `{"ok":true,"tokens":[{"auth":…,"base_url":…,"expires_at":…}]}` |
@@ -178,6 +192,7 @@ Failures are `{"ok":false,"error":"<code>","message":"…"}`. Codes:
 | `unlock_unavailable` | command fails; no prompt is possible, so unlock from the tray |
 | `denied` | command fails (peer codesign rejected, or unlock attempted over the socket) |
 | `bad_request`, `mint_failed` | command fails |
+| `config_tampered` | command fails — `agent-config.json` no longer matches its Keychain seal |
 
 ## Peer check
 
@@ -196,7 +211,7 @@ requires `anchor apple generic`, the Agent's own Team ID, and an identifier in
 Full checklist including the Go side: [`docs/auth.md`](../../docs/auth.md)
 § Optional Buddy Agent.
 
-1. Start the Agent locked, add an integration in the window, then
+1. Start the Agent locked, add a workplace and auth in **Setup**, then
    `buddy agent integrations` → the row with `secret stored`, no prompt.
 2. `buddy agent config` → the served document. With `features.use_agent: true`,
    `buddy cred status` shows that context with `SECRET=agent`.
@@ -204,7 +219,7 @@ Full checklist including the Go side: [`docs/auth.md`](../../docs/auth.md)
    Agent prompts; approve it and the token is minted, `buddy agent status` then
    shows `unlocked: true`. The vault is never opened either way.
 4. Repeat and decline → `unlock declined at the presence prompt`, Agent still
-   locked. `BUDDY_AGENT_NO_PROMPT=1` gives the plain `locked` error with no
+   locked. `BUDDY_AGENT_UNLOCK_TIMEOUT=0` gives the plain `locked` error with no
    prompt at all.
 5. Run with `BUDDY_AGENT_IDLE_LOCK=5`, unlock, wait → `buddy agent status` shows
    it relocked and its cached bearers gone.

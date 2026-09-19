@@ -20,6 +20,34 @@ enum UnlockOutcome {
 	case unavailable
 }
 
+/// Persisted unlock-prompt timeout (`UserDefaults`). 0 = buddy cannot trigger prompts.
+enum AgentUnlockTimeout {
+	static let userDefaultsKey = "BuddyAgentUnlockTimeoutSeconds"
+	static let lastSecondsKey = "BuddyAgentUnlockTimeoutLastSeconds"
+	static let defaultSeconds: TimeInterval = 60
+
+	static var persistedSeconds: TimeInterval {
+		guard UserDefaults.standard.object(forKey: userDefaultsKey) != nil else {
+			return defaultSeconds
+		}
+		return max(0, UserDefaults.standard.double(forKey: userDefaultsKey))
+	}
+
+	/// Dev override via `BUDDY_AGENT_UNLOCK_TIMEOUT`; otherwise the persisted preference.
+	static var effectiveSeconds: TimeInterval {
+		if let raw = ProcessInfo.processInfo.environment["BUDDY_AGENT_UNLOCK_TIMEOUT"],
+			let seconds = TimeInterval(raw), seconds >= 0
+		{
+			return seconds
+		}
+		return persistedSeconds
+	}
+
+	static var envOverrideActive: Bool {
+		ProcessInfo.processInfo.environment["BUDDY_AGENT_UNLOCK_TIMEOUT"] != nil
+	}
+}
+
 /// The single presence path: the tray Unlock item and an incoming token request
 /// both come through here, so there is one prompt, one timeout, and one place
 /// that decides what "unlocked" means.
@@ -65,14 +93,7 @@ final class UnlockGate {
 
 	/// Seconds the prompt may stay unanswered. 0 disables prompting entirely,
 	/// which leaves the tray as the only way to unlock.
-	static var timeout: TimeInterval {
-		guard let raw = ProcessInfo.processInfo.environment["BUDDY_AGENT_UNLOCK_TIMEOUT"],
-			let seconds = TimeInterval(raw), seconds >= 0
-		else {
-			return 60
-		}
-		return seconds
-	}
+	static var timeout: TimeInterval { AgentUnlockTimeout.effectiveSeconds }
 
 	static var promptingDisabled: Bool { timeout == 0 }
 
@@ -175,7 +196,10 @@ final class UnlockGate {
 
 		// An accessory app has no windows to bring forward, so make sure the
 		// system sheet is not drawn behind whatever the user is looking at.
-		DispatchQueue.main.async { NSApp.activate(ignoringOtherApps: true) }
+		DispatchQueue.main.async {
+			AgentWindowController.settingsWindow?.orderFrontRegardless()
+			NSApp.activate(ignoringOtherApps: true)
+		}
 
 		let done = DispatchSemaphore(value: 0)
 		var granted = false
@@ -196,7 +220,12 @@ final class UnlockGate {
 		done.wait()
 		timer.cancel()
 
-		if granted { return (.unlocked, context) }
+		if granted {
+			// Accessory apps lose key-window status while the system sheet is up;
+			// bring Settings back so mint-from-locked does not look like it closed.
+			DispatchQueue.main.async { AgentWindowRefocus.bringSettingsForward() }
+			return (.unlocked, context)
+		}
 		context.invalidate()
 		if timedOut { return (.timedOut, nil) }
 		switch (failure as? LAError)?.code {

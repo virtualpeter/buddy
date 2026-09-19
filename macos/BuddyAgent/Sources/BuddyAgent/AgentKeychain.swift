@@ -238,23 +238,35 @@ enum AgentKeychain {
 		return keychainExists(account: acct)
 	}
 
+	/// True when either secret kind is present (covers basic/oauth mismatches).
+	static func hasAny(auth: String) -> Bool {
+		Kind.allCases.contains { has(auth: auth, kind: $0) }
+	}
+
 	/// True when the secret is in the data-protection keychain (not memory).
 	static func storedInKeychain(auth: String, kind: Kind) -> Bool {
 		guard backend == .dataProtection else { return false }
 		return keychainExists(account: account(auth: auth, kind: kind))
 	}
 
-	static func delete(auth: String, kind: Kind) {
+	static func delete(auth: String, kind: Kind, context: LAContext? = nil) {
 		let acct = account(auth: auth, kind: kind)
 		if backend == .dataProtection {
-			_ = silentDelete(account: acct)
+			if let context {
+				var query = dpQuery(account: acct)
+				query[kSecUseAuthenticationContext] = context
+				query[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
+				_ = SecItemDelete(query as CFDictionary)
+			} else {
+				_ = silentDelete(account: acct)
+			}
 		}
 		forget(acct)
 	}
 
-	static func deleteAll(auth: String) {
+	static func deleteAll(auth: String, context: LAContext? = nil) {
 		for kind in Kind.allCases {
-			delete(auth: auth, kind: kind)
+			delete(auth: auth, kind: kind, context: context)
 		}
 	}
 
@@ -262,8 +274,125 @@ enum AgentKeychain {
 	static func forgetMemory() {
 		lock.lock()
 		memoryStore.removeAll()
+		protectedMemoryStore.removeAll()
 		usingFallback = false
 		lock.unlock()
+	}
+
+	/// Drops cached protected blobs (e.g. config seal) without touching Keychain.
+	static func forgetProtectedMemory(for accounts: [String]) {
+		lock.lock()
+		for account in accounts {
+			protectedMemoryStore.removeValue(forKey: account)
+		}
+		lock.unlock()
+	}
+
+	// MARK: protected binary blobs (config integrity, etc.)
+
+	@discardableResult
+	static func setProtectedData(
+		_ data: Data, account: String, label: String, context: LAContext? = nil
+	) -> Bool {
+		guard backend == .dataProtection, let control = accessControl() else {
+			rememberProtected(account, data)
+			return false
+		}
+
+		let base = dpQuery(account: account)
+		var deleteStatus = silentDelete(account: account)
+		if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound, let context {
+			var authed = base
+			authed[kSecUseAuthenticationContext] = context
+			deleteStatus = SecItemDelete(authed as CFDictionary)
+		}
+
+		var add = base
+		add[kSecAttrLabel] = label
+		add[kSecAttrAccessControl] = control
+		add[kSecValueData] = data
+		var status = SecItemAdd(add as CFDictionary, nil)
+		if status == errSecDuplicateItem {
+			if let context {
+				var updateQuery = base
+				updateQuery[kSecUseAuthenticationContext] = context
+				let update: [CFString: Any] = [kSecValueData: data]
+				status = SecItemUpdate(updateQuery as CFDictionary, update as CFDictionary)
+			} else {
+				log("ACL protected write \(account) blocked by existing item (delete \(deleteStatus))")
+				rememberProtected(account, data)
+				return false
+			}
+		}
+		if status == errSecSuccess, keychainExists(account: account) {
+			forgetProtected(account)
+			return true
+		}
+		rememberProtected(account, data)
+		return false
+	}
+
+	static func protectedData(account: String, context: LAContext?) -> Data? {
+		if let context, backend == .dataProtection {
+			if let value = copyProtected(account: account, context: context) {
+				return value
+			}
+		}
+		return recalledProtected(account)
+	}
+
+	static func protectedDataExists(account: String) -> Bool {
+		if recalledProtected(account) != nil { return true }
+		guard backend == .dataProtection else { return false }
+		return keychainExists(account: account)
+	}
+
+	static func deleteProtectedData(account: String, context: LAContext? = nil) {
+		if backend == .dataProtection {
+			if let context {
+				var query = dpQuery(account: account)
+				query[kSecUseAuthenticationContext] = context
+				query[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
+				_ = SecItemDelete(query as CFDictionary)
+			} else {
+				_ = silentDelete(account: account)
+			}
+		}
+		forgetProtected(account)
+	}
+
+	private static func copyProtected(account: String, context: LAContext) -> Data? {
+		var query = dpQuery(account: account)
+		query[kSecUseAuthenticationContext] = context
+		query[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
+		query[kSecReturnData] = true
+		query[kSecMatchLimit] = kSecMatchLimitOne
+		var item: CFTypeRef?
+		let status = SecItemCopyMatching(query as CFDictionary, &item)
+		if status == errSecSuccess, let data = item as? Data, !data.isEmpty {
+			return data
+		}
+		return nil
+	}
+
+	private static var protectedMemoryStore: [String: Data] = [:]
+
+	private static func rememberProtected(_ account: String, _ data: Data) {
+		lock.lock()
+		protectedMemoryStore[account] = data
+		lock.unlock()
+	}
+
+	private static func forgetProtected(_ account: String) {
+		lock.lock()
+		protectedMemoryStore.removeValue(forKey: account)
+		lock.unlock()
+	}
+
+	private static func recalledProtected(_ account: String) -> Data? {
+		lock.lock()
+		defer { lock.unlock() }
+		return protectedMemoryStore[account]
 	}
 
 	// MARK: memory
@@ -289,21 +418,6 @@ enum AgentKeychain {
 	// MARK: logging
 
 	private static func log(_ line: String) {
-		let text = "buddy-agent: \(line)\n"
-		FileHandle.standardError.write(Data(text.utf8))
-		let dir = FileManager.default.urls(
-			for: .applicationSupportDirectory, in: .userDomainMask
-		).first?.appendingPathComponent("Buddy", isDirectory: true)
-		guard let dir else { return }
-		try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-		let url = dir.appendingPathComponent("agent-keychain.log")
-		let stamped = "\(ISO8601DateFormatter().string(from: Date())) \(line)\n"
-		if let handle = try? FileHandle(forWritingTo: url) {
-			defer { try? handle.close() }
-			_ = try? handle.seekToEnd()
-			try? handle.write(contentsOf: Data(stamped.utf8))
-		} else {
-			try? stamped.write(to: url, atomically: true, encoding: .utf8)
-		}
+		AgentLog.shared.keychain(line)
 	}
 }

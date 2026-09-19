@@ -134,9 +134,22 @@ final class AgentServer {
 	}
 
 	private func statusReply() -> [String: Any] {
-		let count = onMain { self.store.integrations.count }
+		let (count, integrity, managed) = onMain {
+			(
+				self.store.authCount,
+				self.store.configIntegrity(
+					unlocked: self.state.unlocked,
+					presence: self.state.unlocked ? self.gate.presenceContext : nil
+				).wireValue,
+				self.store.managedPrefs.isEmpty ? nil : self.store.managedPrefs.summaryLine()
+			)
+		}
 		return AgentReply.status(
-			unlocked: state.unlocked, integrations: count, tokens: state.tokenCount)
+			unlocked: state.unlocked,
+			integrations: count,
+			tokens: state.tokenCount,
+			configIntegrity: integrity,
+			managedPrefs: managed)
 	}
 
 	private func tokenRows() -> [[String: Any]] {
@@ -155,16 +168,22 @@ final class AgentServer {
 		let baseURL = (request.baseURL ?? "").trimmed
 		let kind = (request.kind ?? "oauth").trimmed
 		guard !auth.isEmpty, !baseURL.isEmpty else {
-			return AgentReply.failure(.badRequest, "token requires auth and base_url")
+			return logBuddyToken(
+				AgentReply.failure(.badRequest, "token requires auth and base_url"),
+				"token rejected: missing auth or base_url")
 		}
 		guard let integration = onMain({ self.store.integration(forAuth: auth) }) else {
 			// Not ours: the CLI falls back to its own vault.
-			return AgentReply.failure(.unsupported, "no integration named \(auth)")
+			return logBuddyToken(
+				AgentReply.failure(.unsupported, "no integration named \(auth)"),
+				"token rejected auth=\(auth): unknown integration")
 		}
 		if !state.unlocked {
 			guard request.allowUnlock == true else {
-				return AgentReply.failure(
-					.locked, "Buddy Agent is locked — unlock it from the menu bar")
+				return logBuddyToken(
+					AgentReply.failure(
+						.locked, "Buddy Agent is locked — unlock it from the menu bar"),
+					"token rejected auth=\(auth): locked")
 			}
 			// Blocks this connection thread while the system prompt is up; the
 			// CLI is waiting on the socket for exactly this.
@@ -172,23 +191,27 @@ final class AgentServer {
 			case .unlocked:
 				break
 			case .declined:
-				return AgentReply.failure(.unlockDeclined, "unlock declined")
+				return logBuddyToken(
+					AgentReply.failure(.unlockDeclined, "unlock declined"),
+					"token rejected auth=\(auth): unlock declined")
 			case .timedOut:
-				return AgentReply.failure(
-					.unlockTimeout, "unlock prompt went unanswered for \(Int(UnlockGate.timeout))s")
+				return logBuddyToken(
+					AgentReply.failure(
+						.unlockTimeout,
+						"unlock prompt went unanswered for \(Int(UnlockGate.timeout))s"),
+					"token rejected auth=\(auth): unlock timed out")
 			case .unavailable:
 				let why =
 					UnlockGate.promptingDisabled
 					? "unlock prompting is off (BUDDY_AGENT_UNLOCK_TIMEOUT=0)"
 					: "this Mac has no presence check available"
-				return AgentReply.failure(
-					.unlockUnavailable, "\(why) — unlock from the menu bar")
+				return logBuddyToken(
+					AgentReply.failure(
+						.unlockUnavailable, "\(why) — unlock from the menu bar"),
+					"token rejected auth=\(auth): unlock unavailable")
 			}
 		}
 		let key = "\(auth)@\(baseURL)"
-		if request.force != true, let cached = state.cachedToken(key: key) {
-			return AgentReply.token(cached.value, expiresAt: cached.expiresAt)
-		}
 		do {
 			// One LA prompt owns the session. Keychain reads must use that
 			// context with AuthenticationUIFail — otherwise SecItemCopyMatching
@@ -199,15 +222,33 @@ final class AgentServer {
 				case .unlocked:
 					presence = gate.presenceContext
 				case .declined:
-					return AgentReply.failure(.unlockDeclined, "unlock declined")
+					return logBuddyToken(
+						AgentReply.failure(.unlockDeclined, "unlock declined"),
+						"token rejected auth=\(auth): unlock declined")
 				case .timedOut:
-					return AgentReply.failure(
-						.unlockTimeout,
-						"unlock prompt went unanswered for \(Int(UnlockGate.timeout))s")
+					return logBuddyToken(
+						AgentReply.failure(
+							.unlockTimeout,
+							"unlock prompt went unanswered for \(Int(UnlockGate.timeout))s"),
+						"token rejected auth=\(auth): unlock timed out")
 				case .unavailable:
-					return AgentReply.failure(
-						.unlockUnavailable, "presence unavailable — unlock from the menu bar")
+					return logBuddyToken(
+						AgentReply.failure(
+							.unlockUnavailable, "presence unavailable — unlock from the menu bar"),
+						"token rejected auth=\(auth): unlock unavailable")
 				}
+			}
+			if let why = AgentConfigIntegrity.mintBlockedReason(
+				configPath: onMain { self.store.path }, presence: presence)
+			{
+				return logBuddyToken(
+					AgentReply.failure(.configTampered, why),
+					"token rejected auth=\(auth): config integrity")
+			}
+			if request.force != true, let cached = state.cachedToken(key: key) {
+				return logBuddyToken(
+					AgentReply.token(cached.value, expiresAt: cached.expiresAt),
+					"token cache hit auth=\(auth) base_url=\(baseURL)")
 			}
 			let minted = try TokenMinter.mint(
 				integration: integration, baseURL: baseURL, kind: kind, presence: presence)
@@ -216,14 +257,28 @@ final class AgentServer {
 					auth: auth, baseURL: baseURL, value: minted.value,
 					expiresAt: minted.expiresAt),
 				key: key)
-			return AgentReply.token(minted.value, expiresAt: minted.expiresAt)
+			AgentLog.shared.mint("buddy minted auth=\(auth) base_url=\(baseURL)")
+			return logBuddyToken(
+				AgentReply.token(minted.value, expiresAt: minted.expiresAt),
+				"token minted auth=\(auth) base_url=\(baseURL)")
 		} catch MintError.unsupported(let why) {
-			return AgentReply.failure(.unsupported, why)
+			return logBuddyToken(
+				AgentReply.failure(.unsupported, why),
+				"token failed auth=\(auth) base_url=\(baseURL): \(why)")
 		} catch MintError.failed(let why) {
-			return AgentReply.failure(.mintFailed, why)
+			return logBuddyToken(
+				AgentReply.failure(.mintFailed, why),
+				"token failed auth=\(auth) base_url=\(baseURL): \(why)")
 		} catch {
-			return AgentReply.failure(.mintFailed, "\(error)")
+			return logBuddyToken(
+				AgentReply.failure(.mintFailed, "\(error)"),
+				"token failed auth=\(auth) base_url=\(baseURL): \(error)")
 		}
+	}
+
+	private func logBuddyToken(_ reply: [String: Any], _ message: String) -> [String: Any] {
+		AgentLog.shared.buddy(message)
+		return reply
 	}
 
 	/// onMain reads Agent store state, which the GUI mutates on the main queue.

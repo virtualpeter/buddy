@@ -7,6 +7,48 @@ struct CachedToken {
 	let expiresAt: Date
 
 	var usable: Bool { expiresAt.timeIntervalSinceNow > 30 }
+
+	var cacheKey: String { "\(auth)@\(baseURL)" }
+}
+
+/// Cached bearer metadata for the GUI — never includes the secret value.
+struct TokenSummary: Identifiable, Equatable {
+	var id: String { key }
+	let key: String
+	let auth: String
+	let baseURL: String
+	let expiresAt: Date
+
+	var usable: Bool { expiresAt.timeIntervalSinceNow > 30 }
+}
+
+/// Persisted idle auto-lock interval (`UserDefaults`). 0 = disabled; default 15 min.
+enum AgentIdleLock {
+	static let userDefaultsKey = "BuddyAgentIdleLockSeconds"
+	/// Last non-zero interval; restored when re-enabling auto-lock.
+	static let lastSecondsKey = "BuddyAgentIdleLockLastSeconds"
+	static let defaultSeconds: TimeInterval = 15 * 60
+
+	static var persistedSeconds: TimeInterval {
+		guard UserDefaults.standard.object(forKey: userDefaultsKey) != nil else {
+			return defaultSeconds
+		}
+		return max(0, UserDefaults.standard.double(forKey: userDefaultsKey))
+	}
+
+	/// Dev override via `BUDDY_AGENT_IDLE_LOCK`; otherwise the persisted preference.
+	static var effectiveSeconds: TimeInterval {
+		if let raw = ProcessInfo.processInfo.environment["BUDDY_AGENT_IDLE_LOCK"],
+			let seconds = TimeInterval(raw), seconds >= 0
+		{
+			return seconds
+		}
+		return persistedSeconds
+	}
+
+	static var envOverrideActive: Bool {
+		ProcessInfo.processInfo.environment["BUDDY_AGENT_IDLE_LOCK"] != nil
+	}
 }
 
 /// Lock state plus the in-memory bearer cache. Lock() drops every cached token
@@ -29,14 +71,7 @@ final class AgentState: ObservableObject {
 
 	/// Seconds of no minting before the Agent relocks itself. 0 = never.
 	/// Presence opens the session; this is what closes it again.
-	static var idleLockAfter: TimeInterval {
-		guard let raw = ProcessInfo.processInfo.environment["BUDDY_AGENT_IDLE_LOCK"],
-			let seconds = TimeInterval(raw), seconds >= 0
-		else {
-			return 15 * 60
-		}
-		return seconds
-	}
+	static var idleLockAfter: TimeInterval { AgentIdleLock.effectiveSeconds }
 
 	var unlocked: Bool {
 		lock.lock()
@@ -53,11 +88,22 @@ final class AgentState: ObservableObject {
 
 	/// Cached bearers, newest expiry last. Values are never exposed to the GUI.
 	var tokenSummaries: [(auth: String, baseURL: String, expiresAt: Date)] {
+		allTokenSummaries.map { ($0.auth, $0.baseURL, $0.expiresAt) }
+	}
+
+	var allTokenSummaries: [TokenSummary] {
 		lock.lock()
 		defer { lock.unlock() }
 		return tokens.values
-			.map { ($0.auth, $0.baseURL, $0.expiresAt) }
+			.map {
+				TokenSummary(
+					key: $0.cacheKey, auth: $0.auth, baseURL: $0.baseURL, expiresAt: $0.expiresAt)
+			}
 			.sorted { $0.expiresAt < $1.expiresAt }
+	}
+
+	func tokens(forAuth auth: String) -> [TokenSummary] {
+		allTokenSummaries.filter { $0.auth == auth }
 	}
 
 	var tokenCount: Int {
@@ -74,6 +120,13 @@ final class AgentState: ObservableObject {
 		notify()
 	}
 
+	/// Re-read the persisted idle-lock interval (e.g. after a Settings change).
+	func refreshIdleLockTimer() {
+		guard unlocked else { return }
+		restartIdleTimer()
+		notify()
+	}
+
 	func lockVault() {
 		lock.lock()
 		unlockedFlag = false
@@ -84,6 +137,7 @@ final class AgentState: ObservableObject {
 		lock.unlock()
 		onRelock?()
 		AgentKeychain.forgetMemory()
+		AgentConfigIntegrity.forgetMemory()
 		notify()
 	}
 
@@ -126,6 +180,13 @@ final class AgentState: ObservableObject {
 		tokens[key] = token
 		lock.unlock()
 		restartIdleTimer()
+		notify()
+	}
+
+	func dropToken(key: String) {
+		lock.lock()
+		tokens.removeValue(forKey: key)
+		lock.unlock()
 		notify()
 	}
 

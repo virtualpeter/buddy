@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		BA000000000000000000BF01 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = BA000000000000000000A005 /* AppIcon.icns */; };
+		BA000000000000000000BF02 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = BA000000000000000000A006 /* LICENSE */; };
+		BA000000000000000000BF03 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BA000000000000000000A008 /* Assets.xcassets */; };
+		BA000000000000000000BF04 /* AgentHelp.md in Resources */ = {isa = PBXBuildFile; fileRef = BA000000000000000000A009 /* AgentHelp.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -16,6 +19,10 @@
 		BA000000000000000000A003 /* BuddyAgent.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BuddyAgent.entitlements; sourceTree = "<group>"; };
 		BA000000000000000000A004 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		BA000000000000000000A005 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		BA000000000000000000A006 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+		BA000000000000000000A007 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
+		BA000000000000000000A008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BA000000000000000000A009 /* AgentHelp.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AgentHelp.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -42,6 +49,7 @@
 			children = (
 				BA000000000000000000B001 /* Sources/BuddyAgent */,
 				BA000000000000000000D002 /* Resources */,
+				BA000000000000000000A007 /* Version.xcconfig */,
 				BA000000000000000000A003 /* BuddyAgent.entitlements */,
 				BA000000000000000000A004 /* README.md */,
 				BA000000000000000000D003 /* Products */,
@@ -53,6 +61,9 @@
 			children = (
 				BA000000000000000000A002 /* Info.plist */,
 				BA000000000000000000A005 /* AppIcon.icns */,
+				BA000000000000000000A006 /* LICENSE */,
+				BA000000000000000000A008 /* Assets.xcassets */,
+				BA000000000000000000A009 /* AgentHelp.md */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -72,6 +83,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = BA000000000000000000F002 /* Build configuration list for PBXNativeTarget "BuddyAgent" */;
 			buildPhases = (
+				BA000000000000000000C004 /* Generate Version */,
 				BA000000000000000000C002 /* Sources */,
 				BA000000000000000000C001 /* Frameworks */,
 				BA000000000000000000C003 /* Resources */,
@@ -131,10 +143,34 @@
 			buildActionMask = 2147483647;
 			files = (
 				BA000000000000000000BF01 /* AppIcon.icns in Resources */,
+				BA000000000000000000BF02 /* LICENSE in Resources */,
+				BA000000000000000000BF03 /* Assets.xcassets in Resources */,
+				BA000000000000000000BF04 /* AgentHelp.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		BA000000000000000000C004 /* Generate Version */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../../scripts/gen-agent-version.sh",
+			);
+			name = "Generate Version";
+			outputPaths = (
+				"$(SRCROOT)/Sources/BuddyAgent/AgentVersion.generated.swift",
+				"$(SRCROOT)/Version.xcconfig",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/../../scripts/gen-agent-version.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		BA000000000000000000C002 /* Sources */ = {
@@ -196,18 +232,18 @@
 		};
 		BA000000000000000000F201 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = BA000000000000000000A007 /* Version.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BuddyAgent.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8R4UX79KVM;
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = virtualpete.buddy.agent;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -216,18 +252,18 @@
 		};
 		BA000000000000000000F202 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = BA000000000000000000A007 /* Version.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BuddyAgent.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8R4UX79KVM;
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = virtualpete.buddy.agent;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

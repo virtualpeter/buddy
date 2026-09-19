@@ -11,7 +11,11 @@ let package = Package(
 	targets: [
 		.executableTarget(
 			name: "BuddyAgent",
-			path: "Sources/BuddyAgent"
+			path: "Sources/BuddyAgent",
+			resources: [
+				.copy("../Resources/LICENSE"),
+				.copy("../Resources/AgentHelp.md"),
+			]
 		)
 	]
 )

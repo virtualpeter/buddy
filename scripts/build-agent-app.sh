@@ -54,6 +54,7 @@ cat >"$work/ExportOptions.plist" <<PLIST
 PLIST
 
 echo "Building BuddyAgent.app (version $version, team $team)..."
+"$root/scripts/gen-agent-version.sh"
 # Same logo as Buddy.app; generated into Resources so the archive picks it up.
 "$root/scripts/gen-app-icon.sh" "$root/macos/BuddyAgent/Resources/AppIcon.icns"
 xcodebuild \

@@ -1,6 +1,7 @@
 import CommonCrypto
 import CryptoKit
 import Foundation
+import Security
 
 /// Reader for the encrypted file `buddy cred backup` writes: a JSON envelope
 /// (`buddy: cred-backup`) whose body is AES-256-GCM sealed under a
@@ -26,6 +27,45 @@ enum AgentBackup {
 		return normalise(payload)
 	}
 
+	/// Same PBKDF2 iteration count as `buddy cred backup` (600_000).
+	static let defaultIterations = 600_000
+
+	struct WriteResult {
+		var auths: Int
+		var missingSecrets: [String]
+	}
+
+	/// Builds a `buddy cred backup` payload and encrypts it. Auth secrets use
+	/// Go struct field names (`ClientSecret`, `Password`, …) so `cred restore`
+	/// and Agent import both understand the file.
+	static func write(
+		defaultContext: String,
+		workplaces: [String: Workplace],
+		orgs: [String: OrgRoot],
+		auths: [String: AgentAuth],
+		features: AgentFeatures,
+		channels: [String: ChannelPolicy],
+		secrets: [String: String],
+		passphrase: String
+	) throws -> (data: Data, result: WriteResult) {
+		let payload = try backupPayload(
+			defaultContext: defaultContext,
+			workplaces: workplaces,
+			orgs: orgs,
+			auths: auths,
+			features: features,
+			channels: channels,
+			secrets: secrets)
+		let plain = try JSONSerialization.data(withJSONObject: payload)
+		let data = try encrypt(plain, passphrase: passphrase)
+		let missing = auths.keys.sorted().compactMap { name -> String? in
+			guard let auth = auths[name], auth.type != "command" else { return nil }
+			if secrets[name] != nil { return nil }
+			return auth.type == "basic" ? "\(name) password" : "\(name) client-secret"
+		}
+		return (data, WriteResult(auths: auths.count, missingSecrets: missing))
+	}
+
 	// MARK: envelope
 
 	private struct Envelope: Decodable {
@@ -39,6 +79,32 @@ enum AgentBackup {
 
 	private static let kind = "cred-backup"
 	private static let aad = "buddy-cred-backup-v1"
+
+	static func encrypt(_ plain: Data, passphrase: String, iterations: Int = defaultIterations) throws -> Data {
+		guard iterations >= 1000, iterations <= 10_000_000 else {
+			throw AgentBackupError.corrupt("invalid kdf iteration count")
+		}
+		let salt = try randomBytes(count: 16)
+		let key = try pbkdf2(passphrase: passphrase, salt: salt, iterations: iterations)
+		let nonce = try randomBytes(count: 12)
+		let box = try AES.GCM.seal(
+			plain,
+			using: SymmetricKey(data: key),
+			nonce: AES.GCM.Nonce(data: nonce),
+			authenticating: Data(aad.utf8))
+		let sealed = nonce + box.ciphertext + box.tag
+		let envelope: [String: Any] = [
+			"buddy": kind,
+			"v": 1,
+			"kdf": "pbkdf2-sha256",
+			"iter": iterations,
+			"salt": salt.base64EncodedString(),
+			"data": sealed.base64EncodedString(),
+		]
+		var raw = try JSONSerialization.data(withJSONObject: envelope, options: [.prettyPrinted, .sortedKeys])
+		raw.append(0x0A)
+		return raw
+	}
 
 	static func decrypt(_ raw: Data, passphrase: String) throws -> Data {
 		guard let env = try? JSONDecoder().decode(Envelope.self, from: raw) else {
@@ -75,6 +141,15 @@ enum AgentBackup {
 		}
 	}
 
+	private static func randomBytes(count: Int) throws -> Data {
+		var bytes = [UInt8](repeating: 0, count: count)
+		let status = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
+		guard status == errSecSuccess else {
+			throw AgentBackupError.corrupt("random bytes failed")
+		}
+		return Data(bytes)
+	}
+
 	private static func pbkdf2(passphrase: String, salt: Data, iterations: Int) throws -> Data {
 		var derived = Data(count: 32)
 		let status = derived.withUnsafeMutableBytes { out -> Int32 in
@@ -95,6 +170,25 @@ enum AgentBackup {
 	}
 
 	// MARK: payload
+
+	private static func backupPayload(
+		defaultContext: String,
+		workplaces: [String: Workplace],
+		orgs: [String: OrgRoot],
+		auths: [String: AgentAuth],
+		features: AgentFeatures,
+		channels: [String: ChannelPolicy],
+		secrets: [String: String]
+	) throws -> [String: Any] {
+		try AgentConfigExport.credBackupPayload(
+			defaultContext: defaultContext,
+			workplaces: workplaces,
+			orgs: orgs,
+			auths: auths,
+			features: features,
+			channels: channels,
+			secrets: secrets)
+	}
 
 	/// The backup body is Go structs marshalled without json tags, so its keys
 	/// are field names (`ClientSecret`, `URL`, …) while the orgs tree and the
@@ -140,6 +234,12 @@ enum AgentBackup {
 			let def = selection.string("default")
 		{
 			document["context"] = ["default": def]
+		}
+		if let feat = payload.dict("features"), !feat.isEmpty {
+			document["features"] = feat
+		}
+		if let ch = payload.dict("channels"), !ch.isEmpty {
+			document["channels"] = ch
 		}
 		return Contents(document: document, secrets: secrets)
 	}
