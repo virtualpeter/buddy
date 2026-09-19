@@ -120,6 +120,9 @@ func (cfg *Config) SetChannelPolicy(channel string, access, tenant string, tenan
 	if !isBuddyChannel(channel) {
 		return fmt.Errorf("unknown channel %q (want cli, mcp, or ide)", channel)
 	}
+	if cfg.ChannelFromAgent(channel) {
+		return errAgentOwned("channel", channel)
+	}
 	if cfg.Channels == nil {
 		cfg.Channels = map[string]ChannelPolicy{}
 	}

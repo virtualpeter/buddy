@@ -101,18 +101,33 @@ enum BuddyChannel: String, CaseIterable, Identifiable {
 	}
 }
 
-/// `features:` toggles in buddy config.yaml.
+/// Agent-served `features:` (wire + export). `use_agent` and `force_agent` are
+/// client-side only (config.yaml, MDM plist, or env) and are never encoded here.
+/// An empty config.yaml on macOS still uses this document when the Agent is
+/// running; `use_agent` / `force_agent` make an absent Agent a hard error.
 struct AgentFeatures: Codable, Equatable {
-	/// When true, buddy merges this Agent document (`features.use_agent`).
-	var useAgent: Bool = true
 	var classicInstanceOnly: Bool = false
+
+	enum CodingKeys: String, CodingKey {
+		case classicInstanceOnly
+		case useAgent
+		case forceAgent
+	}
 
 	init() {}
 
 	init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
-		useAgent = try c.decodeIfPresent(Bool.self, forKey: .useAgent) ?? true
 		classicInstanceOnly = try c.decodeIfPresent(Bool.self, forKey: .classicInstanceOnly) ?? false
+		_ = try c.decodeIfPresent(Bool.self, forKey: .useAgent)
+		_ = try c.decodeIfPresent(Bool.self, forKey: .forceAgent)
+	}
+
+	func encode(to encoder: Encoder) throws {
+		var c = encoder.container(keyedBy: CodingKeys.self)
+		if classicInstanceOnly {
+			try c.encode(true, forKey: .classicInstanceOnly)
+		}
 	}
 }
 
@@ -770,7 +785,9 @@ enum AgentConfigExport {
 		if !def.isEmpty {
 			doc["context"] = ["default": def.trimmed]
 		}
-		doc["features"] = encodeFeatures(features)
+		if let feat = encodeFeatures(features) {
+			doc["features"] = feat
+		}
 		if let channelsObj = encodeChannels(channels) {
 			doc["channels"] = channelsObj
 		}
@@ -1022,20 +1039,14 @@ enum AgentConfigExport {
 		return entry
 	}
 
-	static func encodeFeatures(_ features: AgentFeatures) -> [String: Any] {
-		var out: [String: Any] = ["use_agent": features.useAgent]
-		if features.classicInstanceOnly { out["classic_instance_only"] = true }
-		return out
+	static func encodeFeatures(_ features: AgentFeatures) -> [String: Any]? {
+		guard features.classicInstanceOnly else { return nil }
+		return ["classic_instance_only": true]
 	}
 
 	static func decodeFeatures(_ raw: [String: Any]?) -> AgentFeatures {
 		guard let raw else { return AgentFeatures() }
 		var f = AgentFeatures()
-		if let v = raw["use_agent"] as? Bool {
-			f.useAgent = v
-		} else if let v = raw["use_agent"] as? Int {
-			f.useAgent = v != 0
-		}
 		if let v = raw["classic_instance_only"] as? Bool {
 			f.classicInstanceOnly = v
 		} else if let v = raw["classic_instance_only"] as? Int {

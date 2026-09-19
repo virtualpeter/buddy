@@ -9,8 +9,10 @@ and the Agent never returns one: the CLI receives config (identity) or
 Config is served **while the Agent is locked**; unlock gates minting only. When
 buddy asks a locked Agent for a token it sets `allow_unlock`, and the Agent
 raises the presence prompt itself while the CLI waits on the socket — no trip to
-the menu bar mid-command. When the Agent is not running and `features.use_agent`
-is off, buddy behaves exactly as it does today (in-process `secrets.enc` vault).
+the menu bar mid-command. An empty or missing `config.yaml` on macOS uses a
+running Agent in memory (the file stays absent). When the Agent is not running
+and `features.use_agent` is off, buddy falls through to first-run setup / the
+in-process `secrets.enc` vault.
 
 It does not replace `Contents/MacOS/Buddy` and installs no LaunchAgent.
 
@@ -105,8 +107,7 @@ The window has four tabs. User-facing setup guide: `Resources/AgentHelp.md`
     once and never stored; the CLI is not involved.
   **Export for buddy** (beside Import) writes the same two formats: identity JSON
   for `buddy setup import`, or an encrypted cred backup for `buddy cred restore`.
-- **Policy** — `features` and `channels` policy (draft until **Save**). MDM-locked
-  fields are read-only.
+- **Policy** — `features.classic_instance_only` and `channels` policy (draft until **Save**). MDM-locked fields are read-only. `features.use_agent` / `force_agent` are client-side only (buddy YAML, MDM, or env) and are never served on the wire. `force_agent` requires the Agent and ignores the rest of config.yaml; managed prefs still apply.
 - **Log** — Activity log (config, mint, buddy socket, keychain diagnostics); also
   in Unified Log.
 - **Status** — socket path, config path, config integrity, managed prefs, version,
@@ -120,13 +121,23 @@ buddy agent config          # the document the Agent serves (no secrets)
 buddy agent integrations    # what it owns, with secret presence
 buddy agent tokens          # cached bearer metadata
 buddy agent lock            # relock and drop cached bearers
+buddy agent enable          # write features.use_agent: true
+buddy agent disable         # write features.use_agent: false
+buddy agent force           # write features.force_agent: true
+buddy agent force --off     # write features.force_agent: false
 BUDDY_NO_AGENT=1 buddy …    # kill switch: ignore the Agent entirely
 ```
 
-Set `features.use_agent: true` (or `BUDDY_USE_AGENT=1`) to make buddy take its
-workplaces and auths from the Agent. That layer sits beneath managed preferences
-and your own `config.yaml`, is never written to disk, and its auths show
-`SECRET=agent` in `buddy cred status`.
+An empty or missing `config.yaml` already takes workplaces and auths from a
+running Agent (in memory; the file is not created). `buddy agent enable`
+writes `features.use_agent: true` when you also have a local file, or when you
+want a missing Agent to be a hard error (`BUDDY_USE_AGENT=1` is the env
+override). `buddy agent disable` writes `false`. `buddy agent force` writes
+`features.force_agent: true` (ignore the rest of config.yaml; MDM still
+applies). That layer sits beneath
+managed preferences and your own `config.yaml`, is never written to disk by
+buddy from the Agent document, and its auths show `SECRET=agent` in
+`buddy cred status`.
 
 ## Storage
 
@@ -213,8 +224,9 @@ Full checklist including the Go side: [`docs/auth.md`](../../docs/auth.md)
 
 1. Start the Agent locked, add a workplace and auth in **Setup**, then
    `buddy agent integrations` → the row with `secret stored`, no prompt.
-2. `buddy agent config` → the served document. With `features.use_agent: true`,
-   `buddy cred status` shows that context with `SECRET=agent`.
+2. `buddy agent config` → the served document. With an empty `config.yaml` (or
+   `features.use_agent: true`), `buddy cred status` shows that context with
+   `SECRET=agent`.
 3. `buddy auth token drop` then `buddy auth test` with the Agent locked → the
    Agent prompts; approve it and the token is minted, `buddy agent status` then
    shows `unlocked: true`. The vault is never opened either way.
@@ -223,8 +235,9 @@ Full checklist including the Go side: [`docs/auth.md`](../../docs/auth.md)
    prompt at all.
 5. Run with `BUDDY_AGENT_IDLE_LOCK=5`, unlock, wait → `buddy agent status` shows
    it relocked and its cached bearers gone.
-6. Quit the Agent → with `use_agent` on, buddy aborts telling you to start it;
-   with it off, vault-backed auths fall back exactly as before.
+6. Quit the Agent → with `use_agent` on (yaml/env), buddy aborts telling you
+   to start it. With no flag and no `config.yaml`, the next command falls
+   through to first-run setup. Vault-backed auths in a local file keep working.
 7. `BUDDY_NO_AGENT=1 buddy auth test` → today's behaviour with the Agent up.
 
 `BUDDY_AGENT_FAKE_PRESENCE=allow|deny` runs steps 3–5 unattended, but it is

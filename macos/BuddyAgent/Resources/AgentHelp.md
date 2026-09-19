@@ -8,7 +8,7 @@ Buddy Agent is a menu-bar app that **owns your Jamf workplaces, auths, and secre
 2. Click the **padlock** in the menu bar → **Settings…** (⌘,).
 3. Add **workplaces** (org → environment → tenant) and **auths** (oauth, basic, or platform).
 4. Store each auth’s **secret** in the auth editor (write-only; rows show `stored` or `missing`).
-5. Leave **Serve config to buddy** on in the **Policy** tab (or set `features.use_agent: true` / `BUDDY_USE_AGENT=1` in a local yaml overlay).
+5. On a Mac with no `config.yaml`, run any buddy command — it uses this Agent in memory and does not write that file. A running Agent with no workplaces is an error (add them here). `buddy agent enable` writes `features.use_agent: true` so a *missing* Agent is a hard error; `buddy agent disable` writes `false` so empty config does not rediscover the Agent. `BUDDY_USE_AGENT=1` is the env override.
 6. Run `buddy cred status` — Agent-owned auths show `SECRET=agent`.
 
 Optional: **Open at Login** in the menu bar menu so the Agent starts with your session.
@@ -51,7 +51,6 @@ The icon is **closed padlock** when locked, **open padlock** when unlocked.
 
 Buddy YAML policy the Agent serves (same keys as `config.yaml`):
 
-- `features.use_agent` — buddy merges this Agent document (on by default here)
 - `features.classic_instance_only` — force Classic API on Jamf Pro
 - `channels.cli|mcp|ide` — default workplace, readonly access, workplace allowlist, `deny_builtins` / `allow_builtins`
 
@@ -92,10 +91,14 @@ buddy agent config          # document the Agent serves (no secrets)
 buddy agent integrations    # auths with secret stored/missing
 buddy agent tokens          # cached bearer metadata
 buddy agent lock            # relock from the CLI
+buddy agent enable          # write features.use_agent: true
+buddy agent disable         # write features.use_agent: false
+buddy agent force           # write features.force_agent: true
+buddy agent force --off     # write features.force_agent: false
 BUDDY_NO_AGENT=1 buddy …    # ignore the Agent for this command
 ```
 
-With `features.use_agent: true`, buddy reads workplaces and auths from the Agent instead of your local vault for those entries.
+An empty or missing `config.yaml` already uses this document when the Agent is running. `buddy agent enable` writes `features.use_agent: true` (never in the Agent document) so that layer stays in play with a local file and a missing Agent is a hard error. `buddy agent disable` writes `false`. `buddy agent force` writes `features.force_agent: true` (YAML, MDM, or `BUDDY_FORCE_AGENT`) — requires the Agent and ignores the rest of config.yaml; managed prefs still apply. `buddy agent force --off` writes `false`.
 
 ## Storage
 

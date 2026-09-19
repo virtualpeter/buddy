@@ -3,9 +3,11 @@ package buddy
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	"buddy/internal/buddy/agent"
 	"buddy/internal/buddy/secrets"
 
 	"gopkg.in/yaml.v3"
@@ -357,5 +359,27 @@ func TestRunFirstTimeSetupManagedPrefsFillsSecrets(t *testing.T) {
 	_, err := RunFirstTimeSetup(cfg, Opts{SkipConfirm: true}, nil)
 	if err == nil {
 		t.Fatal("expected non-interactive secrets gap")
+	}
+}
+
+func TestFirstTimeSetupAgentHint(t *testing.T) {
+	t.Setenv(agent.EnvDisable, "")
+	t.Setenv(agent.EnvSocket, "")
+	if runtime.GOOS == "darwin" {
+		if firstTimeSetupAgentHint() == "" {
+			t.Fatal("want a Buddy Agent hint on macOS")
+		}
+		t.Setenv(agent.EnvDisable, "1")
+		if firstTimeSetupAgentHint() != "" {
+			t.Fatal("BUDDY_NO_AGENT should hide the hint")
+		}
+		return
+	}
+	if firstTimeSetupAgentHint() != "" {
+		t.Fatal("other platforms have no Agent hint")
+	}
+	t.Setenv(agent.EnvSocket, filepath.Join(t.TempDir(), "agent.sock"))
+	if firstTimeSetupAgentHint() != "" {
+		t.Fatal("EnvSocket on a non-Mac must not print the macOS setup note")
 	}
 }

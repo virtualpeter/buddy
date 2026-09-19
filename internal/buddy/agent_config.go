@@ -34,11 +34,70 @@ func agentConfigJSON() (json.RawMessage, error) {
 }
 
 func agentDisabledError() error {
-	return fmt.Errorf("features.use_agent is on but the Buddy Agent is disabled (%s); unset it, or turn off features.use_agent", agent.EnvDisable)
+	return fmt.Errorf("features.use_agent/force_agent is on but the Buddy Agent is disabled (%s); unset it, or turn off features.use_agent / features.force_agent", agent.EnvDisable)
 }
 
 func agentAbsentError(err error) error {
-	return fmt.Errorf("features.use_agent is on but the Buddy Agent is not running (%v); start Buddy Agent, or turn off features.use_agent", err)
+	return fmt.Errorf("features.use_agent/force_agent is on but the Buddy Agent is not running (%v); start Buddy Agent, or turn off features.use_agent / features.force_agent", err)
+}
+
+// layersForceAgent is true when env, MDM, or user YAML requires the Agent
+// and ignores config.yaml. MDM force_agent: true is sticky (user cannot
+// turn it off).
+func layersForceAgent(mdm, user *Config) bool {
+	if v, ok := parseBoolishEnv(EnvForceAgent); ok {
+		return v
+	}
+	if mdm != nil && mdm.Features.ForceAgent != nil && *mdm.Features.ForceAgent {
+		return true
+	}
+	return user != nil && user.Features.ForceAgent != nil && *user.Features.ForceAgent
+}
+
+func agentNeedsConfigError() error {
+	return fmt.Errorf("Buddy Agent needs config; add a workplace in Buddy Agent")
+}
+
+// IsAgentNeedsConfig reports the empty-Agent load error (no workplaces in
+// Agent, user, or MDM). buddy agent enable/disable/force still run so the
+// flag can be written.
+func IsAgentNeedsConfig(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Buddy Agent needs config")
+}
+
+// SetUseAgent writes features.use_agent to config.yaml (true or false).
+// Agent workplaces are not copied into the user file.
+func SetUseAgent(cfg *Config, on bool) error {
+	if cfg == nil {
+		cfg = &Config{}
+	}
+	cfg.Features.UseAgent = boolPtr(on)
+	if cfg.user == nil {
+		cfg.user = &Config{}
+	}
+	cfg.user.Features.UseAgent = boolPtr(on)
+	if cfg.agent == nil && cfg.mdm == nil {
+		// Force the user-overlay save path so we do not invent context.default.
+		cfg.mdm = &Config{}
+	}
+	return SaveConfig(cfg)
+}
+
+// SetForceAgent writes features.force_agent to config.yaml (true or false).
+// Agent workplaces are not copied into the user file.
+func SetForceAgent(cfg *Config, on bool) error {
+	if cfg == nil {
+		cfg = &Config{}
+	}
+	cfg.Features.ForceAgent = boolPtr(on)
+	if cfg.user == nil {
+		cfg.user = &Config{}
+	}
+	cfg.user.Features.ForceAgent = boolPtr(on)
+	if cfg.agent == nil && cfg.mdm == nil {
+		cfg.mdm = &Config{}
+	}
+	return SaveConfig(cfg)
 }
 
 // loadAgentConfig converts the Agent's JSON document into a Config layer. The
@@ -57,6 +116,57 @@ func loadAgentConfig() (*Config, error) {
 	return cfg, nil
 }
 
+// tryLoadAgentConfig is the first-run probe: missing or unsupported Agent is
+// not fatal (setup still runs). A contactable Agent is used as the Agent
+// layer without writing features.use_agent. Other socket/document errors fail.
+func tryLoadAgentConfig() (*Config, error) {
+	if !agent.Enabled() {
+		return nil, nil
+	}
+	raw, err := agentConfigFetch(context.Background())
+	if err != nil {
+		if errors.Is(err, agent.ErrAbsent) || errors.Is(err, agent.ErrUnsupported) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("buddy agent config: %w", err)
+	}
+	return parseAgentConfigDocument(raw)
+}
+
+func configLooksUnconfigured(cfg *Config) bool {
+	if cfg == nil {
+		return true
+	}
+	return len(cfg.Tenants) == 0 && len(cfg.Orgs) == 0 && len(cfg.Auths) == 0
+}
+
+func agentHasWorkplaces(cfg *Config) bool {
+	if cfg == nil {
+		return false
+	}
+	return len(cfg.Tenants) > 0 || len(cfg.Orgs) > 0
+}
+
+// shouldDiscoverAgent is true when config.yaml (and MDM) have no workplaces
+// yet, the Agent is available on this platform, and the user has not turned
+// use_agent off. A contactable Agent is then used in memory only. Linux/Windows
+// stay on the existing first-run path unless BUDDY_AGENT_SOCK is set.
+func shouldDiscoverAgent(user, mdm *Config) bool {
+	if !agent.Enabled() {
+		return false
+	}
+	if v, ok := parseBoolishEnv(EnvUseAgent); ok && !v {
+		return false
+	}
+	if user != nil && user.Features.UseAgent != nil && !*user.Features.UseAgent {
+		return false
+	}
+	if mdm != nil && mdm.Features.UseAgent != nil && !*mdm.Features.UseAgent {
+		return false
+	}
+	return configLooksUnconfigured(user) && configLooksUnconfigured(mdm)
+}
+
 func parseAgentConfigDocument(raw json.RawMessage) (*Config, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {
@@ -64,6 +174,13 @@ func parseAgentConfigDocument(raw json.RawMessage) (*Config, error) {
 	}
 	if len(doc) == 0 {
 		return &Config{}, nil
+	}
+	if feat, ok := doc["features"].(map[string]any); ok {
+		delete(feat, "use_agent")
+		delete(feat, "force_agent")
+		if len(feat) == 0 {
+			delete(doc, "features")
+		}
 	}
 	for _, key := range []string{"auths"} {
 		entries, ok := doc[key].(map[string]any)
@@ -96,13 +213,14 @@ func parseAgentConfigDocument(raw json.RawMessage) (*Config, error) {
 }
 
 // HasAgentConfig reports whether this config was merged with a Buddy Agent
-// layer.
+// layer (workplaces, auths, channels, or classic_instance_only).
 func (cfg *Config) HasAgentConfig() bool {
 	if cfg == nil || cfg.agent == nil {
 		return false
 	}
 	a := cfg.agent
-	return len(a.Tenants) > 0 || len(a.Orgs) > 0 || len(a.Auths) > 0
+	return len(a.Tenants) > 0 || len(a.Orgs) > 0 || len(a.Auths) > 0 ||
+		len(a.Channels) > 0 || a.Features.ClassicInstanceOnly != nil
 }
 
 // ContextFromAgent reports whether workplace name comes from the Agent.
@@ -124,6 +242,21 @@ func (cfg *Config) AuthFromAgent(name string) bool {
 	return ok
 }
 
+// ChannelFromAgent reports whether channels.<name> comes from the Agent.
+func (cfg *Config) ChannelFromAgent(name string) bool {
+	if cfg == nil || cfg.agent == nil || cfg.agent.Channels == nil {
+		return false
+	}
+	_, ok := cfg.agent.Channels[normalizeBuddyChannel(name)]
+	return ok
+}
+
+// ClassicInstanceOnlyFromAgent reports whether features.classic_instance_only
+// comes from the Agent document.
+func (cfg *Config) ClassicInstanceOnlyFromAgent() bool {
+	return cfg != nil && cfg.agent != nil && cfg.agent.Features.ClassicInstanceOnly != nil
+}
+
 // AgentConfigSummary is a short line for `buddy cred status` (empty if none).
 func (cfg *Config) AgentConfigSummary() string {
 	if !cfg.HasAgentConfig() {
@@ -136,6 +269,12 @@ func (cfg *Config) AgentConfigSummary() string {
 	if names := sortedMapKeys(cfg.agent.Auths); len(names) > 0 {
 		parts = append(parts, "auths "+strings.Join(names, ", "))
 	}
+	if names := sortedMapKeys(cfg.agent.Channels); len(names) > 0 {
+		parts = append(parts, "channels "+strings.Join(names, ", "))
+	}
+	if cfg.agent.Features.ClassicInstanceOnly != nil {
+		parts = append(parts, "classic_instance_only")
+	}
 	if len(parts) == 0 {
 		return ""
 	}
@@ -145,14 +284,15 @@ func (cfg *Config) AgentConfigSummary() string {
 // AgentDuplicate is one config.yaml entry the Buddy Agent also provides. The
 // user file wins per name, so a duplicate silently shadows the Agent's copy.
 type AgentDuplicate struct {
-	Kind    string // context | auth
+	Kind    string // context | auth | channel | feature
 	Name    string
 	Differs bool   // the local copy is not identical to the Agent's
 	Detail  string // what differs (empty when identical)
 }
 
 // AgentDuplicates lists config.yaml entries that the Agent also serves,
-// sorted contexts first. Empty when there is no Agent layer.
+// sorted contexts, auths, channels, then features. Empty when there is no
+// Agent layer.
 func AgentDuplicates(cfg *Config) []AgentDuplicate {
 	if cfg == nil || cfg.agent == nil || cfg.user == nil {
 		return nil
@@ -179,14 +319,48 @@ func AgentDuplicates(cfg *Config) []AgentDuplicate {
 		userA := cfg.user.Auths[name]
 		detail := ""
 		if !authEntryEqual(userA, agentA) {
-			detail = describeDifference("type", userA.Type, agentA.Type) +
-				describeDifference("clientId", userA.ClientID, agentA.ClientID) +
-				describeDifference("username", userA.Username, agentA.Username) +
-				describeDifference("access", userA.EffectiveAccess(), agentA.EffectiveAccess()) +
-				describeDifference("contexts", strings.Join(userA.Tenants, ","), strings.Join(agentA.Tenants, ","))
-			detail = strings.TrimSuffix(strings.TrimSpace(detail), ";")
+			detail = strings.TrimSuffix(strings.TrimSpace(
+				describeDifference("type", userA.Type, agentA.Type)+
+					describeDifference("clientId", userA.ClientID, agentA.ClientID)+
+					describeDifference("username", userA.Username, agentA.Username)+
+					describeDifference("scope", userA.EffectiveScope(), agentA.EffectiveScope())+
+					describeDifference("access", userA.EffectiveAccess(), agentA.EffectiveAccess())+
+					describeDifference("contexts", strings.Join(userA.Tenants, ","), strings.Join(agentA.Tenants, ","))+
+					describeDifference("channels", strings.Join(userA.normalizedChannels(), ","), strings.Join(agentA.normalizedChannels(), ","))+
+					describeDifference("deny_builtins", strings.Join(userA.DenyBuiltins, ","), strings.Join(agentA.DenyBuiltins, ","))+
+					describeDifference("allow_builtins", strings.Join(userA.AllowBuiltins, ","), strings.Join(agentA.AllowBuiltins, ",")),
+			), ";")
 		}
 		out = append(out, AgentDuplicate{Kind: "auth", Name: name, Differs: detail != "", Detail: detail})
+	}
+	// Channel policy is an Agent surface (Policy tab), including an omitted
+	// channel — a local cli/mcp/ide pin from `cred use` still overlays the
+	// Agent's context.default.
+	for _, name := range sortedMapKeys(cfg.user.Channels) {
+		if !isBuddyChannel(name) {
+			continue
+		}
+		userP := cfg.user.Channels[name]
+		var agentP ChannelPolicy
+		if cfg.agent.Channels != nil {
+			agentP = cfg.agent.Channels[name]
+		}
+		detail := channelPolicyDifference(userP, agentP)
+		out = append(out, AgentDuplicate{Kind: "channel", Name: name, Differs: detail != "", Detail: detail})
+	}
+	if cfg.user.Features.ClassicInstanceOnly != nil && cfg.agent.Features.ClassicInstanceOnly != nil {
+		detail := describeDifference(
+			"classic_instance_only",
+			formatBoolPtr(cfg.user.Features.ClassicInstanceOnly),
+			formatBoolPtr(cfg.agent.Features.ClassicInstanceOnly),
+		)
+		detail = strings.TrimSuffix(strings.TrimSpace(detail), ";")
+		out = append(out, AgentDuplicate{
+			Kind:    "feature",
+			Name:    "classic_instance_only",
+			Differs: detail != "",
+			Detail:  detail,
+		})
 	}
 	return out
 }
@@ -210,6 +384,19 @@ func workplaceChildrenAllShared(user *Config, name string, shared map[string]boo
 	return true
 }
 
+func channelPolicyDifference(user, agent ChannelPolicy) string {
+	if channelPolicyEqual(user, agent) {
+		return ""
+	}
+	return strings.TrimSuffix(strings.TrimSpace(
+		describeDifference("access", user.EffectiveAccess(), agent.EffectiveAccess())+
+			describeDifference("context", user.Tenant, agent.Tenant)+
+			describeDifference("contexts", strings.Join(user.Tenants, ","), strings.Join(agent.Tenants, ","))+
+			describeDifference("deny_builtins", strings.Join(user.DenyBuiltins, ","), strings.Join(agent.DenyBuiltins, ","))+
+			describeDifference("allow_builtins", strings.Join(user.AllowBuiltins, ","), strings.Join(agent.AllowBuiltins, ",")),
+	), ";")
+}
+
 func workplaceDifference(user, agent TenantConfig) string {
 	if tenantConfigEqual(user, agent) {
 		return ""
@@ -217,7 +404,9 @@ func workplaceDifference(user, agent TenantConfig) string {
 	detail := describeDifference("url", user.URL, agent.URL) +
 		describeDifference("region", user.Region, agent.Region) +
 		describeDifference("environmentId", user.EnvironmentID, agent.EnvironmentID) +
-		describeDifference("tenantId", user.TenantID, agent.TenantID)
+		describeDifference("tenantId", user.TenantID, agent.TenantID) +
+		describeDifference("deny_builtins", strings.Join(user.DenyBuiltins, ","), strings.Join(agent.DenyBuiltins, ",")) +
+		describeDifference("allow_builtins", strings.Join(user.AllowBuiltins, ","), strings.Join(agent.AllowBuiltins, ","))
 	return strings.TrimSuffix(strings.TrimSpace(detail), ";")
 }
 
@@ -226,6 +415,16 @@ func describeDifference(field, user, agent string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s %s → %s; ", field, quoteOrNone(user), quoteOrNone(agent))
+}
+
+func formatBoolPtr(p *bool) string {
+	if p == nil {
+		return ""
+	}
+	if *p {
+		return "true"
+	}
+	return "false"
 }
 
 func quoteOrNone(s string) string {
@@ -239,6 +438,8 @@ func quoteOrNone(s string) string {
 type AgentPruneResult struct {
 	Contexts []string
 	Auths    []string
+	Channels []string
+	Features []string
 	Secrets  []string // vault secrets deleted (dropSecrets only)
 }
 
@@ -267,6 +468,14 @@ func PruneAgentDuplicates(cfg *Config, dropSecrets bool) (AgentPruneResult, erro
 			res.Auths = append(res.Auths, d.Name)
 		case "context":
 			contexts = append(contexts, d.Name)
+		case "channel":
+			delete(pruned.Channels, d.Name)
+			res.Channels = append(res.Channels, d.Name)
+		case "feature":
+			if d.Name == "classic_instance_only" {
+				pruned.Features.ClassicInstanceOnly = nil
+				res.Features = append(res.Features, d.Name)
+			}
 		}
 	}
 	// A parent only leaves the orgs tree once its children have, so keep

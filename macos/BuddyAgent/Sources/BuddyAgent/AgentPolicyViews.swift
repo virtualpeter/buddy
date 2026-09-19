@@ -107,15 +107,11 @@ struct ConfigPolicySection: View {
 	private var featuresSection: some View {
 		VStack(alignment: .leading, spacing: 8) {
 			Text("Features").font(.headline)
-			Text("Buddy reads these from the Agent document instead of config.yaml when `use_agent` is on.")
-				.font(.caption)
-				.foregroundStyle(.secondary)
-			Toggle(
-				"Serve config to buddy (`features.use_agent`)",
-				isOn: Binding(
-					get: { features.useAgent },
-					set: { features.useAgent = $0 }))
-			.disabled(store.managedPolicyLocked("features"))
+			Text(
+				"Served on the Agent config socket. An empty buddy config.yaml uses this document automatically. `features.use_agent` / `force_agent` are client-side (buddy YAML, MDM, or env) — not here. `force_agent` requires the Agent and ignores the rest of config.yaml; managed prefs still apply."
+			)
+			.font(.caption)
+			.foregroundStyle(.secondary)
 			Toggle(
 				"Classic instance only (`features.classic_instance_only`)",
 				isOn: Binding(

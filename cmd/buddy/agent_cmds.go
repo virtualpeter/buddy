@@ -20,7 +20,7 @@ import (
 // Buddy Agent. Nothing here mints, pushes a secret, or unlocks — unlock is a
 // tray action, and the Agent owns its own credentials.
 func runAgent(cfg *buddy.Config, opts buddy.Opts, args []string) error {
-	subs := []string{clispec.SubStatus, "config", "integrations", "tokens", "lock", "prune", clispec.SubHelp}
+	subs := []string{clispec.SubStatus, "config", "integrations", "tokens", "lock", "prune", clispec.SubEnable, clispec.SubDisable, clispec.SubForce, clispec.SubHelp}
 	if err := resolveArg0(clispec.CmdAgent, args, subs); err != nil {
 		return err
 	}
@@ -41,6 +41,12 @@ func runAgent(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 		return runAgentLock(args[1:])
 	case "prune":
 		return runAgentPrune(cfg, opts, args[1:])
+	case clispec.SubEnable:
+		return runAgentSetUseAgent(cfg, true, args[1:])
+	case clispec.SubDisable:
+		return runAgentSetUseAgent(cfg, false, args[1:])
+	case clispec.SubForce:
+		return runAgentSetForceAgent(cfg, args[1:])
 	default:
 		return errUnknownSubcommand(clispec.CmdAgent, args[0], subs)
 	}
@@ -66,7 +72,7 @@ func runAgentPrune(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 		}
 	}
 	if !cfg.HasAgentConfig() {
-		return fmt.Errorf("no Buddy Agent config is in play; turn on features.use_agent (or %s=1) first", buddy.EnvUseAgent)
+		return fmt.Errorf("no Buddy Agent config is in play; start Buddy Agent (empty config.yaml uses it automatically), or run 'buddy agent enable' (or %s=1)", buddy.EnvUseAgent)
 	}
 	dups := buddy.AgentDuplicates(cfg)
 	if len(dups) == 0 {
@@ -104,11 +110,103 @@ func runAgentPrune(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 		return err
 	}
 	fmt.Printf("Removed %d context(s) and %d auth(s) from config.yaml.\n", len(res.Contexts), len(res.Auths))
+	if len(res.Channels) > 0 {
+		fmt.Printf("Removed %d channel(s): %s\n", len(res.Channels), strings.Join(res.Channels, ", "))
+	}
+	if len(res.Features) > 0 {
+		fmt.Printf("Removed %d feature(s): %s\n", len(res.Features), strings.Join(res.Features, ", "))
+	}
 	if len(res.Secrets) > 0 {
 		fmt.Printf("Deleted %d vault secret(s): %s\n", len(res.Secrets), strings.Join(res.Secrets, ", "))
 	}
 	fmt.Println("Run 'buddy cred status' to see the Agent as the source (SECRET=agent).")
 	return nil
+}
+
+// runAgentSetUseAgent writes features.use_agent to config.yaml.
+func runAgentSetUseAgent(cfg *buddy.Config, on bool, args []string) error {
+	sub := clispec.SubDisable
+	if on {
+		sub = clispec.SubEnable
+	}
+	if showHelp, err := agentNoArgs(sub, args); err != nil {
+		return err
+	} else if showHelp {
+		fmt.Print(helpAgent)
+		return nil
+	}
+	if cfg == nil {
+		cfg = &buddy.Config{}
+	}
+	if err := buddy.SetUseAgent(cfg, on); err != nil {
+		return err
+	}
+	fmt.Printf("Wrote features.use_agent: %v\n", on)
+	if v, ok := parseBoolishEnv(buddy.EnvUseAgent); ok && v != on {
+		fmt.Fprintf(os.Stderr, "warning: %s=%s overrides config.yaml for this process\n", buddy.EnvUseAgent, os.Getenv(buddy.EnvUseAgent))
+	}
+	return nil
+}
+
+// runAgentSetForceAgent writes features.force_agent to config.yaml.
+func runAgentSetForceAgent(cfg *buddy.Config, args []string) error {
+	on := true
+	for _, a := range args {
+		switch a {
+		case "--off":
+			on = false
+		case clispec.SubHelp:
+			fmt.Print(helpAgent)
+			return nil
+		default:
+			return fmt.Errorf("unknown argument %q; usage: buddy agent force [--off]", a)
+		}
+	}
+	if cfg == nil {
+		cfg = &buddy.Config{}
+	}
+	if err := buddy.SetForceAgent(cfg, on); err != nil {
+		return err
+	}
+	fmt.Printf("Wrote features.force_agent: %v\n", on)
+	if v, ok := parseBoolishEnv(buddy.EnvForceAgent); ok && v != on {
+		fmt.Fprintf(os.Stderr, "warning: %s=%s overrides config.yaml for this process\n", buddy.EnvForceAgent, os.Getenv(buddy.EnvForceAgent))
+	}
+	if !on && cfg.ManagedForceAgent() {
+		fmt.Fprintln(os.Stderr, "warning: managed preferences still have force_agent: true; that wins over this file")
+	}
+	return nil
+}
+
+func parseBoolishEnv(key string) (value, ok bool) {
+	s := strings.TrimSpace(os.Getenv(key))
+	if s == "" {
+		return false, false
+	}
+	switch strings.ToLower(s) {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+// isAgentFlagWrite is true for `buddy agent enable|disable|force` (unique prefix).
+func isAgentEnableDisable(args []string) bool {
+	if len(args) < 2 {
+		return false
+	}
+	id, _, ok := clispec.ResolveCommand(args[0])
+	if !ok || id != clispec.CmdAgent {
+		return false
+	}
+	sub := []string{args[1]}
+	if err := resolveArg0(clispec.CmdAgent, sub, []string{clispec.SubEnable, clispec.SubDisable, clispec.SubForce}); err != nil {
+		return false
+	}
+	return sub[0] == clispec.SubEnable || sub[0] == clispec.SubDisable || sub[0] == clispec.SubForce
 }
 
 // agentNoArgs rejects stray arguments and prints help on request.
@@ -164,10 +262,32 @@ func runAgentStatus(args []string) error {
 		fmt.Printf("presence:     %s\n", describePresence(info))
 	}
 	fmt.Printf("idle lock:    %s\n", describeIdleLock(info.IdleLock))
+	if info.ConfigIntegrity != "" {
+		fmt.Printf("integrity:    %s\n", describeConfigIntegrity(info.ConfigIntegrity))
+	}
+	if info.ManagedPrefs != "" {
+		fmt.Printf("managed prefs: %s\n", info.ManagedPrefs)
+	}
 	if !info.Unlocked {
 		fmt.Println("\nConfig is served while locked. " + describeLockedHint(info))
 	}
 	return nil
+}
+
+func describeConfigIntegrity(state string) string {
+	switch state {
+	case "ok":
+		return "ok (matches Keychain seal)"
+	case "sealed":
+		return "sealed (verified when minting)"
+	case "missing":
+		return "missing (no Keychain seal yet)"
+	case "tampered":
+		return "tampered (mint will fail until the Agent re-seals)"
+	case "unavailable":
+		return "unavailable (unsigned Agent has no seal)"
+	}
+	return state
 }
 
 func describePresence(info agent.Info) string {
@@ -286,7 +406,14 @@ func runAgentIntegrations(args []string) error {
 	for _, row := range rows {
 		note := row.Problem
 		if note == "" {
-			note = row.URL
+			var bits []string
+			if row.Scope != "" {
+				bits = append(bits, row.Scope)
+			}
+			if row.URL != "" {
+				bits = append(bits, row.URL)
+			}
+			note = strings.Join(bits, "  ")
 		}
 		fmt.Printf("%-16s  %-20s  %-9s  %-8s  %s\n", row.Context, row.Auth, row.Type, row.Secret, note)
 	}

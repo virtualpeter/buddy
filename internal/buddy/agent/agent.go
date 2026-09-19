@@ -75,6 +75,11 @@ type Info struct {
 	// UnlockTimeout is how long the Agent leaves its prompt on screen; 0 means
 	// it will not prompt at all.
 	UnlockTimeout time.Duration
+	// ConfigIntegrity is the Agent's agent-config.json seal: "ok", "sealed",
+	// "missing", "tampered", or "unavailable". Empty from a pre-integrity Agent.
+	ConfigIntegrity string
+	// ManagedPrefs is a short summary of MDM keys the Agent can see (optional).
+	ManagedPrefs string
 }
 
 // Integration is one workplace+auth pair the Agent owns. Secret is "stored" or
@@ -86,6 +91,7 @@ type Integration struct {
 	URL      string `json:"url,omitempty"`
 	ClientID string `json:"client_id,omitempty"`
 	Username string `json:"username,omitempty"`
+	Scope    string `json:"scope,omitempty"`
 	Secret   string `json:"secret"`
 	Problem  string `json:"problem,omitempty"`
 }
@@ -178,16 +184,18 @@ func statusOp(ctx context.Context, path, op string) (Info, error) {
 		return Info{Socket: path}, err
 	}
 	return Info{
-		Present:       true,
-		Unlocked:      resp.Unlocked,
-		Version:       resp.Version,
-		Socket:        path,
-		PeerCheck:     resp.PeerCheck,
-		Integrations:  resp.IntegrationCount,
-		Tokens:        resp.TokenCount,
-		Presence:      strings.TrimSpace(resp.Presence),
-		IdleLock:      time.Duration(resp.IdleLockSeconds) * time.Second,
-		UnlockTimeout: time.Duration(resp.UnlockTimeoutSeconds) * time.Second,
+		Present:         true,
+		Unlocked:        resp.Unlocked,
+		Version:         resp.Version,
+		Socket:          path,
+		PeerCheck:       resp.PeerCheck,
+		Integrations:    resp.IntegrationCount,
+		Tokens:          resp.TokenCount,
+		Presence:        strings.TrimSpace(resp.Presence),
+		IdleLock:        time.Duration(resp.IdleLockSeconds) * time.Second,
+		UnlockTimeout:   time.Duration(resp.UnlockTimeoutSeconds) * time.Second,
+		ConfigIntegrity: strings.TrimSpace(resp.ConfigIntegrity),
+		ManagedPrefs:    strings.TrimSpace(resp.ManagedPrefs),
 	}, nil
 }
 
@@ -295,6 +303,8 @@ type response struct {
 	Presence             string          `json:"presence"`
 	IdleLockSeconds      int             `json:"idle_lock_seconds"`
 	UnlockTimeoutSeconds int             `json:"unlock_timeout_seconds"`
+	ConfigIntegrity      string          `json:"config_integrity"`
+	ManagedPrefs         string          `json:"managed_prefs"`
 	Config               json.RawMessage `json:"config"`
 	Integrations         []Integration   `json:"integrations"`
 	Tokens               []TokenInfo     `json:"tokens"`

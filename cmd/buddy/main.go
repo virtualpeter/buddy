@@ -65,16 +65,21 @@ func main() {
 
 	cfg, err := buddy.LoadConfig()
 	if err != nil {
+		cmdArgs := os.Args[1:]
 		isServe := false
-		if len(os.Args) > 1 {
-			id, _, ok := clispec.ResolveCommand(os.Args[1])
+		if len(cmdArgs) > 0 {
+			id, _, ok := clispec.ResolveCommand(cmdArgs[0])
 			isServe = ok && id == clispec.CmdServe
 		}
-		if isServe && buddy.IsConfigParseError(err) {
+		switch {
+		case isServe && buddy.IsConfigParseError(err):
 			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 			buddy.SetConfigLoadError(err)
 			cfg = &buddy.Config{}
-		} else {
+		case isAgentEnableDisable(cmdArgs) && buddy.IsAgentNeedsConfig(err):
+			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+			cfg = &buddy.Config{}
+		default:
 			fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 			os.Exit(1)
 		}

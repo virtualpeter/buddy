@@ -78,7 +78,7 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`
 - `buddy cred migrate` — move inline YAML secrets and old per-auth store items into the vault
 - `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of contexts, auths (with secrets), and channels; restore prompts once per auth (Enter restores, or `-y`)
-- `buddy setup` — first-run chooser when config is empty (instance, Platform, quickstart file, or MDM)
+- `buddy setup` — first-run chooser when config is empty (instance, Platform, quickstart file, or MDM); on macOS, a running Buddy Agent is used first (no `config.yaml` written; empty Agent errors)
 - `buddy setup import <file>` — merge secrets-free YAML or ACS plist identity, then fill secrets
 - `buddy setup export [path] [--json]` — write secrets-free identity YAML (stdout if omitted); recipients `setup import`, or `--json` for the Buddy Agent's import picker
 - `buddy setup secrets` — create missing context auths and surface-coverage gaps; store missing passwords / client secrets
@@ -86,6 +86,8 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy auth test` — ForceRenew + probe the active session (`--all` for every cell)
 - `buddy auth token refresh` — obtain, keep-alive, or replace the session token from cache state (`--raw` prints the bearer)
 - `buddy agent status` — the optional macOS Buddy Agent: socket path, present, unlocked, peer check, counts (`buddy auth agent` is an alias)
+- `buddy agent enable` / `disable` — write `features.use_agent: true` or `false` to `config.yaml`
+- `buddy agent force` / `force --off` — write `features.force_agent: true` or `false` (ignore the rest of `config.yaml`; MDM still applies)
 - `buddy agent config [--json]` — the config document the Agent serves (identity only; served while locked)
 - `buddy agent integrations` — workplaces and auths the Agent owns, with secret presence
 - `buddy agent tokens` — bearers the Agent has cached this session (metadata only)
@@ -117,7 +119,7 @@ Full YAML shape and field descriptions are in the [README](../README.md#configur
 
 ## First-time API setup
 
-If you have **no workplaces yet**, the preferred path is the interactive chooser (same as `buddy setup` / `buddy cred add`):
+If you have **no workplaces yet**, macOS first looks for a running Buddy Agent and uses it in memory (`config.yaml` stays absent). A running Agent with no workplaces is an error. Otherwise the preferred path is the interactive chooser (same as `buddy setup` / `buddy cred add`):
 
 ```sh
 buddy policy list                     # prompts when config is empty
@@ -370,6 +372,7 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 | `BUDDY_SECRET_STORE` | Where the vault data key and recovery passphrase live: `file`, `pass`, or `keychain` (default: Keychain on macOS, `dek`/`master` files elsewhere) |
 | `BUDDY_VAULT_PASSPHRASE` | Override recovery passphrase (CI/tests; never written). A `dek:v1:…` value overrides the data key instead. |
 | `BUDDY_USE_AGENT` | Override `features.use_agent` (`true`/`false`): take workplaces, auths, and their secrets from the Buddy Agent. With it on, an absent Agent is an error, not a vault fallback |
+| `BUDDY_FORCE_AGENT` | Override `features.force_agent` (`true`/`false`): require the Agent and ignore `config.yaml` (managed prefs still overlay) |
 | `BUDDY_NO_AGENT` | `1` ignores the optional macOS Buddy Agent; buddy always uses the in-process vault |
 | `BUDDY_AGENT_SOCK` | Buddy Agent socket path (default `~/Library/Application Support/Buddy/agent.sock`) |
 | `BUDDY_MANAGED_PLIST` | Path to a managed-config plist (replaces Darwin `/Library/Managed Preferences/virtualpete.buddy.cli.plist`) |

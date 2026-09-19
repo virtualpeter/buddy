@@ -33,6 +33,11 @@ func (cfg *Config) HasManagedPrefs() bool {
 	return strings.TrimSpace(m.Tenant.Default) != "" || len(m.Tenants) > 0 || len(m.Orgs) > 0 || len(m.Auths) > 0 || len(m.Channels) > 0
 }
 
+// ManagedForceAgent reports whether managed preferences set force_agent: true.
+func (cfg *Config) ManagedForceAgent() bool {
+	return cfg != nil && cfg.mdm != nil && cfg.mdm.Features.ForceAgent != nil && *cfg.mdm.Features.ForceAgent
+}
+
 // TenantFromManagedPrefs reports whether name is supplied by managed preferences.
 func (cfg *Config) TenantFromManagedPrefs(name string) bool {
 	if cfg == nil || cfg.mdm == nil || cfg.mdm.Tenants == nil {
@@ -180,7 +185,7 @@ func unwrapManagedPlist(raw map[string]any) map[string]any {
 }
 
 func hasManagedConfigKeys(raw map[string]any) bool {
-	for _, k := range []string{"tenant", "tenants", "context", "contexts", "orgs", "auths", "channels"} {
+	for _, k := range []string{"tenant", "tenants", "context", "contexts", "orgs", "auths", "channels", "features"} {
 		if _, ok := raw[k]; ok {
 			return true
 		}
@@ -267,6 +272,9 @@ func overlayConfig(base, overlay *Config) *Config {
 	if overlay.Features.UseAgent != nil {
 		out.Features.UseAgent = cloneBoolPtr(overlay.Features.UseAgent)
 	}
+	if overlay.Features.ForceAgent != nil {
+		out.Features.ForceAgent = cloneBoolPtr(overlay.Features.ForceAgent)
+	}
 	if len(overlay.Orgs) > 0 {
 		if out.Orgs == nil {
 			out.Orgs = map[string]OrgConfig{}
@@ -309,6 +317,7 @@ func cloneConfig(c *Config) *Config {
 	}
 	out.Features.ClassicInstanceOnly = cloneBoolPtr(c.Features.ClassicInstanceOnly)
 	out.Features.UseAgent = cloneBoolPtr(c.Features.UseAgent)
+	out.Features.ForceAgent = cloneBoolPtr(c.Features.ForceAgent)
 	return out
 }
 
@@ -438,6 +447,9 @@ func userOverlayForSave(cfg *Config) *Config {
 	}
 	if !boolPtrEqual(cfg.Features.UseAgent, base.Features.UseAgent) || userFeat.UseAgent != nil {
 		out.Features.UseAgent = cloneBoolPtr(cfg.Features.UseAgent)
+	}
+	if !boolPtrEqual(cfg.Features.ForceAgent, base.Features.ForceAgent) || userFeat.ForceAgent != nil {
+		out.Features.ForceAgent = cloneBoolPtr(cfg.Features.ForceAgent)
 	}
 
 	userOrgs := map[string]struct{}{}

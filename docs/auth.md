@@ -2,7 +2,7 @@
 
 Buddy talks to Jamf using a **context** (a named workplace in config) plus an **auth** (which principal). Passwords and OAuth client secrets belong in the encrypted vault, not in `config.yaml`. Tokens are cached and refreshed automatically.
 
-First-time install: [Getting started](getting-started.md). With an empty config, any interactive Jamf command (or `buddy setup` / `buddy cred add`) runs the chooser: instance JSON or basic, Platform curl, a secrets-free quickstart file, or an org MDM profile. `buddy cred add --paste` accepts the JSON Jamf Pro shows when creating an API client, or the curl sample from a Platform API client. `buddy setup export` writes that YAML from a working config; `buddy setup import` / `cred add --from=` load it. With an org MDM profile, use `buddy setup secrets`. The docs UI **config** page is a workplace tree (rename with the pencil, delete with the trash — parents that still have children are blocked). Secrets stay in the terminal vault. YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
+First-time install: [Getting started](getting-started.md). With an empty or missing config, buddy on macOS first looks for a running Buddy Agent and uses that document in memory (`config.yaml` stays absent). If the Agent is running but has no workplaces, buddy errors and asks you to add them in Buddy Agent. If the Agent is not there, any interactive Jamf command (or `buddy setup` / `buddy cred add`) runs the chooser — on a Mac, with a note suggesting Buddy Agent — and Linux/Windows keep that chooser as the first step: instance JSON or basic, Platform curl, a secrets-free quickstart file, or an org MDM profile. `buddy cred add --paste` accepts the JSON Jamf Pro shows when creating an API client, or the curl sample from a Platform API client. `buddy setup export` writes that YAML from a working config; `buddy setup import` / `cred add --from=` load it. With an org MDM profile, use `buddy setup secrets`. The docs UI **config** page is a workplace tree (rename with the pencil, delete with the trash — parents that still have children are blocked). Secrets stay in the terminal vault. YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
 
 Maintenance: `buddy cred status` and `buddy cred list` walk workplaces as **org → environment → product-tenant** (ORG / ENVIRONMENT / CONTEXT). SURFACE on status is instance URL vs Platform gateway — not Jamf Account scope (that lives on the auth). Account UUIDs stay on `buddy cred get`. Covering auths, whether a secret is **locked** / **stored** / missing, and the last `auth test` result. Default status does not open the vault (`SECRET=locked`); `--unlock` or `--test` classifies stored vs missing. Gaps are workplaces that have an identity but no covering auth (or no secret after unlock). Low-level `buddy cred set context|auth|secret` still works (`tenant` is a dual-read alias). `buddy cred rename context|auth` renames a workplace or auth (vault secrets move with the auth). If `config.yaml` will not parse, `buddy cred restore-config` copies the last-good `config.yaml.ok`. Loading also rewrites leading tabs to spaces.
 
@@ -253,16 +253,16 @@ The difference is the entitlement. A `userPresence` ACL only works on the **data
 
 The Agent opens the backup itself (the `buddy cred restore` envelope: PBKDF2-SHA256 then AES-256-GCM), so no secret passes through the CLI or the socket. The passphrase is used once, in memory. `internal/buddy/cred_backup_test.go` pins the payload keys that reader depends on.
 
-**After importing, hand the entries over.** `config.yaml` still holds the same contexts and auths, and the user file wins per name, so the local copy silently shadows the Agent's. `buddy cred status` says so, and `buddy agent prune` removes the duplicates — `--dry-run` lists them first, `--secrets` also deletes the vault copies the Agent has made redundant (that one opens the vault). A workplace stays until the workplaces under it are shared too, and anything the Agent does not serve is left alone. Run to completion, `config.yaml` is just `features.use_agent: true`.
+**After importing, hand the entries over.** `config.yaml` still holds the same contexts and auths, and the user file wins per name, so the local copy silently shadows the Agent's. `buddy cred status` says so, and `buddy agent prune` removes the duplicates — `--dry-run` lists them first, `--secrets` also deletes the vault copies the Agent has made redundant (that one opens the vault). A workplace stays until the workplaces under it are shared too, and anything the Agent does not serve is left alone. Run prune to completion and `config.yaml` shrinks to `features.use_agent: true`. If you never had a local file, it stays absent — a running Agent is enough.
 
-**`features.use_agent`** (or `BUDDY_USE_AGENT=1`) folds the Agent's document into buddy's config as a layer **beneath** managed preferences and your own `config.yaml` — the user file still wins per name, and `SaveConfig` never writes the Agent's entries to disk. With the flag on:
+**`features.use_agent`** (`buddy agent enable`, or `BUDDY_USE_AGENT=1`) folds the Agent's document into buddy's config as a layer **beneath** managed preferences and your own `config.yaml` — the user file still wins per name, and `SaveConfig` never writes the Agent's entries to disk. `buddy agent disable` writes `features.use_agent: false` so an empty file does not rediscover the Agent. **`features.force_agent`** (`buddy agent force`, MDM plist, or `BUDDY_FORCE_AGENT=1`) also requires the Agent, and **ignores the rest of `config.yaml`** (workplaces, auths, channels, other features). Managed preferences still overlay the Agent. MDM `force_agent: true` cannot be turned off in the user file (`buddy agent force --off` writes false locally). With `use_agent` or `force_agent` on:
 
 - an absent Agent (or `BUDDY_NO_AGENT=1`) is a **hard error**, not a silent fallback to the local vault;
 - Agent-owned auths show `SECRET=agent` in `buddy cred status`, and buddy never resolves a vault secret for them;
 - `buddy cred set|delete|rename` refuse those contexts and auths, pointing at the Agent window;
-- an otherwise empty `config.yaml` does not trigger first-run setup.
+- an otherwise empty `config.yaml` does not trigger first-run setup — a contactable Agent with no workplaces errors instead (`Buddy Agent needs config`).
 
-Without the flag, nothing dials the socket during config load, and the Agent is only consulted when a bearer is minted.
+Without the flag, a configured `config.yaml` does not dial the socket during load. An empty or missing file on macOS still asks a running Agent once and uses that document in memory without writing `features.use_agent`. A contactable Agent with no workplaces is the same error (add them in Buddy Agent). If the Agent is absent, first-run setup runs as before, with a note to use Buddy Agent. Linux and Windows have no Agent, so they keep the chooser. After that, the Agent is only consulted when a bearer is minted.
 
 Order of precedence when a bearer is needed:
 
@@ -285,7 +285,8 @@ Order of precedence when a bearer is needed:
 
 | Variable | Effect |
 |---|---|
-| `BUDDY_USE_AGENT` | Overrides `features.use_agent` (`1`/`0`) |
+| `BUDDY_USE_AGENT` | Overrides `features.use_agent` (`1`/`0`); `buddy agent enable` / `disable` write the YAML flag |
+| `BUDDY_FORCE_AGENT` | Overrides `features.force_agent` (`1`/`0`): require the Agent and ignore `config.yaml` (MDM still applies). `buddy agent force` / `force --off` write the YAML flag |
 | `BUDDY_NO_AGENT=1` | Ignore the Agent entirely; bit-identical to the pre-Agent behaviour |
 | `BUDDY_AGENT_SOCK` | Socket path override (both sides); default `~/Library/Application Support/Buddy/agent.sock` |
 | `BUDDY_AGENT_NO_PROMPT=1` | buddy never asks the Agent to prompt; a locked Agent just fails |
@@ -306,13 +307,13 @@ Still out of scope: `SMAppService` login-item registration and an "Open at Login
 **Manual soak** (Agent running from `dist/BuddyAgent.app`, or `make agent-dev` for the unsigned path):
 
 1. Add a workplace and auth in the Agent **Setup** tab while it is locked, then `buddy agent integrations` → the row with `secret stored`, no prompt
-2. `buddy agent config` → the served document; with `features.use_agent: true`, `buddy cred status` shows the same context with `SECRET=agent`
+2. `buddy agent config` → the served document; with an empty `config.yaml` (or `features.use_agent: true`), `buddy cred status` shows the same context with `SECRET=agent`
 3. `buddy auth token drop` then `buddy auth test` with the Agent locked → the Agent prompts, and approving it mints without touching the tray; `buddy agent status` then shows `unlocked: true`
 4. Decline the prompt → `unlock declined at the presence prompt`, the Agent stays locked, and the vault was never opened
 5. `BUDDY_AGENT_NO_PROMPT=1 buddy auth test` against a locked Agent → `buddy agent is locked`, with no prompt at all
 6. `BUDDY_AGENT_IDLE_LOCK=5`, unlock, wait → `buddy agent status` shows it relocked and its cached bearers gone
-7. Quit the Agent → with `use_agent` on, buddy aborts with "the Buddy Agent is not running"; with it off, vault-backed auths keep working as before
-8. `BUDDY_NO_AGENT=1` → same abort with `use_agent` on; without it, the vault path with the Agent untouched
+7. Quit the Agent → with `use_agent` on (yaml/env), buddy aborts with "the Buddy Agent is not running". With no flag and no `config.yaml`, the next command falls through to first-run setup. Vault-backed auths in a local file keep working.
+8. `BUDDY_NO_AGENT=1` → same abort with `use_agent` on; without the flag, the vault path with the Agent untouched
 
 Unattended runs of steps 3–6 can use `BUDDY_AGENT_FAKE_PRESENCE=allow|deny` instead of a finger, but that hook is dev-only and cannot prove the prompt works — do one real pass by hand.
 

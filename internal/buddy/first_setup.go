@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 	"strings"
+
+	"buddy/internal/buddy/agent"
 )
 
 // RunFirstTimeSetup prints a chooser (TTY) and creates the first workplace(s)
@@ -25,6 +28,9 @@ func RunFirstTimeSetup(cfg *Config, opts Opts, log *slog.Logger) (*CredAddResult
 	interactive := StdinIsTerminal() && !opts.SkipConfirm
 	if interactive {
 		fmt.Fprintln(os.Stderr, "buddy is not configured yet. How do you want to start? (Ctrl-C to abort)")
+		if hint := firstTimeSetupAgentHint(); hint != "" {
+			fmt.Fprintln(os.Stderr, hint)
+		}
 		fmt.Fprintln(os.Stderr, "  1) Jamf Pro instance (API client JSON, or URL + username/password)")
 		fmt.Fprintln(os.Stderr, "  2) Jamf Account / Platform (paste integration curl)")
 		fmt.Fprintln(os.Stderr, "  3) Import a quickstart file (YAML or ACS plist, no secrets)")
@@ -73,6 +79,15 @@ func RunFirstTimeSetup(cfg *Config, opts Opts, log *slog.Logger) (*CredAddResult
 		fmt.Fprintf(os.Stderr, "Auth test: live=%s\n", res.Live)
 	}
 	return res, nil
+}
+
+// firstTimeSetupAgentHint is the macOS-only note when first-run setup still
+// runs because no Buddy Agent was found (or it had no workplaces yet).
+func firstTimeSetupAgentHint() string {
+	if runtime.GOOS != "darwin" || !agent.Enabled() {
+		return ""
+	}
+	return "On this Mac, Buddy Agent (menu bar) can own workplaces and secrets instead — add them there, then re-run this command."
 }
 
 func finishSetupSecrets(cfg *Config, opts Opts) (*CredAddResult, error) {

@@ -326,3 +326,18 @@ func TestSetupSecrets_SkipsWhenSecretPresent(t *testing.T) {
 		t.Fatalf("got %+v", res)
 	}
 }
+
+func TestManagedForceAgent(t *testing.T) {
+	cfg := &Config{}
+	if cfg.ManagedForceAgent() {
+		t.Fatal("empty config")
+	}
+	cfg.mdm = &Config{Features: FeatureFlags{ForceAgent: boolPtr(true)}}
+	if !cfg.ManagedForceAgent() {
+		t.Fatal("mdm true")
+	}
+	cfg.mdm.Features.ForceAgent = boolPtr(false)
+	if cfg.ManagedForceAgent() {
+		t.Fatal("mdm false")
+	}
+}

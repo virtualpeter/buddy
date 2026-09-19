@@ -14,7 +14,7 @@ make install-signed   # macOS: ~/Applications/Buddy.app + symlink ~/go/bin/buddy
 
 `--context` is a **workplace name** (buddy config), not a Jamf UUID. Jamf **scope** (`organization` / `environment` / `tenant`) lives on the **auth**. Optional nested `orgs:` YAML expands into the same workplaces; instance-only installs omit it. See [Auth](auth.md#contexts-and-auths).
 
-If you have **no workplaces configured**, run any Jamf command on a terminal — buddy asks how to start (same as `buddy setup` / `buddy cred add`):
+If you have **no workplaces configured**, run any Jamf command on a terminal. On macOS, buddy first looks for a running **Buddy Agent** and uses that document without writing `config.yaml`. If the Agent is running but empty, buddy errors until you add a workplace there. If the Agent is not there, buddy asks how to start (same as `buddy setup` / `buddy cred add`), with a note suggesting Buddy Agent. Other platforms go straight to that chooser:
 
 1. **Jamf Pro instance** — paste the API-client **JSON** Jamf Pro shows (oauth), or type the instance URL plus username/password (**basic**).
 2. **Jamf Account / Platform** — paste the integration **curl**. Organization-admin is `https://us.api.jamfcloud.com` with a blank environment id (no env/tenant header). That workplace is the same object as `orgs.<name>`. Environment curls use a regional host **plus** an environment id. (Samples that show `api.jamfcloud.com` do not resolve; paste still treats them as org-against-US.)
@@ -32,7 +32,7 @@ pbpaste | buddy cred add --paste --context=sandbox -y
 buddy auth test
 ```
 
-Secrets go into the encrypted vault. In the local docs UI (`buddy serve` → `/config`), edit workplace/auth **metadata** after you have identity — `/config` is not first-run. Empty config: `buddy setup` in a terminal. Vault secrets stay in the terminal (`buddy cred set secret` / `buddy setup secrets`).
+Secrets go into the encrypted vault. In the local docs UI (`buddy serve` → `/config`), edit workplace/auth **metadata** after you have identity — `/config` is not first-run. Empty config: on macOS a running Buddy Agent is used first; otherwise `buddy setup` in a terminal. Vault secrets stay in the terminal (`buddy cred set secret` / `buddy setup secrets`).
 
 If this Mac already has an org MDM profile (or you imported a quickstart), skip identity and run:
 

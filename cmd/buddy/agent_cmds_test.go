@@ -37,11 +37,80 @@ func TestAgentUnknownSubcommand(t *testing.T) {
 func TestAgentPruneNeedsAgentConfig(t *testing.T) {
 	t.Setenv(agent.EnvDisable, "1")
 	err := runAgentPrune(&buddy.Config{}, buddy.Opts{}, nil)
-	if err == nil || !strings.Contains(err.Error(), "use_agent") {
-		t.Fatalf("err = %v, want a use_agent hint", err)
+	if err == nil || !strings.Contains(err.Error(), "agent enable") {
+		t.Fatalf("err = %v, want an enable hint", err)
 	}
 	if err := runAgentPrune(&buddy.Config{}, buddy.Opts{}, []string{"--nope"}); err == nil {
 		t.Fatal("expected an error for an unknown flag")
+	}
+}
+
+func TestAgentEnableDisableWritesFlag(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(buddy.EnvManagedPlist, filepath.Join(dir, "missing.plist"))
+	t.Setenv(agent.EnvDisable, "1")
+
+	cfg := &buddy.Config{}
+	if err := runAgent(cfg, buddy.Opts{}, []string{clispec.SubEnable}); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	path := filepath.Join(dir, "buddy", "config.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "use_agent: true") {
+		t.Fatalf("enable wrote:\n%s", data)
+	}
+	if err := runAgent(cfg, buddy.Opts{}, []string{clispec.SubDisable}); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "use_agent: false") {
+		t.Fatalf("disable wrote:\n%s", data)
+	}
+
+	if err := runAgent(cfg, buddy.Opts{}, []string{clispec.SubForce}); err != nil {
+		t.Fatalf("force: %v", err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "force_agent: true") {
+		t.Fatalf("force wrote:\n%s", data)
+	}
+	if err := runAgent(cfg, buddy.Opts{}, []string{clispec.SubForce, "--off"}); err != nil {
+		t.Fatalf("force --off: %v", err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "force_agent: false") {
+		t.Fatalf("force --off wrote:\n%s", data)
+	}
+}
+
+func TestIsAgentEnableDisable(t *testing.T) {
+	if !isAgentEnableDisable([]string{clispec.CmdAgent, clispec.SubEnable}) {
+		t.Fatal("enable")
+	}
+	if !isAgentEnableDisable([]string{clispec.CmdAgent, "dis"}) {
+		t.Fatal("disable prefix")
+	}
+	if !isAgentEnableDisable([]string{clispec.CmdAgent, clispec.SubForce}) {
+		t.Fatal("force")
+	}
+	if isAgentEnableDisable([]string{clispec.CmdAgent, clispec.SubStatus}) {
+		t.Fatal("status is not a toggle")
+	}
+	if isAgentEnableDisable([]string{clispec.CmdPolicy, clispec.SubEnable}) {
+		t.Fatal("wrong command")
 	}
 }
 

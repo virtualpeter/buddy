@@ -1274,6 +1274,12 @@ type FeatureFlags struct {
 	// (strictly: underneath) this file. The Agent owns those secrets, so buddy
 	// never opens its own vault for them. Default false; BUDDY_USE_AGENT wins.
 	UseAgent *bool `yaml:"use_agent,omitempty"`
+
+	// ForceAgent requires the Buddy Agent and ignores workplaces, auths,
+	// channels, orgs, and other features from config.yaml. Managed preferences
+	// still overlay the Agent document (user file does not). Default false;
+	// BUDDY_FORCE_AGENT wins. MDM force_agent: true cannot be turned off in YAML.
+	ForceAgent *bool `yaml:"force_agent,omitempty"`
 }
 
 // ClassicInstanceOnly reports whether Classic API routing must use an
@@ -1291,16 +1297,36 @@ func (cfg *Config) ClassicInstanceOnly() bool {
 // EnvUseAgent overrides features.use_agent (1/true/yes/on or 0/false/no/off).
 const EnvUseAgent = "BUDDY_USE_AGENT"
 
+// EnvForceAgent overrides features.force_agent (1/true/yes/on or 0/false/no/off).
+const EnvForceAgent = "BUDDY_FORCE_AGENT"
+
+// ForceAgent reports whether the Buddy Agent is required and config.yaml
+// (except this flag) is ignored. Env wins; MDM true is sticky over user YAML.
+func (cfg *Config) ForceAgent() bool {
+	if v, ok := parseBoolishEnv(EnvForceAgent); ok {
+		return v
+	}
+	if cfg != nil && cfg.Features.ForceAgent != nil {
+		return *cfg.Features.ForceAgent
+	}
+	return false
+}
+
 // UseAgent reports whether workplaces, auths, and secrets come from the macOS
-// Buddy Agent. Env wins over YAML; omitted means false.
+// Buddy Agent. ForceAgent implies true. Env wins over YAML; omitted means false
+// unless this load already attached an Agent layer (empty config.yaml on a
+// running Agent).
 func (cfg *Config) UseAgent() bool {
+	if cfg.ForceAgent() {
+		return true
+	}
 	if v, ok := parseBoolishEnv(EnvUseAgent); ok {
 		return v
 	}
 	if cfg != nil && cfg.Features.UseAgent != nil {
 		return *cfg.Features.UseAgent
 	}
-	return false
+	return cfg != nil && cfg.agent != nil
 }
 
 func parseBoolishEnv(key string) (value, ok bool) {
@@ -1348,7 +1374,8 @@ type Config struct {
 	Features FeatureFlags             `yaml:"features,omitempty"`
 
 	// user is the YAML file as loaded (after migrate). mdm is managed prefs and
-	// agent is the Buddy Agent's document (features.use_agent). All three are
+	// agent is the Buddy Agent's document (identity/policy; not features.use_agent).
+	// All three are
 	// omitted from YAML; SaveConfig writes only the user overlay when either
 	// base layer is present, so neither gets baked into config.yaml.
 	user  *Config
@@ -1725,7 +1752,7 @@ func configPath() (string, error) {
 
 // ConfigNeedsSetup reports whether cfg has no tenants after LoadConfig merge
 // (missing config.yaml, empty file, or tenants map absent). False when MDM
-// managed preferences already supply tenants.
+// managed preferences or a discovered Buddy Agent already supply tenants.
 func ConfigNeedsSetup(cfg *Config) bool {
 	return cfg == nil || len(cfg.Tenants) == 0
 }
@@ -1781,17 +1808,46 @@ func LoadConfig() (*Config, error) {
 		fmt.Fprintf(os.Stderr, "warning: managed preferences include inline secrets; the plist is typically world-readable — prefer 'buddy setup secrets' (or 'buddy cred set secret')\n")
 	}
 
-	// features.use_agent: the Buddy Agent layer sits beneath managed prefs, so
-	// the user file still wins per name. Only dial the socket when asked.
+	// features.use_agent / force_agent: the Buddy Agent layer sits beneath
+	// managed prefs. force_agent skips the user file (MDM still applies).
+	// Dial when asked, or when config.yaml is empty/missing on a platform
+	// that has an Agent — do not persist the flag on discover.
 	var agentCfg *Config
-	if overlayConfig(mdm, user).UseAgent() {
+	forceAgent := layersForceAgent(mdm, user)
+	if forceAgent || overlayConfig(mdm, user).UseAgent() {
 		agentCfg, err = loadAgentConfig()
+		if err != nil {
+			return nil, err
+		}
+	} else if shouldDiscoverAgent(user, mdm) {
+		agentCfg, err = tryLoadAgentConfig()
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	merged := overlayConfig(overlayConfig(agentCfg, mdm), user)
+	workplaceFallback := mdm
+	if !forceAgent {
+		workplaceFallback = overlayConfig(mdm, user)
+	}
+	if agentCfg != nil && !agentHasWorkplaces(agentCfg) &&
+		!agentHasWorkplaces(workplaceFallback) {
+		return nil, agentNeedsConfigError()
+	}
+
+	var merged *Config
+	if forceAgent {
+		merged = overlayConfig(agentCfg, mdm)
+		if merged == nil {
+			merged = &Config{}
+		}
+		if (merged.Features.ForceAgent == nil || !*merged.Features.ForceAgent) &&
+			user != nil && user.Features.ForceAgent != nil && *user.Features.ForceAgent {
+			merged.Features.ForceAgent = boolPtr(true)
+		}
+	} else {
+		merged = overlayConfig(overlayConfig(agentCfg, mdm), user)
+	}
 	if merged == nil {
 		merged = &Config{}
 	}
@@ -1808,10 +1864,12 @@ func LoadConfig() (*Config, error) {
 	migrateAuthSurfaceIntoType(merged)
 
 	if strings.TrimSpace(merged.Tenant.Default) == "" {
-		if len(merged.Tenants) == 0 {
-			merged.Tenant.Default = DefaultTenant
-		} else if n := firstSortedTenantName(merged); n != "" {
+		if n := firstSortedTenantName(merged); n != "" {
 			merged.Tenant.Default = n
+		} else if len(merged.Tenants) == 0 && len(merged.Auths) == 0 && len(merged.Channels) == 0 {
+			// Placeholder only on a truly empty file; inventing "default" when
+			// the Agent served policy-only channels would fail validation.
+			merged.Tenant.Default = DefaultTenant
 		}
 	}
 	normalizeAuthChannels(merged)
@@ -2582,10 +2640,24 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"},
 		)
 	}
-	if cfg.Features.UseAgent != nil && *cfg.Features.UseAgent {
+	if cfg.Features.UseAgent != nil {
+		val := "false"
+		if *cfg.Features.UseAgent {
+			val = "true"
+		}
 		feat.Content = append(feat.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "use_agent"},
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: val},
+		)
+	}
+	if cfg.Features.ForceAgent != nil {
+		val := "false"
+		if *cfg.Features.ForceAgent {
+			val = "true"
+		}
+		feat.Content = append(feat.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "force_agent"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: val},
 		)
 	}
 	if len(feat.Content) > 0 {

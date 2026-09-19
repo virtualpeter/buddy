@@ -10,7 +10,7 @@ Day-to-day work can follow several different styles - you can work with **buddys
 
 The only required config is a **context** plus an **auth**; passwords or oauth secrets get stored in the encrypted vault (`secrets.enc`), with a random Keychain data key and a recovery passphrase for backups — [docs/auth.md](docs/auth.md). Instance-only (Jamf Pro URL + oauth/basic) is enough; Platform is optional.
 
-New install: if there isn’t a released binary available and you have Go installed you can `make install-signed` (preferred) or `make install` (if you don’t have a signing cert), then run any Jamf command (e.g. `buddy policy list`) for the first-run chooser, or [`buddy cred add`](docs/getting-started.md). 
+New install: if there isn’t a released binary available and you have Go installed you can `make install-signed` (preferred) or `make install` (if you don’t have a signing cert), then run any Jamf command (e.g. `buddy policy list`). On macOS buddy first looks for a running Buddy Agent; otherwise you get the first-run chooser (or [`buddy cred add`](docs/getting-started.md)). 
 
 ## Documentation
 
@@ -168,7 +168,7 @@ Config is `context.default` + nested `orgs:` (organization → environment → p
 
 ### First-time setup
 
-If you have **no workplaces yet**, run any interactive Jamf command (or `buddy setup` / `buddy cred add`). Buddy asks how to start: Jamf Pro instance (API-client JSON, or URL + basic), Jamf Account / Platform (paste curl), a secrets-free quickstart YAML/plist, or an org MDM profile.
+If you have **no workplaces yet**, run any interactive Jamf command (or `buddy setup` / `buddy cred add`). On macOS buddy first looks for a running Buddy Agent and uses that document without writing `config.yaml`. A running Agent with no workplaces is an error (add them in Buddy Agent). If the Agent is not there, buddy asks how to start (with a note suggesting Buddy Agent): Jamf Pro instance (API-client JSON, or URL + basic), Jamf Account / Platform (paste curl), a secrets-free quickstart YAML/plist, or an org MDM profile. Linux and Windows go straight to that chooser.
 
 ```sh
 buddy policy list                     # chooser when config is empty

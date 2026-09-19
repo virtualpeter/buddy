@@ -115,7 +115,8 @@ func TestConfigAndIntegrationsServedWhileLocked(t *testing.T) {
 			return response{OK: true, Config: json.RawMessage(doc)}
 		case "integrations":
 			return response{OK: true, Integrations: []Integration{{
-				Context: "sandbox", Auth: "sandbox-admin", Type: "oauth", Secret: "stored",
+				Context: "sandbox", Auth: "sandbox-admin", Type: "platform",
+				Scope: "tenant", Secret: "stored",
 			}}}
 		case "tokens":
 			return response{OK: true, Tokens: []TokenInfo{}}
@@ -149,7 +150,7 @@ func TestConfigAndIntegrationsServedWhileLocked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("integrations: %v", err)
 	}
-	if len(rows) != 1 || rows[0].Auth != "sandbox-admin" || rows[0].Secret != "stored" {
+	if len(rows) != 1 || rows[0].Auth != "sandbox-admin" || rows[0].Secret != "stored" || rows[0].Scope != "tenant" {
 		t.Fatalf("integrations = %+v", rows)
 	}
 
@@ -243,6 +244,25 @@ func TestStatusCarriesPresenceFields(t *testing.T) {
 	}
 	if info.IdleLock != 15*time.Minute || info.UnlockTimeout != time.Minute {
 		t.Fatalf("idle lock = %v, unlock timeout = %v", info.IdleLock, info.UnlockTimeout)
+	}
+}
+
+func TestStatusCarriesIntegrityAndManagedPrefs(t *testing.T) {
+	fakeAgent(t, func(request) response {
+		return response{
+			OK: true, Present: true, Unlocked: false, Version: "0.4.0",
+			ConfigIntegrity: "sealed", ManagedPrefs: "channels cli, features",
+		}
+	})
+	info, err := Status(context.Background())
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if info.ConfigIntegrity != "sealed" {
+		t.Fatalf("integrity = %q", info.ConfigIntegrity)
+	}
+	if info.ManagedPrefs != "channels cli, features" {
+		t.Fatalf("managed prefs = %q", info.ManagedPrefs)
 	}
 }
 

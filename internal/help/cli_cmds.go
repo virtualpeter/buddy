@@ -89,13 +89,16 @@ Usage:
 
 Subcommands:
   status                       Socket path, present, unlocked, peer check, counts,
-                               presence mode, idle lock
+                               presence mode, idle lock, config integrity, managed prefs
   config [--json]              The config document the Agent serves (no secrets)
   integrations                 Workplaces and auths the Agent owns, with secret presence
   tokens                       Bearers the Agent has cached this session (metadata only)
   lock                         Tell the Agent to relock and drop its cached bearers
   prune [--dry-run] [--secrets] [-y]
                                Remove config.yaml entries the Agent already provides
+  enable                       Write features.use_agent: true to config.yaml
+  disable                      Write features.use_agent: false to config.yaml
+  force [--off]                Write features.force_agent: true (or false)
 
 Flags for 'config':
   --json                       Print the Agent's raw JSON document instead of YAML
@@ -104,6 +107,9 @@ Flags for 'prune':
   --dry-run                    List the duplicates and stop
   --secrets                    Also delete the vault secrets for those auths
   -y                           Skip the confirmation prompt
+
+Flags for 'force':
+  --off                        Write features.force_agent: false
 
 Notes:
   The Agent is a menu-bar app that owns its own integrations: workplace, auth,
@@ -130,19 +136,29 @@ Notes:
   Use the helper inside Buddy.app, or start the Agent with
   BUDDY_AGENT_ALLOW_UNSIGNED=1 while developing.
 
-  Turn on features.use_agent (or BUDDY_USE_AGENT=1) to fold that document into
-  buddy's config beneath managed preferences and your own config.yaml — the user
-  file still wins per name, and the Agent's entries are never written to disk.
-  With the flag on, an absent Agent is a hard error rather than a silent
-  fallback to the local vault.
+  Turn on features.use_agent with 'buddy agent enable' (or BUDDY_USE_AGENT=1)
+  to fold that document into buddy's config beneath managed preferences and
+  your own config.yaml — the user file still wins per name, and the Agent's
+  entries are never written to disk. With the flag on, an absent Agent is a
+  hard error rather than a silent fallback to the local vault. 'buddy agent
+  disable' writes features.use_agent: false so an empty config.yaml does not
+  rediscover the Agent. 'buddy agent force' writes features.force_agent: true
+  (YAML, MDM, or BUDDY_FORCE_AGENT) — requires the Agent and ignores the rest
+  of config.yaml; managed prefs still apply. 'buddy agent force --off' writes
+  false. An empty or missing config.yaml on macOS uses a contactable Agent in
+  memory until you enable, disable, or force. A running Agent with no
+  workplaces is an error (enable/disable/force still write the flag).
 
   Agent-owned auths show SECRET=agent in 'buddy cred status'; edit them (and
   their secrets) in the Buddy Agent window, not with 'buddy cred set'.
 
   After importing an existing setup into the Agent, config.yaml still holds the
-  same contexts and auths, and the local copy wins. 'buddy agent prune' deletes
-  those duplicates so the Agent's copy is the live one; --secrets also clears
-  the vault copies it has made redundant (that one opens the vault).
+  same contexts, auths, channels, and classic_instance_only, and the local copy
+  wins. 'buddy agent prune' deletes those duplicates so the Agent's copy is the
+  live one (file shrinks to features.use_agent: true); --secrets also clears
+  the vault copies it has made redundant (that one opens the vault). A Mac
+  that never had a local file does not need prune — empty config.yaml already
+  uses the Agent.
 
   BUDDY_NO_AGENT=1 ignores the Agent entirely; BUDDY_AGENT_SOCK overrides the
   socket path. There is no unlock subcommand: buddy can ask the Agent to prompt,
@@ -155,6 +171,10 @@ Examples:
   buddy agent integrations
   buddy agent tokens
   buddy agent lock
+  buddy agent enable
+  buddy agent disable
+  buddy agent force
+  buddy agent force --off
   buddy agent prune --dry-run
   buddy agent prune --secrets
 `
@@ -637,6 +657,11 @@ Notes:
   Empty config: any interactive Jamf command, or 'buddy setup' / 'buddy cred add',
   asks how to start: Jamf Pro instance (API-client JSON, or URL + basic), Jamf
   Account / Platform (paste curl), a quickstart file, or an org MDM profile.
+  On macOS, an empty or missing config.yaml first looks for a running Buddy
+  Agent and uses that document without writing config.yaml. If the Agent is
+  running but has no workplaces, buddy errors. If the Agent is not there,
+  the chooser still appears, with a note to use Buddy Agent instead of CLI
+  setup. Persist the choice with 'buddy agent enable', 'disable', or 'force'.
   --context is a workplace name; auth scope: is organization|environment|tenant.
   Optional orgs: YAML expands into those workplaces. A US curl with blank env id
   is an org workplace (same object as orgs.<name>).
