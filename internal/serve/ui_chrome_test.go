@@ -10,7 +10,7 @@ func TestChromeHeaderSlots(t *testing.T) {
 	h := chromeHeader("ide",
 		`<label>context <select id="context"></select></label><label>user <select id="auth"></select></label>`,
 		`<button id="btn-open">Open</button>`,
-		`<button id="btn-run" class="primary">Run</button>`)
+		`<button id="btn-run" class="primary">Run</button>`, false)
 	for _, want := range []string{
 		`class="app-header"`,
 		`href="/docs/"`,
@@ -51,7 +51,7 @@ func TestChromeHeaderSlots(t *testing.T) {
 
 func TestChromeNamedTabs(t *testing.T) {
 	for _, surface := range []string{"docs", "ide"} {
-		h := chromeHeader(surface, "", "", "")
+		h := chromeHeader(surface, "", "", "", false)
 		wantName := `window.name="buddy-` + surface + `"`
 		if !strings.Contains(h, wantName) {
 			t.Errorf("%s header missing %q", surface, wantName)
@@ -78,20 +78,20 @@ func TestChromeVersion(t *testing.T) {
 	prev := chromeVersion
 	t.Cleanup(func() {
 		setChromeVersion(prev)
-		ideHTML = buildIDEHTML()
+		ideHTML = buildIDEHTML(false)
 	})
 	setChromeVersion("1.2.3-test")
-	h := chromeHeader("docs", "", "", "")
+	h := chromeHeader("docs", "", "", "", false)
 	if !strings.Contains(h, `class="ver"`) || !strings.Contains(h, "1.2.3-test") {
 		t.Fatalf("header missing version: %s", h)
 	}
 	setChromeVersion("")
-	h2 := chromeHeader("docs", "", "", "")
+	h2 := chromeHeader("docs", "", "", "", false)
 	if !strings.Contains(h2, ">dev</span>") {
 		t.Fatalf("empty version should fall back to dev: %s", h2)
 	}
 	setChromeVersion(`<script>x</script>`)
-	h3 := chromeHeader("docs", "", "", "")
+	h3 := chromeHeader("docs", "", "", "", false)
 	if strings.Contains(h3, "<script>x</script>") || !strings.Contains(h3, html.EscapeString(`<script>x</script>`)) {
 		if !strings.Contains(h3, "&lt;script&gt;") {
 			t.Fatalf("version should be HTML-escaped: %s", h3)
@@ -142,12 +142,48 @@ func TestIDESharedChrome(t *testing.T) {
 	}
 }
 
-func TestDocsTemplateHasChrome(t *testing.T) {
-	if !strings.Contains(docsTmplSrc, "{{chromeHeader}}") {
-		t.Fatal("docs template missing chromeHeader")
+func TestEmbedCSSScopedToDocs(t *testing.T) {
+	// IDE also uses class "layout"; embed rules must not touch it.
+	if strings.Contains(chromeCSS, `html[data-embed="1"] .layout {`) {
+		t.Fatal("embed layout rules must be scoped to body.docs (IDE uses .layout too)")
 	}
-	if !strings.Contains(docsTmplSrc, "{{chromeHead}}") {
-		t.Fatal("docs template missing chromeHead")
+	if !strings.Contains(chromeCSS, `html[data-embed="1"] body.docs .layout {`) {
+		t.Fatal("missing scoped docs embed layout rule")
+	}
+}
+
+func TestChromeHeaderEmbed(t *testing.T) {
+	h := chromeHeader("docs", `<span id="ctx"></span>`, "", "", true)
+	for _, absent := range []string{
+		`class="brand"`,
+		`class="app-nav"`,
+		`target="buddy-docs"`,
+		`window.name="buddy-docs"`,
+	} {
+		if strings.Contains(h, absent) {
+			t.Fatalf("embed header should omit %q\n%s", absent, h)
+		}
+	}
+	if !strings.Contains(h, `id="ctx"`) {
+		t.Fatalf("embed header should keep page controls\n%s", h)
+	}
+	if strings.Contains(h, `id="theme-dark"`) {
+		t.Fatal("embed header should omit web theme toggle (host app owns appearance)")
+	}
+	if !strings.Contains(chromeHeadTags(true), `data-embed','1'`) {
+		t.Fatal("embed head should set data-embed")
+	}
+	if strings.Contains(chromeToggleScript(true), `buddyServeOpenOrFocus`) {
+		t.Fatal("embed should skip named-tab focus script")
+	}
+}
+
+func TestDocsTemplateHasChrome(t *testing.T) {
+	if !strings.Contains(docsTmplSrc, "{{.ChromeHeader}}") {
+		t.Fatal("docs template missing ChromeHeader")
+	}
+	if !strings.Contains(docsTmplSrc, "{{.ChromeHead}}") {
+		t.Fatal("docs template missing ChromeHead")
 	}
 	if !strings.Contains(docsTmplSrc, "buddy-serve-docs-last") {
 		t.Fatal("docs should persist last page id")
@@ -179,8 +215,8 @@ func TestDocsTemplateHasChrome(t *testing.T) {
 }
 
 func TestChromePersistAndSoftTab(t *testing.T) {
-	head := chromeHeadTags()
-	foot := chromeToggleScript()
+	head := chromeHeadTags(false)
+	foot := chromeToggleScript(false)
 	for _, want := range []string{
 		`buddyServeStore`,
 		`buddyServeSoftTab`,

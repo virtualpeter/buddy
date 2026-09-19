@@ -4,7 +4,7 @@ Buddy Agent is a menu-bar app that **owns your Jamf workplaces, auths, and secre
 
 ## Quick start
 
-1. **Launch** Buddy Agent (from Buddy.app’s Login Items copy, `dist/BuddyAgent.app`, or your dev build).
+1. **Launch** Buddy Agent (from Buddy.app’s Login Items copy, `dist/BuddyAgent.app`, or your dev build). From **Buddy.app**, use the toolbar gear or **Agent Settings…** (⇧⌘,) — same window as below.
 2. Click the **padlock** in the menu bar → **Settings…** (⌘,).
 3. Add **workplaces** (org → environment → tenant) and **auths** (oauth, basic, or platform).
 4. Store each auth’s **secret** in the auth editor (write-only; rows show `stored` or `missing`).

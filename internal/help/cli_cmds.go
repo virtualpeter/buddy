@@ -754,6 +754,7 @@ Flags for 'serve':
   --addr=<host:port>   Listen address (default: 127.0.0.1:8742; localhost only)
   --docs-root=<path>   Override embedded docs with a live docs/ directory
   --open               Open the docs URL in the default browser
+  --embed              Hide logo and docs/ide/config nav (Buddy.app shell; ?embed=1)
 
 Notes:
   Serves a curated user docs UI (guides, builtins, examples) plus:

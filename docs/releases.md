@@ -28,7 +28,8 @@ Notable features since the v11 line (last tag **v11.4.1**).
 
 - First-run is a chooser: paste Jamf Pro JSON / Account curl, import a secrets-free YAML/plist, or fill secrets for an existing MDM profile. `buddy setup export` / `import` / `secrets` / `managed-plist` replace the old write-script / store-oauth / basic-setup helpers.
 - `buddy cred add --paste` / `--from=` share that parser.
-- `make install-signed` installs **Buddy.app** under `~/Applications` with `~/go/bin/buddy` as a symlink into the helper. The Finder stub no longer bounce-waits in the Dock. Vault unlock is lazy (mcp/serve and `cred status` do not prompt at start).
+- `make install-signed` installs **Buddy.app** under `~/Applications` with `~/go/bin/buddy` as a symlink into the helper. **`Contents/MacOS/Buddy`** is a SwiftUI shell (`macos/Buddy/`) that hosts `buddy serve --embed` (Docs, Config, IDE tabs; native appearance menu; Agent Settings shortcut). Vault unlock is lazy (mcp/serve and `cred status` do not prompt at start).
+- `buddy serve --embed` (or `?embed=1`) strips in-page nav for embed hosts; `/config` is read-only when a running Buddy Agent owns workplaces (`config_readonly`).
 
 ### CLI
 

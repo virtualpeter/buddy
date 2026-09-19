@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Assemble and sign Buddy.app: CLI at Contents/Helpers/buddy, GUI stub at Contents/MacOS/Buddy.
+# Assemble and sign Buddy.app: CLI at Contents/Helpers/buddy, Swift shell at Contents/MacOS/Buddy.
 # Args: <helper-binary> <out-app> <version> <codesign-identity> [agent-app]
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -52,9 +52,26 @@ if [[ -n "$agent" ]]; then
 	ditto "$agent" "$app/Contents/Library/LoginItems/BuddyAgent.app"
 fi
 
-echo "Building Buddy.app stub (version $version)..."
-# CGO + AppKit so Finder launch finishes (Dock bounce stops) while serve runs.
-CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o "$macos/Buddy" ./cmd/buddy-app
+echo "Building Buddy.app shell (version $version)..."
+project="macos/Buddy/Buddy.xcodeproj"
+test -d "$project" || { echo "build-buddy-app: missing $project" >&2; exit 1; }
+command -v xcodebuild >/dev/null || { echo "build-buddy-app: xcodebuild not found" >&2; exit 1; }
+"$root/scripts/gen-buddy-version.sh"
+dd="$work/DerivedData"
+xcodebuild \
+	-project "$project" \
+	-scheme Buddy \
+	-configuration Release \
+	-derivedDataPath "$dd" \
+	CODE_SIGN_IDENTITY="-" \
+	CODE_SIGNING_ALLOWED=NO \
+	MARKETING_VERSION="$version" \
+	CURRENT_PROJECT_VERSION=1 \
+	build >"$work/xcodebuild.log" 2>&1 ||
+	{ tail -40 "$work/xcodebuild.log" >&2; echo "build-buddy-app: xcodebuild failed" >&2; exit 1; }
+built="$dd/Build/Products/Release/Buddy.app/Contents/MacOS/Buddy"
+test -f "$built" || { echo "build-buddy-app: missing $built" >&2; exit 1; }
+cp "$built" "$macos/Buddy"
 chmod 755 "$macos/Buddy"
 
 sed \
@@ -127,4 +144,4 @@ if [[ -n "$agent" ]]; then
 	}
 	echo "Buddy.app: agent at Contents/Library/LoginItems/BuddyAgent.app"
 fi
-echo "Buddy.app: $out (CLI Helpers/buddy, stub MacOS/Buddy)"
+echo "Buddy.app: $out (CLI Helpers/buddy, Swift MacOS/Buddy)"

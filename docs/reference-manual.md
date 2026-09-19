@@ -214,17 +214,19 @@ make docs-serve
 # or
 buddy serve --open
 buddy serve --addr=127.0.0.1:8742
+buddy serve --addr=127.0.0.1:0 --embed   # dynamic port; stripped chrome (Buddy.app)
 ```
 
-- Binds **localhost only** (default `127.0.0.1:8742`).
+- Binds **localhost only** (default `127.0.0.1:8742`; `--addr=127.0.0.1:0` picks a free port and prints the URL on stdout).
 - `/docs/` — Curated user guides (overview, reference, builtins, API, MCP, examples). Contributor/agent material (AGENTS, Cursor rules) is MCP-only.
-- `/config` — View/edit workplace and auth **metadata** (defaults, coverage gaps). First-run identity is the CLI chooser (`buddy setup` / `cred add`); vault secrets stay CLI-only (`buddy cred set secret` / `setup secrets`).
+- `/config` — View/edit workplace and auth **metadata** (defaults, coverage gaps). First-run identity is the CLI chooser (`buddy setup` / `cred add`); vault secrets stay CLI-only (`buddy cred set secret` / `setup secrets`). When a running **Buddy Agent** owns config (`features.use_agent` / empty macOS config), `/config` is **read-only** here (`config_readonly` in the API snapshot; edits belong in Agent Settings).
 - `/ide` — Single-buffer script runner with open/save, args, optional `--script-trace`-style builtin tracing, Run (file dialect + call `main()` if present), resizable output, copy/save/stash, and a Variables | Libraries sidebar. Open/save is limited to the process cwd or `BUDDY_IDE_ROOT`. Matches CLI file semantics.
 - Line breakpoints and stepping are **not** available (Starlark-go has no pause/step API). A soft `breakpoint()` builtin that only stops when the script calls it may be added later.
 - Optional `--docs-root` / `BUDDY_DOCS_ROOT` to override embedded markdown with live files while editing.
+- **`--embed`** (or `?embed=1` on any page) hides the in-page logo, Docs/Config/IDE nav, and web theme toggle so a host app can supply its own chrome. **Buddy.app** (`Contents/MacOS/Buddy`, sources in `macos/Buddy/`) runs `buddy serve --addr=127.0.0.1:0 --embed`, shows Docs / Config / IDE in a native toolbar (Config tab hidden when config is Agent-owned), **View → Appearance** for light/dark/system, and **Agent Settings…** (⇧⌘,) to raise the nested Buddy Agent window.
 - Confirmations for `confirm()` and Jamf mutates open a dialog in the browser. Global `-y` skips them. Serve sessions use the `ide` channel.
 
-Open the printed URL in Cursor’s Simple Browser for an in-editor experience.
+Open the printed URL in Cursor’s Simple Browser for an in-editor experience, or use **Buddy.app** on macOS for the same surfaces in a native window.
 
 ---
 
@@ -386,7 +388,7 @@ These are Makefile variables, not runtime config:
 |----------|--------|
 | `BUDDY_CODESIGN_IDENTITY` | Developer ID Application identity used to sign the Darwin/arm64 helper and Buddy.app (default: first match from `security find-identity -v -p codesigning`) |
 | `BUDDY_CODESIGN_IDENTIFIER` | CLI helper identifier (default `virtualpete.buddy.cli`); must stay stable so Keychain ACLs survive rebuilds |
-| `BUDDY_APP_IDENTIFIER` | Buddy.app identifier (default `virtualpete.buddy`); `Contents/MacOS/Buddy` is reserved for a future GUI |
+| `BUDDY_APP_IDENTIFIER` | Buddy.app identifier (default `virtualpete.buddy`); signs the SwiftUI shell at `Contents/MacOS/Buddy` |
 | `BUDDY_PKG_SIGN_IDENTITY` | Optional Developer ID Installer identity for `make package` (branded product archive + Finder icon from `internal/serve/buddy.png`) |
 
 ---

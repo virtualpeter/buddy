@@ -138,6 +138,21 @@ html[data-theme="light"] {
   margin: 0;
 }
 .theme-toggle input { accent-color: var(--accent); cursor: pointer; }
+html[data-embed="1"] .app-header .brand,
+html[data-embed="1"] .app-header .app-nav { display: none; }
+html[data-embed="1"] .app-header {
+  min-height: 2.35rem;
+  padding: .4rem .75rem;
+}
+html[data-embed="1"] body.docs .layout {
+  grid-template-columns: 11.5rem minmax(0, 1fr);
+}
+html[data-embed="1"] body.docs .toc { display: none; }
+html[data-embed="1"] body.docs main { padding: 1rem 1.25rem 2rem; max-width: none; }
+@media (max-width: 720px) {
+  html[data-embed="1"] body.docs .layout { grid-template-columns: minmax(0, 1fr); }
+  html[data-embed="1"] body.docs .side-nav { display: none; }
+}
 `
 
 // Theme resolution: explicit localStorage dark|light wins; otherwise follow
@@ -291,28 +306,34 @@ const chromeSoftTabJS = `(function(){
 // runHTML the primary run button (placed before the dark toggle).
 // Nav/brand links use named browsing contexts (target="buddy-*") so each
 // surface opens or focuses its own browser tab instead of replacing the current one.
-func chromeHeader(active, sessionHTML, actionsHTML, runHTML string) string {
+func chromeHeader(active, sessionHTML, actionsHTML, runHTML string, embed bool) string {
 	nav := func(id, href, label string) string {
 		cls := ""
 		if id == active {
 			cls = ` class="active"`
 		}
-		return `<a href="` + href + `" target="buddy-` + id + `"` + cls + `>` + label + `</a>`
+		target := ` target="buddy-` + id + `"`
+		if embed {
+			target = ""
+		}
+		return `<a href="` + href + `"` + target + cls + `>` + label + `</a>`
 	}
 	var b strings.Builder
 	// Claim this tab's name so later chrome clicks from another surface find it
 	// even if the tab was opened via URL/bookmark rather than a named target.
-	if active == "docs" || active == "ide" || active == "config" {
+	if !embed && (active == "docs" || active == "ide" || active == "config") {
 		b.WriteString(`<script>window.name="buddy-` + active + `";</script>`)
 	}
 	b.WriteString(`<header class="app-header">`)
-	b.WriteString(`<div class="brand"><a href="/docs/" target="buddy-docs"><img src="` + logoURL + `" width="28" height="28" alt="">buddy</a>`)
-	b.WriteString(`<span class="ver" title="buddy version">` + html.EscapeString(chromeVersion) + `</span></div>`)
-	b.WriteString(`<nav class="app-nav">`)
-	b.WriteString(nav("docs", "/docs/", "docs"))
-	b.WriteString(nav("ide", "/ide", "ide"))
-	b.WriteString(nav("config", "/config", "config"))
-	b.WriteString(`</nav>`)
+	if !embed {
+		b.WriteString(`<div class="brand"><a href="/docs/" target="buddy-docs"><img src="` + logoURL + `" width="28" height="28" alt="">buddy</a>`)
+		b.WriteString(`<span class="ver" title="buddy version">` + html.EscapeString(chromeVersion) + `</span></div>`)
+		b.WriteString(`<nav class="app-nav">`)
+		b.WriteString(nav("docs", "/docs/", "docs"))
+		b.WriteString(nav("ide", "/ide", "ide"))
+		b.WriteString(nav("config", "/config", "config"))
+		b.WriteString(`</nav>`)
+	}
 	if sessionHTML != "" {
 		b.WriteString(sessionHTML)
 	}
@@ -323,13 +344,20 @@ func chromeHeader(active, sessionHTML, actionsHTML, runHTML string) string {
 	if runHTML != "" {
 		b.WriteString(runHTML)
 	}
-	b.WriteString(`<label class="theme-toggle"><input type="checkbox" id="theme-dark"> dark</label>`)
+	if !embed {
+		b.WriteString(`<label class="theme-toggle"><input type="checkbox" id="theme-dark"> dark</label>`)
+	}
 	b.WriteString(`</header>`)
 	return b.String()
 }
 
-func chromeHeadTags() string {
-	return `<link rel="icon" type="image/png" href="` + logoURL + `">` +
+func chromeHeadTags(embed bool) string {
+	embedBoot := ""
+	if embed {
+		embedBoot = `<script>document.documentElement.setAttribute('data-embed','1');</script>`
+	}
+	return embedBoot +
+		`<link rel="icon" type="image/png" href="` + logoURL + `">` +
 		`<link rel="apple-touch-icon" href="` + logoURL + `">` +
 		`<script>` + chromeThemeBootJS + `</script>` +
 		`<script>` + chromePersistHelpersJS + `</script>` +
@@ -337,8 +365,11 @@ func chromeHeadTags() string {
 		"\n<style>\n" + chromeCSS + "\n</style>\n"
 }
 
-func chromeToggleScript() string {
-	return `<script>` + chromeThemeToggleJS + `</script>` +
-		`<script>` + chromeDocsLinkRewriteJS + `</script>` +
-		`<script>` + chromeNamedTabFocusJS + `</script>`
+func chromeToggleScript(embed bool) string {
+	out := `<script>` + chromeThemeToggleJS + `</script>`
+	if !embed {
+		out += `<script>` + chromeDocsLinkRewriteJS + `</script>` +
+			`<script>` + chromeNamedTabFocusJS + `</script>`
+	}
+	return out
 }

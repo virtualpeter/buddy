@@ -1,0 +1,275 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXFileReference section */
+		BD000000000000000000A001 /* Buddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Buddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BD000000000000000000A002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		BD000000000000000000A003 /* Buddy.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Buddy.entitlements; sourceTree = "<group>"; };
+		BD000000000000000000A007 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		BD000000000000000000B001 /* Sources/Buddy */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Sources/Buddy;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BD000000000000000000C001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		BD000000000000000000D001 = {
+			isa = PBXGroup;
+			children = (
+				BD000000000000000000B001 /* Sources/Buddy */,
+				BD000000000000000000D002 /* Resources */,
+				BD000000000000000000A007 /* Version.xcconfig */,
+				BD000000000000000000A003 /* Buddy.entitlements */,
+				BD000000000000000000D003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		BD000000000000000000D002 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				BD000000000000000000A002 /* Info.plist */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		BD000000000000000000D003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BD000000000000000000A001 /* Buddy.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		BD000000000000000000E001 /* Buddy */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BD000000000000000000F002 /* Build configuration list for PBXNativeTarget "Buddy" */;
+			buildPhases = (
+				BD000000000000000000C004 /* Generate Version */,
+				BD000000000000000000C002 /* Sources */,
+				BD000000000000000000C001 /* Frameworks */,
+				BD000000000000000000C003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				BD000000000000000000B001 /* Sources/Buddy */,
+			);
+			name = Buddy;
+			packageProductDependencies = (
+			);
+			productName = Buddy;
+			productReference = BD000000000000000000A001 /* Buddy.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BD000000000000000000E002 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				ORGANIZATIONNAME = "Peter Viertel";
+				TargetAttributes = {
+					BD000000000000000000E001 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+				};
+			};
+			buildConfigurationList = BD000000000000000000F001 /* Build configuration list for PBXProject "Buddy" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = BD000000000000000000D001;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = BD000000000000000000D003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BD000000000000000000E001 /* Buddy */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BD000000000000000000C003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		BD000000000000000000C004 /* Generate Version */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../../scripts/gen-buddy-version.sh",
+			);
+			name = "Generate Version";
+			outputPaths = (
+				"$(SRCROOT)/Version.xcconfig",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/../../scripts/gen-buddy-version.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BD000000000000000000C002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		BD000000000000000000F101 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		BD000000000000000000F102 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		BD000000000000000000F201 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = BD000000000000000000A007 /* Version.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Buddy.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 8R4UX79KVM;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = virtualpete.buddy;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Debug;
+		};
+		BD000000000000000000F202 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = BD000000000000000000A007 /* Version.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Buddy.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 8R4UX79KVM;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = virtualpete.buddy;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		BD000000000000000000F001 /* Build configuration list for PBXProject "Buddy" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BD000000000000000000F101 /* Debug */,
+				BD000000000000000000F102 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BD000000000000000000F002 /* Build configuration list for PBXNativeTarget "Buddy" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BD000000000000000000F201 /* Debug */,
+				BD000000000000000000F202 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = BD000000000000000000E002 /* Project object */;
+}

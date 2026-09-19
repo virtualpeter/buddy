@@ -558,6 +558,7 @@ func SetSelection(cfg *Config, opts SetSelectionOpts) error {
 type ConfigSnapshot struct {
 	NeedsSetup      bool                    `json:"needs_setup"`
 	ConfigFile      bool                    `json:"config_file"` // user config.yaml exists
+	ConfigReadonly  bool                    `json:"config_readonly,omitempty"` // edit in Buddy Agent, not here
 	DefaultContext  string                  `json:"default_context"`
 	DefaultTenant   string                  `json:"default_tenant"`   // dual-read alias of default_context
 	ChannelContexts map[string]string       `json:"channel_contexts"` // cli/mcp/ide → effective default
@@ -642,6 +643,7 @@ func BuildConfigSnapshot(cfg *Config) ConfigSnapshot {
 	if cfg == nil {
 		return snap
 	}
+	snap.ConfigReadonly = ConfigEditsViaAgent(cfg)
 	snap.DefaultContext = cfg.Tenant.Default
 	snap.DefaultTenant = cfg.Tenant.Default
 	for _, ch := range []string{ChannelCLI, ChannelMCP, ChannelIDE} {

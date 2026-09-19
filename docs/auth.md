@@ -219,7 +219,7 @@ Escape hatches (never written to disk as config):
 
 ### Optional Buddy Agent
 
-An optional macOS menu-bar **Buddy Agent** (Swift, [`macos/BuddyAgent/`](../macos/BuddyAgent/)) **owns its own workplaces and auths**: identity in `agent-config.json`, secrets in its Keychain under service `virtualpete.buddy.agent`. buddy never sends a secret to the Agent, and the Agent never returns one: the CLI dials a **unix-domain socket** with a **Team-ID codesign peer check** and receives config (identity) or `{access_token, expires_at}`. Nothing is installed by default: no LaunchAgent, no change to `Contents/MacOS/Buddy`, and no new entitlements on `Helpers/buddy`.
+An optional macOS menu-bar **Buddy Agent** (Swift, [`macos/BuddyAgent/`](../macos/BuddyAgent/)) **owns its own workplaces and auths**: identity in `agent-config.json`, secrets in its Keychain under service `virtualpete.buddy.agent`. buddy never sends a secret to the Agent, and the Agent never returns one: the CLI dials a **unix-domain socket** with a **Team-ID codesign peer check** and receives config (identity) or `{access_token, expires_at}`. Shipped inside **Buddy.app** at `Contents/Library/LoginItems/BuddyAgent.app` (optional **Open at Login**); no separate LaunchAgent plist. When the Agent is active, **`buddy serve` `/config`** is read-only in the browser or Buddy.app window — edit workplaces in Agent Settings instead. No new entitlements on `Helpers/buddy`.
 
 **Config is served while the Agent is locked.** Workplaces and auth names are identity, not secrets, so resolving a session never prompts. Unlock gates **minting** only.
 

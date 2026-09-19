@@ -26,15 +26,18 @@ func handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 	case path == "" && r.Method == http.MethodGet:
 		handleConfigGet(w, r)
 	case path == "rename" && r.Method == http.MethodPost:
-		if configAPIBroken(w) {
+		if configMutationBlocked(w) {
 			return
 		}
 		handleConfigRename(w, r)
 	case path == "restore" && r.Method == http.MethodPost:
+		if configAgentLocked(w) {
+			return
+		}
 		handleConfigRestore(w, r)
 	case strings.HasPrefix(path, "tenant/") && (r.Method == http.MethodPut || r.Method == http.MethodDelete),
 		strings.HasPrefix(path, "context/") && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
-		if configAPIBroken(w) {
+		if configMutationBlocked(w) {
 			return
 		}
 		name := strings.TrimPrefix(path, "tenant/")
@@ -45,7 +48,7 @@ func handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 			handleConfigDeleteTenant(w, r, name)
 		}
 	case strings.HasPrefix(path, "auth/") && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
-		if configAPIBroken(w) {
+		if configMutationBlocked(w) {
 			return
 		}
 		name := strings.TrimPrefix(path, "auth/")
@@ -55,7 +58,7 @@ func handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 			handleConfigDeleteAuth(w, r, name)
 		}
 	case path == "selection" && r.Method == http.MethodPut:
-		if configAPIBroken(w) {
+		if configMutationBlocked(w) {
 			return
 		}
 		handleConfigPutSelection(w, r)
@@ -72,6 +75,23 @@ func configAPIBroken(w http.ResponseWriter) bool {
 		"error": buddy.ConfigLoadError().Error(),
 	})
 	return true
+}
+
+func configAgentLocked(w http.ResponseWriter) bool {
+	if !buddy.ConfigEditsViaAgent(buddy.GetActiveConfig()) {
+		return false
+	}
+	writeJSON(w, http.StatusForbidden, map[string]string{
+		"error": "workplaces and auths are managed by Buddy Agent; open Buddy Agent → Settings",
+	})
+	return true
+}
+
+func configMutationBlocked(w http.ResponseWriter) bool {
+	if configAPIBroken(w) {
+		return true
+	}
+	return configAgentLocked(w)
 }
 
 func handleConfigGet(w http.ResponseWriter, r *http.Request) {

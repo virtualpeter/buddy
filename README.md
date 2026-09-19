@@ -57,7 +57,7 @@ make buddy-darwin-arm64
 |--------|--------|----------|-------|
 | `make buddy` | `dist/buddy` | service `buddy` via `security(1)` | Default; no CGO; existing items keep working |
 | `make buddy-darwin-arm64` | `dist/buddy-darwin-arm64` | service `virtualpete.buddy.cli` (label Buddy) via Security.framework | Requires Darwin/arm64; Hardened Runtime + Developer ID; identifier `virtualpete.buddy.cli` (`BUDDY_CODESIGN_IDENTIFIER`) must stay stable; unwrap a missing DEK with `dist/buddy-darwin-arm64 cred set passphrase` |
-| `make app` | `dist/Buddy.app` | same as helper | CLI at `Contents/Helpers/buddy`; `Contents/MacOS/Buddy` is a Finder stub (AppKit so the Dock icon stays still; Quit stops `serve --open`) |
+| `make app` | `dist/Buddy.app` | same as helper | CLI at `Contents/Helpers/buddy`; `Contents/MacOS/Buddy` is a SwiftUI shell (`macos/Buddy/`) that hosts `buddy serve --embed` in WKWebView tabs (Docs, Config, IDE) |
 | `make install-signed` | `~/go/bin/buddy` → helper | same as `Buddy.app` | Copies `dist/Buddy.app` to `~/Applications`; **symlink** (not a copy) at `~/go/bin/buddy` |
 | `make package` | `dist/buddy-<version>.pkg` | same as `Buddy.app` | Branded pkg installs `/Applications/Buddy.app` and a **symlink** at `/usr/local/bin/buddy`; optional `BUDDY_PKG_SIGN_IDENTITY` (Developer ID Installer) |
 | `make release` | pkg + linux + windows under `dist/` | same as package | `clean` then `package` + `buddy-linux` + `buddy-windows` (macOS host) |
@@ -338,6 +338,9 @@ buddy/
 │   ├── mcp/             # buddy mcp stdio server
 │   ├── serve/           # buddy serve docs + /config + /ide
 │   └── lsp/             # buddy lsp
+├── macos/
+│   ├── Buddy/           # SwiftUI Buddy.app shell (WKWebView + serve subprocess)
+│   └── BuddyAgent/      # Optional menu-bar Agent (config + token minting)
 ├── examples/            # Runnable .buddy samples
 ├── docs/                # User guides; docs/generated is from make gendocs
 ├── Makefile

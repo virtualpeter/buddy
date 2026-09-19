@@ -14,7 +14,7 @@ running Agent in memory (the file stays absent). When the Agent is not running
 and `features.use_agent` is off, buddy falls through to first-run setup / the
 in-process `secrets.enc` vault.
 
-It does not replace `Contents/MacOS/Buddy` and installs no LaunchAgent.
+It complements **Buddy.app**: the Swift shell at `Contents/MacOS/Buddy` (`macos/Buddy/`) hosts docs/IDE serve UI; this Agent owns config/secrets and mints tokens. The Agent installs no separate LaunchAgent — it nests under `Buddy.app/Contents/Library/LoginItems/` and can register **Open at Login** via `SMAppService`.
 
 ## Build and run
 

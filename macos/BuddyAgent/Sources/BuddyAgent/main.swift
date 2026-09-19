@@ -17,6 +17,7 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 	private var openBuddyItem: NSMenuItem?
 	private var menuIsOpen = false
 	private var pendingStatusRefresh = false
+	private var showSettingsObserver: UnsafeMutableRawPointer?
 
 	init(state: AgentState, store: AgentStore, server: AgentServer, gate: UnlockGate) {
 		self.state = state
@@ -40,6 +41,7 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 		}
 		buildStatusItem()
 		offerSetupIfNeeded()
+		registerShowSettingsObserver()
 	}
 
 	func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -47,8 +49,31 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 	}
 
 	func applicationWillTerminate(_ notification: Notification) {
+		if let showSettingsObserver {
+			CFNotificationCenterRemoveObserver(
+				CFNotificationCenterGetDarwinNotifyCenter(),
+				showSettingsObserver,
+				AgentInterprocess.showSettingsNotification,
+				nil)
+		}
 		state.lockVault()
 		server.stop()
+	}
+
+	private func registerShowSettingsObserver() {
+		let obs = Unmanaged.passUnretained(self).toOpaque()
+		showSettingsObserver = obs
+		CFNotificationCenterAddObserver(
+			CFNotificationCenterGetDarwinNotifyCenter(),
+			obs,
+			{ _, observer, _, _, _ in
+				guard let observer else { return }
+				let delegate = Unmanaged<AgentAppDelegate>.fromOpaque(observer).takeUnretainedValue()
+				DispatchQueue.main.async { delegate.openSettings() }
+			},
+			AgentInterprocess.showSettingsNotificationName,
+			nil,
+			.deliverImmediately)
 	}
 
 	private func buildStatusItem() {

@@ -19,6 +19,7 @@ type Options struct {
 	Addr       string // e.g. "127.0.0.1:8742"
 	DocsRoot   string // optional override
 	Open       bool
+	Embed      bool // strip logo + surface nav (Buddy.app shell); ?embed=0 opts out
 	Version    string // buddy binary version (shown in chrome)
 	TenantName string // default tenant (empty → config / ActiveSelection)
 	CredName   string // optional auth pin (empty → auto-pick); Starlark auth=
@@ -35,8 +36,9 @@ func Run(ctx context.Context, o Options) error {
 		o.Logger = slog.Default()
 	}
 	setChromeVersion(o.Version)
-	// Rebuild surfaces that bake chrome into a static HTML string at init.
-	ideHTML = buildIDEHTML()
+	SetDefaultEmbed(o.Embed)
+	// Default non-embed IDE HTML for tests; live requests use RequestEmbed(r).
+	ideHTML = buildIDEHTML(false)
 	host, _, err := net.SplitHostPort(o.Addr)
 	if err != nil {
 		return fmt.Errorf("addr: %w", err)
@@ -174,11 +176,12 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	url := "http://" + o.Addr + "/docs/"
+	base := serveBaseURL(ln.Addr().String())
+	url := base + "/docs/"
 	o.Logger.Info("buddy serve listening", "url", url, "docs", docsSource)
 	fmt.Printf("buddy serve: %s\n", url)
-	fmt.Printf("config:      http://%s/config\n", o.Addr)
-	fmt.Printf("ide:         http://%s/ide\n", o.Addr)
+	fmt.Printf("config:      %s/config\n", base)
+	fmt.Printf("ide:         %s/ide\n", base)
 
 	if o.Open {
 		go func() {
@@ -204,6 +207,20 @@ func Run(ctx context.Context, o Options) error {
 		}
 		return err
 	}
+}
+
+// serveBaseURL turns a listener address into a browser-friendly http:// origin.
+// Port 0 and wildcard binds resolve to 127.0.0.1:<port>.
+func serveBaseURL(listenAddr string) string {
+	host, port, err := net.SplitHostPort(listenAddr)
+	if err != nil {
+		return "http://" + listenAddr
+	}
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
 
 func openBrowser(url string) error {

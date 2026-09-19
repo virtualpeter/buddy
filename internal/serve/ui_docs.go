@@ -48,6 +48,7 @@ func serveDocsHTML(w http.ResponseWriter, r *http.Request, pages []DocPage, md g
 	toc := extractTOC(p.Markdown)
 	groups := docsNavGroups(pages)
 	applyNavOpen(groups, p.ID, pageSection(*p))
+	embed := RequestEmbed(r)
 	data := docsView{
 		Groups:        groups,
 		ActiveID:      p.ID,
@@ -55,6 +56,9 @@ func serveDocsHTML(w http.ResponseWriter, r *http.Request, pages []DocPage, md g
 		Title:         p.Title,
 		Body:          template.HTML(htmlBody),
 		TOC:           toc,
+		ChromeHead:    template.HTML(chromeHeadTags(embed)),
+		ChromeHeader:  template.HTML(chromeHeader("docs", "", "", "", embed)),
+		ChromeToggle:  template.HTML(chromeToggleScript(embed)),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := docsTmpl.Execute(w, data); err != nil {
@@ -69,6 +73,9 @@ type docsView struct {
 	Title         string
 	Body          template.HTML
 	TOC           []tocEntry
+	ChromeHead    template.HTML
+	ChromeHeader  template.HTML
+	ChromeToggle  template.HTML
 }
 
 type docsNavGroup struct {
@@ -153,10 +160,7 @@ func applyNavOpen(groups []docsNavGroup, activeID, activeSec string) {
 }
 
 var docsTmpl = template.Must(template.New("docs").Funcs(template.FuncMap{
-	"indent":       func(level int) int { return (level - 1) * 10 },
-	"chromeHead":   func() template.HTML { return template.HTML(chromeHeadTags()) },
-	"chromeHeader": func() template.HTML { return template.HTML(chromeHeader("docs", "", "", "")) },
-	"chromeToggle": func() template.HTML { return template.HTML(chromeToggleScript()) },
+	"indent": func(level int) int { return (level - 1) * 10 },
 }).Parse(docsTmplSrc))
 
 const docsTmplSrc = `<!DOCTYPE html>
@@ -165,7 +169,7 @@ const docsTmplSrc = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>buddy docs</title>
-{{chromeHead}}
+{{.ChromeHead}}
 <style>
 body {
   margin: 0;
@@ -455,8 +459,8 @@ pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem; overflow
 .fn-hidden { display: none !important; }
 </style>
 </head>
-<body>
-{{chromeHeader}}
+<body class="docs">
+{{.ChromeHeader}}
 <div class="layout">
   <aside class="side-nav">
     <input class="search" id="q" type="search" placeholder="Search docs…" autocomplete="off">
@@ -628,7 +632,7 @@ if (pageFilter) {
   });
 }
 </script>
-{{chromeToggle}}
+{{.ChromeToggle}}
 <script>
 (function(){
   const TRY_KEY = 'buddy-serve-ide-try';

@@ -61,6 +61,8 @@ buddy help                            # CLI overview
 buddy help builtins                   # buddyscript API reference
 ```
 
+On macOS, **`make install-signed`** (or open **`Buddy.app`**) gives the same Docs, Config, and IDE surfaces in a native window: the app starts `buddy serve --embed` locally and ensures the nested **Buddy Agent** is running. Use **View → Appearance** for theme; **Agent Settings…** (⇧⌘,) or the toolbar gear opens Agent workplaces and secrets. When the Agent owns config, the Config tab is hidden — edit identity in Agent Settings instead.
+
 In the IDE, open **Libraries** → **Getting started** for a short list of builtins to try.
 
 ## Next

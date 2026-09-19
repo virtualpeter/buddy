@@ -159,12 +159,13 @@ agent-dev:
 	@echo "Run: BUDDY_AGENT_ALLOW_UNSIGNED=1 macos/BuddyAgent/.build/debug/BuddyAgent"
 
 # Buddy.app: CLI at Contents/Helpers/buddy (codesign id virtualpete.buddy.cli).
-# MacOS/Buddy is a Finder stub (future GUI). PATH should symlink into Helpers, not copy.
+# MacOS/Buddy is a SwiftUI shell hosting buddy serve (WKWebView). PATH symlinks Helpers.
 # The Agent rides along at Contents/Library/LoginItems.
+BUDDY_SWIFT_FILES := $(shell find macos/Buddy/Sources -name '*.swift' 2>/dev/null)
 .PHONY: app
 app: $(APP_TARGET)
 
-$(APP_TARGET): $(SIGNED_TARGET) $(AGENT_TARGET) cmd/buddy-app/*.go packaging/Info.plist.in scripts/build-buddy-app.sh | $(DIST)
+$(APP_TARGET): $(SIGNED_TARGET) $(AGENT_TARGET) $(BUDDY_SWIFT_FILES) macos/Buddy/Buddy.xcodeproj/project.pbxproj macos/Buddy/Buddy.entitlements macos/Buddy/Resources/Info.plist scripts/gen-buddy-version.sh packaging/Info.plist.in scripts/build-buddy-app.sh | $(DIST)
 	@test "$$(uname -s)" = Darwin || { echo "make app is macOS-only"; exit 1; }
 	BUDDY_CODESIGN_IDENTIFIER="$(BUDDY_CODESIGN_IDENTIFIER)" BUDDY_APP_IDENTIFIER="$(BUDDY_APP_IDENTIFIER)" \
 		./scripts/build-buddy-app.sh "$(SIGNED_TARGET)" "$(APP_TARGET)" "$(PKG_VERSION)" "$(BUDDY_CODESIGN_IDENTITY)" "$(AGENT_TARGET)"
@@ -296,7 +297,7 @@ help:
 	@echo "Targets (artefacts under $(DIST)/):"
 	@echo "  buddy   - Sync embedded docs + build $(BUILDTARGET)"
 	@echo "  buddy-darwin-arm64 - Darwin/arm64 helper: -tags secitem + Developer ID → $(SIGNED_TARGET)"
-	@echo "  app / Buddy.app - Wrap helper in $(APP_TARGET) (Helpers/buddy + MacOS/Buddy stub + Agent)"
+	@echo "  app / Buddy.app - Wrap helper in $(APP_TARGET) (Helpers/buddy + Swift MacOS/Buddy + Agent)"
 	@echo "  agent-app - Developer ID Buddy Agent → $(AGENT_TARGET) (Xcode; presence ACL)"
 	@echo "  agent-dev - Unsigned SwiftPM build of the Agent (legacy keychain, simulated presence)"
 	@echo "  buddy-lite - Build with TAGS=noserve,nomcp,nolsp → $(LITE_TARGET)"

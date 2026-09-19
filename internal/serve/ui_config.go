@@ -13,17 +13,17 @@ func serveConfigHTML(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodHead {
 		return
 	}
-	_, _ = w.Write([]byte(configHTML()))
+	_, _ = w.Write([]byte(configHTML(RequestEmbed(r))))
 }
 
-func configHTML() string {
+func configHTML(embed bool) string {
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>buddy config</title>
-` + chromeHeadTags() + `
+` + chromeHeadTags(embed) + `
 <style>
 body {
   margin: 0;
@@ -166,6 +166,11 @@ button.primary {
 button.danger { color: var(--err); }
 button:hover { filter: brightness(1.06); }
 button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+body.config-readonly main button,
+body.config-readonly main input,
+body.config-readonly main select,
+body.config-readonly main textarea { pointer-events: none; opacity: .55; }
+body.config-readonly main a { pointer-events: auto; opacity: 1; }
 button.icon {
   padding: .15rem .4rem;
   font-size: 1rem;
@@ -219,7 +224,7 @@ tr.other { opacity: .55; }
 </style>
 </head>
 <body>
-` + chromeHeader("config", "", "", "") + `
+` + chromeHeader("config", "", "", "", embed) + `
 <main>
   <h1>Config</h1>
   <p class="hint">First-run identity lives in the terminal: <code>buddy setup</code> or <code>buddy cred add</code>
@@ -357,7 +362,7 @@ tr.other { opacity: .55; }
     </div>
   </div>
 </main>
-` + chromeToggleScript() + `
+` + chromeToggleScript(embed) + `
 <script>
 (function(){
   var state = null;
@@ -457,16 +462,17 @@ tr.other { opacity: .55; }
     setVis('f-cid', typ === 'oauth' || typ === 'platform');
   }
   function renderNode(n){
-    var canDel = !!n.can_delete && !n.managed;
-    var trashTitle = canDel ? 'Delete' : (n.managed ? 'Managed by MDM' : 'Delete children first');
+    var canDel = !!n.can_delete && !n.managed && !n.agent && !state.config_readonly;
+    var trashTitle = canDel ? 'Delete' : (n.managed ? 'Managed by MDM' : (n.agent ? 'Managed by Buddy Agent' : 'Delete children first'));
     var html = '<li><div class="tree-row'+(selected===n.name?' on':'')+'" data-sel="'+esc(n.name)+'">'+
       '<span class="badge">'+esc(kindLabel(n.kind))+'</span>'+
       '<span class="name">'+esc(n.name)+'</span>'+
       (n.managed?' <span class="badge">mdm</span>':'')+
+      (n.agent?' <span class="badge">agent</span>':'')+
       (n.gap?' <span class="badge gap">gap</span>':'')+
       (n.url?' <span class="url">'+esc(n.url)+'</span>':'')+
       '<span class="grow"></span>'+
-      (n.managed?'':
+      (n.managed || n.agent || state.config_readonly?'':
         '<button type="button" class="icon" data-ren="'+esc(n.name)+'" title="Rename">✎</button>'+
         '<button type="button" class="icon danger" data-del="'+esc(n.name)+'" title="'+esc(trashTitle)+'" '+(canDel?'':'disabled')+'>🗑</button>')+
       '</div>';
@@ -517,12 +523,16 @@ tr.other { opacity: .55; }
       banner.style.display = '';
       banner.innerHTML = '<strong>config.yaml could not be parsed.</strong> '+esc(state.parse_error)+
         (state.last_good ? ' <button type="button" class="primary" id="btn-restore">Restore last good</button>' : '');
+    } else if (state.config_readonly) {
+      banner.style.display = '';
+      banner.innerHTML = '<strong>Buddy Agent manages workplaces and auths.</strong> Edit them in Buddy Agent → Settings… (or turn off <code>features.use_agent</code> in config.yaml).';
     } else if (state.needs_setup) {
       banner.style.display = '';
       banner.innerHTML = '<strong>Not configured yet.</strong> Run <code>buddy setup</code> or <code>buddy cred add</code> in a terminal. This page does not collect secrets. See <a href="/docs/docs/getting-started">Getting started</a>.';
     } else {
       banner.style.display = 'none';
     }
+    document.body.classList.toggle('config-readonly', !!state.config_readonly);
     var rest = document.getElementById('btn-restore');
     if (rest) rest.onclick = async function(){
       try { state = await api('POST', '/api/config/restore'); selected = null; render(); }
@@ -551,10 +561,10 @@ tr.other { opacity: .55; }
       if (selected) cls = links.indexOf(selected) >= 0 ? 'linked' : 'other';
       var tr = document.createElement('tr');
       if (cls) tr.className = cls;
-      tr.innerHTML = '<td><code data-edit-a="'+esc(a.name)+'" title="Edit metadata">'+esc(a.name)+'</code>'+(a.managed?' <span class="badge">mdm</span>':'')+'</td>'+
+      tr.innerHTML = '<td><code data-edit-a="'+esc(a.name)+'" title="Edit metadata">'+esc(a.name)+'</code>'+(a.managed?' <span class="badge">mdm</span>':'')+(a.agent?' <span class="badge">agent</span>':'')+'</td>'+
         '<td>'+esc(a.type)+'</td><td>'+esc(a.scope||'')+'</td><td>'+esc(links.join(', '))+'</td>'+
         '<td>'+esc(a.access||'')+'</td><td><span class="badge '+secretCls+'">'+esc(a.secret)+'</span></td>'+
-        '<td class="row-actions">'+(a.managed?'':
+        '<td class="row-actions">'+(a.managed || a.agent || state.config_readonly?'':
           '<button type="button" class="icon" data-ren-a="'+esc(a.name)+'" title="Rename">✎</button>'+
           '<button type="button" class="icon danger" data-del-a="'+esc(a.name)+'" title="Delete">🗑</button>')+'</td>';
       ab.appendChild(tr);

@@ -212,6 +212,17 @@ func parseAgentConfigDocument(raw json.RawMessage) (*Config, error) {
 	return cfg, nil
 }
 
+// ConfigEditsViaAgent reports whether workplaces and auths should be edited in
+// Buddy Agent rather than buddy serve /config (use_agent or force_agent with a
+// running Agent).
+func ConfigEditsViaAgent(cfg *Config) bool {
+	if cfg == nil || !cfg.UseAgent() {
+		return false
+	}
+	info, err := agent.Status(context.Background())
+	return err == nil && info.Present
+}
+
 // HasAgentConfig reports whether this config was merged with a Buddy Agent
 // layer (workplaces, auths, channels, or classic_instance_only).
 func (cfg *Config) HasAgentConfig() bool {

@@ -4,14 +4,14 @@ import (
 	"net/http"
 )
 
-func serveIDEHTML(w http.ResponseWriter, _ *http.Request) {
+func serveIDEHTML(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(ideHTML))
+	_, _ = w.Write([]byte(buildIDEHTML(RequestEmbed(r))))
 }
 
-var ideHTML = buildIDEHTML()
+var ideHTML = buildIDEHTML(false)
 
-func buildIDEHTML() string {
+func buildIDEHTML(embed bool) string {
 	session := `
   <label>context <select id="context"></select></label>
   <label>user <select id="auth"></select></label>`
@@ -31,7 +31,7 @@ func buildIDEHTML() string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>buddy ide</title>
-` + chromeHeadTags() + `<style>
+` + chromeHeadTags(embed) + `<style>
 html, body { height: 100%; }
 body {
   margin: 0;
@@ -218,7 +218,7 @@ dialog .row .spacer { flex: 1; }
 <style>` + confirmPollCSS + `</style>
 </head>
 <body>
-` + chromeHeader("ide", session, actions, run) + `
+` + chromeHeader("ide", session, actions, run, embed) + `
 <div class="runbar">
   <button type="button" class="primary" id="btn-run">Run</button>
   <label for="args">args</label>
@@ -1098,7 +1098,7 @@ consumeTryPayload(); // docs "Try it" wins over restored draft when present
 initSplitter();
 loadCreds().then(() => ensureSession(true)).then(() => focusEditor()).catch(e => setStatus(e.message));
 </script>
-` + chromeToggleScript() + `
+` + chromeToggleScript(embed) + `
 </body>
 </html>
 `
