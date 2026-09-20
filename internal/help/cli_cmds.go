@@ -13,7 +13,10 @@ Notes:
 const Publish = `buddy publish - Create a GitHub release from dist/
 
 Usage:
-  buddy [global-flags] publish [args...]
+  buddy [global-flags] publish <tag> [args...]
+
+Arguments:
+  <tag>                    Git tag at HEAD (must match git describe --tags --exact-match)
 
 Flags for 'publish':
   --dist=<path>          Artefact directory (default dist, or $DIST)
@@ -23,15 +26,16 @@ Flags for 'publish':
   --draft                Create a draft release
 
 Notes:
+  Maintainer command; omitted from buddy help. Prefer 'make publish TAG=<tag>'.
   Refuses a dirty git working tree (uncommitted or untracked files).
-  HEAD must be an exact git tag (git describe --tags --exact-match).
-  Uploads regular files in --dist; skips directories such as Buddy.app.
+  <tag> must be the exact tag on HEAD.
+  Uploads regular files in --dist; skips directories such as Buddy.app, and dist/buddy.
   Requires gh on PATH. Does not load config or contact Jamf.
 
 Examples:
   make release
-  buddy publish
-  buddy -y publish --repo=owner/name
+  make publish TAG=v1.2.3
+  dist/buddy -y publish v1.2.3
 `
 const Auth = `buddy auth - Obtain and test API authentication
 

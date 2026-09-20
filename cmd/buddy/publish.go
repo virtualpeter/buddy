@@ -56,16 +56,19 @@ func runPublish(opts buddy.Opts, args []string) error {
 		}
 		return err
 	}
-	if fs.NArg() > 0 {
-		return fmt.Errorf("buddy publish: unexpected argument %q; see 'buddy help publish'", fs.Arg(0))
+	if fs.NArg() < 1 {
+		return missingArg("<tag>", clispec.UsageHelp(clispec.CmdPublish))
 	}
+	if fs.NArg() > 1 {
+		return fmt.Errorf("buddy publish: unexpected argument %q; see '%s'", fs.Arg(1), clispec.UsageHelp(clispec.CmdPublish))
+	}
+	tag := strings.TrimSpace(fs.Arg(0))
 
 	if err := requireCleanGit(); err != nil {
 		return err
 	}
 
-	tag, err := exactGitTag()
-	if err != nil {
+	if err := checkPublishTag(tag); err != nil {
 		return err
 	}
 
@@ -147,6 +150,17 @@ func exactGitTag() (string, error) {
 	return tag, nil
 }
 
+func checkPublishTag(want string) error {
+	head, err := exactGitTag()
+	if err != nil {
+		return err
+	}
+	if want != head {
+		return fmt.Errorf("buddy publish: tag %q does not match HEAD %q", want, head)
+	}
+	return nil
+}
+
 func distAssets(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -155,7 +169,7 @@ func distAssets(dir string) ([]string, error) {
 	var files []string
 	for _, e := range entries {
 		name := e.Name()
-		if strings.HasPrefix(name, ".") {
+		if strings.HasPrefix(name, ".") || name == "buddy" || name == "buddy-lite" {
 			continue
 		}
 		p := filepath.Join(dir, name)

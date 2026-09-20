@@ -72,6 +72,7 @@ make install-signed       # ~/Applications/Buddy.app + symlink ~/go/bin/buddy
 make package              # dist/buddy-<version>.pkg
 make notarize             # staple app then pkg (needs BUDDY_NOTARY_PROFILE + installer identity)
 make release              # abort if dirty; pkg + linux + windows; strip .app from dist
+make publish TAG=v1.2.3   # dist/buddy -y publish <tag> (must match HEAD)
 ```
 
 | Target | Output | Notes |
@@ -82,14 +83,15 @@ make release              # abort if dirty; pkg + linux + windows; strip .app fr
 | `make install-signed` | `~/Applications/Buddy.app` | Symlink (not a copy) at `~/go/bin/buddy` |
 | `make package` | `dist/buddy-<version>.pkg` | `/Applications/Buddy.app` + `/usr/local/bin/buddy`; optional `BUDDY_PKG_SIGN_IDENTITY` |
 | `make release` | pkg + linux + windows | Aborts if dirty; notarizes when `BUDDY_NOTARY_PROFILE` is set; removes `.app` from `dist/` |
+| `make publish` | GitHub release from `dist/` | `TAG=vX.Y.Z` required; runs `dist/buddy -y publish`; needs `gh` |
 
 `make buddy-darwin-arm64` fails unless the host is Darwin/arm64 and the identity is a real Developer ID (not ad-hoc). Each binary only sees its own vault DEK until you unwrap with `cred set passphrase` or restore a backup. See [docs/auth.md](docs/auth.md).
 
-`make release` refuses a dirty working tree, then leaves shippable files in `dist/` (pkg + linux + windows; `Buddy.app` / `BuddyAgent.app` are stripped — they are already inside the pkg). Upload with `buddy publish` (needs `gh`, an exact git tag at HEAD, and a clean tree):
+`make release` refuses a dirty working tree, then leaves shippable files in `dist/` (pkg + linux + windows; `Buddy.app` / `BuddyAgent.app` are stripped — they are already inside the pkg). Upload with `make publish TAG=vX.Y.Z` (builds this checkout’s `dist/buddy`, needs `gh`, and checks that `TAG` is the exact tag on HEAD):
 
 ```sh
 make release
-buddy publish
+make publish TAG=v1.2.3
 ```
 
 ```sh

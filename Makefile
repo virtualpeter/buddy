@@ -260,6 +260,13 @@ release: require-clean
 	@echo "Release artefacts in $(DIST)/ (Buddy.app / BuddyAgent.app removed; they are inside the pkg):"
 	@ls -lh $(DIST)
 
+# Upload dist/ via this checkout's CLI (not whatever buddy is on PATH).
+# TAG is required and must match HEAD. Extra flags: PUBLISH_ARGS='--draft --repo=owner/name'
+.PHONY: publish
+publish: require-clean $(BUILDTARGET)
+	@test -n "$(TAG)" || { echo "make publish: set TAG=vX.Y.Z (must match HEAD)"; exit 1; }
+	$(BUILDTARGET) -y publish "$(TAG)" $(PUBLISH_ARGS)
+
 # Run unit tests (default Keychain: security(1) on Darwin, CGO off).
 test: sync-docfs
 	$(GO) test -v ./...
@@ -326,6 +333,7 @@ help:
 	@echo "  notarize  - Notarize + staple Buddy.app then the pkg (BUDDY_NOTARY_PROFILE + BUDDY_PKG_SIGN_IDENTITY)"
 	@echo "  staple    - Staple $(APP_TARGET) and the pkg after an interrupted notarize wait (no rebuild)"
 	@echo "  release   - require a clean tree, then clean + package (or notarize) + linux/windows; strip Buddy.app / BuddyAgent.app from dist"
+	@echo "  publish   - $(BUILDTARGET) -y publish \$$TAG (set TAG=vX.Y.Z; optional PUBLISH_ARGS)"
 	@echo "  test      - Run unit tests (default Keychain / CGO off)"
 	@echo "  test-signed - Darwin: unit tests with -tags secitem (Security.framework, CGO)"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"

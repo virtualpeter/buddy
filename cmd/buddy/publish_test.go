@@ -60,6 +60,9 @@ func TestDistAssetsSkipsAppBundles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".DS_Store"), []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "buddy"), []byte("x"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	files, err := distAssets(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -67,9 +70,11 @@ func TestDistAssetsSkipsAppBundles(t *testing.T) {
 	if len(files) != 2 {
 		t.Fatalf("files = %v", files)
 	}
-	joined := strings.Join(files, "\n")
-	if strings.Contains(joined, "Buddy.app") || strings.Contains(joined, "BuddyAgent.app") || strings.Contains(joined, ".DS_Store") {
-		t.Fatalf("should skip app bundles and dotfiles: %v", files)
+	for _, f := range files {
+		base := filepath.Base(f)
+		if base == "Buddy.app" || base == "BuddyAgent.app" || base == ".DS_Store" || base == "buddy" {
+			t.Fatalf("should skip app bundles, publisher CLI, and dotfiles: %v", files)
+		}
 	}
 }
 
@@ -147,7 +152,7 @@ func TestRunPublishDirtyRefusesGH(t *testing.T) {
 		return nil
 	}
 	lookPath = func(string) (string, error) { return "/usr/bin/gh", nil }
-	err := runPublish(buddy.Opts{SkipConfirm: true}, nil)
+	err := runPublish(buddy.Opts{SkipConfirm: true}, []string{"v1.2.3"})
 	if err == nil || !strings.Contains(err.Error(), "dirty") {
 		t.Fatalf("got %v", err)
 	}
@@ -197,6 +202,7 @@ func TestRunPublishCreatesRelease(t *testing.T) {
 	err := runPublish(buddy.Opts{SkipConfirm: true}, []string{
 		"--dist=" + dir,
 		"--notes-file=" + notes,
+		"v1.2.3",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -213,6 +219,43 @@ func TestRunPublishCreatesRelease(t *testing.T) {
 	}
 	if containsArg(got, filepath.Join(dir, "Buddy.app")) {
 		t.Fatalf("must not upload Buddy.app: %v", got)
+	}
+}
+
+func TestRunPublishRequiresTag(t *testing.T) {
+	err := runPublish(buddy.Opts{SkipConfirm: true}, nil)
+	if err == nil || !strings.Contains(err.Error(), "<tag>") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestRunPublishTagMismatch(t *testing.T) {
+	origGit, origGH := runGit, runGH
+	t.Cleanup(func() {
+		runGit, runGH = origGit, origGH
+	})
+	runGit = func(args ...string) (string, error) {
+		switch args[0] {
+		case "status":
+			return "", nil
+		case "describe":
+			return "v1.2.3", nil
+		default:
+			t.Fatalf("unexpected git %v", args)
+			return "", nil
+		}
+	}
+	called := false
+	runGH = func(args []string) error {
+		called = true
+		return nil
+	}
+	err := runPublish(buddy.Opts{SkipConfirm: true}, []string{"v9.9.9"})
+	if err == nil || !strings.Contains(err.Error(), "does not match HEAD") {
+		t.Fatalf("got %v", err)
+	}
+	if called {
+		t.Fatal("gh must not run when the tag does not match HEAD")
 	}
 }
 
