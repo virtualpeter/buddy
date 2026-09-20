@@ -51,29 +51,3 @@ struct BuddyToolbar: View {
 	}
 }
 
-private struct BuddyLogoView: View {
-	@EnvironmentObject private var serve: ServeProcess
-
-	var body: some View {
-		Group {
-			if let url = serve.logoURL {
-				AsyncImage(url: url) { phase in
-					switch phase {
-					case .success(let image):
-						image.resizable().scaledToFit()
-					default:
-						Image(systemName: "pawprint.fill")
-							.resizable()
-							.scaledToFit()
-							.foregroundStyle(.secondary)
-					}
-				}
-			} else {
-				Image(systemName: "pawprint.fill")
-					.resizable()
-					.scaledToFit()
-					.foregroundStyle(.secondary)
-			}
-		}
-	}
-}

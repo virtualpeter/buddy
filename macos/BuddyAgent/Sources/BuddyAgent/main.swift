@@ -42,6 +42,10 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 		buildStatusItem()
 		offerSetupIfNeeded()
 		registerShowSettingsObserver()
+		if store.isEmpty {
+			AgentIdleLock.applyEmptyConfigDefault()
+			state.refreshIdleLockTimer()
+		}
 	}
 
 	func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

@@ -72,9 +72,11 @@ func main() {
 			isServe = ok && id == clispec.CmdServe
 		}
 		switch {
-		case isServe && buddy.IsConfigParseError(err):
+		case isServe && (buddy.IsConfigParseError(err) || buddy.IsAgentNeedsConfig(err)):
 			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
-			buddy.SetConfigLoadError(err)
+			if buddy.IsConfigParseError(err) {
+				buddy.SetConfigLoadError(err)
+			}
 			cfg = &buddy.Config{}
 		case isAgentEnableDisable(cmdArgs) && buddy.IsAgentNeedsConfig(err):
 			fmt.Fprintf(os.Stderr, "warning: %v\n", err)

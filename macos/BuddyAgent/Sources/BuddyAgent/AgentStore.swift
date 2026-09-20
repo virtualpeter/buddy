@@ -144,6 +144,7 @@ final class AgentStore: ObservableObject {
 		loadSucceeded = false
 		guard let data = try? Data(contentsOf: path) else {
 			loadSucceeded = true
+			if isEmpty { AgentIdleLock.applyEmptyConfigDefault() }
 			return
 		}
 		do {
@@ -159,6 +160,7 @@ final class AgentStore: ObservableObject {
 		} catch {
 			setError("could not read \(path.lastPathComponent): \(Self.decodeErrorMessage(error))")
 		}
+		if isEmpty { AgentIdleLock.applyEmptyConfigDefault() }
 	}
 
 	@discardableResult
@@ -177,12 +179,12 @@ final class AgentStore: ObservableObject {
 		return doc.version < 3
 	}
 
-	func save() {
+	func save(allowEmpty: Bool = false) {
 		guard loadSucceeded else {
 			setError("config not loaded — fix or remove \(path.lastPathComponent) before saving")
 			return
 		}
-		if workplaces.isEmpty && auths.isEmpty,
+		if !allowEmpty, workplaces.isEmpty, auths.isEmpty,
 			FileManager.default.fileExists(atPath: path.path),
 			let data = try? Data(contentsOf: path),
 			let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -213,6 +215,9 @@ final class AgentStore: ObservableObject {
 				[.posixPermissions: 0o600], ofItemAtPath: path.path)
 			AgentConfigIntegrity.sign(configPath: path, presence: nil)
 			setError(nil)
+			if workplaces.isEmpty, auths.isEmpty {
+				AgentIdleLock.applyEmptyConfigDefault()
+			}
 		} catch {
 			setError("could not write \(path.lastPathComponent): \(error)")
 		}
@@ -375,7 +380,8 @@ final class AgentStore: ObservableObject {
 		if defaultContext == trimmed {
 			defaultContext = workplaces.keys.sorted().first ?? ""
 		}
-		save()
+		let clearedAll = workplaces.isEmpty && auths.isEmpty
+		save(allowEmpty: clearedAll)
 		AgentLog.shared.config("removed workplace \(trimmed)")
 	}
 
@@ -407,7 +413,7 @@ final class AgentStore: ObservableObject {
 			orgs[trimmed] = OrgRoot()
 		case "environment":
 			wp.org = orgName.isEmpty ? (parentKind == "organization" ? parentName : parent?.org ?? "") : orgName
-			wp.region = "us"
+			wp.region = PlatformRegions.defaultValue
 			workplaces[trimmed] = wp
 			attachEnvironment(trimmed, org: wp.org)
 		case "product-tenant", "tenant":
@@ -473,7 +479,7 @@ final class AgentStore: ObservableObject {
 		AgentKeychain.deleteAll(auth: name)
 		auths.removeValue(forKey: name)
 		markSecretsChanged()
-		save()
+		save(allowEmpty: workplaces.isEmpty && auths.isEmpty)
 		AgentLog.shared.config("removed auth \(name)")
 	}
 

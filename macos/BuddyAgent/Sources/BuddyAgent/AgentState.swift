@@ -49,6 +49,24 @@ enum AgentIdleLock {
 	static var envOverrideActive: Bool {
 		ProcessInfo.processInfo.environment["BUDDY_AGENT_IDLE_LOCK"] != nil
 	}
+
+	/// With no workplaces or auths, keep auto-lock enabled at 15 minutes.
+	@discardableResult
+	static func applyEmptyConfigDefault() -> Bool {
+		guard !envOverrideActive else { return false }
+		let defaults = UserDefaults.standard
+		if defaults.object(forKey: userDefaultsKey) == nil {
+			defaults.set(defaultSeconds, forKey: userDefaultsKey)
+			defaults.set(defaultSeconds, forKey: lastSecondsKey)
+			return true
+		}
+		guard defaults.double(forKey: userDefaultsKey) <= 0 else { return false }
+		defaults.set(defaultSeconds, forKey: userDefaultsKey)
+		if defaults.double(forKey: lastSecondsKey) <= 0 {
+			defaults.set(defaultSeconds, forKey: lastSecondsKey)
+		}
+		return true
+	}
 }
 
 /// Lock state plus the in-memory bearer cache. Lock() drops every cached token

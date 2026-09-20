@@ -84,6 +84,82 @@ struct Workplace: Codable, Equatable {
 	}
 }
 
+/// Known Jamf Account platform regions. Quick setup offers these as a menu; full
+/// workplace editors keep a freeform region field for future regions.
+enum PlatformRegions {
+	static let known: [(label: String, value: String)] = [
+		("us", "us"),
+		("eu", "eu"),
+		("apac", "apac"),
+	]
+
+	static func normalized(_ raw: String) -> String {
+		raw.trimmed.lowercased()
+	}
+
+	static func isKnown(_ region: String) -> Bool {
+		let value = normalized(region)
+		return known.contains { $0.value == value }
+	}
+
+	static var defaultValue: String { "us" }
+}
+
+/// Jamf Pro instance URL validation (basic/oauth workplaces — not Account gateway hosts).
+enum JamfProURL {
+	static func normalized(_ raw: String) -> String? {
+		var text = raw.trimmed
+		guard !text.isEmpty else { return nil }
+		let lower = text.lowercased()
+		if !lower.hasPrefix("http://"), !lower.hasPrefix("https://") {
+			text = "https://\(text)"
+		}
+		guard let url = URL(string: text),
+			let scheme = url.scheme?.lowercased(),
+			scheme == "http" || scheme == "https",
+			let host = url.host?.lowercased(), !host.isEmpty
+		else {
+			return nil
+		}
+		if looksLikePlatformGateway(text) { return nil }
+		if host != "localhost", !host.contains(".") { return nil }
+		var out = text
+		while out.hasSuffix("/") { out.removeLast() }
+		return out
+	}
+
+	static func validationError(for raw: String) -> String? {
+		let trimmed = raw.trimmed
+		guard !trimmed.isEmpty else { return nil }
+		if normalized(trimmed) != nil { return nil }
+		var probe = trimmed
+		let lower = probe.lowercased()
+		if !lower.hasPrefix("http://"), !lower.hasPrefix("https://") {
+			probe = "https://\(probe)"
+		}
+		if looksLikePlatformGateway(probe) {
+			return "Account gateway URL — switch auth type to Platform, not Jamf Pro URL."
+		}
+		return "Enter a valid Jamf Pro URL (https://yourcompany.jamfcloud.com)."
+	}
+
+	private static func gatewayHost(_ rawURL: String) -> String {
+		var u = rawURL.trimmed.lowercased()
+		if u.hasPrefix("https://") { u.removeFirst("https://".count) }
+		else if u.hasPrefix("http://") { u.removeFirst("http://".count) }
+		if let slash = u.firstIndex(of: "/") { u = String(u[..<slash]) }
+		return u
+	}
+
+	private static func looksLikePlatformGateway(_ rawURL: String) -> Bool {
+		let host = gatewayHost(rawURL)
+		if host == "api.jamfcloud.com" { return true }
+		if host.hasSuffix(".api.jamfcloud.com") { return true }
+		if host == "apigw.jamf.com" || host.hasSuffix(".apigw.jamf.com") { return true }
+		return false
+	}
+}
+
 /// Buddy client channel names (`channels.cli|mcp|ide` in config.yaml).
 enum BuddyChannel: String, CaseIterable, Identifiable {
 	case cli
@@ -271,7 +347,7 @@ struct AgentAuth: Codable, Equatable {
 			}
 		case "basic":
 			switch workplace.workplaceKind() {
-			case "environment", "tenant":
+			case "instance", "environment", "tenant":
 				return !workplace.url.trimmed.isEmpty
 			default:
 				return false
@@ -295,7 +371,7 @@ struct AgentAuth: Codable, Equatable {
 				return "Environment-scoped platform auths link to environment or product-tenant workplaces."
 			}
 		case "basic":
-			return "Basic auths link to environment or product-tenant workplaces that have a Jamf Pro URL."
+			return "Basic auths link to Jamf Pro instance, environment, or product-tenant workplaces that have a URL."
 		case "oauth":
 			return "OAuth auths link to Jamf Pro instance or product-tenant workplaces — not organization nodes."
 		default:

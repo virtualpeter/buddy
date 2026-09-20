@@ -30,6 +30,10 @@ enum AgentPasteCredsError: Error, CustomStringConvertible {
 
 /// Parser matching `buddy cred add --paste` (`internal/buddy/paste_creds.go`).
 enum AgentPasteCreds {
+	/// Tooltip on paste fields in Setup and Quick setup.
+	static let pasteFieldHelp =
+		"When you create an API client or Platform integration in the Jamf admin UI, Jamf presents either a JSON blob or an example curl command. Copy that entire snippet from Jamf and paste it here — Buddy reads the client ID, secret, and related settings from it."
+
 	static func parse(_ raw: String) throws -> PastedClientCreds {
 		let normalized = normalizePastedClientBlob(raw)
 		guard !normalized.isEmpty else { throw AgentPasteCredsError.empty }

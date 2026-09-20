@@ -95,7 +95,23 @@ func configMutationBlocked(w http.ResponseWriter) bool {
 }
 
 func handleConfigGet(w http.ResponseWriter, r *http.Request) {
-	cfg := buddy.GetActiveConfig()
+	cfg, err := reloadActiveConfig()
+	if err != nil {
+		switch {
+		case buddy.IsAgentNeedsConfig(err):
+			writeJSON(w, http.StatusOK, buddy.BuildConfigSnapshot(&buddy.Config{}))
+		case buddy.IsConfigParseError(err):
+			buddy.SetConfigLoadError(err)
+			fallback := buddy.GetActiveConfig()
+			if fallback == nil {
+				fallback = &buddy.Config{}
+			}
+			writeJSON(w, http.StatusOK, buddy.BuildConfigSnapshot(fallback))
+		default:
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+		}
+		return
+	}
 	writeJSON(w, http.StatusOK, buddy.BuildConfigSnapshot(cfg))
 }
 

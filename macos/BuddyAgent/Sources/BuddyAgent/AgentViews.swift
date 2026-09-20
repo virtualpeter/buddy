@@ -43,6 +43,7 @@ private enum ConfigActiveSheet: Identifiable {
 	case backup(BackupPrompt)
 	case exportBackup
 	case bearer(BearerDetailsDraft)
+	case quickSetup
 
 	var id: String {
 		switch self {
@@ -51,8 +52,19 @@ private enum ConfigActiveSheet: Identifiable {
 		case .backup(let prompt): return "backup-\(prompt.id.uuidString)"
 		case .exportBackup: return "export-backup"
 		case .bearer(let draft): return "bearer-\(draft.authName)"
+		case .quickSetup: return "quick-setup"
 		}
 	}
+}
+
+private func showAgentAlert(
+	title: String, message: String, style: NSAlert.Style = .warning
+) {
+	let alert = NSAlert()
+	alert.alertStyle = style
+	alert.messageText = title
+	alert.informativeText = message
+	alert.runModal()
 }
 
 struct ConfigView: View {
@@ -79,6 +91,13 @@ struct ConfigView: View {
 					.buttonStyle(.plain)
 					.accessibilityLabel("Buddy Agent Help")
 				}
+				if store.isEmpty {
+					EmptySetupBanner(
+						isLocked: !state.unlocked,
+						onQuickSetup: { activeSheet = .quickSetup },
+						onImportBackup: { pickBackup() },
+						onImportConfig: { importConfig() })
+				}
 				workplacesSection
 				authsSection
 				transferSection
@@ -103,13 +122,18 @@ struct ConfigView: View {
 				importBackup(prompt.url, passphrase: passphrase)
 			}
 		case .exportBackup:
-			BackupExportPassphraseSheet { passphrase in
+			BackupExportPassphraseSheet(needsUnlock: !state.unlocked) { passphrase in
 				exportBackupFile(passphrase: passphrase)
 			}
 		case .bearer(let draft):
 			AuthTokenSheet(
 				state: state, authName: draft.authName,
 				onDismiss: { activeSheet = nil })
+		case .quickSetup:
+			QuickSetupSheet(store: store, state: state, gate: gate) { result in
+				message = result
+				onImportFinished()
+			}
 		}
 	}
 
@@ -129,7 +153,14 @@ struct ConfigView: View {
 			.foregroundStyle(.secondary)
 
 			if store.configTree.isEmpty {
-				Text("No workplaces yet").foregroundStyle(.secondary)
+				VStack(alignment: .leading, spacing: 6) {
+					Text("No workplaces yet").foregroundStyle(.secondary)
+					if !store.sortedAuthNames.isEmpty {
+						Text("Add a workplace and link it from each auth before minting.")
+							.font(.caption)
+							.foregroundStyle(.orange)
+					}
+				}
 			} else {
 				WorkplaceTreeList(
 					store: store,
@@ -190,7 +221,14 @@ struct ConfigView: View {
 				.foregroundStyle(.secondary)
 
 			if store.sortedAuthNames.isEmpty {
-				Text("No auths yet").foregroundStyle(.secondary)
+				VStack(alignment: .leading, spacing: 6) {
+					Text("No auths yet").foregroundStyle(.secondary)
+					if !store.workplaces.isEmpty {
+						Text("Add an auth with a stored secret to mint bearer tokens.")
+							.font(.caption)
+							.foregroundStyle(.orange)
+					}
+				}
 			} else {
 				VStack(spacing: 0) {
 					AuthTableHeader()
@@ -245,7 +283,7 @@ struct ConfigView: View {
 				.fixedSize()
 			}
 			Text(
-				"Setup export is identity only. Cred backup also carries secrets and uses a passphrase you choose."
+				"Setup export is identity only. Cred backup also carries secrets — unlock the Agent first, or the backup file will not contain secrets."
 			)
 			.font(.caption)
 			.foregroundStyle(.secondary)
@@ -302,14 +340,22 @@ struct ConfigView: View {
 				let added = try store.importDocumentForBackup(contents.document)
 				let secrets = contents.secrets
 				let fileName = url.lastPathComponent
+				if secrets.isEmpty && !store.auths.isEmpty {
+					showAgentAlert(
+						title: "Backup has no secrets",
+						message:
+							"\(fileName) decrypted successfully but contains no client secrets or passwords. Config was imported — re-type secrets in each auth, or restore from a backup that was exported while the Agent was unlocked."
+					)
+				}
 				DispatchQueue.global(qos: .userInitiated).async { [gate, store] in
 					var presence: LAContext?
-					if AgentKeychain.backend == .dataProtection {
+					var unlockFailed = false
+					if !secrets.isEmpty, AgentKeychain.backend == .dataProtection {
 						switch gate.authorize(reason: "import secrets from your cred backup") {
 						case .unlocked:
 							presence = gate.presenceContext
 						default:
-							break
+							unlockFailed = true
 						}
 					}
 					let result = store.importBackupSecrets(secrets, presence: presence)
@@ -327,11 +373,31 @@ struct ConfigView: View {
 							parts.append("\(result.failed) secret(s) did not land.")
 						}
 						message = parts.joined(separator: " ")
+						if unlockFailed && !secrets.isEmpty {
+							showAgentAlert(
+								title: "Secrets not imported",
+								message:
+									"Config from \(fileName) was imported, but secrets need an unlocked Agent. Choose Unlock Agent from the menu bar, then import the backup again."
+							)
+						} else if !secrets.isEmpty && result.secrets == 0 && result.ephemeral == 0 {
+							showAgentAlert(
+								title: "Secrets not imported",
+								message:
+									"None of the \(secrets.count) secret(s) in this backup could be stored. Unlock the Agent and try again, or enter secrets manually in each auth."
+							)
+						} else if result.failed > 0 {
+							showAgentAlert(
+								title: "Some secrets missing",
+								message:
+									"\(result.failed) of \(secrets.count) secret(s) from the backup did not land in the Keychain. Check the Activity log, unlock if needed, and re-import or type secrets in Setup."
+							)
+						}
 						onImportFinished()
 					}
 				}
 			} catch {
 				message = "Import failed: \(error)"
+				showAgentAlert(title: "Import failed", message: String(describing: error), style: .critical)
 			}
 		}
 	}
@@ -361,8 +427,34 @@ struct ConfigView: View {
 					switch gate.authorize(reason: "export secrets for your cred backup") {
 					case .unlocked:
 						presence = gate.presenceContext
-					default:
-						break
+					case .declined:
+						DispatchQueue.main.async {
+							message = "Export cancelled — unlock is required to read secrets."
+							showAgentAlert(
+								title: "Unlock required",
+								message:
+									"Cred backups include secrets from the Keychain. Unlock the Agent (menu bar → Unlock Agent) and export again, or use config-only export if you only need identity."
+							)
+						}
+						return
+					case .timedOut:
+						DispatchQueue.main.async {
+							message = "Export cancelled — unlock prompt timed out."
+							showAgentAlert(
+								title: "Unlock timed out",
+								message: "Try exporting again and complete the unlock prompt.")
+						}
+						return
+					case .unavailable:
+						DispatchQueue.main.async {
+							message = "Export cancelled — unlock is not available."
+							showAgentAlert(
+								title: "Unlock unavailable",
+								message:
+									"This Mac cannot authenticate for Keychain access. Unlock from the menu bar first, or use config-only export."
+							)
+						}
+						return
 					}
 				}
 				do {
@@ -386,15 +478,28 @@ struct ConfigView: View {
 							if !packed.result.missingSecrets.isEmpty {
 								parts.append(
 									"Missing secrets: \(packed.result.missingSecrets.joined(separator: ", ")).")
+								let allMissing =
+									packed.result.auths > 0
+									&& packed.result.missingSecrets.count == packed.result.auths
+								showAgentAlert(
+									title: allMissing ? "Backup has no secrets" : "Some secrets missing",
+									message: allMissing
+										? "The file was written but none of your auth secrets could be read. Export while unlocked, or secrets will be missing on restore."
+										: "The file was written but these secrets could not be read: \(packed.result.missingSecrets.joined(separator: ", ")). Unlock and export again if you need a full backup."
+								)
 							}
 							message = parts.joined(separator: " ")
 						} catch {
 							message = "Export failed: \(error)"
+							showAgentAlert(
+								title: "Export failed", message: String(describing: error), style: .critical)
 						}
 					}
 				} catch {
 					DispatchQueue.main.async {
 						message = "Export failed: \(error)"
+						showAgentAlert(
+							title: "Export failed", message: String(describing: error), style: .critical)
 					}
 				}
 			}
@@ -430,6 +535,383 @@ struct ConfigView: View {
 private struct BackupPrompt: Identifiable {
 	let id = UUID()
 	let url: URL
+}
+
+/// Shown when no workplaces or auths exist yet — points people at the fastest path to try buddy.
+private struct EmptySetupBanner: View {
+	let isLocked: Bool
+	let onQuickSetup: () -> Void
+	let onImportBackup: () -> Void
+	let onImportConfig: () -> Void
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: 12) {
+			Label("Get started", systemImage: "sparkles")
+				.font(.headline)
+			Text(
+				"Buddy needs one workplace and one auth before it can mint tokens. Quick setup covers basic login, Jamf Pro API clients, or Account platform (environment scope)."
+			)
+			.font(.callout)
+			.foregroundStyle(.secondary)
+			if isLocked {
+				Label(
+					"Unlock the Agent (menu bar) before saving secrets or exporting a cred backup.",
+					systemImage: "lock.fill"
+				)
+				.font(.caption)
+				.foregroundStyle(.orange)
+			}
+			HStack(spacing: 12) {
+				Button("Quick setup…", action: onQuickSetup)
+					.buttonStyle(.borderedProminent)
+				Button("Import cred backup…", action: onImportBackup)
+				Button("Import config only…", action: onImportConfig)
+			}
+			Text(
+				"Or add workplaces and auths manually below. Run `buddy cred status` when a row shows secret stored."
+			)
+			.font(.caption2)
+			.foregroundStyle(.tertiary)
+		}
+		.padding(14)
+		.background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+		.overlay(
+			RoundedRectangle(cornerRadius: 10)
+				.strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 1))
+	}
+}
+
+/// One workplace + one auth — basic, instance oauth, or platform environment.
+private enum QuickSetupMode: String, CaseIterable, Identifiable {
+	case basic
+	case oauth
+	case platformEnvironment
+
+	var id: String { rawValue }
+
+	var label: String {
+		switch self {
+		case .basic: return "Basic (Jamf Pro username & password)"
+		case .oauth: return "OAuth (Jamf Pro API client)"
+		case .platformEnvironment: return "Platform (Account API, environment)"
+		}
+	}
+
+	var intro: String {
+		switch self {
+		case .basic:
+			return "Jamf Pro local login — workplace is your Jamf Pro URL plus a basic auth with username and password."
+		case .oauth:
+			return "Jamf Pro API client — paste JSON or curl from Settings → System Settings → API Roles and Clients."
+		case .platformEnvironment:
+			return "Jamf Account environment scope — region and environment ID on the workplace; paste the Platform integration curl or enter client ID and secret."
+		}
+	}
+}
+
+private struct QuickSetupSheet: View {
+	@ObservedObject var store: AgentStore
+	@ObservedObject var state: AgentState
+	let gate: UnlockGate
+	let onFinished: (String) -> Void
+
+	@State private var authMode: QuickSetupMode = .basic
+	@State private var workplaceName = "sandbox"
+	@State private var jamfURL = ""
+	@State private var region = PlatformRegions.defaultValue
+	@State private var environmentId = ""
+	@State private var authName = ""
+	@State private var username = ""
+	@State private var pasteBlob = ""
+	@State private var clientId = ""
+	@State private var secret = ""
+	@State private var pasteError: String?
+	@State private var saveError: String?
+	@State private var saving = false
+	@Environment(\.dismiss) private var dismiss
+
+	private var normalizedJamfURL: String? {
+		JamfProURL.normalized(jamfURL)
+	}
+
+	private var jamfURLError: String? {
+		JamfProURL.validationError(for: jamfURL)
+	}
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: 12) {
+			Text("Quick setup").font(.title3)
+			Text(authMode.intro)
+				.font(.callout)
+				.foregroundStyle(.secondary)
+			if !state.unlocked {
+				Label(
+					"Unlock the Agent from the menu bar before saving — secrets go into the Keychain.",
+					systemImage: "lock.fill"
+				)
+				.font(.callout)
+				.foregroundStyle(.orange)
+			}
+			Form {
+				Section("Auth type") {
+					FormMenuPicker(
+						label: "How you sign in",
+						selection: Binding(
+							get: { authMode.rawValue },
+							set: { raw in
+								if let mode = QuickSetupMode(rawValue: raw) {
+									authMode = mode
+								}
+							}),
+						choices: QuickSetupMode.allCases.map { ($0.label, $0.rawValue) })
+				}
+				Section(workplaceSectionTitle) {
+					TextField("Workplace name", text: $workplaceName)
+					if authMode == .platformEnvironment {
+						FormMenuPicker(
+							label: "Region",
+							selection: $region,
+							choices: PlatformRegions.known)
+						TextField("Environment ID", text: $environmentId)
+							.autocorrectionDisabled()
+						Text("Environment-scoped platform auth — no Jamf Pro URL on this workplace.")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					} else {
+						HStack(alignment: .firstTextBaseline) {
+							Text("JamfPro URL")
+							TextField("", text: $jamfURL)
+								.autocorrectionDisabled()
+						}
+						if let jamfURLError {
+							Text(jamfURLError).font(.caption).foregroundStyle(.red)
+						}
+					}
+				}
+				if authMode != .basic {
+					Section("Paste from Jamf (optional)") {
+						jamfPasteEditor(text: $pasteBlob, placeholder: pastePlaceholder)
+						HStack {
+							Button("Apply paste") { applyPaste() }
+								.disabled(pasteBlob.trimmed.isEmpty)
+							Button("Clear") {
+								pasteBlob = ""
+								pasteError = nil
+							}
+							.disabled(pasteBlob.isEmpty && pasteError == nil)
+						}
+						if let pasteError {
+							Text(pasteError).font(.caption).foregroundStyle(.red)
+						}
+					}
+				}
+				Section("Credentials") {
+					TextField("Auth name", text: $authName)
+					if authMode == .basic {
+						TextField("Username", text: $username)
+							.autocorrectionDisabled()
+						SecureField("Password", text: $secret)
+							.textContentType(.password)
+					} else {
+						if authMode == .platformEnvironment {
+							Text("Scope: environment (Account gateway for this region + env ID)")
+								.font(.caption)
+								.foregroundStyle(.secondary)
+						}
+						TextField("Client ID", text: $clientId)
+							.autocorrectionDisabled()
+						SecureField("Client secret", text: $secret)
+							.textContentType(.password)
+					}
+				}
+			}
+			.formStyle(.grouped)
+
+			if let saveError {
+				Text(saveError).font(.callout).foregroundStyle(.red)
+			}
+
+			HStack {
+				Spacer()
+				Button("Cancel") { dismiss() }
+					.disabled(saving)
+				Button("Save and close") { save() }
+					.keyboardShortcut(.defaultAction)
+					.disabled(saving || !canSave)
+			}
+		}
+		.padding()
+		.frame(minWidth: 480, minHeight: 560)
+	}
+
+	private var workplaceSectionTitle: String {
+		switch authMode {
+		case .basic, .oauth: return "Jamf Pro site"
+		case .platformEnvironment: return "Account environment"
+		}
+	}
+
+	private var pastePlaceholder: String {
+		authMode == .platformEnvironment
+			? "Paste Platform integration curl…"
+			: "Paste API client JSON or curl…"
+	}
+
+	private var canSave: Bool {
+		guard !workplaceName.trimmed.isEmpty, !authName.trimmed.isEmpty, !secret.isEmpty else {
+			return false
+		}
+		switch authMode {
+		case .basic:
+			return normalizedJamfURL != nil && !username.trimmed.isEmpty
+		case .oauth:
+			return normalizedJamfURL != nil && !clientId.trimmed.isEmpty
+		case .platformEnvironment:
+			return !region.trimmed.isEmpty && !environmentId.trimmed.isEmpty && !clientId.trimmed.isEmpty
+		}
+	}
+
+	private func applyPaste() {
+		pasteError = nil
+		do {
+			let parsed = try AgentPasteCreds.parse(pasteBlob)
+			if authName.trimmed.isEmpty, !parsed.clientName.isEmpty {
+				authName = parsed.clientName
+			}
+			if !parsed.clientId.isEmpty { clientId = parsed.clientId }
+			if !parsed.clientSecret.isEmpty { secret = parsed.clientSecret }
+			switch parsed.type {
+			case "platform":
+				authMode = .platformEnvironment
+				if !parsed.region.isEmpty {
+					let parsedRegion = PlatformRegions.normalized(parsed.region)
+					if PlatformRegions.isKnown(parsedRegion) {
+						region = parsedRegion
+					} else {
+						pasteError =
+							"Region \"\(parsed.region)\" is not us, eu, or apac — pick a region below, or use full Setup for other regions."
+					}
+				}
+				if parsed.scope == "organization" {
+					pasteError =
+						"Paste is organization-scoped platform — pick Platform (environment) and set region manually, or use full Setup."
+				}
+			case "oauth":
+				authMode = .oauth
+				if !parsed.instanceURL.isEmpty && jamfURL.trimmed.isEmpty {
+					jamfURL = parsed.instanceURL
+				}
+			default:
+				break
+			}
+			pasteBlob = ""
+		} catch {
+			pasteError = error.localizedDescription
+		}
+	}
+
+	private func save() {
+		let wpName = workplaceName.trimmed
+		let name = authName.trimmed
+		guard canSave else { return }
+		if authMode == .basic || authMode == .oauth {
+			guard let url = normalizedJamfURL else {
+				saveError = jamfURLError ?? "Enter a valid Jamf Pro URL."
+				return
+			}
+			jamfURL = url
+		}
+		saving = true
+		saveError = nil
+		let workplace = buildWorkplace()
+		var auth = buildAuth(linkedTo: wpName)
+		let secretValue = secret
+		DispatchQueue.global(qos: .userInitiated).async { [gate] in
+			var presence: LAContext?
+			if AgentKeychain.backend == .dataProtection {
+				switch gate.authorize(reason: "store secrets for \(name)") {
+				case .unlocked:
+					presence = gate.presenceContext
+				case .declined:
+					DispatchQueue.main.async {
+						saving = false
+						saveError = "Unlock declined — use Unlock Agent in the menu bar, then try again."
+					}
+					return
+				case .timedOut:
+					DispatchQueue.main.async {
+						saving = false
+						saveError = "Unlock timed out — try again."
+					}
+					return
+				case .unavailable:
+					DispatchQueue.main.async {
+						saving = false
+						saveError = "Unlock unavailable on this Mac."
+					}
+					return
+				}
+			}
+			DispatchQueue.main.async {
+				store.upsertWorkplace(name: wpName, workplace: workplace)
+				store.setDefaultContext(wpName)
+				store.upsertAuth(name: name, auth: auth)
+				var ok = AgentKeychain.set(
+					secretValue, auth: name, kind: auth.secretKind, context: presence)
+				if !ok, presence == nil, AgentKeychain.backend == .dataProtection,
+					gate.authorize(reason: "store secrets for \(name)") == .unlocked
+				{
+					ok = AgentKeychain.set(
+						secretValue, auth: name, kind: auth.secretKind,
+						context: gate.presenceContext)
+				}
+				store.markSecretsChanged()
+				saving = false
+				if !AgentKeychain.hasAny(auth: name) {
+					saveError = "Keychain write failed — secret not stored."
+					return
+				}
+				if !ok, AgentKeychain.backend == .dataProtection {
+					saveError = "Secret is memory-only until quit — unlock and save again."
+					return
+				}
+				onFinished(
+					"Quick setup saved workplace \(wpName) and \(authMode.label.lowercased()) auth \(name). Run `buddy cred status` to verify."
+				)
+				dismiss()
+			}
+		}
+	}
+
+	private func buildWorkplace() -> Workplace {
+		switch authMode {
+		case .basic, .oauth:
+			return Workplace(url: normalizedJamfURL ?? jamfURL.trimmed)
+		case .platformEnvironment:
+			var wp = Workplace()
+			wp.region = PlatformRegions.normalized(region)
+			wp.environmentId = environmentId.trimmed
+			return wp
+		}
+	}
+
+	private func buildAuth(linkedTo workplace: String) -> AgentAuth {
+		var auth = AgentAuth()
+		auth.contexts = [workplace]
+		switch authMode {
+		case .basic:
+			auth.type = "basic"
+			auth.username = username.trimmed
+		case .oauth:
+			auth.type = "oauth"
+			auth.clientId = clientId.trimmed
+		case .platformEnvironment:
+			auth.type = "platform"
+			auth.scope = "environment"
+			auth.clientId = clientId.trimmed
+		}
+		return auth
+	}
 }
 
 struct WorkplaceEditDraft: Identifiable {
@@ -859,6 +1341,9 @@ struct WorkplaceEditor: View {
 					Section("Jamf Account") {
 						if draft.kind == "environment" {
 							TextField("Region", text: $draft.workplace.region)
+							Text("Any Jamf Account region code (e.g. us, eu, apac).")
+								.font(.caption2)
+								.foregroundStyle(.tertiary)
 							TextField("Environment ID", text: $draft.workplace.environmentId)
 						}
 						if draft.kind == "product-tenant" || draft.kind == "tenant" {
@@ -959,6 +1444,24 @@ struct WorkplaceEditor: View {
 	}
 }
 
+@ViewBuilder
+private func jamfPasteEditor(text: Binding<String>, placeholder: String) -> some View {
+	TextEditor(text: text)
+		.font(.system(.caption, design: .monospaced))
+		.frame(minHeight: 72, maxHeight: 120)
+		.overlay(alignment: .topLeading) {
+			if text.wrappedValue.isEmpty {
+				Text(placeholder)
+					.font(.caption)
+					.foregroundStyle(.tertiary)
+					.padding(.top, 8)
+					.padding(.leading, 4)
+					.allowsHitTesting(false)
+			}
+		}
+		.help(AgentPasteCreds.pasteFieldHelp)
+}
+
 private struct FormMenuPicker: View {
 	let label: String
 	@Binding var selection: String
@@ -1023,19 +1526,7 @@ struct AuthEditor: View {
 					)
 					.font(.caption)
 					.foregroundStyle(.secondary)
-					TextEditor(text: $pasteBlob)
-						.font(.system(.caption, design: .monospaced))
-						.frame(minHeight: 72, maxHeight: 120)
-						.overlay(alignment: .topLeading) {
-							if pasteBlob.isEmpty {
-								Text("Paste JSON or curl here…")
-									.font(.caption)
-									.foregroundStyle(.tertiary)
-									.padding(.top, 8)
-									.padding(.leading, 4)
-									.allowsHitTesting(false)
-							}
-						}
+					jamfPasteEditor(text: $pasteBlob, placeholder: "Paste JSON or curl here…")
 					HStack {
 						Button("Apply paste") { applyPaste() }
 							.disabled(pasteBlob.trimmed.isEmpty)
@@ -1257,10 +1748,16 @@ struct AuthEditor: View {
 
 struct BackupExportPassphraseSheet: View {
 	let onExport: (String) -> Void
+	let needsUnlock: Bool
 
 	@State private var passphrase: String = ""
 	@State private var confirm: String = ""
 	@Environment(\.dismiss) private var dismiss
+
+	init(needsUnlock: Bool = false, onExport: @escaping (String) -> Void) {
+		self.needsUnlock = needsUnlock
+		self.onExport = onExport
+	}
 
 	private var canSubmit: Bool {
 		!passphrase.isEmpty && passphrase == confirm
@@ -1274,6 +1771,14 @@ struct BackupExportPassphraseSheet: View {
 			)
 			.font(.callout)
 			.foregroundStyle(.secondary)
+			if needsUnlock {
+				Label(
+					"Unlock the Agent first — secrets are read from the Keychain during export.",
+					systemImage: "lock.fill"
+				)
+				.font(.callout)
+				.foregroundStyle(.orange)
+			}
 			SecureField("Passphrase", text: $passphrase)
 				.textContentType(.password)
 			SecureField("Confirm passphrase", text: $confirm)
@@ -1507,6 +2012,10 @@ struct StatusView: View {
 			.foregroundStyle(.secondary)
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
+		.onAppear { applyEmptyConfigIdleLock() }
+		.onChange(of: store.isEmpty) { empty in
+			if empty { applyEmptyConfigIdleLock() }
+		}
 	}
 
 	private var keychainText: String {
@@ -1742,5 +2251,17 @@ struct StatusView: View {
 			Text(label).foregroundStyle(.secondary)
 			Text(value).textSelection(.enabled)
 		}
+	}
+
+	private func applyEmptyConfigIdleLock() {
+		guard store.isEmpty, !AgentIdleLock.envOverrideActive else { return }
+		AgentIdleLock.applyEmptyConfigDefault()
+		if idleLockSeconds <= 0 {
+			idleLockSeconds = AgentIdleLock.defaultSeconds
+		}
+		if lastIdleLockSeconds <= 0 {
+			lastIdleLockSeconds = AgentIdleLock.defaultSeconds
+		}
+		state.refreshIdleLockTimer()
 	}
 }

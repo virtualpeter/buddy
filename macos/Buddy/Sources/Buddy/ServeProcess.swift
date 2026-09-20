@@ -11,9 +11,11 @@ final class ServeProcess: ObservableObject {
 
 	@Published private(set) var phase: Phase = .idle
 	@Published private(set) var configReadonly = false
+	@Published private(set) var needsSetup = false
 	private var process: Process?
 	private var stdoutPipe: Pipe?
 	private var readTask: Task<Void, Never>?
+	private var configPollTask: Task<Void, Never>?
 
 	func startIfNeeded() async {
 		guard case .idle = phase else { return }
@@ -41,6 +43,16 @@ final class ServeProcess: ObservableObject {
 				guard let self else { return }
 				if case .ready = self.phase { return }
 				if finished.terminationStatus != 0 {
+					if self.needsSetup {
+						return
+					}
+					if AgentBootstrap.agentReachable() {
+						self.needsSetup = true
+						self.stop()
+						self.phase = .idle
+						self.startConfigPollingIfNeeded()
+						return
+					}
 					self.phase = .failed("buddy serve exited (code \(finished.terminationStatus))")
 				}
 			}
@@ -57,7 +69,45 @@ final class ServeProcess: ObservableObject {
 		readTask = Task { await self.readServeURL(from: pipe, process: proc) }
 	}
 
+	func stopConfigPolling() {
+		configPollTask?.cancel()
+		configPollTask = nil
+	}
+
+	func startConfigPollingIfNeeded() {
+		guard needsSetup else { return }
+		stopConfigPolling()
+		configPollTask = Task { [weak self] in
+			while !Task.isCancelled {
+				try? await Task.sleep(nanoseconds: 2_000_000_000)
+				guard let self, !Task.isCancelled else { return }
+				if case .ready = self.phase {
+					await self.refreshConfigState()
+					if !self.needsSetup {
+						self.stopConfigPolling()
+					}
+				} else {
+					await self.retryServeWhenConfigured()
+				}
+			}
+		}
+	}
+
+	private func retryServeWhenConfigured() async {
+		switch phase {
+		case .failed, .starting:
+			stop()
+			phase = .idle
+			fallthrough
+		case .idle:
+			await startIfNeeded()
+		default:
+			break
+		}
+	}
+
 	func stop() {
+		stopConfigPolling()
 		readTask?.cancel()
 		readTask = nil
 		if let stdoutPipe {
@@ -116,6 +166,14 @@ final class ServeProcess: ObservableObject {
 			}
 			guard let text = String(data: chunk, encoding: .utf8) else { continue }
 			buffer.append(text)
+			if detectSetupRequired(in: buffer), !process.isRunning {
+				needsSetup = true
+				stop()
+				phase = .idle
+				AgentBootstrap.ensureRunning()
+				startConfigPollingIfNeeded()
+				return
+			}
 			guard let range = buffer.range(of: marker) else {
 				if buffer.count > 65_536 {
 					buffer = String(buffer.suffix(32_768))
@@ -127,15 +185,32 @@ final class ServeProcess: ObservableObject {
 			let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
 			if let url = URL(string: trimmed), url.scheme == "http" {
 				phase = .ready(url)
-				await refreshConfigReadonly()
+				await refreshConfigState()
+				if needsSetup {
+					startConfigPollingIfNeeded()
+				}
 				return
 			}
 		}
 
 		if case .starting = phase {
-			phase = .failed("Timed out waiting for buddy serve")
-			stop()
+			if detectSetupRequired(in: buffer) {
+				needsSetup = true
+				stop()
+				phase = .idle
+				AgentBootstrap.ensureRunning()
+				startConfigPollingIfNeeded()
+			} else {
+				phase = .failed("Timed out waiting for buddy serve")
+				stop()
+			}
 		}
+	}
+
+	func detectSetupRequired(in output: String) -> Bool {
+		output.contains("Buddy Agent needs config")
+			|| output.contains("Failed to load config")
+			|| output.contains("needs_setup")
 	}
 }
 
@@ -164,10 +239,11 @@ enum ServeSurface: String, CaseIterable, Identifiable {
 
 private extension ServeProcess {
 	struct ConfigSnapshot: Decodable {
+		let needs_setup: Bool?
 		let config_readonly: Bool?
 	}
 
-	func refreshConfigReadonly() async {
+	func refreshConfigState() async {
 		guard case .ready(let docsURL) = phase,
 			var components = URLComponents(url: docsURL, resolvingAgainstBaseURL: false)
 		else {
@@ -181,8 +257,10 @@ private extension ServeProcess {
 			guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
 			let snap = try JSONDecoder().decode(ConfigSnapshot.self, from: data)
 			configReadonly = snap.config_readonly ?? false
+			needsSetup = snap.needs_setup ?? false
 		} catch {
 			configReadonly = false
+			needsSetup = false
 		}
 	}
 }
