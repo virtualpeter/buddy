@@ -84,7 +84,7 @@ func TestEnglishCatalogComplete(t *testing.T) {
 		MsgCmdBlueprint, MsgCmdDevice, MsgCmdDeviceGroup, MsgCmdDDM, MsgCmdBenchmark,
 		MsgCmdLicense, MsgCmdRole, MsgCmdClient, MsgCmdScript, MsgCmdExtensionAttribute, MsgCmdMobileExtAttr,
 		MsgCmdSetup, MsgCmdServe, MsgCmdMCP,
-		MsgCmdLSP, MsgCmdPublish, MsgCmdVersion,
+		MsgCmdLSP, MsgCmdVersion,
 		MsgGFlagVersion, MsgGFlagEval, MsgGFlagSkipConfirm, MsgGFlagVerbose,
 		MsgGFlagTrace, MsgGFlagScriptTrace, MsgGFlagContext, MsgGFlagTenant, MsgGFlagUser, MsgGFlagAuth,
 	}
@@ -120,14 +120,6 @@ func TestDispatchNamesIncludeHelpAndRoot(t *testing.T) {
 		}
 		if strings.TrimSpace(T(c.Summary)) == "" {
 			t.Errorf("empty summary for %s", c.ID)
-		}
-		if c.ID == CmdPublish {
-			t.Fatal("publish belongs in HiddenCommands, not RootCommands")
-		}
-	}
-	for _, c := range HiddenCommands() {
-		if !found[c.ID] {
-			t.Errorf("dispatch missing hidden %s", c.ID)
 		}
 	}
 }

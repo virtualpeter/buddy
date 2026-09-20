@@ -122,11 +122,6 @@ func TestParseCLIHelpRootCommands(t *testing.T) {
 	if !found {
 		t.Fatalf("device-group item missing: %+v", items)
 	}
-	for _, it := range items {
-		if it.Key == "publish" {
-			t.Fatal("publish should be hidden from buddy help")
-		}
-	}
 }
 
 func TestParseCLIHelpPolicySetKeepsNestedFlagsInUsage(t *testing.T) {

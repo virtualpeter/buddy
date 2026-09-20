@@ -54,7 +54,6 @@ const (
 	MsgCmdServe              = "cli.cmd.serve"
 	MsgCmdMCP                = "cli.cmd.mcp"
 	MsgCmdLSP                = "cli.cmd.lsp"
-	MsgCmdPublish            = "cli.cmd.publish"
 	MsgCmdVersion            = "cli.cmd.version"
 
 	MsgGFlagVersion     = "cli.gflag.version"
@@ -120,7 +119,6 @@ var en = map[string]string{
 	MsgCmdServe:              "Local docs + config + script IDE web UI",
 	MsgCmdMCP:                "MCP stdio server for AI tools (setup discovers host configs)",
 	MsgCmdLSP:                "Language server for buddyscript (editor integration)",
-	MsgCmdPublish:            "Create a GitHub release from dist/ (gh; refuses a dirty tree)",
 	MsgCmdVersion:            "Print version and exit (same as --version)",
 
 	MsgGFlagVersion:     "Print version and exit",

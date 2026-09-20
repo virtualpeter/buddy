@@ -238,11 +238,11 @@ staple:
 	test "$$failed" = 0 || { echo "make staple: check 'xcrun notarytool history --keychain-profile \$$BUDDY_NOTARY_PROFILE'"; exit 1; }
 
 # Abort if the working tree has uncommitted or untracked files (so artefacts
-# are not stamped -dirty). Used by make release; buddy publish does the same.
+# are not stamped -dirty). Used by make release and make publish.
 .PHONY: require-clean
 require-clean:
 	@if [ -n "$$(git status --porcelain)" ]; then \
-		echo "make release: working tree is dirty; commit or stash first"; \
+		echo "make: working tree is dirty; commit or stash first"; \
 		git status --porcelain >&2; \
 		exit 1; \
 	fi
@@ -260,12 +260,12 @@ release: require-clean
 	@echo "Release artefacts in $(DIST)/ (Buddy.app / BuddyAgent.app removed; they are inside the pkg):"
 	@ls -lh $(DIST)
 
-# Upload dist/ via this checkout's CLI (not whatever buddy is on PATH).
-# TAG is required and must match HEAD. Extra flags: PUBLISH_ARGS='--draft --repo=owner/name'
+# Upload regular files in dist/ as a GitHub release (gh). Does not rebuild.
+# TAG is required and must match HEAD. Optional: REPO=owner/name DRAFT=1 PUBLISH_ARGS='--verify-tag'
 .PHONY: publish
-publish: require-clean $(BUILDTARGET)
+publish: require-clean
 	@test -n "$(TAG)" || { echo "make publish: set TAG=vX.Y.Z (must match HEAD)"; exit 1; }
-	$(BUILDTARGET) -y publish "$(TAG)" $(PUBLISH_ARGS)
+	@./scripts/publish.sh "$(TAG)"
 
 # Run unit tests (default Keychain: security(1) on Darwin, CGO off).
 test: sync-docfs
@@ -333,7 +333,7 @@ help:
 	@echo "  notarize  - Notarize + staple Buddy.app then the pkg (BUDDY_NOTARY_PROFILE + BUDDY_PKG_SIGN_IDENTITY)"
 	@echo "  staple    - Staple $(APP_TARGET) and the pkg after an interrupted notarize wait (no rebuild)"
 	@echo "  release   - require a clean tree, then clean + package (or notarize) + linux/windows; strip Buddy.app / BuddyAgent.app from dist"
-	@echo "  publish   - $(BUILDTARGET) -y publish \$$TAG (set TAG=vX.Y.Z; optional PUBLISH_ARGS)"
+	@echo "  publish   - GitHub release from $(DIST)/ via gh (set TAG=vX.Y.Z; optional REPO= / DRAFT=1)"
 	@echo "  test      - Run unit tests (default Keychain / CGO off)"
 	@echo "  test-signed - Darwin: unit tests with -tags secitem (Security.framework, CGO)"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"

@@ -65,22 +65,12 @@ func RootCommands() []Command {
 	}
 }
 
-// HiddenCommands are dispatchable but omitted from buddy help and the Command index.
-func HiddenCommands() []Command {
-	return []Command{
-		{ID: CmdPublish, Summary: MsgCmdPublish},
-	}
-}
-
 // DispatchNames is every canonical token accepted as argv[0] (Root commands plus help).
 // Documented aliases are resolved to these IDs by CanonicalCommand.
 func DispatchNames() []string {
-	out := make([]string, 0, len(RootCommands())+len(HiddenCommands())+1)
+	out := make([]string, 0, len(RootCommands())+1)
 	out = append(out, CmdHelp)
 	for _, c := range RootCommands() {
-		out = append(out, c.ID)
-	}
-	for _, c := range HiddenCommands() {
 		out = append(out, c.ID)
 	}
 	return out

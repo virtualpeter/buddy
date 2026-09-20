@@ -62,12 +62,6 @@ func main() {
 		Verbose:     globals.verbose,
 		Trace:       globals.trace,
 	}
-	if len(os.Args) > 1 {
-		if id, _, ok := clispec.ResolveCommand(os.Args[1]); ok && id == clispec.CmdPublish {
-			exitOnErr(buddy.GetLogger(), "Publish failed", runPublish(opts, os.Args[2:]))
-			return
-		}
-	}
 
 	cfg, err := buddy.LoadConfig()
 	if err != nil {
@@ -191,9 +185,6 @@ func main() {
 			printUsage()
 		}
 		os.Exit(0)
-	case clispec.CmdPublish:
-		// Also handled before config load; keep for completeness if dispatch is reached.
-		exitOnErr(logger, "Publish failed", runPublish(opts, args[1:]))
 	case clispec.CmdVersion:
 		// Also handled before config load; keep for completeness if dispatch is reached.
 		fmt.Println(Version)
@@ -288,7 +279,7 @@ func shouldOfferFirstTimeSetup(args []string) bool {
 		return true
 	}
 	switch cmd {
-	case clispec.CmdHelp, clispec.CmdVersion, clispec.CmdPublish:
+	case clispec.CmdHelp, clispec.CmdVersion:
 		return false
 	case clispec.CmdSetup, clispec.CmdCred, clispec.CmdAuth, clispec.CmdToken, clispec.CmdAgent:
 		return false

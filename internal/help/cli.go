@@ -61,7 +61,6 @@ func catalogBodies() map[string]string {
 		clispec.CmdServe:                                                 Serve,
 		clispec.CmdMCP:                                                   MCP,
 		clispec.CmdLSP:                                                   LSP,
-		clispec.CmdPublish:                                               Publish,
 		clispec.CmdVersion:                                               Version,
 		clispec.CmdShell:                                                 Shell,
 	}
