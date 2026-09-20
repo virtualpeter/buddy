@@ -17,6 +17,50 @@ test "$(uname -s)" = Darwin || { echo "build-pkg: macOS only" >&2; exit 1; }
 test -d "$app" || { echo "build-pkg: missing app bundle $app" >&2; exit 1; }
 test -x "$app/Contents/Helpers/buddy" || { echo "build-pkg: missing $app/Contents/Helpers/buddy" >&2; exit 1; }
 
+# Package stamps must match the exact git tag on HEAD (Buddy.app, nested
+# Agent, helper CLI, and pkgbuild --version). Leftover dist/ bundles from
+# another tag fail here instead of shipping mixed versions.
+tag="$(git describe --tags --exact-match 2>/dev/null || true)"
+if [ -z "$tag" ]; then
+	echo "build-pkg: HEAD is not an exact git tag; package Buddy.app / Agent / helper against a tag" >&2
+	exit 1
+fi
+marketing="${tag#v}"
+if [ "$version" != "$marketing" ]; then
+	echo "build-pkg: pkg version $version does not match tag $tag" >&2
+	exit 1
+fi
+
+plist_short_version() {
+	local plist="$1/Contents/Info.plist"
+	test -f "$plist" || { echo "build-pkg: missing $plist" >&2; return 1; }
+	/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist"
+}
+
+got_app="$(plist_short_version "$app")"
+if [ "$got_app" != "$marketing" ]; then
+	echo "build-pkg: $app CFBundleShortVersionString is $got_app, want $marketing (tag $tag)" >&2
+	exit 1
+fi
+
+nested_agent="$app/Contents/Library/LoginItems/BuddyAgent.app"
+if [ ! -d "$nested_agent" ]; then
+	echo "build-pkg: missing nested $nested_agent" >&2
+	exit 1
+fi
+got_agent="$(plist_short_version "$nested_agent")"
+if [ "$got_agent" != "$marketing" ]; then
+	echo "build-pkg: $nested_agent CFBundleShortVersionString is $got_agent, want $marketing (tag $tag)" >&2
+	exit 1
+fi
+
+got_helper="$("$app/Contents/Helpers/buddy" version 2>/dev/null | head -n 1 | tr -d '\r')"
+if [ "$got_helper" != "$tag" ]; then
+	echo "build-pkg: Helpers/buddy version is ${got_helper:-empty}, want $tag" >&2
+	exit 1
+fi
+echo "build-pkg: versions match tag $tag (app/agent $marketing, helper $got_helper)"
+
 # A notarizing build must package the app Apple already stapled. Rebuilding the
 # app after notarizing it drops the ticket, and the installed app then needs a
 # network round trip on first launch instead of carrying its own proof.

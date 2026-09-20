@@ -185,12 +185,17 @@ install-signed: $(APP_TARGET)
 # Optional: BUDDY_PKG_SIGN_IDENTITY='Developer ID Installer: …' to productsign the pkg.
 PKG_VERSION ?= $(shell v=$$(printf '%s' "$(BUDDY_VERSION)" | sed -E 's/^v//;s/-.*//'); printf '%s\n' "$${v:-0.0.0}")
 PKG_TARGET ?= $(DIST)/buddy-$(PKG_VERSION).pkg
+NOTES_TARGET ?= $(DIST)/buddy-$(PKG_VERSION).md
 # Shared by package and notarize so the two cannot drift.
 BUILD_PKG = ./scripts/build-pkg.sh "$(APP_TARGET)" "$(PKG_TARGET)" "$(PKG_VERSION)" "$(BUDDY_APP_IDENTIFIER)" "$(BUDDY_PKG_SIGN_IDENTITY)"
+WRITE_NOTES = ./scripts/release-notes.sh "$(NOTES_TARGET)"
 .PHONY: package
 package: $(APP_TARGET) | $(DIST)
 	@test "$$(uname -s)" = Darwin || { echo "make package is macOS-only"; exit 1; }
+	@# build-pkg.sh also requires HEAD to be an exact tag and checks that
+	@# Buddy.app, nested BuddyAgent.app, and Helpers/buddy match it.
 	@$(BUILD_PKG)
+	@$(WRITE_NOTES)
 
 # Notarize and staple. Two stages, in the order that leaves both artefacts
 # stapled: Buddy.app first, then a pkg built from the already-stapled app.
@@ -212,6 +217,7 @@ notarize:
 	@# just stapled to it, leaving the pkg carrying an unstapled app — the thing
 	@# this two-stage order exists to prevent. Package the app on disk instead.
 	@$(BUILD_PKG)
+	@$(WRITE_NOTES)
 	./scripts/notarize.sh "$(PKG_TARGET)" "$(BUDDY_NOTARY_PROFILE)"
 
 # Finish a notarize run that was interrupted while waiting on Apple's queue.
@@ -238,7 +244,7 @@ staple:
 	test "$$failed" = 0 || { echo "make staple: check 'xcrun notarytool history --keychain-profile \$$BUDDY_NOTARY_PROFILE'"; exit 1; }
 
 # Abort if the working tree has uncommitted or untracked files (so artefacts
-# are not stamped -dirty). Used by make release and make publish.
+# are not stamped -dirty). Used by make tag, make release, and make publish.
 .PHONY: require-clean
 require-clean:
 	@if [ -n "$$(git status --porcelain)" ]; then \
@@ -247,25 +253,35 @@ require-clean:
 		exit 1; \
 	fi
 
+# Confirm docs/releases.md for the next version, commit that file, annotated-tag.
+# Must be on main. TAG optional: omit to be prompted (default last tag + patch).
+.PHONY: tag
+tag: require-clean
+	@./scripts/tag.sh "$(TAG)"
+
 # Clean dist/, then branded pkg + linux/windows cross-builds (macOS host required for pkg).
 # Notarizes when BUDDY_NOTARY_PROFILE is set, which also reorders app/pkg.
-# App bundles stay out of dist/ after a successful run (they already live in the pkg).
+# Buddy.app / BuddyAgent.app stay in dist/; make publish skips directories.
 .PHONY: release
 release: require-clean
 	@test "$$(uname -s)" = Darwin || { echo "make release is macOS-only (needs package)"; exit 1; }
 	$(MAKE) clean
 	@if [ -n "$(BUDDY_NOTARY_PROFILE)" ]; then $(MAKE) notarize; else $(MAKE) package; fi
 	$(MAKE) buddy-linux buddy-windows
-	@rm -rf "$(APP_TARGET)" "$(AGENT_TARGET)"
-	@echo "Release artefacts in $(DIST)/ (Buddy.app / BuddyAgent.app removed; they are inside the pkg):"
+	@echo "Release artefacts in $(DIST)/:"
 	@ls -lh $(DIST)
 
 # Upload regular files in dist/ as a GitHub release (gh). Does not rebuild.
 # TAG is required and must match HEAD. Optional: REPO=owner/name DRAFT=1 PUBLISH_ARGS='--verify-tag'
-.PHONY: publish
+# Preview without creating the release: make publish-preview TAG=vX.Y.Z
+.PHONY: publish publish-preview
 publish: require-clean
 	@test -n "$(TAG)" || { echo "make publish: set TAG=vX.Y.Z (must match HEAD)"; exit 1; }
 	@./scripts/publish.sh "$(TAG)"
+
+publish-preview: require-clean
+	@test -n "$(TAG)" || { echo "make publish-preview: set TAG=vX.Y.Z (must match HEAD)"; exit 1; }
+	@DRY_RUN=1 ./scripts/publish.sh "$(TAG)"
 
 # Run unit tests (default Keychain: security(1) on Darwin, CGO off).
 test: sync-docfs
@@ -329,11 +345,13 @@ help:
 	@echo "  sync-platform-schema - Refresh vendored Jamf Platform API OpenAPI specs"
 	@echo "  install   - Install $(BUILDTARGET) CLI to ~/go/bin/buddy"
 	@echo "  install-signed - Buddy.app → ~/Applications; symlink ~/go/bin/buddy → Helpers/buddy"
-	@echo "  package   - Branded pkg: /Applications/Buddy.app + /usr/local/bin/buddy symlink → $(DIST)/buddy-<version>.pkg"
+	@echo "  package   - Branded pkg + $(NOTES_TARGET) notes (HEAD must be an exact tag; app/agent/helper must match it)"
 	@echo "  notarize  - Notarize + staple Buddy.app then the pkg (BUDDY_NOTARY_PROFILE + BUDDY_PKG_SIGN_IDENTITY)"
 	@echo "  staple    - Staple $(APP_TARGET) and the pkg after an interrupted notarize wait (no rebuild)"
-	@echo "  release   - require a clean tree, then clean + package (or notarize) + linux/windows; strip Buddy.app / BuddyAgent.app from dist"
-	@echo "  publish   - GitHub release from $(DIST)/ via gh (set TAG=vX.Y.Z; optional REPO= / DRAFT=1)"
+	@echo "  tag      - On main: confirm notes, commit docs/releases.md, annotated-tag (TAG=vX.Y.Z or prompt)"
+	@echo "  release   - require a clean tree, then clean + package (or notarize) + linux/windows"
+	@echo "  publish   - GitHub release from $(DIST)/ via gh (TAG=vX.Y.Z; pkg must be notarized; optional REPO= / DRAFT=1)"
+	@echo "  publish-preview - Same checks as publish, print gh command + notes, do not create the release"
 	@echo "  test      - Run unit tests (default Keychain / CGO off)"
 	@echo "  test-signed - Darwin: unit tests with -tags secitem (Security.framework, CGO)"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"
@@ -348,7 +366,7 @@ help:
 	@echo "DIST=$(DIST) (override with DIST=…)"
 	@echo "buddy-darwin-arm64: BUDDY_CODESIGN_IDENTITY defaults to first Developer ID Application (security find-identity); override with BUDDY_CODESIGN_IDENTITY=…; BUDDY_CODESIGN_IDENTIFIER=$(BUDDY_CODESIGN_IDENTIFIER)"
 	@echo "app: BUDDY_APP_IDENTIFIER=$(BUDDY_APP_IDENTIFIER)"
-	@echo "package: $(APP_TARGET) into a branded installer; optional BUDDY_PKG_SIGN_IDENTITY (Developer ID Installer)"
+	@echo "package: $(APP_TARGET) into a branded installer; HEAD must be an exact tag; optional BUDDY_PKG_SIGN_IDENTITY (Developer ID Installer)"
 	@echo "agent-app: Xcode automatic signing, BUDDY_TEAM_ID=$(BUDDY_TEAM_ID) (derived from the Developer ID identity)"
 	@echo "notarize: BUDDY_NOTARY_PROFILE=<notarytool keychain profile>; required for a stapled release"
 	@echo "notarize: BUDDY_NOTARY_WAIT=30m bounds the wait on Apple's queue; on timeout resume with 'make staple'"

@@ -71,8 +71,11 @@ make app                  # dist/Buddy.app (CLI helper + SwiftUI shell + nested 
 make install-signed       # ~/Applications/Buddy.app + symlink ~/go/bin/buddy
 make package              # dist/buddy-<version>.pkg
 make notarize             # staple app then pkg (needs BUDDY_NOTARY_PROFILE + installer identity)
-make release              # abort if dirty; pkg + linux + windows; strip .app from dist
+make tag                  # on main: confirm notes, commit docs/releases.md, annotated-tag
+make tag TAG=v1.2.3       # same, skip the version prompt
+make release              # abort if dirty; pkg + linux + windows
 make publish TAG=v1.2.3   # gh release from dist/ (TAG must match HEAD)
+make publish-preview TAG=v1.2.3   # same checks; print command + notes; no upload
 ```
 
 | Target | Output | Notes |
@@ -81,16 +84,20 @@ make publish TAG=v1.2.3   # gh release from dist/ (TAG must match HEAD)
 | `make buddy-darwin-arm64` | `dist/buddy-darwin-arm64` | Hardened Runtime; service `virtualpete.buddy.cli`; identifier must stay stable |
 | `make app` | `dist/Buddy.app` | Helper at `Contents/Helpers/buddy`; shell hosts `buddy serve --embed` |
 | `make install-signed` | `~/Applications/Buddy.app` | Symlink (not a copy) at `~/go/bin/buddy` |
-| `make package` | `dist/buddy-<version>.pkg` | `/Applications/Buddy.app` + `/usr/local/bin/buddy`; optional `BUDDY_PKG_SIGN_IDENTITY` |
-| `make release` | pkg + linux + windows | Aborts if dirty; notarizes when `BUDDY_NOTARY_PROFILE` is set; removes `.app` from `dist/` |
-| `make publish` | GitHub release from `dist/` | `TAG=vX.Y.Z` required and must match HEAD; needs `gh`; optional `REPO=` / `DRAFT=1` |
+| `make package` | `dist/buddy-<version>.pkg` + `.md` notes | HEAD must be an exact tag; Buddy.app, nested Agent, and helper must match it; notes are this tag back to the major `.0.0`; optional `BUDDY_PKG_SIGN_IDENTITY` |
+| `make tag` | annotated git tag | Must be on `main`; clean untagged HEAD; `TAG=vX.Y.Z` or prompt (default last tag + patch); confirm `docs/releases.md`, commit that file if it changed, then tag |
+| `make release` | pkg + linux + windows | Aborts if dirty; notarizes when `BUDDY_NOTARY_PROFILE` is set |
+| `make publish` | GitHub release from `dist/` | `TAG=vX.Y.Z` required and must match HEAD; pkg must be notarized (`stapler validate`); needs `gh`; optional `REPO=` / `DRAFT=1` |
+| `make publish-preview` | dry run of `make publish` | Same checks; prints the `gh` command and notes; does not create the release |
 
 `make buddy-darwin-arm64` fails unless the host is Darwin/arm64 and the identity is a real Developer ID (not ad-hoc). Each binary only sees its own vault DEK until you unwrap with `cred set passphrase` or restore a backup. See [docs/auth.md](docs/auth.md).
 
-`make release` refuses a dirty working tree, then leaves shippable files in `dist/` (pkg + linux + windows; `Buddy.app` / `BuddyAgent.app` are stripped — they are already inside the pkg). Upload with `make publish TAG=vX.Y.Z` (`gh`; notes are every `docs/releases.md` section from that tag back to the major `.0.0`; `TAG` must be the exact tag on HEAD):
+`make tag` must run on `main` with a clean, untagged HEAD. It confirms a `docs/releases.md` section (drafted from `git log` if missing), commits that file if it changed, and creates an annotated tag. `make release` refuses a dirty working tree, then leaves shippable files in `dist/` (pkg + linux + windows + `buddy-<version>.md` notes). `make publish` skips directories such as `Buddy.app`. Upload with `make publish TAG=vX.Y.Z` (`gh`; the pkg must pass `stapler validate`; notes are `dist/buddy-<version>.md` from `make package`; `TAG` must be the exact tag on HEAD):
 
 ```sh
+make tag TAG=v1.2.3
 make release
+make publish-preview TAG=v1.2.3
 make publish TAG=v1.2.3
 ```
 

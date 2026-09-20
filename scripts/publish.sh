@@ -2,12 +2,14 @@
 # Create a GitHub release from regular files in dist/ (or $DIST).
 # Args: <tag>   must match git describe --tags --exact-match
 #
+# The macOS installer (buddy-<version>.pkg) must be stapled (`stapler validate`).
+#
 # Env:
 #   DIST          artefact directory (default dist)
 #   REPO          owner/name (default: remote named public, else origin)
-#   NOTES_FILE    markdown; notes are ## <tag> through ## <major>.0.0 (default docs/releases.md)
 #   TITLE         release title (default the tag)
 #   DRAFT=1       create a draft release
+#   DRY_RUN=1     print the gh command and notes; do not create the release
 #   PUBLISH_ARGS  extra flags passed to `gh release create`
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,9 +17,13 @@ cd "$root"
 
 tag="${1:?tag (e.g. v1.2.3)}"
 dist="${DIST:-dist}"
-notes_file="${NOTES_FILE:-docs/releases.md}"
 title="${TITLE:-$tag}"
 repo="${REPO:-}"
+notes_file="${NOTES_FILE:-$dist/buddy-${tag#v}.md}"
+dry_run=0
+case "${DRY_RUN:-}${PREVIEW:-}" in
+1*|true*|yes*) dry_run=1 ;;
+esac
 
 if [ -n "$(git status --porcelain)" ]; then
 	echo "make publish: working tree is dirty; commit or stash first" >&2
@@ -47,7 +53,7 @@ shopt -s nullglob
 for p in "$dist"/*; do
 	name="$(basename "$p")"
 	case "$name" in
-	.*|buddy|buddy-lite) continue ;;
+	.*|buddy|buddy-lite|*.md) continue ;;
 	esac
 	if [ -d "$p" ]; then
 		echo "make publish: skipping $p (directory)" >&2
@@ -61,6 +67,36 @@ for p in "$dist"/*; do
 done
 if [ ${#assets[@]} -eq 0 ]; then
 	echo "make publish: no regular files in $dist (run make release first)" >&2
+	exit 1
+fi
+
+# A shipped macOS install is the notarized pkg (ticket stapled). Refuse to
+# publish a GitHub release whose installer would still need Apple's servers.
+command -v xcrun >/dev/null || { echo "make publish: xcrun is not on PATH (need stapler to verify the pkg)" >&2; exit 1; }
+pkgs=()
+for a in "${assets[@]}"; do
+	case "$a" in
+	*.pkg) pkgs+=("$a") ;;
+	esac
+done
+if [ ${#pkgs[@]} -eq 0 ]; then
+	echo "make publish: no .pkg in $dist (run make release / make notarize first)" >&2
+	exit 1
+fi
+want_pkg="$dist/buddy-${tag#v}.pkg"
+found_want=0
+for pkg in "${pkgs[@]}"; do
+	echo "make publish: verifying notarization of $pkg"
+	if ! xcrun stapler validate "$pkg"; then
+		echo "make publish: $pkg is not notarized (run make notarize, or make staple if the wait was interrupted)" >&2
+		exit 1
+	fi
+	if [ "$pkg" = "$want_pkg" ]; then
+		found_want=1
+	fi
+done
+if [ "$found_want" -ne 1 ]; then
+	echo "make publish: missing $want_pkg (pkg version must match tag $tag)" >&2
 	exit 1
 fi
 
@@ -116,78 +152,21 @@ case "$repo" in
 esac
 
 if [ ! -f "$notes_file" ]; then
-	echo "make publish: notes file: $notes_file: not found" >&2
+	echo "make publish: notes file $notes_file missing (run make package first)" >&2
 	exit 1
 fi
-
-bare="${tag#v}"
-# GitHub notes are this tag's ## section plus every older one down to the
-# major .0.0 (e.g. v12.1.1 includes v12.1.1, v12.1.0, and v12.0.0).
-notes="$(awk -v tag="$tag" -v bare="$bare" '
-	function parse_ver(s,    n, a) {
-		sub(/^v/, "", s)
-		n = split(s, a, ".")
-		if (n < 1 || a[1] !~ /^[0-9]+$/) return 0
-		maj = a[1] + 0
-		min = (n >= 2 && a[2] ~ /^[0-9]+$/ ? a[2] + 0 : 0)
-		pat = (n >= 3 && a[3] ~ /^[0-9]+$/ ? a[3] + 0 : 0)
-		return 1
-	}
-	BEGIN {
-		if (!parse_ver(bare)) {
-			print "make publish: tag is not dotted-numeric (got \"" tag "\")" > "/dev/stderr"
-			failed = 1
-			exit 2
-		}
-		want_maj = maj
-		started = 0
-		saw_floor = 0
-	}
-	/^## / {
-		heading = $0
-		sub(/^## /, "", heading)
-		is_tag = (heading == tag || heading == bare || heading == "v" bare)
-		ok = parse_ver(heading)
-		if (!started) {
-			if (!is_tag) next
-			started = 1
-		} else if (!ok || maj != want_maj) {
-			exit
-		}
-		if (ok && maj == want_maj && min == 0 && pat == 0) {
-			saw_floor = 1
-		}
-	}
-	started { print }
-	END {
-		if (failed) exit 2
-		if (!started) {
-			print "make publish: " ARGV[1] ": no \"## " tag "\" section" > "/dev/stderr"
-			exit 2
-		}
-		if (!saw_floor) {
-			print "make publish: " ARGV[1] ": missing \"## v" want_maj ".0.0\" (notes go back to the major .0.0)" > "/dev/stderr"
-			exit 2
-		}
-	}
-' "$notes_file")"
-notes="$(printf '%s\n' "$notes" | sed -e 's/[[:space:]]*$//' | sed -e '/./,$!d' | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}')"
-if [ -z "$notes" ]; then
-	echo "make publish: $notes_file: no notes for $tag" >&2
-	exit 1
-fi
-
-notes_path="$(mktemp "${TMPDIR:-/tmp}/buddy-release-notes.XXXXXX.md")"
-cleanup() { rm -f "$notes_path"; }
-trap cleanup EXIT
-printf '%s\n' "$notes" >"$notes_path"
 
 echo "GitHub release $tag on $repo"
+echo "  title: $title"
+if [ "${DRAFT:-}" = 1 ] || [ "${DRAFT:-}" = true ]; then
+	echo "  draft: yes"
+fi
+echo "  notes: $notes_file"
 for a in "${assets[@]}"; do
 	echo "  $a"
 done
 
-gh_args=(release create "$tag" --repo "$repo" --title "$title" --notes-file "$notes_path")
+gh_args=(release create "$tag" --repo "$repo" --title "$title" --notes-file "$notes_file")
 if [ "${DRAFT:-}" = 1 ] || [ "${DRAFT:-}" = true ]; then
 	gh_args+=(--draft)
 fi
@@ -198,5 +177,18 @@ if [ -n "${PUBLISH_ARGS:-}" ]; then
 	gh_args+=("${extra[@]}")
 fi
 gh_args+=("${assets[@]}")
+
+if [ "$dry_run" -eq 1 ]; then
+	echo "make publish: dry run (not creating the release)"
+	printf '  gh'
+	for a in "${gh_args[@]}"; do
+		printf ' %q' "$a"
+	done
+	printf '\n'
+	echo "----- notes -----"
+	cat "$notes_file"
+	echo "-----"
+	exit 0
+fi
 
 gh "${gh_args[@]}"
