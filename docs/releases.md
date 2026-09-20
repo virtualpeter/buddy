@@ -2,11 +2,15 @@
 
 buddy did not keep a changelog before v12. This page is the user-facing list of notable changes per tagged release. Version strings come from git tags (`git describe`).
 
-## v12.1.1
+## v12.1.3
+
+"We regret the inconvenience"
 
 No new product features. This release is documentation: install and first-run copy now point at the notarized macOS package and Buddy Agent ([Getting started](getting-started.md)).
 
 ## v12.1.0
+
+"The one with an agent"
 
 Since **v12.0.0**. Human docs: [Auth](auth.md) (Agent + vault recovery), [Getting started](getting-started.md), [BuddyScript syntax](buddyscript-syntax.md).
 
