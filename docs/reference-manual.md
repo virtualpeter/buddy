@@ -2,7 +2,7 @@
 
 **buddy** is a command-line tool for [Jamf Pro](https://www.jamf.com/products/jamf-pro/) automation: policies, computer groups, configuration profiles, packages, scripts, computers / MDM, API roles, and API clients. It includes a **buddyscript** runtime (built on [Starlark](https://github.com/google/starlark-go)) so multi-step workflows can live in `.buddy` scripts.
 
-**New install?** Start with [Getting started](getting-started.md) (chooser / `buddy cred add` / `buddy setup import`), then come back here for the full picture.
+**New install?** Start with [Getting started](getting-started.md) (notarized macOS package and Buddy Agent), then come back here for the full picture.
 
 This manual describes how the pieces fit together. For behavior that must stay in lockstep with the code, buddy exposes the same text via `buddy help` (see [CLI help](#cli-help)).
 
@@ -36,14 +36,7 @@ This project is released under the MIT License. See the [`LICENSE`](../LICENSE) 
 
 ## Installation
 
-Build from a checkout with Go 1.27+:
-
-```sh
-make buddy
-make install    # copies to ~/go/bin/buddy
-```
-
-Or run `./dist/buddy` from the build directory.
+macOS: notarized package from [GitHub Releases](https://github.com/virtualpeter/buddy/releases), then [Getting started](getting-started.md). Linux/Windows: release binaries, or build from source ([README Contributing](../README.md#contributing)).
 
 ---
 
@@ -78,14 +71,14 @@ Full walkthrough (secret stores, token cache, instance vs Platform): **[Auth, se
 - `buddy cred clean tokens` — delete expired or corrupt files under `~/.config/buddy/tokens/`
 - `buddy cred migrate` — move inline YAML secrets and old per-auth store items into the vault
 - `buddy cred backup <file>` / `buddy cred restore <file>` — encrypted snapshot of contexts, auths (with secrets), and channels; restore prompts once per auth (Enter restores, or `-y`)
-- `buddy setup` — first-run chooser when config is empty (instance, Platform, quickstart file, or MDM); on macOS, a running Buddy Agent is used first (no `config.yaml` written; empty Agent errors)
+- `buddy setup` — CLI chooser when there is no Agent (instance, Platform, quickstart file, or MDM); on macOS a running Buddy Agent is used first (no `config.yaml` written; empty Agent errors)
 - `buddy setup import <file>` — merge secrets-free YAML or ACS plist identity, then fill secrets
 - `buddy setup export [path] [--json]` — write secrets-free identity YAML (stdout if omitted); recipients `setup import`, or `--json` for the Buddy Agent's import picker
 - `buddy setup secrets` — create missing context auths and surface-coverage gaps; store missing passwords / client secrets
 - `buddy setup managed-plist [path]` — same identity as ACS XML plist (no auths)
 - `buddy auth test` — ForceRenew + probe the active session (`--all` for every cell)
 - `buddy auth token refresh` — obtain, keep-alive, or replace the session token from cache state (`--raw` prints the bearer)
-- `buddy agent status` — the optional macOS Buddy Agent: socket path, present, unlocked, peer check, counts (`buddy auth agent` is an alias)
+- `buddy agent status` — macOS Buddy Agent: socket path, present, unlocked, peer check, counts (`buddy auth agent` is an alias)
 - `buddy agent enable` / `disable` — write `features.use_agent: true` or `false` to `config.yaml`
 - `buddy agent force` / `force --off` — write `features.force_agent: true` or `false` (ignore the rest of `config.yaml`; MDM still applies)
 - `buddy agent config [--json]` — the config document the Agent serves (identity only; served while locked)
@@ -113,13 +106,15 @@ Classic (`/JSSResource/…`) calls are rewritten to `/proclassic/…` (the `/JSS
 
 **Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate`). Secrets live in `secrets.enc` under a random data key (Keychain account `dek` on macOS, or `~/.config/buddy/dek` on Linux). `buddy cred set passphrase` writes a **user-held** recovery wrap into `secrets.enc` for `cred backup` / `restore` — it is not stored in Keychain or a `master` file. `BUDDY_SECRET_STORE=file|pass|keychain` selects where the **DEK** lives. Never commit `secrets.enc` or `dek` to source control.
 
-Full YAML shape and field descriptions are in the [README](../README.md#configuration).
+Full YAML shape and field descriptions are in [Auth, secrets, and tokens](auth.md#contexts-and-auths).
 
 ---
 
 ## First-time API setup
 
-If you have **no workplaces yet**, macOS first looks for a running Buddy Agent and uses it in memory (`config.yaml` stays absent). A running Agent with no workplaces is an error. Otherwise the preferred path is the interactive chooser (same as `buddy setup` / `buddy cred add`):
+On macOS, install the [notarized package](getting-started.md) and add workplaces in **Buddy Agent**. An empty `config.yaml` uses a running Agent in memory. A running Agent with no workplaces is an error until you add one in Agent Settings.
+
+Linux/Windows (or no Agent) use the CLI chooser (`buddy setup` / `buddy cred add`):
 
 ```sh
 buddy policy list                     # prompts when config is empty
@@ -209,17 +204,19 @@ Use these when unsure about positional arguments, flags, or subcommand names.
 
 ## Local docs and script IDE
 
+On macOS, **Buddy.app** hosts the same Docs / Config / IDE surfaces. From the CLI:
+
 ```sh
-make docs-serve
-# or
 buddy serve --open
 buddy serve --addr=127.0.0.1:8742
 buddy serve --addr=127.0.0.1:0 --embed   # dynamic port; stripped chrome (Buddy.app)
 ```
 
+From a checkout: `make docs-serve`.
+
 - Binds **localhost only** (default `127.0.0.1:8742`; `--addr=127.0.0.1:0` picks a free port and prints the URL on stdout).
 - `/docs/` — Curated user guides (overview, reference, builtins, API, MCP, examples). Contributor/agent material (AGENTS, Cursor rules) is MCP-only.
-- `/config` — View/edit workplace and auth **metadata** (defaults, coverage gaps). First-run identity is the CLI chooser (`buddy setup` / `cred add`); vault secrets stay CLI-only (`buddy cred set secret` / `setup secrets`). When a running **Buddy Agent** owns config (`features.use_agent` / empty macOS config), `/config` is **read-only** here (`config_readonly` in the API snapshot; edits belong in Agent Settings).
+- `/config` — View/edit workplace and auth **metadata** (defaults, coverage gaps). On macOS, first-run identity is **Buddy Agent** (Agent Settings). Without an Agent, use the CLI chooser (`buddy setup` / `cred add`); vault secrets stay CLI-only (`buddy cred set secret` / `setup secrets`). When a running **Buddy Agent** owns config (`features.use_agent` / empty macOS config), `/config` is **read-only** here (`config_readonly` in the API snapshot; edits belong in Agent Settings).
 - `/ide` — Single-buffer script runner with open/save, args, optional `--script-trace`-style builtin tracing, Run (file dialect + call `main()` if present), resizable output, copy/save/stash, and a Variables | Libraries sidebar. Open/save is limited to the process cwd or `BUDDY_IDE_ROOT`. Matches CLI file semantics.
 - Line breakpoints and stepping are **not** available (Starlark-go has no pause/step API). A soft `breakpoint()` builtin that only stops when the script calls it may be added later.
 - Optional `--docs-root` / `BUDDY_DOCS_ROOT` to override embedded markdown with live files while editing.
@@ -242,13 +239,13 @@ buddy mcp setup --write --create --host=cursor
 
 Speaks [Model Context Protocol](https://modelcontextprotocol.io/) over **stdio**.
 
-Add a `mcpServers.buddy` entry (absolute `command` path, `args: ["mcp"]`) to your AI host’s MCP config. `buddy mcp setup` knows Cursor (`~/.cursor/mcp.json`, `.cursor/mcp.json`) and Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS). Docs resources are embedded (no `BUDDY_DOCS_ROOT` required). See [`examples/mcp.json`](../examples/mcp.json); reload/restart the host after changes.
+Add a `mcpServers.buddy` entry (absolute `command` path — `/usr/local/bin/buddy` after the macOS package — `args: ["mcp"]`) to your AI host’s MCP config. `buddy mcp setup` knows Cursor (`~/.cursor/mcp.json`, `.cursor/mcp.json`) and Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS). Docs resources are embedded (no `BUDDY_DOCS_ROOT` required). See [`examples/mcp.json`](../examples/mcp.json); reload/restart the host after changes.
 
 **Response shape:** every tool returns a JSON **object** `{ok, value, error?, count?}`—never a bare array—so hosts that require object `structuredContent` accept list results.
 
 Curated MCP tools: `get_instructions`, `buddy_info`, `docs`, `jamf_schema`, `buddyscript` (primary automation). Call `get_instructions` once at session start. Pro groups, profiles, policies, package READY/download, Platform CRUD, and related helpers run as **named builtins inside `buddyscript`**. Full table and agent priority: [`docs/mcp.md`](mcp.md) and [`docs/mcp-tools.md`](mcp-tools.md). Resources under `buddy://docs/...` (agents should prefer the `docs` tool).
 
-Uses the active context/auth (`--context` / `--user` to override; `--tenant` dual-read). MCP inherits that session’s Jamf privileges—treat it like the CLI. With **no contexts** configured, `buddy mcp` registers **no tools** and points the host at `buddy setup` / `buddy cred add` (secrets never over MCP).
+Uses the active context/auth (`--context` / `--user` to override; `--tenant` dual-read). MCP inherits that session’s Jamf privileges—treat it like the CLI. With **no workplaces** (and no running Agent with config), `buddy mcp` registers **no tools** and points the host at Buddy Agent / [Getting started](getting-started.md) (secrets never over MCP).
 
 ---
 
@@ -375,7 +372,7 @@ Runnable Star scripts and a short index live under [**examples/**](../examples/R
 | `BUDDY_VAULT_PASSPHRASE` | Override recovery passphrase (CI/tests; never written). A `dek:v1:…` value overrides the data key instead. |
 | `BUDDY_USE_AGENT` | Override `features.use_agent` (`true`/`false`): take workplaces, auths, and their secrets from the Buddy Agent. With it on, an absent Agent is an error, not a vault fallback |
 | `BUDDY_FORCE_AGENT` | Override `features.force_agent` (`true`/`false`): require the Agent and ignore `config.yaml` (managed prefs still overlay) |
-| `BUDDY_NO_AGENT` | `1` ignores the optional macOS Buddy Agent; buddy always uses the in-process vault |
+| `BUDDY_NO_AGENT` | `1` ignores the macOS Buddy Agent; buddy always uses the in-process vault |
 | `BUDDY_AGENT_SOCK` | Buddy Agent socket path (default `~/Library/Application Support/Buddy/agent.sock`) |
 | `BUDDY_MANAGED_PLIST` | Path to a managed-config plist (replaces Darwin `/Library/Managed Preferences/virtualpete.buddy.cli.plist`) |
 | `BUDDY_CLASSIC_INSTANCE_ONLY` | Override `features.classic_instance_only` (`true`/`false`). Default false: Classic may use `/api/proclassic/` (no `/JSSResource` in the path). `true` forces **Classic `/JSSResource` only** onto instance. Does not apply to ACS or `GET /api/v1/policies` (always instance). |
@@ -395,9 +392,9 @@ These are Makefile variables, not runtime config:
 
 ## See also
 
-- [README](../README.md) — quick start, configuration table, command cheat sheet
+- [README](../README.md) — product overview and contributing (`make`)
 - [`docs/index.md`](index.md) — About (landing page + docs map)
-- [`docs/getting-started.md`](getting-started.md) — Install, `buddy setup`, first commands
+- [`docs/getting-started.md`](getting-started.md) — Notarized package, Buddy Agent, first commands
 - [`docs/releases.md`](releases.md) — Notable changes per tagged version
 - [Auth, secrets, and tokens](auth.md) — tenants, auths, channel policy, secret stores, token cache
 - [Change batches howto](/docs/docs/change-batches) — plan / approve / apply for change records

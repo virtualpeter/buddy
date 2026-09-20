@@ -6,9 +6,9 @@
 buddy mcp
 ```
 
-Uses **stdio** JSON-RPC (the first-class product path). The active context/auth comes from `~/.config/buddy/config.yaml` (override with `--context=<name>` and/or `--user=<auth>` on the command in the host’s MCP config; `--tenant` is a dual-read alias). MCP inherits that session’s Jamf privileges—treat it like the CLI.
+Uses **stdio** JSON-RPC (the first-class product path). The active context/auth comes from the Buddy Agent (macOS) or `~/.config/buddy/config.yaml` (override with `--context=<name>` and/or `--user=<auth>` on the command in the host’s MCP config; `--tenant` is a dual-read alias). MCP inherits that session’s Jamf privileges—treat it like the CLI.
 
-**Not configured yet?** On macOS, an empty config first looks for a running Buddy Agent (and errors if that Agent has no workplaces). If the Agent is not there, `buddy mcp` starts with **zero tools** and server instructions that point at `buddy setup` / `buddy cred add` (CLI first-run chooser). Secrets are never collected over MCP. After you add a context and auth, reload/restart the MCP host so tools appear.
+**Not configured yet?** On macOS, add a workplace in **Buddy Agent** (Buddy.app → Agent Settings). An empty config uses a running Agent; an Agent with no workplaces errors until you add one. If the Agent is not there, `buddy mcp` starts with **zero tools** and points at [Getting started](getting-started.md). Secrets are never collected over MCP. After you add a workplace, reload/restart the MCP host so tools appear.
 
 A Platform-capable buddy context (`region` plus Jamf Account environment `id`, optional `jamfpro.tenantId`) with a linked platform auth works the same way: Platform product builtins (`blueprint*`, `device*`, `device_group*`, `ddm_*`, `benchmark*`) route through the gateway via `buddyscript`.
 
@@ -23,7 +23,7 @@ Three different “tokens” get confused. Only the middle one is Jamf:
 | Layer | What it is | Buddy stdio? |
 |-------|------------|--------------|
 | **Host → buddy** | Cursor/Claude spawn a local process; no MCP Bearer | Yes — this is how buddy MCP works |
-| **Buddy → Jamf** | Config + vault (`secrets.enc`) + Keychain DEK (`dek`); recovery wrap is user-held → Jamf bearer inside buddy | Yes — tools call Jamf; the host never sees that bearer |
+| **Buddy → Jamf** | Agent (macOS) or vault (`secrets.enc`) → Jamf bearer inside buddy | Yes — tools call Jamf; the host never sees that bearer |
 | **Remote MCP OAuth** | HTTPS MCP (e.g. `developer.jamf.com/mcp`) may require OAuth / `Authorization: Bearer` to talk to *that* server | No — unrelated to `buddy mcp` |
 
 **MCP Inspector 2.x** adds a fourth layer that is *neither* Jamf nor buddy:
@@ -42,13 +42,7 @@ Buddy does not implement Inspector’s proxy token and does not require a Bearer
 
 ### 1. Install a current buddy
 
-```sh
-cd /path/to/buddy
-make buddy
-make install   # copies to ~/go/bin/buddy
-```
-
-Confirm:
+Install from [Getting started](getting-started.md) (notarized macOS package, or a release binary). Confirm:
 
 ```sh
 buddy --version
@@ -57,13 +51,13 @@ buddy help mcp
 
 ### 2. Register buddy with your AI host
 
-Prefer an **absolute path** to the binary. MCP subprocesses often do not inherit your interactive shell `PATH`.
+Prefer an **absolute path** to the binary. MCP subprocesses often do not inherit your interactive shell `PATH`. After the notarized macOS package that is `/usr/local/bin/buddy`.
 
 ```json
 {
   "mcpServers": {
     "buddy": {
-      "command": "/Users/YOU/go/bin/buddy",
+      "command": "/usr/local/bin/buddy",
       "args": ["mcp"]
     }
   }
@@ -276,7 +270,7 @@ def main():
 | Symptom | Fix |
 |---------|-----|
 | Server missing / failed to start | Use absolute `command` path; run `buddy mcp` in a terminal to see errors |
-| Docs resources empty / stale | Rebuild buddy (`make install`) after `make sync-docfs`; reload MCP |
+| Docs resources empty / stale | Reinstall the package, or from a checkout `make sync-docfs` then rebuild; reload MCP |
 | Auth / API errors | Fix config with `buddy auth test`; check `--user` / default cred |
 | Empty `stdout` but data present | Read `value.result` (or rely on mirror when stdout was empty) |
 | `buddyscript` “if not within a function” | Wrap logic in `def main(): ...` |

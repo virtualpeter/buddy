@@ -227,10 +227,10 @@ tr.other { opacity: .55; }
 ` + chromeHeader("config", "", "", "", embed) + `
 <main>
   <h1>Config</h1>
-  <p class="hint">First-run identity lives in the terminal: <code>buddy setup</code> or <code>buddy cred add</code>
-    (instance JSON/basic, Platform curl, quickstart import, or MDM + secrets). This page edits workplace and auth
-    <strong>metadata</strong> only. Passwords and client secrets stay in the vault:
-    <code>buddy cred set secret &lt;auth&gt;</code> / <code>buddy setup secrets</code>.</p>
+  <p class="hint">On macOS, add workplaces in <strong>Buddy Agent</strong> (Buddy.app → Agent Settings).
+    Without an Agent, first-run identity lives in the terminal: <code>buddy setup</code> or <code>buddy cred add</code>.
+    This page edits workplace and auth <strong>metadata</strong> only. When the Agent owns config, the page is read-only.
+    Vault secrets stay in the terminal: <code>buddy cred set secret &lt;auth&gt;</code> / <code>buddy setup secrets</code>.</p>
   <div id="banner" class="banner" style="display:none"></div>
   <div id="err" class="err"></div>
 
@@ -528,7 +528,7 @@ tr.other { opacity: .55; }
       banner.innerHTML = '<strong>Buddy Agent manages workplaces and auths.</strong> Edit them in Buddy Agent → Settings… (or turn off <code>features.use_agent</code> in config.yaml).';
     } else if (state.needs_setup) {
       banner.style.display = '';
-      banner.innerHTML = '<strong>Not configured yet.</strong> Run <code>buddy setup</code> or <code>buddy cred add</code> in a terminal. This page does not collect secrets. See <a href="/docs/docs/getting-started">Getting started</a>.';
+      banner.innerHTML = '<strong>Not configured yet.</strong> On macOS, add a workplace in Buddy Agent (Buddy.app → Agent Settings). Or run <code>buddy setup</code> in a terminal. This page does not collect secrets. See <a href="/docs/docs/getting-started">Getting started</a>.';
     } else {
       banner.style.display = 'none';
     }

@@ -20,15 +20,11 @@ The language server is usually started by the extension, not by hand. See `buddy
 
 ## Prerequisites
 
-Build and install buddy so `buddy lsp` works:
+Install buddy so `buddy lsp` is on `PATH` ([Getting started](getting-started.md)). The extension execs `buddy` (or `buddy.path`) and does not embed this binary.
 
 ```sh
-make buddy
-make install    # optional: puts buddy on PATH via ~/go/bin
-buddy lsp       # should wait on stdin (Ctrl-C to quit) — confirms the command exists
+buddy lsp       # waits on stdin (Ctrl-C to quit) — confirms the command exists
 ```
-
-The extension execs `buddy` (or `buddy.path`) and does not embed this binary.
 
 ## Build and install the VSIX
 
@@ -59,7 +55,7 @@ Example (User Settings JSON) when buddy is not on `PATH`:
 
 ```json
 {
-  "buddy.path": "/Users/YOU/go/bin/buddy"
+  "buddy.path": "/usr/local/bin/buddy"
 }
 ```
 

@@ -541,7 +541,7 @@ func parseCredAddArgs(args []string, skipConfirm bool) (buddy.CredAddOpts, error
 
 func runCredList(cfg *buddy.Config) error {
 	if len(cfg.Tenants) == 0 && len(cfg.Auths) == 0 {
-		fmt.Printf("No workplaces configured. Use 'buddy setup' / 'buddy cred add' (or any Jamf command interactively) — see '%s'.\n", clispec.UsageHelp(clispec.CmdSetup))
+		fmt.Printf("No workplaces configured. On macOS, add one in Buddy Agent (Buddy.app → Agent Settings). Or use 'buddy setup' / 'buddy cred add' — see '%s'.\n", clispec.UsageHelp(clispec.CmdSetup))
 		return nil
 	}
 	fmt.Println("CONTEXTS")

@@ -269,7 +269,7 @@ func coverageNoAuthReason(tenant TenantConfig, surface string) string {
 // FormatCoverageReport prints the workplace KIND × SURFACE matrix for buddy cred status.
 func FormatCoverageReport(rep CoverageReport, w io.Writer) {
 	if len(rep.Cells) == 0 && len(rep.UnlinkedAuths) == 0 {
-		fmt.Fprintln(w, "No workplaces configured. Use 'buddy setup' or 'buddy cred add' (see 'buddy setup help').")
+		fmt.Fprintln(w, "No workplaces configured. On macOS, add one in Buddy Agent. Or use 'buddy setup' / 'buddy cred add' (see 'buddy setup help').")
 		return
 	}
 	fmt.Fprintf(w, "%-14s  %-16s  %-16s  %-15s  %-10s  %-20s  %-8s  %-14s  %s\n", "ORG", "ENVIRONMENT", "CONTEXT", "KIND", "SURFACE", "AUTH", "SECRET", "LIVE", "NOTES")

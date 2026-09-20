@@ -54,6 +54,7 @@ const (
 	MsgCmdServe              = "cli.cmd.serve"
 	MsgCmdMCP                = "cli.cmd.mcp"
 	MsgCmdLSP                = "cli.cmd.lsp"
+	MsgCmdPublish            = "cli.cmd.publish"
 	MsgCmdVersion            = "cli.cmd.version"
 
 	MsgGFlagVersion     = "cli.gflag.version"
@@ -88,7 +89,7 @@ var en = map[string]string{
 	MsgCmdAuth:               "Test authentication for the active tenant/auth",
 	MsgCmdToken:              "Mint a bearer token with one-shot flags (no config)",
 	MsgCmdCred:               "Manage tenants, auths, and secrets in the config file",
-	MsgCmdAgent:              "Inspect the optional macOS Buddy Agent (config, integrations, tokens)",
+	MsgCmdAgent:              "Inspect the macOS Buddy Agent (config, integrations, tokens)",
 	MsgCmdPolicy:             "Manage Jamf policies (list/get/set/create/delete/logs)",
 	MsgCmdCategory:           "Manage categories (list/get/create/delete)",
 	MsgCmdMacApp:             "Manage Classic Mac App Store apps (list/get/create/delete)",
@@ -119,6 +120,7 @@ var en = map[string]string{
 	MsgCmdServe:              "Local docs + config + script IDE web UI",
 	MsgCmdMCP:                "MCP stdio server for AI tools (setup discovers host configs)",
 	MsgCmdLSP:                "Language server for buddyscript (editor integration)",
+	MsgCmdPublish:            "Create a GitHub release from dist/ (gh; refuses a dirty tree)",
 	MsgCmdVersion:            "Print version and exit (same as --version)",
 
 	MsgGFlagVersion:     "Print version and exit",

@@ -1,78 +1,59 @@
 # Getting started with buddy
 
-Install buddy, connect to Jamf, and run a first command. New here? Start with the [About](index.md) page for the full docs map.
+Install buddy, add a Jamf workplace, run a first command. Docs map: [About](index.md).
 
-## 1. Install
+## macOS (recommended)
 
-Source builds need **Go 1.27+**. Released binaries do not.
+Install the **notarized** package from [GitHub Releases](https://github.com/virtualpeter/buddy/releases). That places **Buddy.app** in `/Applications` and `buddy` at `/usr/local/bin/buddy`. Building from source is for [contributors](../README.md#contributing).
+
+1. Open **Buddy.app**. It starts the nested **Buddy Agent** (menu bar) and hosts Docs, Config, and IDE.
+2. **Agent Settings…** (⇧⌘, or the toolbar gear): add a Jamf Pro or Account workplace and its secret. The Agent owns identity and secrets; the CLI does not write `config.yaml`.
+3. Run `buddy policy list` (or use the IDE). Touch ID / the Agent unlock prompt appears when a token is minted.
+
+Import instead of typing:
+
+- Identity only: `buddy setup export --json` into the Agent’s import picker.
+- Identity and secrets: a `buddy cred backup` file (the Agent decrypts it).
+
+When the Agent owns config, Buddy.app hides the Config tab — edit workplaces in Agent Settings. Appearance is **View → Appearance**.
+
+A running Agent with **no** workplaces is an error until you add one there. Linux and Windows have no Agent; use [CLI setup](#other-platforms) instead.
+
+## Other platforms
+
+Use the Linux or Windows binary from the same [Releases](https://github.com/virtualpeter/buddy/releases) page, or [build from source](../README.md#contributing).
+
+With an empty config, any interactive Jamf command (or `buddy setup` / `buddy cred add`) opens a chooser: paste Jamf Pro API-client JSON or basic URL + user, paste an Account/Platform curl, import a secrets-free YAML/plist, or fill secrets for an existing MDM profile (`virtualpete.buddy.cli`).
 
 ```sh
-make buddy
-make install          # optional: copy unsigned CLI to ~/go/bin/buddy
-make install-signed   # macOS: ~/Applications/Buddy.app + symlink ~/go/bin/buddy
-```
-
-## 2. Connect to Jamf
-
-`--context` is a **workplace name** (buddy config), not a Jamf UUID. Jamf **scope** (`organization` / `environment` / `tenant`) lives on the **auth**. Optional nested `orgs:` YAML expands into the same workplaces; instance-only installs omit it. See [Auth](auth.md#contexts-and-auths).
-
-If you have **no workplaces configured**, run any Jamf command on a terminal. On macOS, buddy first looks for a running **Buddy Agent** and uses that document without writing `config.yaml`. If the Agent is running but empty, buddy errors until you add a workplace there. If the Agent is not there, buddy asks how to start (same as `buddy setup` / `buddy cred add`), with a note suggesting Buddy Agent. Other platforms go straight to that chooser:
-
-1. **Jamf Pro instance** — paste the API-client **JSON** Jamf Pro shows (oauth), or type the instance URL plus username/password (**basic**).
-2. **Jamf Account / Platform** — paste the integration **curl**. Organization-admin is `https://us.api.jamfcloud.com` with a blank environment id (no env/tenant header). That workplace is the same object as `orgs.<name>`. Environment curls use a regional host **plus** an environment id. (Samples that show `api.jamfcloud.com` do not resolve; paste still treats them as org-against-US.)
-3. **Quickstart file** — a secrets-free YAML (or ACS plist) with `orgs:` / `contexts:` / ids. Then fill secrets.
-4. **Org MDM profile** already on this Mac (`virtualpete.buddy.cli`) — fill secrets only.
-
-```sh
-buddy policy list                     # chooser when config is empty
-# or:
-buddy setup
+buddy policy list
 buddy cred add --paste --context=sandbox
-buddy cred add --context=sandbox --url=https://example.jamfcloud.com --type=basic --username=admin
 buddy setup import ./quickstart.yaml
-pbpaste | buddy cred add --paste --context=sandbox -y
+buddy setup secrets          # MDM / quickstart identity already present
 buddy auth test
 ```
 
-Secrets go into the encrypted vault (recovery passphrase is **user-held** — typed for `cred backup` / `restore`, not stored in Keychain). In the local docs UI (`buddy serve` → `/config`), edit workplace/auth **metadata** after you have identity — `/config` is not first-run. Vault secrets stay in the terminal (`buddy cred set secret` / `buddy setup secrets`).
+Secrets go in the encrypted vault. Recovery passphrase is **user-held** (typed for `cred backup` / `restore`). Details: [Auth](auth.md).
 
-If this Mac already has an org MDM profile (or you imported a quickstart), skip identity and run:
+Share identity from a working install with `buddy setup export` (YAML) or `buddy setup managed-plist`. Recipients import, then `buddy setup secrets`.
 
-```sh
-buddy setup secrets                   # create missing auths; store client secrets / passwords
-buddy cred status                     # org → environment → tenant coverage / gaps
-buddy auth test
-```
-
-Admins share the same identity document two ways. From a working install:
+## Try it
 
 ```sh
-buddy setup export ./quickstart.yaml           # YAML to mail around (no secrets)
-buddy setup import ./quickstart.yaml           # recipients merge identity, then fill secrets
-buddy setup managed-plist /tmp/buddy.plist     # same identity as Jamf ACS plist
+buddy policy list
+buddy serve --open            # same Docs / IDE as Buddy.app, in the browser
+buddy help
+buddy help builtins
 ```
 
-Already have workplaces/auths? Use `buddy cred …` and `buddy auth test` — details in the [reference manual](reference-manual.md) and [Auth, secrets, and tokens](auth.md).
-
-## 3. Try it
-
-```sh
-buddy policy list                     # or: group list, package list, …
-buddy serve --open                    # docs + /config + /ide in the browser
-buddy help                            # CLI overview
-buddy help builtins                   # buddyscript API reference
-```
-
-On macOS, **`make install-signed`** (or open **`Buddy.app`**) gives the same Docs, Config, and IDE surfaces in a native window: the app starts `buddy serve --embed` locally and ensures the nested **Buddy Agent** is running. Use **View → Appearance** for theme; **Agent Settings…** (⇧⌘,) or the toolbar gear opens Agent workplaces and secrets. When the Agent owns config, the Config tab is hidden — edit identity in Agent Settings instead.
-
-In the IDE, open **Libraries** → **Getting started** for a short list of builtins to try.
+In the IDE, **Libraries → Getting started** lists builtins to try.
 
 ## Next
 
 | Guide | What it’s for |
 |-------|----------------|
-| [About](index.md) | Docs map: resources, Platform, guides |
-| [Release notes](releases.md) | Notable changes per tagged version |
+| [About](index.md) | Docs map |
+| [Release notes](releases.md) | Changes per tagged version |
 | [Auth, secrets, and tokens](auth.md) | Contexts, vault, Buddy Agent, channel policy |
 | [Reference manual](reference-manual.md) | Config, CLI, buddyscript, env vars |
 | [Script IDE](/ide) | Single-buffer runner |

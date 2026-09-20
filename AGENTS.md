@@ -2,6 +2,8 @@
 
 **buddy** is a Go CLI for Jamf Pro automation: policies, groups, profiles, packages, Platform API, buddyscript, and MCP. It is independent MIT software that calls Jamf APIs; it is not affiliated with or endorsed by Jamf. Config lives at `~/.config/buddy/config.yaml`.
 
+Users install the notarized macOS package ([Getting started](docs/getting-started.md)). This file is for people working in a checkout.
+
 Human docs: [docs/index.md](docs/index.md) (About), [docs/getting-started.md](docs/getting-started.md). Auth/secrets/tokens: [docs/auth.md](docs/auth.md). MCP: [docs/mcp.md](docs/mcp.md). Endpoints: [docs/api-endpoints.md](docs/api-endpoints.md). Releases: [docs/releases.md](docs/releases.md).
 
 ## Layout
@@ -23,7 +25,7 @@ Human docs: [docs/index.md](docs/index.md) (About), [docs/getting-started.md](do
 | `packaging/` | Buddy.app Info.plist, pkg postinstall (symlink `/usr/local/bin/buddy`) |
 | `.cursor/rules/` | CLI, builtins, and auth conventions |
 
-Build artefacts go under `dist/` (`DIST=dist` by default). `make buddy` → `dist/buddy` (`CGO_ENABLED=0`). Signed Darwin/arm64 helper: `make buddy-darwin-arm64` → `dist/buddy-darwin-arm64`. App bundle: `make app` → `dist/Buddy.app` (CLI at `Contents/Helpers/buddy`, Swift shell at `Contents/MacOS/Buddy`, nested `BuddyAgent.app` in Login Items). `make agent-app` / `make agent-dev` build the Agent alone. `make install-signed` copies the app to `~/Applications/Buddy.app` and symlinks `~/go/bin/buddy` at the helper. `make package` writes `dist/buddy-<version>.pkg` (installs `/Applications/Buddy.app` + `/usr/local/bin/buddy` symlink). `make release` cleans `dist/` then builds package + linux + windows. Tests: `go test ./...`. Docs UI: `make docs-serve`. Cross-compile: `make buddy-linux` / `make buddy-windows`. Lite tags: `make buddy-lite`.
+Build artefacts go under `dist/` (`DIST=dist` by default). `make buddy` → `dist/buddy` (`CGO_ENABLED=0`). Signed Darwin/arm64 helper: `make buddy-darwin-arm64` → `dist/buddy-darwin-arm64`. App bundle: `make app` → `dist/Buddy.app` (CLI at `Contents/Helpers/buddy`, Swift shell at `Contents/MacOS/Buddy`, nested `BuddyAgent.app` in Login Items). `make agent-app` / `make agent-dev` build the Agent alone. `make install-signed` copies the app to `~/Applications/Buddy.app` and symlinks `~/go/bin/buddy` at the helper. `make package` writes `dist/buddy-<version>.pkg` (installs `/Applications/Buddy.app` + `/usr/local/bin/buddy` symlink). `make release` aborts if the git tree is dirty, then builds package + linux + windows and removes `Buddy.app` / `BuddyAgent.app` from `dist/`. `buddy publish` creates the GitHub release from `dist/` via `gh` (also refuses a dirty tree; HEAD must be an exact tag). Tests: `go test ./...`. Docs UI: `make docs-serve`. Cross-compile: `make buddy-linux` / `make buddy-windows`. Lite tags: `make buddy-lite`.
 
 Resource cookbooks: edit `internal/buddy/*_doc.go`, then `make gendocs` (writes `docs/generated/{human,agent}/*.md` + `internal/help/*_gen.go`). Do not hand-edit generated markdown. After `docs/` or generated changes: `make sync-docfs`. `AGENTS.md` and `.cursor/rules` are repo/editor only (not embedded for MCP). `BUDDY_DOCS_ROOT` is an optional live override.
 

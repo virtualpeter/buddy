@@ -19,7 +19,7 @@ Commands:
 `
 
 const rootFooter = `
-First time? On macOS, an empty config looks for a running Buddy Agent first; otherwise any Jamf command (or 'buddy setup' / 'buddy cred add') opens the first-run chooser. MDM / quickstart files use 'buddy setup secrets'. Then 'buddy auth test'. See 'buddy setup help' and 'buddy cred help'.
+First time? On macOS install the notarized package, open Buddy.app, and add a workplace in Agent Settings. Without an Agent, any Jamf command (or 'buddy setup' / 'buddy cred add') opens the CLI chooser. Then 'buddy auth test'. See 'buddy setup help'.
 Use 'buddy help starlark' or 'buddy help builtins' for buddyscript reference.
 Use 'buddy help <command>' or 'buddy <command> help' for command details.
 Use 'buddy <command> <subcommand> help' for subcommand details.

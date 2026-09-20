@@ -2,7 +2,7 @@
 
 Buddy talks to Jamf using a **context** (a named workplace in config) plus an **auth** (which principal). Passwords and OAuth client secrets belong in the encrypted vault, not in `config.yaml`. Tokens are cached and refreshed automatically.
 
-First-time install: [Getting started](getting-started.md). With an empty or missing config, buddy on macOS first looks for a running Buddy Agent and uses that document in memory (`config.yaml` stays absent). If the Agent is running but has no workplaces, buddy errors and asks you to add them in Buddy Agent. If the Agent is not there, any interactive Jamf command (or `buddy setup` / `buddy cred add`) runs the chooser — on a Mac, with a note suggesting Buddy Agent — and Linux/Windows keep that chooser as the first step: instance JSON or basic, Platform curl, a secrets-free quickstart file, or an org MDM profile. `buddy cred add --paste` accepts the JSON Jamf Pro shows when creating an API client, or the curl sample from a Platform API client. `buddy setup export` writes that YAML from a working config; `buddy setup import` / `cred add --from=` load it. With an org MDM profile, use `buddy setup secrets`. The docs UI **config** page is a workplace tree (rename with the pencil, delete with the trash — parents that still have children are blocked). Secrets stay in the terminal vault. YAML field reference: [README](../README.md#configuration). Jamf URLs and Classic vs Pro vs Platform: [API endpoints](api-endpoints.md).
+First-time install: [Getting started](getting-started.md) (notarized macOS package, then **Buddy Agent**). An empty or missing `config.yaml` on macOS uses a running Agent in memory. A running Agent with no workplaces is an error until you add them in Agent Settings. Without an Agent (Linux/Windows, or Agent not running), `buddy setup` / `buddy cred add` is the CLI chooser. `buddy cred add --paste` accepts Jamf Pro API-client JSON or a Platform curl. Share identity with `buddy setup export` / `import`; MDM profiles use `buddy setup secrets`. When the Agent owns config, Buddy.app hides the Config tab — edit workplaces in Agent Settings. Vault secrets stay in the terminal. YAML fields: [reference manual](reference-manual.md#configuration-and-credentials). Jamf URLs: [API endpoints](api-endpoints.md).
 
 Maintenance: `buddy cred status` and `buddy cred list` walk workplaces as **org → environment → product-tenant** (ORG / ENVIRONMENT / CONTEXT). SURFACE on status is instance URL vs Platform gateway — not Jamf Account scope (that lives on the auth). Account UUIDs stay on `buddy cred get`. Covering auths, whether a secret is **locked** / **stored** / missing, and the last `auth test` result. Default status does not open the vault (`SECRET=locked`); `--unlock` or `--test` classifies stored vs missing. Gaps are workplaces that have an identity but no covering auth (or no secret after unlock). Low-level `buddy cred set context|auth|secret` still works (`tenant` is a dual-read alias). `buddy cred rename context|auth` renames a workplace or auth (vault secrets move with the auth). If `config.yaml` will not parse, `buddy cred restore-config` copies the last-good `config.yaml.ok`. Loading also rewrites leading tabs to spaces.
 
@@ -185,8 +185,8 @@ Passwords and client secrets are stored in **`~/.config/buddy/secrets.enc`** (AE
 
 | `BUDDY_SECRET_STORE` | Platform | Data key (DEK) | Recovery |
 |----------------------|----------|----------------|----------|
-| (default) | macOS (`make buddy`) | Keychain, service `buddy`, account `dek`, via `security(1)` | DEK wrap in `secrets.enc` (typed passphrase; leftover Keychain `master` is deleted once a wrap exists) |
-| (default) | macOS (`make buddy-darwin-arm64`) | Keychain, service `virtualpete.buddy.cli` (label Buddy), account `dek`, `AfterFirstUnlockThisDeviceOnly` + LocalAuthentication presence gate (SecAccessControl when entitled), via Security.framework | Same wrap in `secrets.enc` |
+| (default) | macOS (source `make buddy`) | Keychain, service `buddy`, account `dek`, via `security(1)` | DEK wrap in `secrets.enc` (typed passphrase; leftover Keychain `master` is deleted once a wrap exists) |
+| (default) | macOS (notarized pkg / signed helper) | Keychain, service `virtualpete.buddy.cli` (label Buddy), account `dek`, `AfterFirstUnlockThisDeviceOnly` + LocalAuthentication presence gate (SecAccessControl when entitled), via Security.framework | Same wrap in `secrets.enc` |
 | (default) | Linux / Windows | `~/.config/buddy/dek` (mode `0600`) | Wrap in `secrets.enc` (leftover `master` file deleted once wrap exists) |
 | `file` | any | Same as the Linux DEK file | Same wrap model |
 | `pass` | Unix | `pass show buddy/dek` | Wrap in `secrets.enc` |
@@ -197,14 +197,14 @@ Escape hatches (never written to disk as config):
 - `BUDDY_VAULT_PASSPHRASE` — overrides the recovery passphrase for CI/tests. If the value is a tagged DEK (`dek:v1:…`), it overrides the data key instead (skips Keychain).
 - `BUDDY_VAULT_UNLOCK=after-first-unlock` — on signed Darwin only, store/read the DEK **without** `userPresence` (legacy accessibility; useful for CI). Default is presence-gated.
 
-**Default Darwin binary (`make buddy`)**
+**Unsigned source binary (`make buddy`)**
 
 - Writes Keychain items with `security -i` (secret on stdin, not argv) under service `buddy`
 - Convenient for development (no CGO, survives `go build`)
 - ACL is on `/usr/bin/security`, so any process running as you can read the same items
 - No Touch ID / presence gate (Linux/Windows-style file or CLI Keychain strength)
 
-**Signed release (`make buddy-darwin-arm64`, build tag `secitem`)**
+**Notarized package / signed helper** (`/usr/local/bin/buddy` → `Buddy.app/Contents/Helpers/buddy`, build tag `secitem`)
 
 - Uses Security.framework so the ACL is buddy’s Developer ID
 - Upgrades keep working as long as the Team ID and identifier stay the same
@@ -215,11 +215,11 @@ Escape hatches (never written to disk as config):
 - **Cancel means locked:** if the DEK item exists but presence / LA fails or is cancelled, buddy does **not** fall back to the recovery passphrase. Recovery still works when the DEK is genuinely absent via typed `buddy cred set passphrase` or `BUDDY_VAULT_PASSPHRASE`
 - **User-held recovery:** `cred set passphrase` writes a DEK wrap into `secrets.enc` only. Older Keychain/`master` (or `master` file) items are deleted once a wrap is present. `cred backup` / `restore` always require a typed passphrase (or `--passphrase=` / `BUDDY_VAULT_PASSPHRASE`) — never a machine-stored default
 - Unsigned `dist/buddy` cannot use a meaningful app ACL; presence prompts are a signed-release feature. An unlocked mcp/serve process still holds the DEK in RAM
-- Hard biometrics belong in the optional macOS Buddy Agent (Swift tray, below); the Go CLI stays soft LA + AFU DEK until then
+- Hard biometrics belong in the macOS Buddy Agent (Swift tray, below); the Go CLI stays soft LA + AFU DEK until then
 
-### Optional Buddy Agent
+### Buddy Agent (macOS)
 
-An optional macOS menu-bar **Buddy Agent** (Swift, [`macos/BuddyAgent/`](../macos/BuddyAgent/)) **owns its own workplaces and auths**: identity in `agent-config.json`, secrets in its Keychain under service `virtualpete.buddy.agent`. buddy never sends a secret to the Agent, and the Agent never returns one: the CLI dials a **unix-domain socket** with a **Team-ID codesign peer check** and receives config (identity) or `{access_token, expires_at}`. Shipped inside **Buddy.app** at `Contents/Library/LoginItems/BuddyAgent.app` (optional **Open at Login**); no separate LaunchAgent plist. When the Agent is active, **`buddy serve` `/config`** is read-only in the browser or Buddy.app window — edit workplaces in Agent Settings instead. No new entitlements on `Helpers/buddy`.
+The notarized package ships a menu-bar **Buddy Agent** inside **Buddy.app** (`Contents/Library/LoginItems/BuddyAgent.app`). That is the supported way to store workplaces and secrets on macOS. The Agent (Swift, [`macos/BuddyAgent/`](../macos/BuddyAgent/)) **owns its own workplaces and auths**: identity in `agent-config.json`, secrets in its Keychain under service `virtualpete.buddy.agent`. buddy never sends a secret to the Agent, and the Agent never returns one: the CLI dials a **unix-domain socket** with a **Team-ID codesign peer check** and receives config (identity) or `{access_token, expires_at}`. Optional **Open at Login**; no separate LaunchAgent plist. When the Agent is active, **`buddy serve` `/config`** is read-only in the browser or Buddy.app window — edit workplaces in Agent Settings instead. No new entitlements on `Helpers/buddy`.
 
 **Config is served while the Agent is locked.** Workplaces and auth names are identity, not secrets, so resolving a session never prompts. Unlock gates **minting** only.
 
@@ -326,7 +326,7 @@ On a signed Agent, four more that only signing can demonstrate:
 
 Do not re-ship Go helper Keychain Sharing / Secure Enclave packaging as the primary unlock story.
 
-A signed binary does not see a DEK stored by `dist/buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against `dist/buddy-darwin-arm64` (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. `make install-signed` puts Buddy.app in `~/Applications` and **symlinks** `~/go/bin/buddy` at `Contents/Helpers/buddy`. `buddy cred erase secrets` deletes the vault, the DEK, any leftover Keychain/file master item, the token-wrap key, token cache files, and leftover per-auth items from **both** Keychain services. Leftover `~/.config/buddy/dek.se` from an abandoned Secure Enclave experiment is unused and safe to delete.
+A signed binary does not see a DEK stored by `dist/buddy`. Use the same recovery passphrase with `buddy cred set passphrase` against the signed helper (unwraps the DEK from the vault file into the signed Keychain), or `cred backup` / `restore`. The notarized pkg installs `/Applications/Buddy.app` and **symlinks** `/usr/local/bin/buddy` at `Contents/Helpers/buddy`. Contributor `make install-signed` copies the app to `~/Applications` with a `~/go/bin/buddy` symlink instead. `buddy cred erase secrets` deletes the vault, the DEK, any leftover Keychain/file master item, the token-wrap key, token cache files, and leftover per-auth items from **both** Keychain services. Leftover `~/.config/buddy/dek.se` from an abandoned Secure Enclave experiment is unused and safe to delete.
 
 **Codesign**
 

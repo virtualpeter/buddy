@@ -18,13 +18,11 @@ code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .92em;
 <li><b>/usr/local/bin/buddy</b> as a symlink to the CLI helper inside the app (<code>Contents/Helpers/buddy</code>)</li>
 </ul>
 <p>Keep that path as a symlink rather than replacing it with a copied binary.</p>
-<p>After install, open Terminal:</p>
+<p>After install, open <b>Buddy.app</b> and add a Jamf workplace in <b>Agent Settings</b> (⇧⌘,). The CLI at <code>/usr/local/bin/buddy</code> uses that Agent. Without the Agent:</p>
 <ul>
-<li><code>buddy policy list</code> — any Jamf command, if you are already set up</li>
-<li><code>buddy setup</code> / <code>buddy cred add</code> — first-run chooser (instance, Platform, quickstart file, or MDM)</li>
+<li><code>buddy policy list</code> — any Jamf command once a workplace exists</li>
+<li><code>buddy setup</code> / <code>buddy cred add</code> — CLI chooser (instance, Platform, quickstart file, or MDM)</li>
 <li><code>buddy setup secrets</code> — if this Mac already has an org managed plist</li>
-<li><code>buddy setup import ./quickstart.yaml</code> — load a secrets-free identity YAML or ACS plist</li>
-<li><code>buddy setup export ./quickstart.yaml</code> — write that YAML from a working install</li>
 </ul>
 </body>
 </html>

@@ -84,7 +84,7 @@ func TestEnglishCatalogComplete(t *testing.T) {
 		MsgCmdBlueprint, MsgCmdDevice, MsgCmdDeviceGroup, MsgCmdDDM, MsgCmdBenchmark,
 		MsgCmdLicense, MsgCmdRole, MsgCmdClient, MsgCmdScript, MsgCmdExtensionAttribute, MsgCmdMobileExtAttr,
 		MsgCmdSetup, MsgCmdServe, MsgCmdMCP,
-		MsgCmdLSP, MsgCmdVersion,
+		MsgCmdLSP, MsgCmdPublish, MsgCmdVersion,
 		MsgGFlagVersion, MsgGFlagEval, MsgGFlagSkipConfirm, MsgGFlagVerbose,
 		MsgGFlagTrace, MsgGFlagScriptTrace, MsgGFlagContext, MsgGFlagTenant, MsgGFlagUser, MsgGFlagAuth,
 	}

@@ -11,6 +11,8 @@ import (
 
 var helpVersion = help.Version
 
+var helpPublish = help.Publish
+
 var helpAuth = help.Auth
 
 var helpToken = help.Token
@@ -140,6 +142,7 @@ func printCommandHelp(path []string) {
 		clispec.HelpPath(clispec.CmdToken, clispec.SubDirect): helpToken,
 		clispec.CmdCred:       helpCred,
 		clispec.CmdAgent:      helpAgent,
+		clispec.CmdPublish:    helpPublish,
 		clispec.CmdVersion:    helpVersion,
 		clispec.CmdShell:      help.Shell,
 		clispec.TopicStarlark: help.Starlark,

@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "buddy": {
-      "command": "/Users/YOU/go/bin/buddy",
+      "command": "/usr/local/bin/buddy",
       "args": ["mcp"]
     }
   }

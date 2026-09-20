@@ -43,6 +43,7 @@ const (
 	CmdServe              = "serve"
 	CmdMCP                = "mcp"
 	CmdLSP                = "lsp"
+	CmdPublish            = "publish"
 	CmdShell              = "shell"
 	TopicStarlark         = "starlark"
 	TopicBuiltins         = "builtins"

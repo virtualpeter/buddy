@@ -10,6 +10,29 @@ Usage:
 Notes:
   Same output as --version. Does not load config or contact Jamf.
 `
+const Publish = `buddy publish - Create a GitHub release from dist/
+
+Usage:
+  buddy [global-flags] publish [args...]
+
+Flags for 'publish':
+  --dist=<path>          Artefact directory (default dist, or $DIST)
+  --repo=<owner/name>    GitHub repo (default: remote named public, else origin)
+  --notes-file=<path>    Markdown whose ## <tag> section is the notes (default docs/releases.md)
+  --title=<title>        Release title (default the git tag)
+  --draft                Create a draft release
+
+Notes:
+  Refuses a dirty git working tree (uncommitted or untracked files).
+  HEAD must be an exact git tag (git describe --tags --exact-match).
+  Uploads regular files in --dist; skips directories such as Buddy.app.
+  Requires gh on PATH. Does not load config or contact Jamf.
+
+Examples:
+  make release
+  buddy publish
+  buddy -y publish --repo=owner/name
+`
 const Auth = `buddy auth - Obtain and test API authentication
 
 Usage:
@@ -82,7 +105,7 @@ Examples:
   buddy auth token refresh --raw
   buddy auth agent
 `
-const Agent = `buddy agent - Inspect the optional macOS Buddy Agent
+const Agent = `buddy agent - Inspect the macOS Buddy Agent
 
 Usage:
   buddy [global-flags] agent <subcommand> [args...]
@@ -654,17 +677,18 @@ Flags for 'secrets':
   -y                        Do not prompt; print missing auths/secrets and exit non-zero
 
 Notes:
-  Empty config: any interactive Jamf command, or 'buddy setup' / 'buddy cred add',
-  asks how to start: Jamf Pro instance (API-client JSON, or URL + basic), Jamf
-  Account / Platform (paste curl), a quickstart file, or an org MDM profile.
-  On macOS, an empty or missing config.yaml first looks for a running Buddy
-  Agent and uses that document without writing config.yaml. If the Agent is
-  running but has no workplaces, buddy errors. If the Agent is not there,
-  the chooser still appears, with a note to use Buddy Agent instead of CLI
-  setup. Persist the choice with 'buddy agent enable', 'disable', or 'force'.
-  --context is a workplace name; auth scope: is organization|environment|tenant.
-  Optional orgs: YAML expands into those workplaces. A US curl with blank env id
-  is an org workplace (same object as orgs.<name>).
+  On macOS the supported first-run path is Buddy.app / Buddy Agent
+  (notarized package). Empty or missing config.yaml uses a running Agent
+  without writing config.yaml; an Agent with no workplaces is an error.
+  Persist that with 'buddy agent enable', 'disable', or 'force'.
+
+  Without an Agent, any interactive Jamf command, or 'buddy setup' /
+  'buddy cred add', asks how to start: Jamf Pro instance (API-client JSON,
+  or URL + basic), Jamf Account / Platform (paste curl), a quickstart file,
+  or an org MDM profile. --context is a workplace name; auth scope: is
+  organization|environment|tenant. Optional orgs: YAML expands into those
+  workplaces. A US curl with blank env id is an org workplace (same object
+  as orgs.<name>).
 
   From a working install, setup export writes the mail-around YAML (orgs: /
   leftover contexts: / context.default / channels; no auths). Recipients run
@@ -805,9 +829,8 @@ Notes:
   Resource automation uses named builtins via buddyscript.
   Uses the active context/auth from config (override with --context / --user;
   --tenant is a dual-read alias).
-  With no contexts configured, buddy mcp registers no tools and instructs the
-  With no contexts configured, buddy mcp registers no tools and instructs the
-  host to run CLI setup first (buddy setup / buddy cred add).
+  With no workplaces configured, buddy mcp registers no tools and instructs the
+  host to configure Buddy Agent (macOS) or run CLI setup (buddy setup / buddy cred add).
 
   Every tool returns a JSON object {ok, value, error?, count?} — never a bare
   array (hosts require object structuredContent). buddy_info reports binary
@@ -834,7 +857,7 @@ Example mcpServers entry:
   {
     "mcpServers": {
       "buddy": {
-        "command": "/Users/YOU/go/bin/buddy",
+        "command": "/usr/local/bin/buddy",
         "args": ["mcp"]
       }
     }

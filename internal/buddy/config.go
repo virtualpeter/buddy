@@ -1494,7 +1494,7 @@ func composePlatformScope(auth AuthEntry, tenant TenantConfig) string {
 // ResolveTenant looks up a named tenant.
 func (cfg *Config) ResolveTenant(name string) (TenantConfig, error) {
 	if cfg.Tenants == nil {
-		return TenantConfig{}, fmt.Errorf("no tenants configured — run 'buddy cred add' (or any buddy command interactively for the first-run chooser; see 'buddy setup help')")
+		return TenantConfig{}, fmt.Errorf("no tenants configured — on macOS add a workplace in Buddy Agent; otherwise 'buddy cred add' or 'buddy setup' (see 'buddy setup help')")
 	}
 	t, ok := cfg.Tenants[name]
 	if !ok {

@@ -20,7 +20,7 @@ buddyscript: prefer def main(): … return …; Starlark has no while/try/class 
 Jamf remote MCP (developer.jamf.com/mcp) is useful for product schemas; prefer buddy builtins for tenant changes.`
 
 // ServerInstructionsUnconfigured is used when no tenants are configured — no tools are registered.
-const ServerInstructionsUnconfigured = `buddy MCP is not configured. On macOS, start Buddy Agent if it already owns workplaces; otherwise add a workplace and auth with ` + "`buddy cred add`" + ` (or run any buddy CLI command interactively for the first-run chooser). Secrets stay in the terminal vault, not in the browser. After setup, reload/restart the MCP host so tools appear.`
+const ServerInstructionsUnconfigured = `buddy MCP is not configured. On macOS, add a workplace in Buddy Agent (Buddy.app → Agent Settings). If the Agent is not running, use ` + "`buddy cred add`" + ` or the CLI chooser. Secrets stay in the Agent or the terminal vault, not in the browser. After setup, reload/restart the MCP host so tools appear.`
 
 // AgentPlaybook is the firm guidance returned by get_instructions.
 const AgentPlaybook = `# buddy MCP agent playbook

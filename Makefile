@@ -237,13 +237,27 @@ staple:
 	test "$$found" = 1 || { echo "make staple: nothing to staple; build and notarize first"; exit 1; }; \
 	test "$$failed" = 0 || { echo "make staple: check 'xcrun notarytool history --keychain-profile \$$BUDDY_NOTARY_PROFILE'"; exit 1; }
 
+# Abort if the working tree has uncommitted or untracked files (so artefacts
+# are not stamped -dirty). Used by make release; buddy publish does the same.
+.PHONY: require-clean
+require-clean:
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "make release: working tree is dirty; commit or stash first"; \
+		git status --porcelain >&2; \
+		exit 1; \
+	fi
+
 # Clean dist/, then branded pkg + linux/windows cross-builds (macOS host required for pkg).
 # Notarizes when BUDDY_NOTARY_PROFILE is set, which also reorders app/pkg.
+# App bundles stay out of dist/ after a successful run (they already live in the pkg).
 .PHONY: release
-release: clean
+release: require-clean
 	@test "$$(uname -s)" = Darwin || { echo "make release is macOS-only (needs package)"; exit 1; }
+	$(MAKE) clean
 	@if [ -n "$(BUDDY_NOTARY_PROFILE)" ]; then $(MAKE) notarize; else $(MAKE) package; fi
 	$(MAKE) buddy-linux buddy-windows
+	@rm -rf "$(APP_TARGET)" "$(AGENT_TARGET)"
+	@echo "Release artefacts in $(DIST)/ (Buddy.app / BuddyAgent.app removed; they are inside the pkg):"
 	@ls -lh $(DIST)
 
 # Run unit tests (default Keychain: security(1) on Darwin, CGO off).
@@ -311,7 +325,7 @@ help:
 	@echo "  package   - Branded pkg: /Applications/Buddy.app + /usr/local/bin/buddy symlink → $(DIST)/buddy-<version>.pkg"
 	@echo "  notarize  - Notarize + staple Buddy.app then the pkg (BUDDY_NOTARY_PROFILE + BUDDY_PKG_SIGN_IDENTITY)"
 	@echo "  staple    - Staple $(APP_TARGET) and the pkg after an interrupted notarize wait (no rebuild)"
-	@echo "  release   - clean + package (or notarize) + buddy-linux + buddy-windows (macOS host)"
+	@echo "  release   - require a clean tree, then clean + package (or notarize) + linux/windows; strip Buddy.app / BuddyAgent.app from dist"
 	@echo "  test      - Run unit tests (default Keychain / CGO off)"
 	@echo "  test-signed - Darwin: unit tests with -tags secitem (Security.framework, CGO)"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"

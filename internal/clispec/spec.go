@@ -61,6 +61,7 @@ func RootCommands() []Command {
 		{ID: CmdServe, Summary: MsgCmdServe},
 		{ID: CmdMCP, Summary: MsgCmdMCP},
 		{ID: CmdLSP, Summary: MsgCmdLSP},
+		{ID: CmdPublish, Summary: MsgCmdPublish},
 		{ID: CmdVersion, Summary: MsgCmdVersion},
 	}
 }
@@ -169,6 +170,7 @@ func CatalogEntries() []CatalogEntry {
 		{ID: CmdServe, Title: CmdServe, Level: 2},
 		{ID: CmdMCP, Title: CmdMCP, Level: 2},
 		{ID: CmdLSP, Title: CmdLSP, Level: 2},
+		{ID: CmdPublish, Title: CmdPublish, Level: 2},
 		{ID: CmdVersion, Title: CmdVersion, Level: 2},
 		{ID: CmdShell, Title: CmdShell, Level: 2},
 	}
