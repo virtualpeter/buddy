@@ -2,6 +2,12 @@
 
 buddy did not keep a changelog before v12. This page is the user-facing list of notable changes per tagged release. Version strings come from git tags (`git describe`). Maintainers add a section with `make tag`.
 
+## v12.1.5
+
+- Enable Cut and Paste!
+- Keep Buddy Agent accessory and show tag or commit in About.
+- Give Buddy Agent its own app icon in the Xcode asset catalog.
+
 ## v12.1.4
 
 - Treat a missing or cleared config as first-run setup instead of a failed start.
