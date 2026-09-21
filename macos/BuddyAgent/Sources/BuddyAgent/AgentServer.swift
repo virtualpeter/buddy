@@ -72,16 +72,17 @@ final class AgentServer {
 				if errno == EINTR { continue }
 				return  // listener closed
 			}
+			let peer = PeerCheck.capturePeer(at: conn)
 			let handler = DispatchQueue(label: "buddy.agent.conn", qos: .userInitiated)
 			handler.async { [weak self] in
-				self?.serve(conn)
+				self?.serve(conn, peer: peer)
 				close(conn)
 			}
 		}
 	}
 
-	private func serve(_ fd: Int32) {
-		if let reason = PeerCheck.reject(connection: fd) {
+	private func serve(_ fd: Int32, peer: PeerIdentity) {
+		if let reason = PeerCheck.reject(peer: peer) {
 			write(fd, AgentReply.failure(.denied, reason))
 			FileHandle.standardError.write(Data("buddy-agent: rejected peer: \(reason)\n".utf8))
 			return

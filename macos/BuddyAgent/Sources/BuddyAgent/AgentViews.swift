@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import LocalAuthentication
 import UniformTypeIdentifiers
 
@@ -12,21 +13,38 @@ struct AgentRootView: View {
 	var onImportFinished: () -> Void = {}
 
 	@State private var showHelp = false
+	@State private var selectedTab: AgentSettingsTab = .setup
 
 	var body: some View {
-		TabView {
-			ConfigView(
-				store: store, state: state, gate: gate, showHelp: $showHelp,
-				onImportFinished: onImportFinished)
-				.tabItem { Label("Setup", systemImage: "list.bullet.indent") }
-			PolicyView(store: store)
-				.tabItem { Label("Policy", systemImage: "slider.horizontal.3") }
-			LogView(log: log)
-				.tabItem { Label("Log", systemImage: "list.bullet.rectangle") }
-			StatusView(store: store, state: state, gate: gate, socketPath: socketPath)
-				.tabItem { Label("Status", systemImage: "info.circle") }
+		VStack(spacing: 0) {
+			Picker("", selection: $selectedTab) {
+				ForEach(AgentSettingsTab.allCases) { tab in
+					Label(tab.title, systemImage: tab.icon).tag(tab)
+				}
+			}
+			.labelsHidden()
+			.accessibilityLabel("Settings section")
+			.pickerStyle(.segmented)
+			.padding(.horizontal, 12)
+			.padding(.top, 8)
+
+			Group {
+				switch selectedTab {
+				case .setup:
+					ConfigView(
+						store: store, state: state, gate: gate, showHelp: $showHelp,
+						onImportFinished: onImportFinished)
+				case .policy:
+					PolicyView(store: store)
+				case .log:
+					LogView(log: log)
+				case .status:
+					StatusView(store: store, state: state, gate: gate, socketPath: socketPath)
+				}
+			}
+			.frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+			.padding(12)
 		}
-		.padding(12)
 		.frame(minWidth: 720, minHeight: 520)
 		.sheet(isPresented: $showHelp) {
 			AgentHelpView()
@@ -94,7 +112,7 @@ struct ConfigView: View {
 				if store.isEmpty {
 					EmptySetupBanner(
 						isLocked: !state.unlocked,
-						onQuickSetup: { activeSheet = .quickSetup },
+						onQuickSetup: { presentSheet(.quickSetup) },
 						onImportBackup: { pickBackup() },
 						onImportConfig: { importConfig() })
 				}
@@ -105,9 +123,29 @@ struct ConfigView: View {
 					Text(message).font(.callout).foregroundStyle(.secondary)
 				}
 			}
-			.frame(maxWidth: .infinity, alignment: .leading)
+			.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 		}
-		.sheet(item: $activeSheet, content: sheetContent)
+		.sheet(item: $activeSheet) { sheet in
+			sheetContent(sheet)
+				.frame(width: configSheetSize(for: sheet).width, height: configSheetSize(for: sheet).height)
+		}
+	}
+
+	/// Present on the next run-loop turn so AppKit is not mid-layout in the Setup scroll view.
+	private func presentSheet(_ sheet: ConfigActiveSheet) {
+		DispatchQueue.main.async {
+			activeSheet = sheet
+		}
+	}
+
+	private func configSheetSize(for sheet: ConfigActiveSheet) -> NSSize {
+		switch sheet {
+		case .workplace: return NSSize(width: 480, height: 420)
+		case .auth: return NSSize(width: 480, height: 560)
+		case .quickSetup: return NSSize(width: 520, height: 620)
+		case .backup, .exportBackup: return NSSize(width: 420, height: 240)
+		case .bearer: return NSSize(width: 400, height: 280)
+		}
 	}
 
 	@ViewBuilder
@@ -168,10 +206,10 @@ struct ConfigView: View {
 					selectedWorkplace: selectedWorkplace,
 					onSelect: { selectedWorkplace = $0 },
 					onEdit: { node in
-						activeSheet = .workplace(
+						presentSheet(.workplace(
 							WorkplaceEditDraft(
 								name: node.name, previousName: node.name, workplace: node.workplace,
-								kind: node.kind))
+								kind: node.kind)))
 					},
 					onDelete: { store.removeWorkplace($0) })
 					.padding(8)
@@ -183,9 +221,9 @@ struct ConfigView: View {
 
 			HStack {
 				Button("Add Organization") {
-					activeSheet = .workplace(
+					presentSheet(.workplace(
 						WorkplaceEditDraft(
-							name: "", previousName: nil, workplace: Workplace(), kind: "organization"))
+							name: "", previousName: nil, workplace: Workplace(), kind: "organization")))
 				}
 				Button("Add Child") {
 					let parent = selectedNode
@@ -197,11 +235,11 @@ struct ConfigView: View {
 					} else {
 						kind = "instance"
 					}
-					activeSheet = .workplace(
+					presentSheet(.workplace(
 						WorkplaceEditDraft(
 							name: "", previousName: nil,
 							workplace: Workplace(org: parent?.kind == "organization" ? parent?.name ?? "" : parent?.org ?? ""),
-							kind: kind, parent: parent))
+							kind: kind, parent: parent)))
 				}
 			}
 		}
@@ -213,7 +251,7 @@ struct ConfigView: View {
 				Text("Auths").font(.headline)
 				Spacer()
 				Button("Add Auth") {
-					activeSheet = .auth(AuthEditDraft(name: "", previousName: nil, auth: AgentAuth()))
+					presentSheet(.auth(AuthEditDraft(name: "", previousName: nil, auth: AgentAuth())))
 				}
 			}
 			Text("oauth/basic → Jamf Pro. platform → Account gateway; scope picks the header.")
@@ -230,34 +268,37 @@ struct ConfigView: View {
 					}
 				}
 			} else {
-				VStack(spacing: 0) {
-					AuthTableHeader()
-					Divider()
-					ForEach(store.sortedAuthNames, id: \.self) { name in
-						AuthTableRow(
-							store: store,
-							state: state,
-							gate: gate,
-							name: name,
-							auth: store.auths[name] ?? AgentAuth(),
-							workplaces: store.workplaces,
-							selectedWorkplace: selectedWorkplace,
-							onShowBearerDetails: {
-								activeSheet = .bearer(BearerDetailsDraft(authName: $0))
-							},
-							onEdit: {
-								activeSheet = .auth(
-									AuthEditDraft(
-										name: name, previousName: name,
-										auth: store.auths[name] ?? AgentAuth()))
-							},
-							onDelete: { store.removeAuth(name) })
-						if name != store.sortedAuthNames.last {
-							Divider()
+				ScrollView(.horizontal, showsIndicators: true) {
+					VStack(spacing: 0) {
+						AuthTableHeader()
+						Divider()
+						ForEach(store.sortedAuthNames, id: \.self) { name in
+							AuthTableRow(
+								store: store,
+								state: state,
+								gate: gate,
+								name: name,
+								auth: store.auths[name] ?? AgentAuth(),
+								workplaces: store.workplaces,
+								selectedWorkplace: selectedWorkplace,
+								onShowBearerDetails: {
+									presentSheet(.bearer(BearerDetailsDraft(authName: $0)))
+								},
+								onEdit: {
+									presentSheet(.auth(
+										AuthEditDraft(
+											name: name, previousName: name,
+											auth: store.auths[name] ?? AgentAuth())))
+								},
+								onDelete: { store.removeAuth(name) })
+							if name != store.sortedAuthNames.last {
+								Divider()
+							}
 						}
 					}
+					.frame(minWidth: AuthTableLayout.minTableWidth, alignment: .leading)
 				}
-				.frame(minWidth: 680, alignment: .leading)
+				.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 				.background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
 				.overlay(
 					RoundedRectangle(cornerRadius: 8)
@@ -274,14 +315,13 @@ struct ConfigView: View {
 					Button("Config and secrets (cred backup)...") { pickBackup() }
 				}
 				.menuStyle(.borderlessButton)
-				.fixedSize()
 				Menu("Export for buddy") {
 					Button("Config only (setup export --json)...") { exportConfig() }
-					Button("Config and secrets (cred backup)...") { activeSheet = .exportBackup }
+					Button("Config and secrets (cred backup)...") { presentSheet(.exportBackup) }
 				}
 				.menuStyle(.borderlessButton)
-				.fixedSize()
 			}
+			.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 			Text(
 				"Setup export is identity only. Cred backup also carries secrets — unlock the Agent first, or the backup file will not contain secrets."
 			)
@@ -328,7 +368,7 @@ struct ConfigView: View {
 			let url = chooseFile(
 				types: [.json, .data], prompt: "Choose the file written by 'buddy cred backup'")
 		else { return }
-		activeSheet = .backup(BackupPrompt(url: url))
+		presentSheet(.backup(BackupPrompt(url: url)))
 	}
 
 	private func importBackup(_ url: URL, passphrase: String) {
@@ -678,9 +718,11 @@ private struct QuickSetupSheet: View {
 							.font(.caption)
 							.foregroundStyle(.secondary)
 					} else {
-						HStack(alignment: .firstTextBaseline) {
+						HStack(alignment: .firstTextBaseline, spacing: 8) {
 							Text("JamfPro URL")
+								.fixedSize(horizontal: true, vertical: false)
 							TextField("", text: $jamfURL)
+								.agentLabeledField()
 								.autocorrectionDisabled()
 						}
 						if let jamfURLError {
@@ -709,6 +751,7 @@ private struct QuickSetupSheet: View {
 					TextField("Auth name", text: $authName)
 					if authMode == .basic {
 						TextField("Username", text: $username)
+							.textContentType(.username)
 							.autocorrectionDisabled()
 						SecureField("Password", text: $secret)
 							.textContentType(.password)
@@ -719,6 +762,7 @@ private struct QuickSetupSheet: View {
 								.foregroundStyle(.secondary)
 						}
 						TextField("Client ID", text: $clientId)
+							.textContentType(.username)
 							.autocorrectionDisabled()
 						SecureField("Client secret", text: $secret)
 							.textContentType(.password)
@@ -1023,7 +1067,7 @@ private struct WorkplaceTreeRow: View {
 							.accessibilityLabel(problem)
 					}
 				}
-				.frame(maxWidth: .infinity, alignment: .leading)
+				.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 			}
 			.buttonStyle(.plain)
 			HStack(spacing: 2) {
@@ -1067,15 +1111,17 @@ private struct DefaultContextButton: View {
 
 private enum AuthTableLayout {
 	static let bearerWidth: CGFloat = 52
+	static let contextsWidth: CGFloat = 140
+	static let minTableWidth: CGFloat = 620
 }
 
 private struct AuthTableHeader: View {
 	var body: some View {
 		HStack(spacing: 8) {
-			Text("Name").frame(maxWidth: .infinity, alignment: .leading)
+			Text("Name").agentFlexibleWidth()
 			Text("Type").frame(width: 72, alignment: .leading)
 			Text("Scope").frame(width: 88, alignment: .leading)
-			Text("Contexts").frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+			Text("Contexts").frame(width: AuthTableLayout.contextsWidth, alignment: .leading)
 			Text("Secret").frame(width: 64, alignment: .leading)
 			Text("Bearer")
 				.lineLimit(1)
@@ -1107,12 +1153,12 @@ private struct AuthTableRow: View {
 			AuthNameCell(
 				store: store, name: name, auth: auth, workplaces: workplaces,
 				selectedWorkplace: selectedWorkplace)
-				.frame(maxWidth: .infinity, alignment: .leading)
+				.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 			Text(auth.type).frame(width: 72, alignment: .leading)
 			Text(auth.displayScope(workplaces: workplaces)).frame(width: 88, alignment: .leading)
 			Text(auth.contexts.joined(separator: ", "))
 				.lineLimit(2)
-				.frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+				.frame(width: AuthTableLayout.contextsWidth, alignment: .leading)
 			SecretBadge(store: store, name: name).frame(width: 64, alignment: .leading)
 			AuthTokenCell(
 				store: store, state: state, gate: gate, authName: name,
@@ -1324,87 +1370,93 @@ struct WorkplaceEditor: View {
 	@Environment(\.dismiss) private var dismiss
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: 12) {
-			Text(draft.isNew ? "New workplace" : draft.name).font(.title3)
-			if store.isManagedWorkplace(draft.name) || store.isManagedWorkplace(draft.previousName ?? "") {
-				Label("This workplace is managed by MDM.", systemImage: "lock.fill")
-					.font(.callout)
-					.foregroundStyle(.secondary)
+		Form {
+			Section {
+				Text(draft.isNew ? "New workplace" : draft.name).font(.title3)
+				if store.isManagedWorkplace(draft.name) || store.isManagedWorkplace(draft.previousName ?? "") {
+					Label("This workplace is managed by MDM.", systemImage: "lock.fill")
+						.font(.callout)
+						.foregroundStyle(.secondary)
+				}
 			}
-			Form {
-				Section("Identity") {
-					TextField("Name", text: $draft.name)
-					TextField("Kind", text: .constant(kindLabel))
-						.disabled(true)
-				}
-				if draft.kind != "organization" {
-					Section("Jamf Account") {
-						if draft.kind == "environment" {
-							TextField("Region", text: $draft.workplace.region)
-							Text("Any Jamf Account region code (e.g. us, eu, apac).")
-								.font(.caption2)
-								.foregroundStyle(.tertiary)
-							TextField("Environment ID", text: $draft.workplace.environmentId)
-						}
-						if draft.kind == "product-tenant" || draft.kind == "tenant" {
-							TextField("Jamf Pro tenant ID", text: $draft.workplace.tenantId)
-						}
-						if draft.kind == "instance" || draft.kind == "product-tenant" || draft.kind == "tenant" {
-							TextField("Jamf Pro URL", text: $draft.workplace.url)
-						}
-						if draft.kind != "organization" {
-							TextField("Parent org", text: $draft.workplace.org)
-						}
+			Section("Identity") {
+				TextField("Name", text: $draft.name)
+				TextField("Kind", text: .constant(kindLabel))
+					.disabled(true)
+			}
+			if draft.kind != "organization" {
+				Section("Jamf Account") {
+					if draft.kind == "environment" {
+						TextField("Region", text: $draft.workplace.region)
+						Text("Any Jamf Account region code (e.g. us, eu, apac).")
+							.font(.caption2)
+							.foregroundStyle(.tertiary)
+						TextField("Environment ID", text: $draft.workplace.environmentId)
 					}
-				} else {
-					Section("Organization") {
-						Text("Organization workplaces sit above environments. No URL or region.")
-							.font(.caption)
-							.foregroundStyle(.secondary)
+					if draft.kind == "product-tenant" || draft.kind == "tenant" {
+						TextField("Jamf Pro tenant ID", text: $draft.workplace.tenantId)
+					}
+					if draft.kind == "instance" || draft.kind == "product-tenant" || draft.kind == "tenant" {
+						TextField("Jamf Pro URL", text: $draft.workplace.url)
+							.autocorrectionDisabled()
+					}
+					if draft.kind != "organization" {
+						TextField("Parent org", text: $draft.workplace.org)
 					}
 				}
-				Section("Default") {
-					Toggle("Use as default context", isOn: $useAsDefault)
-						.disabled(store.managedPolicyLocked("defaultContext"))
-				}
-				Section("Builtin policy") {
-					Text("Optional deny/allow lists for this workplace (`deny_builtins` / `allow_builtins`).")
+			} else {
+				Section("Organization") {
+					Text("Organization workplaces sit above environments. No URL or region.")
 						.font(.caption)
 						.foregroundStyle(.secondary)
-					BuiltinPatternsField(
-						title: "Deny builtins",
-						help: "One pattern per line.",
-						patterns: $draft.workplace.denyBuiltins)
-					BuiltinPatternsField(
-						title: "Allow builtins",
-						help: "Overrides deny at this workplace.",
-						patterns: $draft.workplace.allowBuiltins)
 				}
 			}
-			.formStyle(.grouped)
-
-			if let saveError {
-				Text(saveError).font(.callout).foregroundStyle(.red)
+			Section("Default") {
+				Toggle("Use as default context", isOn: $useAsDefault)
+					.disabled(store.managedPolicyLocked("defaultContext"))
 			}
-
-			HStack {
-				if !draft.isNew {
-					Button("Delete", role: .destructive) {
-						if let prev = draft.previousName {
-							store.removeWorkplace(prev)
-						}
-						dismiss()
-					}
-				}
-				Spacer()
-				Button("Cancel") { dismiss() }
-				Button("Save") { save() }
-					.keyboardShortcut(.defaultAction)
-					.disabled(draft.name.trimmed.isEmpty || store.isManagedWorkplace(draft.name) || store.isManagedWorkplace(draft.previousName ?? ""))
+			Section("Builtin policy") {
+				Text("Optional deny/allow lists for this workplace (`deny_builtins` / `allow_builtins`).")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+				BuiltinPatternsField(
+					title: "Deny builtins",
+					help: "One pattern per line.",
+					patterns: $draft.workplace.denyBuiltins)
+				BuiltinPatternsField(
+					title: "Allow builtins",
+					help: "Overrides deny at this workplace.",
+					patterns: $draft.workplace.allowBuiltins)
 			}
 		}
-		.padding()
-		.frame(minWidth: 440, minHeight: 380)
+		.formStyle(.grouped)
+		.safeAreaInset(edge: .bottom, spacing: 0) {
+			VStack(alignment: .leading, spacing: 8) {
+				if let saveError {
+					Text(saveError).font(.callout).foregroundStyle(.red)
+				}
+				HStack {
+					if !draft.isNew {
+						Button("Delete", role: .destructive) {
+							if let prev = draft.previousName {
+								store.removeWorkplace(prev)
+							}
+							dismiss()
+						}
+					}
+					Spacer()
+					Button("Cancel") { dismiss() }
+					Button("Save") { save() }
+						.keyboardShortcut(.defaultAction)
+						.disabled(
+							draft.name.trimmed.isEmpty || store.isManagedWorkplace(draft.name)
+								|| store.isManagedWorkplace(draft.previousName ?? ""))
+				}
+			}
+			.padding(.horizontal, 16)
+			.padding(.vertical, 10)
+			.background(.bar)
+		}
 		.onAppear {
 			let name = draft.previousName ?? draft.name
 			useAsDefault = store.defaultContext == name && !name.trimmed.isEmpty
@@ -1448,7 +1500,7 @@ struct WorkplaceEditor: View {
 private func jamfPasteEditor(text: Binding<String>, placeholder: String) -> some View {
 	TextEditor(text: text)
 		.font(.system(.caption, design: .monospaced))
-		.frame(minHeight: 72, maxHeight: 120)
+		.frame(height: 96)
 		.overlay(alignment: .topLeading) {
 			if text.wrappedValue.isEmpty {
 				Text(placeholder)
@@ -1469,9 +1521,7 @@ private struct FormMenuPicker: View {
 	var onChange: (() -> Void)? = nil
 
 	var body: some View {
-		HStack {
-			Text(label)
-			Spacer()
+		LabeledTrailingRow(label: label) {
 			Menu {
 				ForEach(choices, id: \.value) { choice in
 					Button {
@@ -1489,7 +1539,6 @@ private struct FormMenuPicker: View {
 				Text(displayLabel)
 			}
 			.menuStyle(.borderlessButton)
-			.fixedSize()
 		}
 	}
 
@@ -1512,15 +1561,16 @@ struct AuthEditor: View {
 	private let types = ["oauth", "basic", "platform"]
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: 12) {
-			Text(draft.name.isEmpty ? "New auth" : draft.name).font(.title3)
-			if store.isManagedAuth(draft.name) || store.isManagedAuth(draft.previousName ?? "") {
-				Label("This auth is managed by MDM.", systemImage: "lock.fill")
-					.font(.callout)
-					.foregroundStyle(.secondary)
+		Form {
+			Section {
+				Text(draft.name.isEmpty ? "New auth" : draft.name).font(.title3)
+				if store.isManagedAuth(draft.name) || store.isManagedAuth(draft.previousName ?? "") {
+					Label("This auth is managed by MDM.", systemImage: "lock.fill")
+						.font(.callout)
+						.foregroundStyle(.secondary)
+				}
 			}
-			Form {
-				Section("Paste from Jamf") {
+			Section("Paste from Jamf") {
 					Text(
 						"Jamf Pro API-client JSON or Platform integration curl — same as `buddy cred add --paste`."
 					)
@@ -1620,33 +1670,35 @@ struct AuthEditor: View {
 						help: "Overrides deny on this auth.",
 						patterns: $draft.auth.allowBuiltins)
 				}
-			}
-			.formStyle(.grouped)
-			.onAppear { pruneInvalidWorkplaceLinks() }
-
-			if let saveError {
-				Text(saveError).font(.callout).foregroundStyle(.red)
-			}
-
-			HStack {
-				if draft.previousName != nil {
-					Button("Delete", role: .destructive) {
-						store.removeAuth(draft.previousName ?? draft.name)
-						dismiss()
-					}
-				}
-				Spacer()
-				Button("Cancel") { dismiss() }
-				Button("Save") { save() }
-					.keyboardShortcut(.defaultAction)
-					.disabled(
-						draft.name.trimmed.isEmpty || draft.auth.contexts.isEmpty
-							|| store.isManagedAuth(draft.name)
-							|| store.isManagedAuth(draft.previousName ?? ""))
-			}
 		}
-		.padding()
-		.frame(minWidth: 480, minHeight: 560)
+		.formStyle(.grouped)
+		.onAppear { pruneInvalidWorkplaceLinks() }
+		.safeAreaInset(edge: .bottom, spacing: 0) {
+			VStack(alignment: .leading, spacing: 8) {
+				if let saveError {
+					Text(saveError).font(.callout).foregroundStyle(.red)
+				}
+				HStack {
+					if draft.previousName != nil {
+						Button("Delete", role: .destructive) {
+							store.removeAuth(draft.previousName ?? draft.name)
+							dismiss()
+						}
+					}
+					Spacer()
+					Button("Cancel") { dismiss() }
+					Button("Save") { save() }
+						.keyboardShortcut(.defaultAction)
+						.disabled(
+							draft.name.trimmed.isEmpty || draft.auth.contexts.isEmpty
+								|| store.isManagedAuth(draft.name)
+								|| store.isManagedAuth(draft.previousName ?? ""))
+				}
+			}
+			.padding(.horizontal, 16)
+			.padding(.vertical, 10)
+			.background(.bar)
+		}
 	}
 
 	private var linkableWorkplaceNames: [String] {
@@ -1892,7 +1944,7 @@ struct LogView: View {
 			.foregroundStyle(.tertiary)
 			.textSelection(.enabled)
 		}
-		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+		.frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 	}
 
 	private func logRow(_ entry: AgentLogEntry) -> some View {
@@ -1908,8 +1960,9 @@ struct LogView: View {
 			Text(entry.message)
 				.font(.caption.monospaced())
 				.textSelection(.enabled)
-				.frame(maxWidth: .infinity, alignment: .leading)
+				.agentFlexibleWidth()
 		}
+		.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 	}
 
 	private func categoryColor(_ category: AgentLogCategory) -> Color {
@@ -1953,24 +2006,24 @@ struct StatusView: View {
 			)
 			.font(.headline)
 
-			Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
-				row("Version", AgentBranding.marketingVersion)
-				row("Socket", socketPath)
-				row("Config", store.path.path)
-				row("Workplaces", "\(store.workplaces.count)")
-				row("Auths", "\(store.authCount)")
-				row(
+			VStack(alignment: .leading, spacing: 6) {
+				infoRow("Version", "\(AgentBranding.revision) (\(AgentBranding.buildTime))")
+				infoRow("Socket", socketPath)
+				infoRow("Config", store.path.path)
+				infoRow("Workplaces", "\(store.workplaces.count)")
+				infoRow("Auths", "\(store.authCount)")
+				infoRow(
 					"Config integrity",
 					store.configIntegrity(
 						unlocked: state.unlocked,
 						presence: state.unlocked ? gate.presenceContext : nil
 					).wireValue)
 				if !store.managedPrefs.isEmpty {
-					row("Managed prefs", store.managedPrefs.summaryLine())
+					infoRow("Managed prefs", store.managedPrefs.summaryLine())
 				}
-				row("Peer check", PeerCheck.allowUnsigned ? "unsigned allowed (dev)" : "codesign")
-				row("Secrets", keychainText)
-				row("Presence", presenceText)
+				infoRow("Peer check", PeerCheck.allowUnsigned ? "unsigned allowed (dev)" : "codesign")
+				infoRow("Secrets", keychainText)
+				infoRow("Presence", presenceText)
 			}
 			.font(.callout)
 
@@ -2011,7 +2064,7 @@ struct StatusView: View {
 			.font(.caption)
 			.foregroundStyle(.secondary)
 		}
-		.frame(maxWidth: .infinity, alignment: .leading)
+		.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 		.onAppear { applyEmptyConfigIdleLock() }
 		.onChange(of: store.isEmpty) { empty in
 			if empty { applyEmptyConfigIdleLock() }
@@ -2090,9 +2143,7 @@ struct StatusView: View {
 				.font(.callout)
 				.foregroundStyle(.primary)
 			} else {
-				HStack {
-					Text("Interval")
-					Spacer()
+				LabeledTrailingRow(label: "Interval") {
 					Menu {
 						ForEach(idleLockChoices, id: \.seconds) { choice in
 							Button {
@@ -2109,7 +2160,6 @@ struct StatusView: View {
 						Text(idleLockIntervalLabel)
 					}
 					.menuStyle(.borderlessButton)
-					.fixedSize()
 				}
 				.disabled(AgentIdleLock.envOverrideActive)
 
@@ -2203,9 +2253,7 @@ struct StatusView: View {
 				.font(.callout)
 				.foregroundStyle(.primary)
 			} else {
-				HStack {
-					Text("Prompt timeout")
-					Spacer()
+				LabeledTrailingRow(label: "Prompt timeout") {
 					Menu {
 						ForEach(unlockTimeoutChoices, id: \.seconds) { choice in
 							Button {
@@ -2222,7 +2270,6 @@ struct StatusView: View {
 						Text(unlockTimeoutLabel)
 					}
 					.menuStyle(.borderlessButton)
-					.fixedSize()
 				}
 				.disabled(AgentUnlockTimeout.envOverrideActive)
 			}
@@ -2246,10 +2293,14 @@ struct StatusView: View {
 					lineWidth: 1))
 	}
 
-	private func row(_ label: String, _ value: String) -> some View {
-		GridRow {
-			Text(label).foregroundStyle(.secondary)
-			Text(value).textSelection(.enabled)
+	private func infoRow(_ label: String, _ value: String) -> some View {
+		HStack(alignment: .firstTextBaseline, spacing: 12) {
+			Text(label)
+				.foregroundStyle(.secondary)
+				.frame(width: 120, alignment: .leading)
+			Text(value)
+				.textSelection(.enabled)
+				.agentFlexibleWidth()
 		}
 	}
 

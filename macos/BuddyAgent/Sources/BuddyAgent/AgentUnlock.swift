@@ -197,8 +197,8 @@ final class UnlockGate {
 		// An accessory app has no windows to bring forward, so make sure the
 		// system sheet is not drawn behind whatever the user is looking at.
 		DispatchQueue.main.async {
-			AgentWindowController.settingsWindow?.orderFrontRegardless()
-			NSApp.activate(ignoringOtherApps: true)
+			AgentAppActivation.orderForward(AgentWindowController.settingsWindow)
+			AgentAppActivation.activateIfAllowed()
 		}
 
 		let done = DispatchSemaphore(value: 0)

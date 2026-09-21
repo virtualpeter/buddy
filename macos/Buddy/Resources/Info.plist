@@ -21,6 +21,6 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2026 Peter Viertel.</string>
+	<string>Copyright © $(COPYRIGHT_YEAR) Peter Viertel.</string>
 </dict>
 </plist>

@@ -8,15 +8,13 @@ enum AgentWindowRefocus {
 	/// windows that cannot become key).
 	static func bringSettingsForward() {
 		DispatchQueue.main.async {
-			NSApp.activate(ignoringOtherApps: true)
-			AgentWindowController.settingsWindow?.orderFrontRegardless()
+			AgentAppActivation.present(AgentWindowController.settingsWindow)
 		}
 	}
 }
 
-/// Holds the single Agent window. The app is an accessory (no Dock tile), so
-/// the window is created lazily from the menu and the app is activated
-/// explicitly to bring it forward.
+/// Holds the single Agent window. The app is an accessory (no Dock tile); the window
+/// is created lazily from the menu and brought forward explicitly.
 final class AgentWindowController: NSObject, NSWindowDelegate {
 	/// Settings window for refocus after LocalAuthentication (avoid scanning NSApp.windows).
 	static weak var settingsWindow: NSWindow?
@@ -36,6 +34,10 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
 		self.gate = gate
 		self.socketPath = socketPath
 		super.init()
+	}
+
+	func closeSettings() {
+		window?.close()
 	}
 
 	func show() {
@@ -60,9 +62,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
 		}
 		guard let window else { return }
 		DispatchQueue.main.async {
-			window.orderFrontRegardless()
-			NSApp.activate(ignoringOtherApps: true)
-			window.makeKey()
+			AgentAppActivation.present(window)
 		}
 	}
 

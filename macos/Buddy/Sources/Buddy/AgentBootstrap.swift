@@ -28,6 +28,9 @@ enum AgentBootstrap {
 		let path = BundlePaths.agentSocketPath()
 		guard !path.isEmpty else { return false }
 
+		var st = stat()
+		guard stat(path, &st) == 0, (st.st_mode & S_IFMT) == S_IFSOCK else { return false }
+
 		var addr = sockaddr_un()
 		addr.sun_family = sa_family_t(AF_UNIX)
 		let pathMax = MemoryLayout.size(ofValue: addr.sun_path)

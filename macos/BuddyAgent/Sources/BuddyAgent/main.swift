@@ -3,21 +3,20 @@ import AppKit
 /// Buddy Agent: a menu-bar-only process that owns Jamf integrations and mints
 /// bearers for the buddy CLI over a unix-domain socket. Config is served while
 /// locked; unlock gates minting. It never returns a secret value.
-final class AgentAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 	private let state: AgentState
 	private let store: AgentStore
 	private let server: AgentServer
 	private let gate: UnlockGate
 	private let windows: AgentWindowController
+	private let statusPanel = AgentStatusPanelController()
 	private var statusItem: NSStatusItem?
-	private var statusMenu: NSMenu?
-	private var statusSummaryItem: NSMenuItem?
-	private var lockMenuItem: NSMenuItem?
-	private var openAtLoginItem: NSMenuItem?
-	private var openBuddyItem: NSMenuItem?
 	private var menuIsOpen = false
 	private var pendingStatusRefresh = false
+	private var pendingOpenSettings = false
+	private var pendingShowAbout = false
 	private var showSettingsObserver: UnsafeMutableRawPointer?
+	private var userRequestedQuit = false
 
 	init(state: AgentState, store: AgentStore, server: AgentServer, gate: UnlockGate) {
 		self.state = state
@@ -30,6 +29,9 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 	}
 
 	func applicationDidFinishLaunching(_ notification: Notification) {
+		AgentMainMenu.install()
+		AgentMainMenu.wire(
+			to: self, about: #selector(showAbout), quit: #selector(quitFromApplicationMenu))
 		state.onChange = { [weak self] in self?.refreshStatusItem() }
 		signal(SIGPIPE, SIG_IGN)
 		AgentKeychain.purgeLoginLeftovers()
@@ -50,6 +52,10 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 	func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
 		false
+	}
+
+	func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+		userRequestedQuit ? .terminateNow : .terminateCancel
 	}
 
 	func applicationWillTerminate(_ notification: Notification) {
@@ -84,52 +90,43 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 		let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 		item.autosaveName = "BuddyAgentStatusItem"
 		statusItem = item
-
-		let menu = AgentStatusMenu.makeMenu(delegate: self)
-		statusMenu = menu
-		captureMenuItems(menu)
-		item.menu = menu
+		item.button?.target = self
+		item.button?.action = #selector(toggleStatusPanel(_:))
 		refreshStatusItem()
 	}
 
-	private func captureMenuItems(_ menu: NSMenu) {
-		statusSummaryItem = menu.item(at: 0)
-		lockMenuItem = menu.item(at: 1)
-		openAtLoginItem = menu.item(at: 5)
-		openBuddyItem = menu.item(at: 4)
+	@objc private func toggleStatusPanel(_ sender: Any?) {
+		guard let button = statusItem?.button else { return }
+		statusPanel.toggle(
+			relativeTo: button,
+			snapshot: AgentStatusMenu.snapshot(unlocked: state.unlocked, authCount: store.authCount),
+			delegate: self)
 	}
 
-	func menuWillOpen(_ menu: NSMenu) {
+	func statusPanelWillOpen() {
 		menuIsOpen = true
-		updateMenuItems()
+		AgentAppActivation.setStatusMenuOpen(true)
 	}
 
-	func menuDidClose(_ menu: NSMenu) {
+	func statusPanelDidClose() {
 		menuIsOpen = false
+		AgentAppActivation.setStatusMenuOpen(false)
 		if pendingStatusRefresh {
 			applyStatusItemRefresh()
 		}
-	}
-
-	func menuNeedsUpdate(_ menu: NSMenu) {
-		updateMenuItems()
-	}
-
-	private func updateMenuItems() {
-		openAtLoginItem?.state = AgentLoginItem.isEnabled ? .on : .off
-		openAtLoginItem?.isEnabled = AgentLoginItem.isAvailable
-		openBuddyItem?.isEnabled = AgentBranding.buddyAppURL() != nil
-		let lockWord = state.unlocked ? "Unlocked" : "Locked"
-		let plural = store.authCount == 1 ? "" : "s"
-		statusSummaryItem?.title =
-			"Buddy Agent — \(lockWord) (\(store.authCount) auth\(plural))"
-		lockMenuItem?.title = state.unlocked ? "Lock Agent" : "Unlock Agent"
+		if pendingOpenSettings {
+			pendingOpenSettings = false
+			windows.show()
+		}
+		if pendingShowAbout {
+			pendingShowAbout = false
+			showAboutNow()
+		}
 	}
 
 	private func refreshStatusItem() {
 		if menuIsOpen {
 			pendingStatusRefresh = true
-			updateMenuItems()
 			return
 		}
 		applyStatusItemRefresh()
@@ -145,8 +142,7 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 		let lockWord = state.unlocked ? "Unlocked" : "Locked"
 		statusItem?.button?.setAccessibilityLabel("Buddy Agent")
 		statusItem?.button?.setAccessibilityHelp(
-			"Version \(AgentBranding.marketingVersion), \(lockWord.lowercased()), socket at \(server.socketPath)")
-		updateMenuItems()
+			"Version \(AgentBranding.revision), \(lockWord.lowercased()), socket at \(server.socketPath)")
 	}
 
 	@objc func toggleLockFromMenu() {
@@ -187,15 +183,26 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 		state.lockVault()
 	}
 
-	@objc func openSettings() {
+	private func presentSettingsWindow() {
+		if menuIsOpen {
+			pendingOpenSettings = true
+			statusPanel.dismiss()
+			return
+		}
 		windows.show()
+	}
+
+	@objc func openSettings() {
+		presentSettingsWindow()
 	}
 
 	private func offerSetupIfNeeded() {
 		let key = "BuddyAgentOfferedEmptySetup"
 		guard store.isEmpty, !UserDefaults.standard.bool(forKey: key) else { return }
 		UserDefaults.standard.set(true, forKey: key)
-		windows.show()
+		DispatchQueue.main.async { [weak self] in
+			self?.presentSettingsWindow()
+		}
 	}
 
 	@objc func openBuddyApp() {
@@ -210,34 +217,48 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 		NSWorkspace.shared.open(url)
 	}
 
-	@objc func toggleOpenAtLogin(_ sender: NSMenuItem) {
-		let enable = sender.state != .on
+	@objc func toggleOpenAtLoginFromPanel() {
+		let enable = !AgentLoginItem.isEnabled
 		if let message = AgentLoginItem.setEnabled(enable) {
 			let alert = NSAlert()
 			alert.messageText = "Open at Login"
 			alert.informativeText = message
 			alert.runModal()
 		}
-		sender.state = AgentLoginItem.isEnabled ? .on : .off
-		updateMenuItems()
 	}
 
 	@objc func showHelp() {
-		windows.show()
+		presentSettingsWindow()
 		AgentHelp.postShowHelpNotification()
 	}
 
 	@objc func showAbout() {
-		NSApp.activate(ignoringOtherApps: true)
+		if menuIsOpen {
+			pendingShowAbout = true
+			statusPanel.dismiss()
+			return
+		}
+		showAboutNow()
+	}
+
+	private func showAboutNow() {
+		AgentAppActivation.activateIfAllowed()
 		NSApp.orderFrontStandardAboutPanel(options: [
 			.applicationName: "Buddy Agent",
-			.applicationVersion: AgentBranding.marketingVersion,
-			.version: AgentBranding.buildNumber,
+			.applicationVersion: AgentBranding.revision,
+			.version: AgentBranding.buildTime,
 			.credits: AgentBranding.aboutCredits(),
 		])
 	}
 
+	@objc func quitFromApplicationMenu() {
+		if AgentWindowController.settingsWindow != nil {
+			windows.closeSettings()
+		}
+	}
+
 	@objc func quit() {
+		userRequestedQuit = true
 		NSApp.terminate(nil)
 	}
 
@@ -247,6 +268,7 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 		alert.informativeText = message
 		alert.alertStyle = .critical
 		alert.runModal()
+		userRequestedQuit = true
 		NSApp.terminate(nil)
 	}
 }

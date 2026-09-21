@@ -54,7 +54,7 @@ struct PolicyView: View {
 					channels: $draftChannels)
 				policyActions
 			}
-			.frame(maxWidth: .infinity, alignment: .leading)
+			.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 			.padding(.vertical, 4)
 		}
 		.onAppear {
@@ -197,20 +197,23 @@ private struct ChannelPolicyDisclosure: View {
 			.padding(.vertical, 4)
 			.disabled(managed)
 		} label: {
-			HStack {
+			HStack(spacing: 6) {
 				Text(channel.label)
 				if managed {
 					Image(systemName: "lock.fill")
 						.font(.caption)
 						.foregroundStyle(.secondary)
 				}
-				Spacer()
 				if !policy.isEmpty {
 					Text(policySummary)
 						.font(.caption)
 						.foregroundStyle(.secondary)
+						.lineLimit(1)
+						.truncationMode(.tail)
+						.agentFlexibleWidth(alignment: .trailing)
 				}
 			}
+			.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 		}
 	}
 
@@ -236,9 +239,7 @@ private struct PolicyAccessMenu: View {
 	@Binding var access: String
 
 	var body: some View {
-		HStack {
-			Text(label)
-			Spacer()
+		LabeledTrailingRow(label: label) {
 			Menu {
 				Button {
 					access = ""
@@ -262,7 +263,6 @@ private struct PolicyAccessMenu: View {
 				Text(access.trimmed.isEmpty ? "full" : access.trimmed)
 			}
 			.menuStyle(.borderlessButton)
-			.fixedSize()
 		}
 	}
 }
@@ -273,9 +273,7 @@ private struct PolicyContextMenu: View {
 	@Binding var context: String
 
 	var body: some View {
-		HStack {
-			Text(label)
-			Spacer()
+		LabeledTrailingRow(label: label) {
 			Menu {
 				Button {
 					context = ""
@@ -301,7 +299,6 @@ private struct PolicyContextMenu: View {
 				Text(context.trimmed.isEmpty ? "(none)" : context.trimmed)
 			}
 			.menuStyle(.borderlessButton)
-			.fixedSize()
 		}
 	}
 }
@@ -356,7 +353,7 @@ struct BuiltinPatternsField: View {
 			Text(help).font(.caption2).foregroundStyle(.tertiary)
 			TextEditor(text: linesBinding)
 				.font(.system(.caption, design: .monospaced))
-				.frame(minHeight: 52, maxHeight: 88)
+				.frame(height: 64)
 		}
 	}
 }

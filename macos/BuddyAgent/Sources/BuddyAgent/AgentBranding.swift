@@ -53,47 +53,62 @@ enum AgentLoginItem {
 }
 
 enum AgentBranding {
-	static var marketingVersion: String {
-		Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-			?? AgentBuildVersion.marketing
+	/// Exact git tag when HEAD is clean and tagged; otherwise short commit (`-dirty` if needed).
+	static var revision: String {
+		AgentBuildVersion.revision
 	}
 
-	/// Wire \`status\` version — matches buddy CLI \`git describe\`.
+	/// Wire \`status\` version — same as About / Status.
 	static var wireVersion: String {
-		AgentBuildVersion.describe
+		revision
 	}
 
-	static var buildNumber: String {
-		Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+	/// Local generate-time clock, shown in About as the parenthetical.
+	static var buildTime: String {
+		AgentBuildVersion.builtAt
 	}
 
 	static var copyright: String {
 		Bundle.main.object(forInfoDictionaryKey: "NSHumanReadableCopyright") as? String
-			?? "Copyright © 2026 Peter Viertel."
+			?? "Copyright © \(AgentBuildVersion.copyrightYear) Peter Viertel."
 	}
 
 	static var licenseURL: URL? {
 		Bundle.main.url(forResource: "LICENSE", withExtension: nil)
 	}
 
+	static var githubURL: URL {
+		URL(string: "https://github.com/virtualpeter/buddy")!
+	}
+
 	static func aboutCredits() -> NSAttributedString {
-		let disclaimer = "Not affiliated with or endorsed by Jamf.\n"
-		let licenseText = "MIT License"
-		let full = disclaimer + licenseText
+		let description = "Owns Jamf accounts and secrets, and mints tokens for buddy to use."
+		let licenseText = "Licensed under the MIT License."
+		let githubText = "GitHub"
+		let full = "\(description)\n\(licenseText)  ·  \(githubText)"
+		let style = NSMutableParagraphStyle()
+		style.alignment = .center
+		style.lineSpacing = 2
 		let attr = NSMutableAttributedString(
 			string: full,
 			attributes: [
 				.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
 				.foregroundColor: NSColor.secondaryLabelColor,
+				.paragraphStyle: style,
 			])
-		if let url = licenseURL {
-			let range = (full as NSString).range(of: licenseText)
+		func link(_ text: String, to url: URL) {
+			let range = (full as NSString).range(of: text)
+			guard range.location != NSNotFound else { return }
 			attr.addAttributes(
 				[
 					.link: url,
 					.foregroundColor: NSColor.linkColor,
 				], range: range)
 		}
+		if let url = licenseURL {
+			link(licenseText, to: url)
+		}
+		link(githubText, to: githubURL)
 		return attr
 	}
 

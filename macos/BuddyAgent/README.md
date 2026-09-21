@@ -38,9 +38,11 @@ The Xcode target uses a **synchronized folder group** on `Sources/BuddyAgent`,
 so a new `.swift` file is picked up by both builds with no file-list edit.
 `Package.swift` is the dev loop only; it is never shipped.
 
-Version strings come from the same git tags as the CLI (`git describe` → wire
-`status.version`; the tag's semver prefix → About / `CFBundleShortVersionString`).
-`scripts/gen-agent-version.sh` writes `AgentVersion.generated.swift` and
+About, the Status tab, and wire `status.version` use the exact git tag when
+HEAD is clean and tagged, otherwise the short commit (`-dirty` if the tree has
+uncommitted edits), plus the generate-time clock. `CFBundleShortVersionString`
+is still the last tag's semver so `make package` can match Buddy.app and the
+helper. `scripts/gen-agent-version.sh` writes `AgentVersion.generated.swift` and
 `Version.xcconfig`; `make agent-dev` and `make agent-app` run it, and the Xcode
 target has a **Generate Version** build phase for direct builds.
 
@@ -88,8 +90,11 @@ this process to launch at login; System Settings approval when required),
 presence gate a token request does; the CLI still cannot unlock the Agent over
 the socket, it can only ask the Agent to put up its own prompt.
 
-`make agent-app` stamps `AppIcon.icns` from `internal/serve/buddy.png` (same
-logo as Buddy.app) and the copyright string from the MIT LICENSE.
+The app icon is `Resources/Assets.xcassets/AppIcon.appiconset` so Finder, About,
+and Login Items are not confused with Buddy.app. The shipping app stays
+menu-bar-only (no Dock tile while Settings is open). Quit the tray agent only
+from the menu bar **Quit Buddy Agent** item — ⌘Q with Settings open closes
+Settings; it does not exit the agent.
 
 The window has four tabs. User-facing setup guide: `Resources/AgentHelp.md`
 (in-app via **Help** in the menu bar or the **?** icon on the Setup tab).
@@ -181,7 +186,7 @@ Newline-delimited JSON. `BUDDY_AGENT_SOCK` overrides the path on both sides.
 
 | Request | Unlock | Response |
 |---|---|---|
-| `{"op":"status"}` | no | `{"ok":true,"present":true,"unlocked":false,"version":"v12.0.0-9-ge63c95a","peer_check":"codesign","integration_count":1,"token_count":0,"presence":"simulated","idle_lock_seconds":900,"unlock_timeout_seconds":60,"config_integrity":"sealed","managed_prefs":"…"}` (optional) |
+| `{"op":"status"}` | no | `{"ok":true,"present":true,"unlocked":false,"version":"e63c95a-dirty","peer_check":"codesign","integration_count":1,"token_count":0,"presence":"simulated","idle_lock_seconds":900,"unlock_timeout_seconds":60,"config_integrity":"sealed","managed_prefs":"…"}` (optional) |
 | `{"op":"config"}` | no | `{"ok":true,"config":{…}}` — config.yaml-shaped, no secrets |
 | `{"op":"integrations"}` | no | `{"ok":true,"integrations":[{"context":…,"auth":…,"secret":"stored"}]}` |
 | `{"op":"tokens"}` | no | `{"ok":true,"tokens":[{"auth":…,"base_url":…,"expires_at":…}]}` |

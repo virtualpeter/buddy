@@ -23,7 +23,7 @@ Optional: **Open at Login** in the menu bar menu so the Agent starts with your s
 | Open Buddy… | Launches Buddy.app when installed |
 | Open at Login | Registers with System Settings → Login Items |
 | Help… | This guide (⌘?) |
-| About… | Version and license |
+| About… | Version, what the Agent does, license, and GitHub |
 | Quit | Stops the Agent (⌘Q) |
 
 The icon is **closed padlock** when locked, **open padlock** when unlocked.
