@@ -55,8 +55,6 @@ PLIST
 
 echo "Building BuddyAgent.app (version $version, team $team)..."
 "$root/scripts/gen-agent-version.sh"
-# Same logo as Buddy.app; generated into Resources so the archive picks it up.
-"$root/scripts/gen-app-icon.sh" "$root/macos/BuddyAgent/Resources/AppIcon.icns"
 xcodebuild \
 	-project "$project" \
 	-scheme "$scheme" \
@@ -65,7 +63,6 @@ xcodebuild \
 	-allowProvisioningUpdates \
 	DEVELOPMENT_TEAM="$team" \
 	MARKETING_VERSION="$version" \
-	CURRENT_PROJECT_VERSION=1 \
 	archive >"$work/archive.log" 2>&1 ||
 	{ tail -40 "$work/archive.log" >&2; echo "build-agent-app: archive failed" >&2; exit 1; }
 

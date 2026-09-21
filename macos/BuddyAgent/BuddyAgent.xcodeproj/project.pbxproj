@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BA000000000000000000BF01 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = BA000000000000000000A005 /* AppIcon.icns */; };
 		BA000000000000000000BF02 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = BA000000000000000000A006 /* LICENSE */; };
 		BA000000000000000000BF03 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BA000000000000000000A008 /* Assets.xcassets */; };
 		BA000000000000000000BF04 /* AgentHelp.md in Resources */ = {isa = PBXBuildFile; fileRef = BA000000000000000000A009 /* AgentHelp.md */; };
@@ -18,7 +17,6 @@
 		BA000000000000000000A002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BA000000000000000000A003 /* BuddyAgent.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BuddyAgent.entitlements; sourceTree = "<group>"; };
 		BA000000000000000000A004 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
-		BA000000000000000000A005 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		BA000000000000000000A006 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		BA000000000000000000A007 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
 		BA000000000000000000A008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -60,7 +58,6 @@
 			isa = PBXGroup;
 			children = (
 				BA000000000000000000A002 /* Info.plist */,
-				BA000000000000000000A005 /* AppIcon.icns */,
 				BA000000000000000000A006 /* LICENSE */,
 				BA000000000000000000A008 /* Assets.xcassets */,
 				BA000000000000000000A009 /* AgentHelp.md */,
@@ -142,7 +139,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BA000000000000000000BF01 /* AppIcon.icns in Resources */,
 				BA000000000000000000BF02 /* LICENSE in Resources */,
 				BA000000000000000000BF03 /* Assets.xcassets in Resources */,
 				BA000000000000000000BF04 /* AgentHelp.md in Resources */,
@@ -234,6 +230,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BA000000000000000000A007 /* Version.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BuddyAgent.entitlements;
 				CODE_SIGN_STYLE = Automatic;
@@ -254,6 +251,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BA000000000000000000A007 /* Version.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BuddyAgent.entitlements;
 				CODE_SIGN_STYLE = Automatic;
