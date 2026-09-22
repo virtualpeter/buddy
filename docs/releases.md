@@ -2,6 +2,14 @@
 
 buddy did not keep a changelog before v12. This page is the user-facing list of notable changes per tagged release. Version strings come from git tags (`git describe`). Maintainers add a section with `make tag`.
 
+## v12.1.6
+
+"The one where the computer says no"
+
+- Show the Agent version in the tray menu, and a release link when one is newer.
+- Check GitHub once a day and link to a newer release.
+- Keep Agent config seals on the unlock session and review tampered lines before resealing.
+
 ## v12.1.5
 
 - Enable Cut and Paste!
