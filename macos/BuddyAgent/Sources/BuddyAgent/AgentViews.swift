@@ -17,14 +17,17 @@ struct AgentRootView: View {
 
 	var body: some View {
 		VStack(spacing: 0) {
-			Picker("", selection: $selectedTab) {
-				ForEach(AgentSettingsTab.allCases) { tab in
-					Label(tab.title, systemImage: tab.icon).tag(tab)
+			HStack(spacing: 12) {
+				Picker("", selection: $selectedTab) {
+					ForEach(AgentSettingsTab.allCases) { tab in
+						Label(tab.title, systemImage: tab.icon).tag(tab)
+					}
 				}
+				.labelsHidden()
+				.accessibilityLabel("Settings section")
+				.pickerStyle(.segmented)
+				AgentLockButton(state: state, gate: gate)
 			}
-			.labelsHidden()
-			.accessibilityLabel("Settings section")
-			.pickerStyle(.segmented)
 			.padding(.horizontal, 12)
 			.padding(.top, 8)
 
@@ -33,9 +36,11 @@ struct AgentRootView: View {
 				case .setup:
 					ConfigView(
 						store: store, state: state, gate: gate, showHelp: $showHelp,
-						onImportFinished: onImportFinished)
+						onImportFinished: onImportFinished,
+						onShowStatus: { selectedTab = .status })
 				case .policy:
-					PolicyView(store: store)
+					PolicyView(
+						store: store, unlocked: state.unlocked, onShowStatus: { selectedTab = .status })
 				case .log:
 					LogView(log: log)
 				case .status:
@@ -75,6 +80,29 @@ private enum ConfigActiveSheet: Identifiable {
 	}
 }
 
+struct ConfigReviewLockBanner: View {
+	@ObservedObject var store: AgentStore
+	var onShowStatus: () -> Void = {}
+
+	var body: some View {
+		if store.configEditsBlocked {
+			VStack(alignment: .leading, spacing: 6) {
+				Label(message, systemImage: "exclamationmark.triangle")
+					.font(.callout)
+					.foregroundStyle(.orange)
+					.fixedSize(horizontal: false, vertical: true)
+				Button("Open Status", action: onShowStatus)
+			}
+		}
+	}
+
+	private var message: String {
+		store.configReviewRequired
+			? AgentStore.configReviewBlockMessage
+			: AgentStore.configTamperBackupMessage
+	}
+}
+
 private func showAgentAlert(
 	title: String, message: String, style: NSAlert.Style = .warning
 ) {
@@ -85,12 +113,37 @@ private func showAgentAlert(
 	alert.runModal()
 }
 
+private struct DestructiveTrashButton: View {
+	let dialogTitle: String
+	let dialogMessage: String
+	let action: () -> Void
+	var disabled: Bool = false
+	var accessibilityLabel: String = "Delete"
+	@State private var showConfirm = false
+
+	var body: some View {
+		Button(role: .destructive) { showConfirm = true } label: {
+			Image(systemName: "trash")
+		}
+		.buttonStyle(.borderless)
+		.disabled(disabled)
+		.accessibilityLabel(accessibilityLabel)
+		.confirmationDialog(dialogTitle, isPresented: $showConfirm, titleVisibility: .visible) {
+			Button("Delete", role: .destructive, action: action)
+			Button("Cancel", role: .cancel) {}
+		} message: {
+			Text(dialogMessage)
+		}
+	}
+}
+
 struct ConfigView: View {
 	@ObservedObject var store: AgentStore
 	@ObservedObject var state: AgentState
 	let gate: UnlockGate
 	@Binding var showHelp: Bool
 	var onImportFinished: () -> Void = {}
+	var onShowStatus: () -> Void = {}
 	@State private var selectedWorkplace: String?
 	@State private var activeSheet: ConfigActiveSheet?
 	@State private var message: String?
@@ -109,6 +162,7 @@ struct ConfigView: View {
 					.buttonStyle(.plain)
 					.accessibilityLabel("Buddy Agent Help")
 				}
+				ConfigReviewLockBanner(store: store, onShowStatus: onShowStatus)
 				if store.isEmpty {
 					EmptySetupBanner(
 						isLocked: !state.unlocked,
@@ -152,9 +206,9 @@ struct ConfigView: View {
 	private func sheetContent(_ sheet: ConfigActiveSheet) -> some View {
 		switch sheet {
 		case .workplace(let draft):
-			WorkplaceEditor(store: store, draft: draft)
+			WorkplaceEditor(store: store, unlocked: state.unlocked, draft: draft)
 		case .auth(let draft):
-			AuthEditor(store: store, gate: gate, draft: draft)
+			AuthEditor(store: store, state: state, gate: gate, draft: draft)
 		case .backup(let prompt):
 			BackupPassphraseSheet(url: prompt.url) { passphrase in
 				importBackup(prompt.url, passphrase: passphrase)
@@ -242,6 +296,7 @@ struct ConfigView: View {
 							kind: kind, parent: parent)))
 				}
 			}
+			.disabled(store.configEditsBlocked)
 		}
 	}
 
@@ -253,6 +308,7 @@ struct ConfigView: View {
 				Button("Add Auth") {
 					presentSheet(.auth(AuthEditDraft(name: "", previousName: nil, auth: AgentAuth())))
 				}
+				.disabled(store.configEditsBlocked)
 			}
 			Text("oauth/basic → Jamf Pro. platform → Account gateway; scope picks the header.")
 				.font(.caption)
@@ -315,6 +371,7 @@ struct ConfigView: View {
 					Button("Config and secrets (cred backup)...") { pickBackup() }
 				}
 				.menuStyle(.borderlessButton)
+				.disabled(store.configEditsBlocked)
 				Menu("Export for buddy") {
 					Button("Config only (setup export --json)...") { exportConfig() }
 					Button("Config and secrets (cred backup)...") { presentSheet(.exportBackup) }
@@ -595,7 +652,7 @@ private struct EmptySetupBanner: View {
 			.foregroundStyle(.secondary)
 			if isLocked {
 				Label(
-					"Unlock the Agent (menu bar) before saving secrets or exporting a cred backup.",
+					"Unlock using the lock icon next to the tabs before saving secrets or exporting a cred backup.",
 					systemImage: "lock.fill"
 				)
 				.font(.caption)
@@ -686,7 +743,7 @@ private struct QuickSetupSheet: View {
 				.foregroundStyle(.secondary)
 			if !state.unlocked {
 				Label(
-					"Unlock the Agent from the menu bar before saving — secrets go into the Keychain.",
+					"Unlock using the lock icon next to the tabs before saving — secrets go into the Keychain.",
 					systemImage: "lock.fill"
 				)
 				.font(.callout)
@@ -802,6 +859,8 @@ private struct QuickSetupSheet: View {
 	}
 
 	private var canSave: Bool {
+		if store.configEditsBlocked { return false }
+		if AgentStore.configPersistRequiresUnlock, !state.unlocked { return false }
 		guard !workplaceName.trimmed.isEmpty, !authName.trimmed.isEmpty, !secret.isEmpty else {
 			return false
 		}
@@ -1047,6 +1106,7 @@ private struct WorkplaceTreeRow: View {
 			DefaultContextButton(isDefault: isDefault) {
 				store.setDefaultContext(node.name)
 			}
+			.disabled(store.configEditsBlocked)
 			Button(action: onSelect) {
 				HStack(spacing: 8) {
 					WorkplaceKindBadge(kind: node.kind)
@@ -1075,13 +1135,16 @@ private struct WorkplaceTreeRow: View {
 					Image(systemName: "pencil")
 				}
 				.buttonStyle(.borderless)
+				.disabled(store.configEditsBlocked)
 				.accessibilityLabel("Edit")
-				Button(role: .destructive, action: onDelete) {
-					Image(systemName: "trash")
-				}
-				.buttonStyle(.borderless)
-				.disabled(!node.canDelete)
-				.accessibilityLabel(node.canDelete ? "Delete" : "Remove children first")
+				DestructiveTrashButton(
+					dialogTitle: "Delete workplace?",
+					dialogMessage:
+						"Remove “\(node.name)” from the Agent config? Auths may lose this context; empty auths are removed.",
+					action: onDelete,
+					disabled: store.configEditsBlocked || !node.canDelete,
+					accessibilityLabel: node.canDelete ? "Delete" : "Remove children first"
+				)
 			}
 		}
 		.padding(.vertical, 6)
@@ -1167,8 +1230,14 @@ private struct AuthTableRow: View {
 			HStack(spacing: 4) {
 				Button(action: onEdit) { Image(systemName: "pencil") }
 					.buttonStyle(.borderless)
-				Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
-					.buttonStyle(.borderless)
+					.disabled(store.configEditsBlocked)
+				DestructiveTrashButton(
+					dialogTitle: "Delete auth?",
+					dialogMessage:
+						"Remove “\(name)” from the Agent config? Keychain secrets for this auth will be deleted.",
+					action: onDelete,
+					disabled: store.configEditsBlocked
+				)
 			}
 			.frame(width: 56)
 		}
@@ -1364,10 +1433,16 @@ private struct AuthTokenSheet: View {
 
 struct WorkplaceEditor: View {
 	@ObservedObject var store: AgentStore
+	var unlocked: Bool
 	@State var draft: WorkplaceEditDraft
 	@State private var useAsDefault = false
 	@State private var saveError: String?
+	@State private var showDeleteConfirm = false
 	@Environment(\.dismiss) private var dismiss
+
+	private var deleteWorkplaceName: String {
+		draft.previousName ?? draft.name
+	}
 
 	var body: some View {
 		Form {
@@ -1437,19 +1512,16 @@ struct WorkplaceEditor: View {
 				}
 				HStack {
 					if !draft.isNew {
-						Button("Delete", role: .destructive) {
-							if let prev = draft.previousName {
-								store.removeWorkplace(prev)
-							}
-							dismiss()
-						}
+						Button("Delete", role: .destructive) { showDeleteConfirm = true }
+							.disabled(!maySaveConfig)
 					}
 					Spacer()
 					Button("Cancel") { dismiss() }
 					Button("Save") { save() }
 						.keyboardShortcut(.defaultAction)
 						.disabled(
-							draft.name.trimmed.isEmpty || store.isManagedWorkplace(draft.name)
+							!maySaveConfig
+								|| draft.name.trimmed.isEmpty || store.isManagedWorkplace(draft.name)
 								|| store.isManagedWorkplace(draft.previousName ?? ""))
 				}
 			}
@@ -1457,10 +1529,27 @@ struct WorkplaceEditor: View {
 			.padding(.vertical, 10)
 			.background(.bar)
 		}
+		.confirmationDialog(
+			"Delete workplace?", isPresented: $showDeleteConfirm, titleVisibility: .visible
+		) {
+			Button("Delete", role: .destructive) {
+				store.removeWorkplace(deleteWorkplaceName)
+				dismiss()
+			}
+			Button("Cancel", role: .cancel) {}
+		} message: {
+			Text(
+				"Remove “\(deleteWorkplaceName)” from the Agent config? Auths may lose this context; empty auths are removed."
+			)
+		}
 		.onAppear {
 			let name = draft.previousName ?? draft.name
 			useAsDefault = store.defaultContext == name && !name.trimmed.isEmpty
 		}
+	}
+
+	private var maySaveConfig: Bool {
+		!store.configEditsBlocked && (!AgentStore.configPersistRequiresUnlock || unlocked)
 	}
 
 	private var kindLabel: String {
@@ -1549,6 +1638,7 @@ private struct FormMenuPicker: View {
 
 struct AuthEditor: View {
 	@ObservedObject var store: AgentStore
+	@ObservedObject var state: AgentState
 	let gate: UnlockGate
 	@State var draft: AuthEditDraft
 	@State private var secret: String = ""
@@ -1556,9 +1646,14 @@ struct AuthEditor: View {
 	@State private var pasteError: String?
 	@State private var pasteHint: String?
 	@State private var saveError: String?
+	@State private var showDeleteConfirm = false
 	@Environment(\.dismiss) private var dismiss
 
 	private let types = ["oauth", "basic", "platform"]
+
+	private var deleteAuthName: String {
+		draft.previousName ?? draft.name
+	}
 
 	var body: some View {
 		Form {
@@ -1680,17 +1775,16 @@ struct AuthEditor: View {
 				}
 				HStack {
 					if draft.previousName != nil {
-						Button("Delete", role: .destructive) {
-							store.removeAuth(draft.previousName ?? draft.name)
-							dismiss()
-						}
+						Button("Delete", role: .destructive) { showDeleteConfirm = true }
+							.disabled(!maySaveConfig)
 					}
 					Spacer()
 					Button("Cancel") { dismiss() }
 					Button("Save") { save() }
 						.keyboardShortcut(.defaultAction)
 						.disabled(
-							draft.name.trimmed.isEmpty || draft.auth.contexts.isEmpty
+							!maySaveConfig
+								|| draft.name.trimmed.isEmpty || draft.auth.contexts.isEmpty
 								|| store.isManagedAuth(draft.name)
 								|| store.isManagedAuth(draft.previousName ?? ""))
 				}
@@ -1699,6 +1793,23 @@ struct AuthEditor: View {
 			.padding(.vertical, 10)
 			.background(.bar)
 		}
+		.confirmationDialog(
+			"Delete auth?", isPresented: $showDeleteConfirm, titleVisibility: .visible
+		) {
+			Button("Delete", role: .destructive) {
+				store.removeAuth(deleteAuthName)
+				dismiss()
+			}
+			Button("Cancel", role: .cancel) {}
+		} message: {
+			Text(
+				"Remove “\(deleteAuthName)” from the Agent config? Keychain secrets for this auth will be deleted."
+			)
+		}
+	}
+
+	private var maySaveConfig: Bool {
+		!store.configEditsBlocked && (!AgentStore.configPersistRequiresUnlock || state.unlocked)
 	}
 
 	private var linkableWorkplaceNames: [String] {
@@ -1948,7 +2059,7 @@ struct LogView: View {
 	}
 
 	private func logRow(_ entry: AgentLogEntry) -> some View {
-		HStack(alignment: .firstTextBaseline, spacing: 8) {
+		HStack(alignment: .top, spacing: 8) {
 			Text(Self.timeFormatter.string(from: entry.date))
 				.font(.caption.monospaced())
 				.foregroundStyle(.secondary)
@@ -1971,6 +2082,331 @@ struct LogView: View {
 		case .mint: return .green
 		case .buddy: return .accentColor
 		case .keychain: return .orange
+		}
+	}
+}
+
+private struct ConfigIntegrityLastGoodSection: View {
+	@ObservedObject var store: AgentStore
+	@ObservedObject var state: AgentState
+	let diagnostics: AgentConfigLastGood.Diagnostics
+	let onReview: () -> Void
+	@State private var expandDiff = false
+
+	private static let stampStyle = Date.FormatStyle(date: .abbreviated, time: .standard)
+
+	private var alertStyle: Bool { diagnostics.hasIntegrityConcern }
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: 8) {
+			Text("Config integrity")
+				.font(.subheadline.weight(.semibold))
+
+			infoLine("Status", diagnostics.integrity.wireValue)
+			configPathRow
+
+			if diagnostics.needsLineReview {
+				Label(
+					"Config was edited outside the Agent. Minting and Setup/Policy edits stay blocked until you accept or revert every changed line.",
+					systemImage: "exclamationmark.triangle"
+				)
+				.font(.caption)
+				.foregroundStyle(.orange)
+				Button(state.unlocked ? "Review changes…" : "Unlock and review changes…", action: onReview)
+			} else if diagnostics.integrity == .tampered {
+				Label(
+					"Config was edited outside the Agent and there is no last-good snapshot to review. Restore the config from backup. Minting and Setup/Policy edits stay blocked.",
+					systemImage: "exclamationmark.triangle"
+				)
+				.font(.caption)
+				.foregroundStyle(.orange)
+			} else if diagnostics.hasIntegrityConcern, diagnostics.fileDriftSinceSnapshot {
+				Label(
+					"Config file no longer matches the last-good snapshot.",
+					systemImage: "exclamationmark.triangle"
+				)
+				.font(.caption)
+				.foregroundStyle(.orange)
+			}
+
+			if !diagnostics.needsLineReview, diagnostics.integrity == .sealed, diagnostics.fileDriftSinceSnapshot {
+				Label(
+					"Config file changed since the last-good snapshot. Unlock to verify the Keychain seal; diff below is from on-disk bytes.",
+					systemImage: "exclamationmark.triangle"
+				)
+				.font(.caption)
+				.foregroundStyle(.orange)
+			} else if diagnostics.integrity == .sealed, !diagnostics.snapshotMissing {
+				Text("Integrity shows sealed while locked — unlock to verify the Keychain seal.")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+
+			if diagnostics.snapshotMissing {
+				Text(
+					"No snapshot on disk yet — it is written when you save with a valid seal, or when unlock verifies the existing seal. Future drift will show a diff here."
+				)
+				.font(.caption)
+				.foregroundStyle(.secondary)
+			} else if let meta = diagnostics.meta {
+				timestampRow("Last sealed (Agent)", meta.sealedAt)
+				if let at = meta.configModifiedAt {
+					timestampRow("Config modified at seal", at)
+				}
+				if let rev = meta.agentRevision {
+					infoLine("Agent at seal", rev)
+				}
+			}
+
+			if let modified = diagnostics.currentModifiedAt {
+				timestampRow("Config file modified now", modified)
+			}
+			if diagnostics.integrity != .ok, let observed = diagnostics.meta?.tamperObservedAt {
+				timestampRow("Tamper first seen (unlocked)", observed)
+			}
+
+			if diagnostics.integrity != .ok, diagnostics.onlyFormattingDrift {
+				Label(
+					"JSON content matches the last-good snapshot; the seal mismatch is likely whitespace, key order, or a partial write. Unlock to re-seal automatically.",
+					systemImage: "info.circle"
+				)
+				.font(.caption)
+				.foregroundStyle(.secondary)
+			} else if !diagnostics.needsLineReview, diagnostics.hasIntegrityConcern, !diagnostics.snapshotMissing,
+				diagnostics.diffChangeCount > 0
+			{
+				DisclosureGroup(isExpanded: $expandDiff) {
+					diffScroll
+				} label: {
+					Text(
+						"Diff vs last-good (\(diagnostics.diffChangeCount) line\(diagnostics.diffChangeCount == 1 ? "" : "s") changed)"
+					)
+					.font(.caption)
+				}
+			} else if diagnostics.integrity == .tampered, !diagnostics.snapshotMissing,
+				diagnostics.diffChangeCount == 0
+			{
+				Text(
+					"On-disk config matches the last-good snapshot but the Keychain seal does not. Unlock to re-seal automatically."
+				)
+				.font(.caption)
+				.foregroundStyle(.secondary)
+			} else if diagnostics.integrity == .ok, !diagnostics.snapshotMissing {
+				Text("Keychain seal matches the on-disk config.")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+
+			Text(
+				"Config is served while locked. Minting requires unlock and a verified config seal (Keychain-protected)."
+			)
+			.font(.caption2)
+			.foregroundStyle(.tertiary)
+			.padding(.top, 4)
+		}
+		.padding(10)
+		.frame(maxWidth: .infinity, alignment: .leading)
+		.background(
+			alertStyle ? Color.orange.opacity(0.12) : Color.primary.opacity(0.05),
+			in: RoundedRectangle(cornerRadius: 8))
+		.onAppear {
+			if alertStyle { expandDiff = true }
+		}
+		.onChange(of: diagnostics.fileDriftSinceSnapshot) { drift in
+			if drift || diagnostics.integrity == .tampered { expandDiff = true }
+		}
+	}
+
+	private var configPath: String { store.path.path }
+
+	private var diffScroll: some View {
+		ScrollView {
+			LazyVStack(alignment: .leading, spacing: 0) {
+				ForEach(Array(displayDiff.enumerated()), id: \.offset) { _, line in
+					diffLineView(line)
+				}
+			}
+			.frame(maxWidth: .infinity, alignment: .leading)
+		}
+		.frame(maxHeight: 220)
+	}
+
+	private var displayDiff: [AgentConfigLastGood.DiffLine] {
+		let lines = diagnostics.normalizedDiff
+		let maxLines = 400
+		if lines.count <= maxLines { return lines }
+		return Array(lines.prefix(maxLines))
+	}
+
+	@ViewBuilder
+	private func diffLineView(_ line: AgentConfigLastGood.DiffLine) -> some View {
+		switch line {
+		case .unchanged(let text):
+			Text("  \(text)")
+				.font(.system(.caption2, design: .monospaced))
+				.foregroundStyle(.secondary)
+		case .removed(let text):
+			Text("- \(text)")
+				.font(.system(.caption2, design: .monospaced))
+				.foregroundStyle(.red)
+		case .added(let text):
+			Text("+ \(text)")
+				.font(.system(.caption2, design: .monospaced))
+				.foregroundStyle(.green)
+		}
+	}
+
+	private func timestampRow(_ label: String, _ date: Date) -> some View {
+		infoLine(label, date.formatted(Self.stampStyle))
+	}
+
+	private func infoLine(_ label: String, _ value: String) -> some View {
+		HStack(alignment: .firstTextBaseline, spacing: 8) {
+			Text(label)
+				.foregroundStyle(.secondary)
+				.frame(width: 168, alignment: .leading)
+			Text(value)
+				.textSelection(.enabled)
+				.font(.caption)
+		}
+	}
+
+	private var configPathRow: some View {
+		HStack(alignment: .firstTextBaseline, spacing: 8) {
+			Text("Config file")
+				.foregroundStyle(.secondary)
+				.frame(width: 168, alignment: .leading)
+			Text(configPath)
+				.textSelection(.enabled)
+				.font(.caption)
+				.agentFlexibleWidth()
+		}
+	}
+}
+
+private struct ConfigTamperReviewDialog: View {
+	@ObservedObject var store: AgentStore
+	let diagnostics: AgentConfigLastGood.Diagnostics
+	let onClose: () -> Void
+	@State private var decisions: [Int: AgentConfigLastGood.LineDecision] = [:]
+	@State private var applying = false
+	@State private var reviewError: String?
+
+	private var lines: [AgentConfigLastGood.ReviewLine] {
+		AgentConfigLastGood.reviewLines(in: diagnostics.normalizedDiff)
+	}
+
+	private var decidedCount: Int {
+		lines.filter { decisions[$0.id] != nil }.count
+	}
+
+	var body: some View {
+		ZStack {
+			Color.black.opacity(0.35)
+			VStack(alignment: .leading, spacing: 12) {
+				Text("Review config changes").font(.title3)
+				Text(
+					"Accept keeps the outside edit. Revert restores the last sealed line. A changed line is one choice, not separate + and − rows. The config is resealed only after every change has a choice."
+				)
+				.font(.caption)
+				.foregroundStyle(.secondary)
+				ScrollView {
+					LazyVStack(alignment: .leading, spacing: 8) {
+						ForEach(lines) { line in
+							reviewRow(line)
+						}
+					}
+				}
+				.frame(maxHeight: .infinity)
+				if let reviewError {
+					Text(reviewError).font(.callout).foregroundStyle(.red)
+				}
+				HStack {
+					Text("\(decidedCount) of \(lines.count) decided")
+						.font(.caption)
+						.foregroundStyle(.secondary)
+					Spacer()
+					Button("Cancel", action: onClose)
+						.disabled(applying)
+				}
+			}
+			.padding(16)
+			.frame(width: 640, height: 480)
+			.background(.background, in: RoundedRectangle(cornerRadius: 12))
+		}
+	}
+
+	private func reviewRow(_ line: AgentConfigLastGood.ReviewLine) -> some View {
+		HStack(alignment: .center, spacing: 8) {
+			lineBody(line)
+				.font(.system(.caption, design: .monospaced))
+				.textSelection(.enabled)
+				.frame(maxWidth: .infinity, alignment: .leading)
+			decisionButton("Revert", line: line, decision: .revert, selectedTint: .orange)
+			decisionButton("Accept", line: line, decision: .accept, selectedTint: .green)
+		}
+	}
+
+	private func lineBody(_ line: AgentConfigLastGood.ReviewLine) -> some View {
+		VStack(alignment: .leading, spacing: 2) {
+			switch line.change {
+			case .replaced(let old, let new):
+				Text(marked("−", old)).foregroundStyle(.red)
+				Text(marked("+", new)).foregroundStyle(.green)
+			case .removed(let text):
+				Text(marked("−", text)).foregroundStyle(.red)
+			case .added(let text):
+				Text(marked("+", text)).foregroundStyle(.green)
+			}
+		}
+	}
+
+	private func marked(_ mark: String, _ text: String) -> String {
+		let shown = text.isEmpty ? "(blank line)" : text
+		return "\(mark) \(shown)"
+	}
+
+	private func decisionButton(
+		_ title: String, line: AgentConfigLastGood.ReviewLine,
+		decision: AgentConfigLastGood.LineDecision, selectedTint: Color
+	) -> some View {
+		let selected = decisions[line.id] == decision
+		return Button(title) { choose(line, decision) }
+			.disabled(applying)
+			.buttonStyle(.bordered)
+			.tint(selected ? selectedTint : .secondary)
+			.fontWeight(selected ? .semibold : .regular)
+			.accessibilityLabel("\(title) \(accessibilityKind(line.change))")
+	}
+
+	private func accessibilityKind(_ change: AgentConfigLastGood.ReviewLine.Change) -> String {
+		switch change {
+		case .replaced: return "changed line"
+		case .added: return "added line"
+		case .removed: return "removed line"
+		}
+	}
+
+	private func choose(_ line: AgentConfigLastGood.ReviewLine, _ decision: AgentConfigLastGood.LineDecision) {
+		guard !applying else { return }
+		decisions[line.id] = decision
+		reviewError = nil
+		guard lines.allSatisfy({ decisions[$0.id] != nil }) else { return }
+		guard let resolved = AgentConfigLastGood.resolve(
+			diff: diagnostics.normalizedDiff, decisions: decisions)
+		else { return }
+		applying = true
+		store.applyTamperReview(
+			resolvedJSON: resolved,
+			decisions: decisions,
+			diff: diagnostics.normalizedDiff
+		) { ok in
+			applying = false
+			if ok {
+				onClose()
+			} else {
+				reviewError = store.lastError ?? "Could not reseal the reviewed config."
+			}
 		}
 	}
 }
@@ -1998,8 +2434,44 @@ struct StatusView: View {
 		("8 hours", 8 * 60 * 60),
 	]
 
+	@State private var reviewSnapshot: AgentConfigLastGood.Diagnostics?
+
 	var body: some View {
-		VStack(alignment: .leading, spacing: 10) {
+		statusScroll
+			.overlay {
+				if let reviewSnapshot {
+					ConfigTamperReviewDialog(
+						store: store,
+						diagnostics: reviewSnapshot,
+						onClose: { self.reviewSnapshot = nil })
+				}
+			}
+		.onAppear { store.refreshConfigDiagnostics(unlocked: state.unlocked) }
+		.onChange(of: state.unlocked) { unlocked in
+			store.refreshConfigDiagnostics(unlocked: unlocked)
+		}
+		.onChange(of: store.configIntegrityGeneration) { _ in
+			store.refreshConfigDiagnostics(unlocked: state.unlocked)
+		}
+	}
+
+	private func beginReview() {
+		let snapshot = store.configDiagnostics
+		guard snapshot.needsLineReview else { return }
+		if state.unlocked {
+			reviewSnapshot = snapshot
+			return
+		}
+		AgentLockUI.unlock(gate: gate) { outcome in
+			if outcome == .unlocked {
+				reviewSnapshot = snapshot
+			}
+		}
+	}
+
+	private var statusScroll: some View {
+		ScrollView {
+			VStack(alignment: .leading, spacing: 10) {
 			Label(
 				state.unlocked ? "Unlocked - minting allowed" : "Locked - config only",
 				systemImage: state.unlocked ? "lock.open.fill" : "lock.fill"
@@ -2009,15 +2481,8 @@ struct StatusView: View {
 			VStack(alignment: .leading, spacing: 6) {
 				infoRow("Version", "\(AgentBranding.revision) (\(AgentBranding.buildTime))")
 				infoRow("Socket", socketPath)
-				infoRow("Config", store.path.path)
 				infoRow("Workplaces", "\(store.workplaces.count)")
 				infoRow("Auths", "\(store.authCount)")
-				infoRow(
-					"Config integrity",
-					store.configIntegrity(
-						unlocked: state.unlocked,
-						presence: state.unlocked ? gate.presenceContext : nil
-					).wireValue)
 				if !store.managedPrefs.isEmpty {
 					infoRow("Managed prefs", store.managedPrefs.summaryLine())
 				}
@@ -2027,8 +2492,12 @@ struct StatusView: View {
 			}
 			.font(.callout)
 
-			idleLockSettings
-			unlockTimeoutSettings
+			HStack(alignment: .top, spacing: 12) {
+				idleLockSettings
+					.frame(maxWidth: .infinity, alignment: .leading)
+				unlockTimeoutSettings
+					.frame(maxWidth: .infinity, alignment: .leading)
+			}
 
 			if PeerCheck.allowUnsigned {
 				Label(
@@ -2044,28 +2513,22 @@ struct StatusView: View {
 				)
 				.foregroundStyle(.orange)
 			}
-			if store.configIntegrity(
-				unlocked: state.unlocked, presence: state.unlocked ? gate.presenceContext : nil)
-				== .tampered
-			{
-				Label(
-					"Config was edited outside the Agent — minting is blocked until you review and save in Setup/Policy.",
-					systemImage: "exclamationmark.triangle"
-				)
-				.foregroundStyle(.orange)
-			}
+			ConfigIntegrityLastGoodSection(
+				store: store,
+				state: state,
+				diagnostics: store.configDiagnostics,
+				onReview: beginReview
+			)
+
 			if let error = store.lastError {
 				Label(error, systemImage: "xmark.octagon").foregroundStyle(.red)
 			}
-			Spacer()
-			Text(
-				"Config is served while locked. Minting requires unlock and a verified config seal (Keychain-protected)."
-			)
-			.font(.caption)
-			.foregroundStyle(.secondary)
+			}
+			.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 		}
-		.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-		.onAppear { applyEmptyConfigIdleLock() }
+		.onAppear {
+			applyEmptyConfigIdleLock()
+		}
 		.onChange(of: store.isEmpty) { empty in
 			if empty { applyEmptyConfigIdleLock() }
 		}

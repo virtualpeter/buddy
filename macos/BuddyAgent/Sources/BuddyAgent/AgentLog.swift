@@ -34,6 +34,8 @@ final class AgentLog: ObservableObject {
 	private let lock = NSLock()
 	private var buffer: [AgentLogEntry] = []
 	private let maxEntries = 500
+	/// Cap in-app config diff blocks (full restore can be large).
+	static let maxInAppMessageCharacters = 16_384
 	private let loggers: [AgentLogCategory: Logger]
 
 	private init() {
@@ -44,10 +46,16 @@ final class AgentLog: ObservableObject {
 		loggers = map
 	}
 
-	func config(_ message: String) { record(.config, message) }
-	func mint(_ message: String) { record(.mint, message) }
-	func buddy(_ message: String) { record(.buddy, message) }
-	func keychain(_ message: String) { record(.keychain, message) }
+	func config(_ message: String) { record(.config, inApp: message, system: message) }
+
+	/// Full detail for the Log tab; `systemSummary` is what Unified Log records (counts/nature only).
+	func config(detail: String, systemSummary: String) {
+		record(.config, inApp: detail, system: systemSummary)
+	}
+
+	func mint(_ message: String) { record(.mint, inApp: message, system: message) }
+	func buddy(_ message: String) { record(.buddy, inApp: message, system: message) }
+	func keychain(_ message: String) { record(.keychain, inApp: message, system: message) }
 
 	func clear() {
 		lock.lock()
@@ -56,9 +64,11 @@ final class AgentLog: ObservableObject {
 		publish([])
 	}
 
-	private func record(_ category: AgentLogCategory, _ message: String) {
-		let entry = AgentLogEntry(date: Date(), category: category, message: message)
-		loggers[category]?.info("\(message, privacy: .public)")
+	private func record(_ category: AgentLogCategory, inApp: String, system: String) {
+		let stored = Self.clampInAppMessage(inApp)
+		let unified = AgentLogRedaction.forSystemLog(system)
+		let entry = AgentLogEntry(date: Date(), category: category, message: stored)
+		loggers[category]?.info("\(unified, privacy: .public)")
 
 		lock.lock()
 		buffer.append(entry)
@@ -69,6 +79,13 @@ final class AgentLog: ObservableObject {
 		lock.unlock()
 
 		publish(snapshot)
+	}
+
+	private static func clampInAppMessage(_ message: String) -> String {
+		guard message.count > maxInAppMessageCharacters else { return message }
+		let omitted = message.count - maxInAppMessageCharacters
+		return String(message.prefix(maxInAppMessageCharacters))
+			+ "\n… (truncated — \(omitted) characters omitted from Log tab)"
 	}
 
 	private func publish(_ snapshot: [AgentLogEntry]) {

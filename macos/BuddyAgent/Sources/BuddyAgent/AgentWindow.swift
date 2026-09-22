@@ -69,6 +69,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
 	func windowWillClose(_ notification: Notification) {
 		if (notification.object as? NSWindow) === window {
 			Self.settingsWindow = nil
+			AgentAppActivation.settingsWindowDidClose()
 		}
 	}
 }

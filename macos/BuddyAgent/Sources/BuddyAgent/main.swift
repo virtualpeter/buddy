@@ -14,6 +14,7 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 	private var menuIsOpen = false
 	private var pendingStatusRefresh = false
 	private var pendingOpenSettings = false
+	private var pendingShowHelp = false
 	private var pendingShowAbout = false
 	private var showSettingsObserver: UnsafeMutableRawPointer?
 	private var userRequestedQuit = false
@@ -42,6 +43,7 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 			return
 		}
 		buildStatusItem()
+		store.startConfigFileMonitor { [weak state] in state?.unlocked ?? false }
 		offerSetupIfNeeded()
 		registerShowSettingsObserver()
 		if store.isEmpty {
@@ -66,6 +68,7 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 				AgentInterprocess.showSettingsNotification,
 				nil)
 		}
+		store.stopConfigFileMonitor()
 		state.lockVault()
 		server.stop()
 	}
@@ -116,7 +119,18 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 		}
 		if pendingOpenSettings {
 			pendingOpenSettings = false
-			windows.show()
+			let showHelp = pendingShowHelp
+			pendingShowHelp = false
+			DispatchQueue.main.async { [weak self] in
+				DispatchQueue.main.async { [weak self] in
+					self?.windows.show()
+					if showHelp {
+						DispatchQueue.main.async {
+							AgentHelp.postShowHelpNotification()
+						}
+					}
+				}
+			}
 		}
 		if pendingShowAbout {
 			pendingShowAbout = false
@@ -154,42 +168,26 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 	}
 
 	@objc private func unlock() {
-		DispatchQueue.global(qos: .userInitiated).async { [gate, weak self] in
-			let outcome = gate.authorize(reason: "unlock the Buddy Agent")
-			guard outcome != .unlocked else {
-				DispatchQueue.main.async { self?.refreshStatusItem() }
-				return
+		AgentLockUI.unlock(gate: gate) { [weak self] outcome in
+			guard let self else { return }
+			if outcome == .unlocked {
+				refreshStatusItem()
+			} else {
+				reportUnlock(outcome)
 			}
-			DispatchQueue.main.async { self?.reportUnlock(outcome) }
 		}
 	}
 
 	private func reportUnlock(_ outcome: UnlockOutcome) {
+		let copy = AgentLockUI.failureAlert(for: outcome)
 		let alert = NSAlert()
-		alert.messageText = "Buddy Agent is still locked"
-		switch outcome {
-		case .timedOut:
-			alert.informativeText = "The unlock prompt went unanswered."
-		case .unavailable:
-			alert.informativeText =
-				"This Mac has no Touch ID or login password available to LocalAuthentication."
-		default:
-			alert.informativeText = "The unlock prompt was declined."
-		}
+		alert.messageText = copy.title
+		alert.informativeText = copy.message
 		alert.runModal()
 	}
 
 	@objc private func lockVault() {
 		state.lockVault()
-	}
-
-	private func presentSettingsWindow() {
-		if menuIsOpen {
-			pendingOpenSettings = true
-			statusPanel.dismiss()
-			return
-		}
-		windows.show()
 	}
 
 	@objc func openSettings() {
@@ -228,8 +226,22 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 	}
 
 	@objc func showHelp() {
-		presentSettingsWindow()
-		AgentHelp.postShowHelpNotification()
+		presentSettingsWindow(showHelpAfter: true)
+	}
+
+	private func presentSettingsWindow(showHelpAfter: Bool = false) {
+		if menuIsOpen {
+			pendingOpenSettings = true
+			if showHelpAfter { pendingShowHelp = true }
+			statusPanel.dismiss()
+			return
+		}
+		windows.show()
+		if showHelpAfter {
+			DispatchQueue.main.async {
+				AgentHelp.postShowHelpNotification()
+			}
+		}
 	}
 
 	@objc func showAbout() {
@@ -276,6 +288,16 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 let agentState = AgentState()
 let agentStore = AgentStore()
 let agentGate = UnlockGate(state: agentState)
+agentStore.configSealPresence = {
+	guard agentState.unlocked else { return nil }
+	return agentGate.presenceContext
+}
+agentStore.runConfigSeal = { work in
+	agentGate.withAuthenticatedContext(work)
+}
+agentGate.onSessionOpened = { presence in
+	agentStore.resealConfig(presence: presence)
+}
 let agentServer = AgentServer(state: agentState, store: agentStore, gate: agentGate)
 let application = NSApplication.shared
 let agentDelegate = AgentAppDelegate(

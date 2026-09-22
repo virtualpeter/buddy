@@ -11,6 +11,9 @@ enum AgentConfigIntegrity {
 	private static let keyAccount = "config-integrity/key"
 	private static let sigAccount = "config-integrity/sig"
 
+	/// Set when sign/verify fails (surfaced in Status `lastError`).
+	static var lastFailureReason: String?
+
 	enum State: Equatable {
 		case ok
 		/// Seal exists in Keychain; not verified until unlock / mint.
@@ -35,19 +38,37 @@ enum AgentConfigIntegrity {
 		AgentKeychain.forgetProtectedMemory(for: [keyAccount, sigAccount])
 	}
 
-	static func state(
-		configPath: URL, unlocked: Bool, presence: LAContext?
-	) -> State {
+	/// States that do not need Keychain verify (or cannot verify while locked).
+	static func preflightState(configPath: URL, unlocked: Bool) -> State? {
 		guard FileManager.default.fileExists(atPath: configPath.path) else { return .missing }
 		guard AgentKeychain.backend == .dataProtection else { return .unavailable }
 		guard isSealed else { return .missing }
-		guard unlocked, let presence else { return .sealed }
+		guard unlocked else { return .sealed }
+		return nil
+	}
+
+	static func state(
+		configPath: URL, unlocked: Bool, presence: LAContext?
+	) -> State {
+		if let preflight = preflightState(configPath: configPath, unlocked: unlocked) {
+			return preflight
+		}
+		guard let presence else { return .sealed }
 		return verify(configPath: configPath, presence: presence)
 	}
 
 	@discardableResult
 	static func sign(configPath: URL, presence: LAContext? = nil) -> Bool {
-		guard let data = try? Data(contentsOf: configPath) else { return false }
+		lastFailureReason = nil
+		guard let data = try? Data(contentsOf: configPath) else {
+			lastFailureReason = "Could not read config file for sealing."
+			return false
+		}
+		if hasStoredSeal, presence == nil {
+			AgentLog.shared.keychain("config seal update requires unlock (Keychain ACL)")
+			lastFailureReason = "Unlock the Agent before saving — Keychain needs your session to update the seal."
+			return false
+		}
 		guard let key = integrityKey(createIfMissing: true, presence: presence) else { return false }
 		let sig = hmac(data: data, key: key)
 		let keyOk = AgentKeychain.setProtectedData(
@@ -62,8 +83,26 @@ enum AgentConfigIntegrity {
 			context: presence)
 		guard keyOk, sigOk, isSealed else {
 			AgentLog.shared.keychain("config seal did not persist to Keychain")
+			lastFailureReason = "Keychain rejected the config seal (see Activity log)."
 			return false
 		}
+		if let presence {
+			guard let rawKey = AgentKeychain.protectedData(account: keyAccount, context: presence),
+				let storedSig = AgentKeychain.protectedData(account: sigAccount, context: presence),
+				storedSig.count == 32
+			else {
+				AgentLog.shared.keychain("config seal not readable after write")
+				lastFailureReason = "Seal not readable after Keychain write — retry unlock and Save."
+				return false
+			}
+			let check = hmac(data: data, key: SymmetricKey(data: rawKey))
+			guard constantTimeEqual(check, storedSig) else {
+				AgentLog.shared.keychain("config seal read-back mismatch")
+				lastFailureReason = "Seal read-back mismatch — Keychain may be out of sync; unlock and Save again."
+				return false
+			}
+		}
+		AgentConfigLastGood.record(configPath: configPath)
 		return true
 	}
 
@@ -74,7 +113,11 @@ enum AgentConfigIntegrity {
 			sig.count == 32
 		else { return .missing }
 		let expected = hmac(data: data, key: key)
-		return constantTimeEqual(expected, sig) ? .ok : .tampered
+		let ok = constantTimeEqual(expected, sig)
+		if ok, !FileManager.default.fileExists(atPath: AgentConfigLastGood.snapshotURL(near: configPath).path) {
+			AgentConfigLastGood.record(configPath: configPath)
+		}
+		return ok ? .ok : .tampered
 	}
 
 	static func mintBlockedReason(configPath: URL, presence: LAContext?) -> String? {
@@ -89,7 +132,7 @@ enum AgentConfigIntegrity {
 		case .ok:
 			return nil
 		case .tampered:
-			return "config was modified outside Buddy Agent — review Setup/Policy and save, or restore from backup"
+			return "config was modified outside Buddy Agent — review each change in Buddy Agent Status"
 		case .missing:
 			return "config seal is unreadable — unlock Buddy Agent and save once"
 		case .sealed, .unavailable:
@@ -97,8 +140,12 @@ enum AgentConfigIntegrity {
 		}
 	}
 
-	private static var isSealed: Bool {
+	static var hasStoredSeal: Bool {
 		AgentKeychain.protectedDataExists(account: sigAccount)
+	}
+
+	private static var isSealed: Bool {
+		hasStoredSeal
 	}
 
 	// MARK: key

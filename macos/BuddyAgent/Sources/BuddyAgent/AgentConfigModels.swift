@@ -1,5 +1,13 @@
 import Foundation
 
+enum AgentConfigPersistence {
+	static func trimmedURL(_ raw: String) -> String {
+		var t = raw.trimmed
+		while t.hasSuffix("/") { t.removeLast() }
+		return t
+	}
+}
+
 /// Flat workplace metadata (buddy `contexts:` / `tenants:` entry).
 struct Workplace: Codable, Equatable {
 	var url: String = ""
@@ -10,6 +18,10 @@ struct Workplace: Codable, Equatable {
 	var org: String = ""
 	var denyBuiltins: [String] = []
 	var allowBuiltins: [String] = []
+
+	enum CodingKeys: String, CodingKey {
+		case url, region, environmentId, tenantId, org, denyBuiltins, allowBuiltins
+	}
 
 	init(
 		url: String = "",
@@ -38,6 +50,48 @@ struct Workplace: Codable, Equatable {
 		org = try c.decodeIfPresent(String.self, forKey: .org) ?? ""
 		denyBuiltins = try c.decodeIfPresent([String].self, forKey: .denyBuiltins) ?? []
 		allowBuiltins = try c.decodeIfPresent([String].self, forKey: .allowBuiltins) ?? []
+	}
+
+	func encode(to encoder: Encoder) throws {
+		var c = encoder.container(keyedBy: CodingKeys.self)
+		let kind = workplaceKind()
+		if kind != "organization", !org.trimmed.isEmpty {
+			try c.encode(org.trimmed, forKey: .org)
+		}
+		switch kind {
+		case "organization":
+			break
+		case "environment":
+			if !region.trimmed.isEmpty { try c.encode(region.trimmed, forKey: .region) }
+			if !effectiveEnvironmentID.isEmpty {
+				try c.encode(effectiveEnvironmentID, forKey: .environmentId)
+			}
+			if !url.trimmed.isEmpty {
+				try c.encode(AgentConfigPersistence.trimmedURL(url), forKey: .url)
+			}
+		case "tenant":
+			if !tenantId.trimmed.isEmpty { try c.encode(tenantId.trimmed, forKey: .tenantId) }
+			if !url.trimmed.isEmpty {
+				try c.encode(AgentConfigPersistence.trimmedURL(url), forKey: .url)
+			}
+		case "instance":
+			if !url.trimmed.isEmpty {
+				try c.encode(AgentConfigPersistence.trimmedURL(url), forKey: .url)
+			}
+		default:
+			if !url.trimmed.isEmpty {
+				try c.encode(AgentConfigPersistence.trimmedURL(url), forKey: .url)
+			}
+			if !region.trimmed.isEmpty { try c.encode(region.trimmed, forKey: .region) }
+			if !effectiveEnvironmentID.isEmpty {
+				try c.encode(effectiveEnvironmentID, forKey: .environmentId)
+			}
+			if !tenantId.trimmed.isEmpty { try c.encode(tenantId.trimmed, forKey: .tenantId) }
+		}
+		let deny = AgentConfigLists.normalized(denyBuiltins)
+		if !deny.isEmpty { try c.encode(deny, forKey: .denyBuiltins) }
+		let allow = AgentConfigLists.normalized(allowBuiltins)
+		if !allow.isEmpty { try c.encode(allow, forKey: .allowBuiltins) }
 	}
 
 	func workplaceKind() -> String {
@@ -216,6 +270,10 @@ struct ChannelPolicy: Codable, Equatable {
 	var denyBuiltins: [String] = []
 	var allowBuiltins: [String] = []
 
+	enum CodingKeys: String, CodingKey {
+		case access, context, contexts, denyBuiltins, allowBuiltins
+	}
+
 	init() {}
 
 	init(from decoder: Decoder) throws {
@@ -230,6 +288,19 @@ struct ChannelPolicy: Codable, Equatable {
 	var isEmpty: Bool {
 		access.trimmed.isEmpty && context.trimmed.isEmpty && contexts.isEmpty
 			&& denyBuiltins.isEmpty && allowBuiltins.isEmpty
+	}
+
+	func encode(to encoder: Encoder) throws {
+		guard !isEmpty else { return }
+		var c = encoder.container(keyedBy: CodingKeys.self)
+		if access.trimmed == "readonly" { try c.encode("readonly", forKey: .access) }
+		if !context.trimmed.isEmpty { try c.encode(context.trimmed, forKey: .context) }
+		let ctx = AgentConfigLists.normalized(contexts)
+		if !ctx.isEmpty { try c.encode(ctx, forKey: .contexts) }
+		let deny = AgentConfigLists.normalized(denyBuiltins)
+		if !deny.isEmpty { try c.encode(deny, forKey: .denyBuiltins) }
+		let allow = AgentConfigLists.normalized(allowBuiltins)
+		if !allow.isEmpty { try c.encode(allow, forKey: .allowBuiltins) }
 	}
 }
 
@@ -279,6 +350,10 @@ struct AgentAuth: Codable, Equatable {
 	var denyBuiltins: [String] = []
 	var allowBuiltins: [String] = []
 
+	enum CodingKeys: String, CodingKey {
+		case type, clientId, username, scope, access, contexts, channels, denyBuiltins, allowBuiltins
+	}
+
 	init() {}
 
 	init(from decoder: Decoder) throws {
@@ -292,6 +367,22 @@ struct AgentAuth: Codable, Equatable {
 		channels = try c.decodeIfPresent([String].self, forKey: .channels) ?? []
 		denyBuiltins = try c.decodeIfPresent([String].self, forKey: .denyBuiltins) ?? []
 		allowBuiltins = try c.decodeIfPresent([String].self, forKey: .allowBuiltins) ?? []
+	}
+
+	func encode(to encoder: Encoder) throws {
+		var c = encoder.container(keyedBy: CodingKeys.self)
+		try c.encode(type, forKey: .type)
+		try c.encode(contexts, forKey: .contexts)
+		if !clientId.trimmed.isEmpty { try c.encode(clientId.trimmed, forKey: .clientId) }
+		if !username.trimmed.isEmpty { try c.encode(username.trimmed, forKey: .username) }
+		if !scope.trimmed.isEmpty { try c.encode(scope.trimmed, forKey: .scope) }
+		if !access.trimmed.isEmpty { try c.encode(access.trimmed, forKey: .access) }
+		let ch = AgentConfigLists.normalized(channels)
+		if !ch.isEmpty { try c.encode(ch, forKey: .channels) }
+		let deny = AgentConfigLists.normalized(denyBuiltins)
+		if !deny.isEmpty { try c.encode(deny, forKey: .denyBuiltins) }
+		let allow = AgentConfigLists.normalized(allowBuiltins)
+		if !allow.isEmpty { try c.encode(allow, forKey: .allowBuiltins) }
 	}
 
 	var secretKind: AgentKeychain.Kind {
@@ -411,9 +502,17 @@ struct OrgProductTenant: Codable, Equatable {
 	var url: String = ""
 	var jamfpro: JamfProRef = JamfProRef()
 
+	enum CodingKeys: String, CodingKey {
+		case tenantId, url, jamfpro
+	}
+
 	struct JamfProRef: Codable, Equatable {
 		var url: String = ""
 		var tenantId: String = ""
+
+		enum CodingKeys: String, CodingKey {
+			case url, tenantId
+		}
 
 		init() {}
 
@@ -421,6 +520,18 @@ struct OrgProductTenant: Codable, Equatable {
 			let c = try decoder.container(keyedBy: CodingKeys.self)
 			url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
 			tenantId = try c.decodeIfPresent(String.self, forKey: .tenantId) ?? ""
+		}
+
+		func encode(to encoder: Encoder) throws {
+			var c = encoder.container(keyedBy: CodingKeys.self)
+			if !url.trimmed.isEmpty {
+				try c.encode(AgentConfigPersistence.trimmedURL(url), forKey: .url)
+			}
+			if !tenantId.trimmed.isEmpty { try c.encode(tenantId.trimmed, forKey: .tenantId) }
+		}
+
+		var isEmpty: Bool {
+			url.trimmed.isEmpty && tenantId.trimmed.isEmpty
 		}
 	}
 
@@ -434,6 +545,19 @@ struct OrgProductTenant: Codable, Equatable {
 		if url.trimmed.isEmpty { url = jamfpro.url }
 		if tenantId.trimmed.isEmpty { tenantId = jamfpro.tenantId }
 	}
+
+	func encode(to encoder: Encoder) throws {
+		var c = encoder.container(keyedBy: CodingKeys.self)
+		if !tenantId.trimmed.isEmpty { try c.encode(tenantId.trimmed, forKey: .tenantId) }
+		if !url.trimmed.isEmpty {
+			try c.encode(AgentConfigPersistence.trimmedURL(url), forKey: .url)
+		}
+		if !jamfpro.isEmpty { try c.encode(jamfpro, forKey: .jamfpro) }
+	}
+
+	var isEmpty: Bool {
+		tenantId.trimmed.isEmpty && url.trimmed.isEmpty && jamfpro.isEmpty
+	}
 }
 
 struct OrgEnvironment: Codable, Equatable {
@@ -442,6 +566,10 @@ struct OrgEnvironment: Codable, Equatable {
 	var region: String = ""
 	var url: String = ""
 	var tenants: [String: OrgProductTenant] = [:]
+
+	enum CodingKeys: String, CodingKey {
+		case id, environmentId, region, url, tenants
+	}
 
 	init() {}
 
@@ -456,11 +584,27 @@ struct OrgEnvironment: Codable, Equatable {
 			environmentId = id
 		}
 	}
+
+	func encode(to encoder: Encoder) throws {
+		var c = encoder.container(keyedBy: CodingKeys.self)
+		let eid = effectiveEnvironmentID
+		if !eid.isEmpty { try c.encode(eid, forKey: .id) }
+		if !region.trimmed.isEmpty { try c.encode(region.trimmed, forKey: .region) }
+		if !url.trimmed.isEmpty {
+			try c.encode(AgentConfigPersistence.trimmedURL(url), forKey: .url)
+		}
+		let pruned = tenants.filter { !$0.value.isEmpty }
+		if !pruned.isEmpty { try c.encode(pruned, forKey: .tenants) }
+	}
 }
 
 struct OrgRoot: Codable, Equatable {
 	var id: String = ""
 	var environments: [String: OrgEnvironment] = [:]
+
+	enum CodingKeys: String, CodingKey {
+		case id, environments
+	}
 
 	init() {}
 
@@ -468,6 +612,12 @@ struct OrgRoot: Codable, Equatable {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
 		id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
 		environments = try c.decodeIfPresent([String: OrgEnvironment].self, forKey: .environments) ?? [:]
+	}
+
+	func encode(to encoder: Encoder) throws {
+		var c = encoder.container(keyedBy: CodingKeys.self)
+		if !id.trimmed.isEmpty { try c.encode(id.trimmed, forKey: .id) }
+		if !environments.isEmpty { try c.encode(environments, forKey: .environments) }
 	}
 }
 

@@ -3,6 +3,8 @@ import SwiftUI
 /// Policy tab: buddy `features:` and `channels:` (separate from workplaces/auths).
 struct PolicyView: View {
 	@ObservedObject var store: AgentStore
+	var unlocked: Bool
+	var onShowStatus: () -> Void = {}
 	@State private var draftFeatures = AgentFeatures()
 	@State private var draftChannels: [String: ChannelPolicy] = [:]
 
@@ -35,6 +37,7 @@ struct PolicyView: View {
 							.foregroundStyle(.orange)
 					}
 				}
+				ConfigReviewLockBanner(store: store, onShowStatus: onShowStatus)
 				if let err = store.lastError, err.contains("could not read") {
 					Text(err)
 						.font(.callout)
@@ -52,6 +55,7 @@ struct PolicyView: View {
 					store: store,
 					features: $draftFeatures,
 					channels: $draftChannels)
+					.disabled(store.configEditsBlocked)
 				policyActions
 			}
 			.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
@@ -70,8 +74,12 @@ struct PolicyView: View {
 				.disabled(!isDirty)
 			Button("Save") { saveDraft() }
 				.keyboardShortcut(.defaultAction)
-				.disabled(!isDirty)
+				.disabled(!isDirty || !maySave)
 		}
+	}
+
+	private var maySave: Bool {
+		!store.configEditsBlocked && (!AgentStore.configPersistRequiresUnlock || unlocked)
 	}
 
 	private func loadDraftFromStore() {

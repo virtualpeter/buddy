@@ -56,7 +56,12 @@ enum AgentUnlockTimeout {
 /// its caller until LocalAuthentication answers. The prompt itself is drawn by
 /// the system, so the main queue stays free to serve the GUI meanwhile.
 final class UnlockGate {
+	/// Runs on the presence session queue right after unlock (same thread as `LAContext`).
+	var onSessionOpened: ((LAContext) -> Void)?
+
 	private let state: AgentState
+	private let sessionQueue = DispatchQueue(label: "buddy.agent.presence.session")
+	private let sessionQueueKey = DispatchSpecificKey<Void>()
 	private let lock = NSLock()
 	/// Waiters parked behind the prompt that is already on screen.
 	private var pending: [DispatchSemaphore] = []
@@ -69,9 +74,44 @@ final class UnlockGate {
 
 	init(state: AgentState) {
 		self.state = state
+		sessionQueue.setSpecific(key: sessionQueueKey, value: ())
 		// AgentState owns lock/relock but must not import LocalAuthentication
 		// just to end a session.
 		state.onRelock = { [weak self] in self?.endSession() }
+	}
+
+	/// Keychain + config seal work must run on the queue that owns `LAContext`.
+	func withAuthenticatedContext(_ work: (LAContext) -> Bool) -> Bool {
+		runOnSessionQueue { performWithAuthenticatedContext(work) }
+	}
+
+	func withAuthenticatedContext<T>(_ work: (LAContext) -> T) -> T? {
+		var value: T?
+		runOnSessionQueue {
+			guard state.unlocked else { return }
+			lock.lock()
+			let context = authenticated
+			lock.unlock()
+			guard let context else { return }
+			value = work(context)
+		}
+		return value
+	}
+
+	private func runOnSessionQueue<T>(_ block: () -> T) -> T {
+		if DispatchQueue.getSpecific(key: sessionQueueKey) != nil {
+			return block()
+		}
+		return sessionQueue.sync(execute: block)
+	}
+
+	private func performWithAuthenticatedContext(_ work: (LAContext) -> Bool) -> Bool {
+		guard state.unlocked else { return false }
+		lock.lock()
+		let context = authenticated
+		lock.unlock()
+		guard let context else { return false }
+		return work(context)
 	}
 
 	/// The authenticated context for the current session, or nil when locked.
@@ -84,11 +124,13 @@ final class UnlockGate {
 	/// Drops the authenticated context, revoking keychain access until the next
 	/// prompt. Called on tray Lock, `agent lock`, and the idle relock.
 	func endSession() {
-		lock.lock()
-		let context = authenticated
-		authenticated = nil
-		lock.unlock()
-		context?.invalidate()
+		runOnSessionQueue {
+			lock.lock()
+			let context = authenticated
+			authenticated = nil
+			lock.unlock()
+			context?.invalidate()
+		}
 	}
 
 	/// Seconds the prompt may stay unanswered. 0 disables prompting entirely,
@@ -134,16 +176,15 @@ final class UnlockGate {
 			assertionFailure("UnlockGate.authorize must not run on the main thread")
 		}
 		if state.unlocked { return .unlocked }
-		// Nobody was asked, so this is "no prompt available", not "declined".
 		if UnlockGate.promptingDisabled { return .unavailable }
+		return runOnSessionQueue { authorizeOnSessionQueue(reason: reason) }
+	}
+
+	private func authorizeOnSessionQueue(reason: String) -> UnlockOutcome {
+		if state.unlocked { return .unlocked }
 
 		lock.lock()
-		if state.unlocked {
-			lock.unlock()
-			return .unlocked
-		}
 		if prompting {
-			// Someone else is already at the prompt; take their answer.
 			let waiter = DispatchSemaphore(value: 0)
 			pending.append(waiter)
 			lock.unlock()
@@ -157,13 +198,14 @@ final class UnlockGate {
 		lock.unlock()
 
 		let (outcome, context) = prompt(reason: reason)
-		if outcome == .unlocked {
+		if outcome == .unlocked, let context {
 			lock.lock()
 			let previous = authenticated
 			authenticated = context
 			lock.unlock()
 			previous?.invalidate()
 			state.unlock()
+			onSessionOpened?(context)
 		}
 
 		lock.lock()

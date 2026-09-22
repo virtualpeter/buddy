@@ -102,6 +102,16 @@ final class AgentStatusPanelController: NSObject {
 		guard let delegate else { return }
 		DispatchQueue.main.async { action(delegate) }
 	}
+
+	/// Tray row that dismisses via `presentSettingsWindow` / pending flags (Settings, Help, About).
+	fileprivate func runMenuAction(_ action: @escaping (AgentAppDelegate) -> Void) {
+		guard let delegate else { return }
+		action(delegate)
+	}
+
+	fileprivate func toggleLockFromPanel(_ delegate: AgentAppDelegate) {
+		DispatchQueue.main.async { delegate.toggleLockFromMenu() }
+	}
 }
 
 private struct AgentStatusMenuContent: View {
@@ -117,17 +127,17 @@ private struct AgentStatusMenuContent: View {
 				.padding(.vertical, 8)
 				.frame(maxWidth: .infinity, alignment: .leading)
 			Divider()
-			menuRow(snapshot.lockTitle) { $0.toggleLockFromMenu() }
+			menuRow(snapshot.lockTitle) { controller.toggleLockFromPanel($0) }
 			Divider()
-			menuRow("Settings…") { $0.openSettings() }
+			menuRow("Settings…", dismissFirst: false) { $0.openSettings() }
 			menuRow("Open Buddy…", enabled: snapshot.openBuddyEnabled) { $0.openBuddyApp() }
 			menuRow(
 				loginTitle,
 				enabled: snapshot.loginEnabled
 			) { $0.toggleOpenAtLoginFromPanel() }
 			Divider()
-			menuRow("Help") { $0.showHelp() }
-			menuRow("About Buddy Agent…") { $0.showAbout() }
+			menuRow("Help", dismissFirst: false) { $0.showHelp() }
+			menuRow("About Buddy Agent…", dismissFirst: false) { $0.showAbout() }
 			Divider()
 			menuRow("Quit Buddy Agent") { $0.quit() }
 		}
@@ -140,10 +150,17 @@ private struct AgentStatusMenuContent: View {
 	}
 
 	private func menuRow(
-		_ title: String, enabled: Bool = true, action: @escaping (AgentAppDelegate) -> Void
+		_ title: String,
+		enabled: Bool = true,
+		dismissFirst: Bool = true,
+		action: @escaping (AgentAppDelegate) -> Void
 	) -> some View {
 		Button {
-			controller.perform(action)
+			if dismissFirst {
+				controller.perform(action)
+			} else {
+				controller.runMenuAction(action)
+			}
 		} label: {
 			Text(title)
 				.frame(maxWidth: .infinity, alignment: .leading)

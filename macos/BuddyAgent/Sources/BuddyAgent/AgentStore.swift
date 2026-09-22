@@ -19,12 +19,105 @@ final class AgentStore: ObservableObject {
 	private var loadSucceeded = false
 	/// Bumped when Keychain secret presence may have changed (import, save auth, etc.).
 	@Published private(set) var secretStatusGeneration: Int = 0
+	@Published private(set) var configIntegrityGeneration: Int = 0
+	/// Last integrity read. Keychain verify is filled in off the main thread.
+	@Published private(set) var configDiagnostics = AgentConfigLastGood.Diagnostics.pending
+	/// On-disk JSON differs from the last-good snapshot. Setup and Policy stay read-only.
+	@Published private(set) var configReviewRequired = false
+	/// Seal is tampered and there is no last-good snapshot to review line by line.
+	@Published private(set) var configTamperNeedsBackup = false
+
+	static let configReviewBlockMessage =
+		"Config was modified outside Buddy Agent. Open Status and accept or revert each changed line. Setup and Policy stay read-only until that review is finished."
+	static let configTamperBackupMessage =
+		"Config was modified outside Buddy Agent and there is no last-good snapshot to review. Restore the config from backup. Setup and Policy stay read-only."
+
+	var configEditsBlocked: Bool { configReviewRequired || configTamperNeedsBackup }
 
 	private let queue = DispatchQueue(label: "buddy.agent.store")
+	private var pendingTamperReviewLog: (
+		decisions: [Int: AgentConfigLastGood.LineDecision],
+		diff: [AgentConfigLastGood.DiffLine]
+	)?
+	private var configWriteSuppressionCount = 0
+	private var lastWrittenNormalizedDigest: String?
+	private var configUnlocked: (() -> Bool)?
+
+	/// When set, used to update the config HMAC seal after writes (Keychain ACL requires presence).
+	var configSealPresence: (() -> LAContext?)?
+	/// Runs Keychain work on the presence session queue (required for Keychain + `LAContext`).
+	var runConfigSeal: (((LAContext) -> Bool) -> Bool)?
+
+	/// Signed builds seal config in Keychain; persisting identity changes requires unlock.
+	static var configPersistRequiresUnlock: Bool {
+		AgentKeychain.backend == .dataProtection
+	}
+
+	func mayPersistConfigChanges() -> Bool {
+		!Self.configPersistRequiresUnlock || configSealPresence?() != nil
+	}
 
 	init() {
 		reloadManagedPrefs()
 		load()
+	}
+
+	/// After unlock, refresh a missing seal or a formatting-only mismatch against the
+	/// last-good snapshot. A real edit stays tampered until Status line review finishes.
+	func resealConfig(presence: LAContext) {
+		guard loadSucceeded else { return }
+		guard AgentKeychain.backend == .dataProtection else { return }
+		guard FileManager.default.fileExists(atPath: path.path) else { return }
+		switch AgentConfigIntegrity.verify(configPath: path, presence: presence) {
+		case .ok:
+			publishReviewFlags(
+				review: AgentConfigLastGood.requiresLineReview(configPath: path), backup: false)
+			bumpConfigIntegrityGeneration()
+			setError(nil)
+		case .missing:
+			if AgentConfigLastGood.requiresLineReview(configPath: path) {
+				publishReviewFlags(review: true, backup: false)
+				bumpConfigIntegrityGeneration()
+				setError(Self.configReviewBlockMessage)
+				AgentLog.shared.config("re-seal skipped — config differs from last-good")
+			} else {
+				resealNow(presence: presence)
+			}
+		case .tampered:
+			let diagnostics = AgentConfigLastGood.diagnostics(
+				configPath: path,
+				integrity: .tampered,
+				observeTamper: true)
+			let formattingOnly =
+				!diagnostics.snapshotMissing
+				&& (diagnostics.onlyFormattingDrift || diagnostics.diffChangeCount == 0)
+			if formattingOnly {
+				resealNow(presence: presence)
+			} else {
+				let needsReview = AgentConfigLastGood.requiresLineReview(configPath: path)
+				publishReviewFlags(review: needsReview, backup: !needsReview)
+				bumpConfigIntegrityGeneration()
+				setError(needsReview ? Self.configReviewBlockMessage : Self.configTamperBackupMessage)
+				AgentLog.shared.config("re-seal skipped — config tampered")
+			}
+		case .sealed, .unavailable:
+			bumpConfigIntegrityGeneration()
+			setError("Config re-seal failed after unlock — stay unlocked and try again from Status.")
+			AgentLog.shared.keychain("re-seal after unlock skipped")
+		}
+	}
+
+	private func resealNow(presence: LAContext) {
+		if applyConfigSeal(presence: presence) {
+			AgentLog.shared.config("re-sealed config")
+			publishReviewFlags(
+				review: AgentConfigLastGood.requiresLineReview(configPath: path), backup: false)
+			bumpConfigIntegrityGeneration()
+			setError(nil)
+		} else {
+			setError("Config re-seal failed after unlock — stay unlocked and try again from Status.")
+			AgentLog.shared.keychain("re-seal after unlock failed")
+		}
 	}
 
 	func reloadManagedPrefs() {
@@ -37,7 +130,90 @@ final class AgentStore: ObservableObject {
 	}
 
 	func configIntegrity(unlocked: Bool, presence: LAContext?) -> AgentConfigIntegrity.State {
-		AgentConfigIntegrity.state(configPath: path, unlocked: unlocked, presence: presence)
+		if let preflight = AgentConfigIntegrity.preflightState(configPath: path, unlocked: unlocked) {
+			return preflight
+		}
+		// SecItem needs the main run loop. Blocking it on the presence queue deadlocks.
+		if Thread.isMainThread {
+			return configDiagnostics.integrity
+		}
+		if let runConfigSeal {
+			var verified: AgentConfigIntegrity.State = .sealed
+			let ok = runConfigSeal { context in
+				verified = AgentConfigIntegrity.verify(configPath: path, presence: context)
+				return true
+			}
+			return ok ? verified : .sealed
+		}
+		if let presence {
+			return AgentConfigIntegrity.verify(configPath: path, presence: presence)
+		}
+		return .sealed
+	}
+
+	func configMintBlockedReason() -> String? {
+		guard AgentKeychain.backend == .dataProtection else { return nil }
+		guard AgentConfigIntegrity.hasStoredSeal else {
+			return "config is not sealed — open Buddy Agent Settings and save once"
+		}
+		switch configIntegrity(unlocked: true, presence: nil) {
+		case .ok:
+			return nil
+		case .tampered:
+			return "config was modified outside Buddy Agent — review each change in Buddy Agent Status"
+		case .missing:
+			return "config seal is unreadable — unlock Buddy Agent and save once"
+		case .sealed:
+			return "config seal requires unlock — unlock Buddy Agent before minting"
+		case .unavailable:
+			return "config seal could not be verified"
+		}
+	}
+
+	func configIntegrityDiagnostics(unlocked: Bool, presence: LAContext?) -> AgentConfigLastGood.Diagnostics {
+		let integrity = configIntegrity(unlocked: unlocked, presence: presence)
+		return AgentConfigLastGood.diagnostics(
+			configPath: path,
+			integrity: integrity,
+			observeTamper: unlocked && presence != nil
+		)
+	}
+
+	/// Watch `agent-config.json` and react to edits outside the Agent (log, review flags, reload).
+	func startConfigFileMonitor(unlocked: @escaping () -> Bool) {
+		configUnlocked = unlocked
+		AgentConfigFileMonitor.start(configPath: path) { [weak self] in
+			self?.handleExternalConfigFileChange()
+		}
+		if let digest = AgentConfigLastGood.normalizedFileDigest(at: path) {
+			lastWrittenNormalizedDigest = digest
+		}
+	}
+
+	func stopConfigFileMonitor() {
+		AgentConfigFileMonitor.stop()
+	}
+
+	/// File diff is published first. Keychain verify follows on the presence queue,
+	/// never via a synchronous hop from the main thread (that deadlocks SecItem).
+	func refreshConfigDiagnostics(unlocked: Bool) {
+		DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+			guard let self else { return }
+			let fileOnly = AgentConfigLastGood.diagnostics(
+				configPath: self.path,
+				integrity: .sealed,
+				observeTamper: false)
+			DispatchQueue.main.async {
+				if self.configDiagnostics.integrity == .unavailable {
+					self.configDiagnostics = fileOnly
+				}
+			}
+			let presence = unlocked ? self.configSealPresence?() : nil
+			let verified = self.configIntegrityDiagnostics(unlocked: unlocked, presence: presence)
+			DispatchQueue.main.async {
+				self.configDiagnostics = verified
+			}
+		}
 	}
 
 	func isManagedWorkplace(_ name: String) -> Bool {
@@ -107,6 +283,10 @@ final class AgentStore: ObservableObject {
 		var channels: [String: ChannelPolicy] = [:]
 		var integrations: [Integration]?
 
+		enum CodingKeys: String, CodingKey {
+			case version, defaultContext, orgs, workplaces, auths, features, channels, integrations
+		}
+
 		init(
 			version: Int = 3,
 			defaultContext: String = "",
@@ -138,6 +318,23 @@ final class AgentStore: ObservableObject {
 			channels = try c.decodeIfPresent([String: ChannelPolicy].self, forKey: .channels) ?? [:]
 			integrations = try c.decodeIfPresent([Integration].self, forKey: .integrations)
 		}
+
+		func encode(to encoder: Encoder) throws {
+			var c = encoder.container(keyedBy: CodingKeys.self)
+			try c.encode(version, forKey: .version)
+			if !defaultContext.trimmed.isEmpty {
+				try c.encode(defaultContext.trimmed, forKey: .defaultContext)
+			}
+			if !orgs.isEmpty { try c.encode(orgs, forKey: .orgs) }
+			if !workplaces.isEmpty { try c.encode(workplaces, forKey: .workplaces) }
+			if !auths.isEmpty { try c.encode(auths, forKey: .auths) }
+			if features.classicInstanceOnly { try c.encode(features, forKey: .features) }
+			let prunedChannels = channels.filter { !$0.value.isEmpty }
+			if !prunedChannels.isEmpty { try c.encode(prunedChannels, forKey: .channels) }
+			if let integrations, !integrations.isEmpty {
+				try c.encode(integrations, forKey: .integrations)
+			}
+		}
 	}
 
 	func load() {
@@ -153,7 +350,7 @@ final class AgentStore: ObservableObject {
 			loadSucceeded = true
 			reloadManagedPrefs()
 			if needsSave {
-				save()
+				save(bypassUnlockRequirement: true, changeSource: "migration")
 			} else {
 				ensureConfigSealed()
 			}
@@ -161,6 +358,8 @@ final class AgentStore: ObservableObject {
 			setError("could not read \(path.lastPathComponent): \(Self.decodeErrorMessage(error))")
 		}
 		if isEmpty { AgentIdleLock.applyEmptyConfigDefault() }
+		publishReviewFlags(
+			review: AgentConfigLastGood.requiresLineReview(configPath: path), backup: false)
 	}
 
 	@discardableResult
@@ -179,10 +378,25 @@ final class AgentStore: ObservableObject {
 		return doc.version < 3
 	}
 
-	func save(allowEmpty: Bool = false) {
+	@discardableResult
+	func save(
+		allowEmpty: Bool = false, bypassUnlockRequirement: Bool = false,
+		resolvingTamperReview: Bool = false, sealAfterWrite: Bool = true,
+		changeSource: String = "Setup"
+	) -> Bool {
 		guard loadSucceeded else {
 			setError("config not loaded — fix or remove \(path.lastPathComponent) before saving")
-			return
+			return false
+		}
+		if !resolvingTamperReview, configEditBlockedNow() {
+			setError(configEditBlockMessage())
+			AgentLog.shared.config("save blocked — config review required")
+			return false
+		}
+		if Self.configPersistRequiresUnlock, !bypassUnlockRequirement, configSealPresence?() == nil {
+			setError("Unlock the Agent before saving config changes.")
+			AgentLog.shared.config("save blocked — Agent locked")
+			return false
 		}
 		if !allowEmpty, workplaces.isEmpty, auths.isEmpty,
 			FileManager.default.fileExists(atPath: path.path),
@@ -194,7 +408,7 @@ final class AgentStore: ObservableObject {
 			if !wp.isEmpty || !auth.isEmpty {
 				setError(
 					"refusing to overwrite existing config with empty data — restart the Agent after updating")
-				return
+				return false
 			}
 		}
 		syncOrgsFromWorkplaces()
@@ -210,16 +424,203 @@ final class AgentStore: ObservableObject {
 			let encoder = JSONEncoder()
 			encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 			let data = try encoder.encode(doc)
+			if let pending = pendingTamperReviewLog {
+				pendingTamperReviewLog = nil
+				AgentConfigChangeLog.logTamperReview(
+					decisions: pending.decisions,
+					diff: pending.diff,
+					configPath: path,
+					resolvedData: data)
+			} else {
+				AgentConfigChangeLog.logPersistedWrite(source: changeSource, configPath: path, newData: data)
+			}
+			configWriteSuppressionCount += 1
 			try data.write(to: path, options: [.atomic])
 			try? FileManager.default.setAttributes(
 				[.posixPermissions: 0o600], ofItemAtPath: path.path)
-			AgentConfigIntegrity.sign(configPath: path, presence: nil)
+			lastWrittenNormalizedDigest = AgentConfigLastGood.normalizedDigest(
+				String(data: data, encoding: .utf8) ?? "")
+			configWriteSuppressionCount -= 1
+			if Self.configPersistRequiresUnlock {
+				if !sealAfterWrite {
+					return true
+				}
+				if bypassUnlockRequirement, configSealPresence?() == nil {
+					AgentLog.shared.config("config saved without seal — unlock to re-seal")
+				} else if !persistConfigSeal() {
+					setError(sealFailureMessage)
+					return false
+				}
+			}
 			setError(nil)
+			bumpConfigIntegrityGeneration()
+			publishReviewFlags(
+				review: AgentConfigLastGood.requiresLineReview(configPath: path), backup: false)
 			if workplaces.isEmpty, auths.isEmpty {
 				AgentIdleLock.applyEmptyConfigDefault()
 			}
+			return true
 		} catch {
 			setError("could not write \(path.lastPathComponent): \(error)")
+			return false
+		}
+	}
+
+	/// Replaces on-disk config with the line-reviewed document and reseals it.
+	/// Model updates stay on the main thread. The Keychain seal runs off main so
+	/// SecItem can use the main run loop without a deadlock.
+	func applyTamperReview(
+		resolvedJSON: String,
+		decisions: [Int: AgentConfigLastGood.LineDecision],
+		diff: [AgentConfigLastGood.DiffLine],
+		completion: @escaping (Bool) -> Void
+	) {
+		let finish = {
+			guard self.loadSucceeded else {
+				completion(false)
+				return
+			}
+			guard self.mayPersistConfigChanges() else {
+				self.setError("Unlock the Agent before resealing the reviewed config.")
+				completion(false)
+				return
+			}
+			guard let data = resolvedJSON.data(using: .utf8) else {
+				completion(false)
+				return
+			}
+			let doc: Document
+			do {
+				doc = try JSONDecoder().decode(Document.self, from: data)
+			} catch {
+				self.setError(
+					"Those choices are not valid config — change Accept or Revert on a line. \(Self.decodeErrorMessage(error))"
+				)
+				completion(false)
+				return
+			}
+			_ = self.applyDocument(doc)
+			self.pendingTamperReviewLog = (decisions, diff)
+			guard self.save(
+				resolvingTamperReview: true, sealAfterWrite: false, changeSource: "tamper review")
+			else {
+				self.pendingTamperReviewLog = nil
+				completion(false)
+				return
+			}
+			guard Self.configPersistRequiresUnlock else {
+				AgentLog.shared.config("tamper review: re-sealed config")
+				completion(!self.configEditBlockedNow())
+				return
+			}
+			DispatchQueue.global(qos: .userInitiated).async {
+				let sealed = self.persistConfigSeal()
+				DispatchQueue.main.async {
+					if sealed {
+						self.setError(nil)
+						self.bumpConfigIntegrityGeneration()
+						self.publishReviewFlags(
+							review: AgentConfigLastGood.requiresLineReview(configPath: self.path),
+							backup: false)
+						AgentLog.shared.config("tamper review: re-sealed config")
+						completion(!self.configEditBlockedNow())
+					} else {
+						self.setError(self.sealFailureMessage)
+						completion(false)
+					}
+				}
+			}
+		}
+		if Thread.isMainThread {
+			finish()
+		} else {
+			DispatchQueue.main.async(execute: finish)
+		}
+	}
+
+	private func configEditBlockedNow() -> Bool {
+		if configReviewRequired || configTamperNeedsBackup { return true }
+		return AgentConfigLastGood.requiresLineReview(configPath: path)
+	}
+
+	private func refuseConfigEdit() -> Bool {
+		guard configEditBlockedNow() else { return false }
+		setError(configEditBlockMessage())
+		AgentLog.shared.config("edit blocked — config review required")
+		return true
+	}
+
+	private func configEditBlockMessage() -> String {
+		if configReviewRequired || AgentConfigLastGood.requiresLineReview(configPath: path) {
+			return Self.configReviewBlockMessage
+		}
+		return Self.configTamperBackupMessage
+	}
+
+	private func publishReviewFlags(review: Bool, backup: Bool) {
+		let apply = {
+			self.configReviewRequired = review
+			self.configTamperNeedsBackup = backup
+		}
+		if Thread.isMainThread {
+			apply()
+		} else {
+			DispatchQueue.main.async(execute: apply)
+		}
+	}
+
+	private func handleExternalConfigFileChange() {
+		guard loadSucceeded else { return }
+		guard configWriteSuppressionCount == 0 else { return }
+		guard FileManager.default.fileExists(atPath: path.path) else { return }
+		if let digest = AgentConfigLastGood.normalizedFileDigest(at: path),
+			digest == lastWrittenNormalizedDigest
+		{
+			return
+		}
+		reloadConfigIdentityFromDisk()
+		let unlocked = configUnlocked?() ?? false
+		DispatchQueue.global(qos: .utility).async { [weak self] in
+			guard let self else { return }
+			let presence = unlocked ? self.configSealPresence?() : nil
+			let integrity = self.configIntegrity(unlocked: unlocked, presence: presence)
+			let diagnostics = AgentConfigLastGood.diagnostics(
+				configPath: self.path,
+				integrity: integrity,
+				observeTamper: true)
+			let needsReview = AgentConfigLastGood.requiresLineReview(configPath: self.path)
+			let needsBackup = integrity == .tampered && !needsReview
+			DispatchQueue.main.async {
+				self.configDiagnostics = diagnostics
+				self.publishReviewFlags(review: needsReview, backup: needsBackup)
+				self.bumpConfigIntegrityGeneration()
+				if needsReview || needsBackup {
+					self.setError(
+						needsReview
+							? Self.configReviewBlockMessage : Self.configTamperBackupMessage)
+				}
+			}
+		}
+	}
+
+	private func reloadConfigIdentityFromDisk() {
+		guard let data = try? Data(contentsOf: path),
+			let doc = try? JSONDecoder().decode(Document.self, from: data)
+		else {
+			return
+		}
+		_ = applyDocument(doc)
+	}
+
+	private func bumpConfigIntegrityGeneration() {
+		let bump = { [weak self] in
+			guard let self else { return }
+			configIntegrityGeneration &+= 1
+		}
+		if Thread.isMainThread {
+			bump()
+		} else {
+			DispatchQueue.main.async { bump() }
 		}
 	}
 
@@ -290,6 +691,7 @@ final class AgentStore: ObservableObject {
 
 	/// Writes features and channel policy from the Policy tab in one save.
 	func savePolicy(features draftFeatures: AgentFeatures, channels draftChannels: [String: ChannelPolicy]) {
+		if refuseConfigEdit() { return }
 		var changed = false
 		if !managedPolicyLocked("features"), features != draftFeatures {
 			features = draftFeatures
@@ -307,8 +709,10 @@ final class AgentStore: ObservableObject {
 			}
 		}
 		if changed {
-			save()
+			save(changeSource: "Policy")
 			AgentLog.shared.config("saved policy")
+		} else if configSealPresence?() != nil {
+			_ = persistConfigSeal()
 		} else {
 			ensureConfigSealed()
 		}
@@ -318,11 +722,45 @@ final class AgentStore: ObservableObject {
 	func ensureConfigSealed() {
 		guard loadSucceeded else { return }
 		guard AgentKeychain.backend == .dataProtection else { return }
+		guard !AgentConfigLastGood.requiresLineReview(configPath: path) else { return }
 		guard configIntegrity(unlocked: false, presence: nil) == .missing else { return }
 		guard FileManager.default.fileExists(atPath: path.path) else { return }
-		if AgentConfigIntegrity.sign(configPath: path, presence: nil) {
+		if persistConfigSeal(allowWithoutSession: true) {
 			AgentLog.shared.config("sealed config")
 		}
+	}
+
+	private var sealFailureMessage: String {
+		AgentConfigIntegrity.lastFailureReason
+			?? "Config could not be sealed — stay unlocked and try Save again."
+	}
+
+	@discardableResult
+	func persistConfigSeal(allowWithoutSession: Bool = false) -> Bool {
+		if let runConfigSeal {
+			return runConfigSeal { applyConfigSeal(presence: $0) }
+		}
+		guard allowWithoutSession else { return false }
+		return applyConfigSeal(presence: nil)
+	}
+
+	@discardableResult
+	private func applyConfigSeal(presence: LAContext?) -> Bool {
+		guard AgentConfigIntegrity.sign(configPath: path, presence: presence) else {
+			AgentLog.shared.keychain("config seal failed (presence \(presence == nil ? "none" : "available"))")
+			return false
+		}
+		if let presence {
+			switch AgentConfigIntegrity.verify(configPath: path, presence: presence) {
+			case .ok:
+				return true
+			default:
+				AgentLog.shared.keychain("config seal verify failed immediately after sign")
+				AgentConfigIntegrity.lastFailureReason = "Seal verify failed right after save."
+				return false
+			}
+		}
+		return true
 	}
 
 	func sortedWorkplaceNames() -> [String] {
@@ -332,6 +770,7 @@ final class AgentStore: ObservableObject {
 	// MARK: workplaces
 
 	func upsertWorkplace(name: String, workplace: Workplace, previousName: String? = nil) {
+		if refuseConfigEdit() { return }
 		let trimmed = name.trimmed
 		guard !trimmed.isEmpty else { return }
 		if isManagedWorkplace(trimmed) || (previousName.map(isManagedWorkplace) ?? false) {
@@ -353,6 +792,7 @@ final class AgentStore: ObservableObject {
 	}
 
 	func setDefaultContext(_ name: String) {
+		if refuseConfigEdit() { return }
 		guard !managedPolicyLocked("defaultContext") else { return }
 		let trimmed = name.trimmed
 		guard !trimmed.isEmpty, workplaces[trimmed] != nil else { return }
@@ -363,6 +803,7 @@ final class AgentStore: ObservableObject {
 	}
 
 	func removeWorkplace(_ name: String) {
+		if refuseConfigEdit() { return }
 		let trimmed = name.trimmed
 		guard !isManagedWorkplace(trimmed) else {
 			setError("workplace \(trimmed) is managed by MDM")
@@ -386,6 +827,7 @@ final class AgentStore: ObservableObject {
 	}
 
 	func addOrganization(name: String) {
+		if refuseConfigEdit() { return }
 		let trimmed = name.trimmed
 		guard !trimmed.isEmpty else { return }
 		workplaces[trimmed] = Workplace()
@@ -402,6 +844,7 @@ final class AgentStore: ObservableObject {
 	func addChildWorkplace(
 		name: String, parent: WorkplaceTreeNode?, kind: String, orgName: String = ""
 	) {
+		if refuseConfigEdit() { return }
 		let trimmed = name.trimmed
 		guard !trimmed.isEmpty else { return }
 		var wp = Workplace()
@@ -448,6 +891,7 @@ final class AgentStore: ObservableObject {
 	// MARK: auths
 
 	func upsertAuth(name: String, auth: AgentAuth, previousName: String? = nil) {
+		if refuseConfigEdit() { return }
 		let trimmed = name.trimmed
 		guard !trimmed.isEmpty else { return }
 		if isManagedAuth(trimmed) || (previousName.map(isManagedAuth) ?? false) {
@@ -472,6 +916,7 @@ final class AgentStore: ObservableObject {
 	}
 
 	func removeAuth(_ name: String) {
+		if refuseConfigEdit() { return }
 		guard !isManagedAuth(name) else {
 			setError("auth \(name) is managed by MDM")
 			return
@@ -803,6 +1248,9 @@ final class AgentStore: ObservableObject {
 
 	@discardableResult
 	private func importDocumentOnMain(_ root: [String: Any], replace: Bool) throws -> Int {
+		if configEditBlockedNow() {
+			throw AgentStoreError.badImport(configEditBlockMessage())
+		}
 		if replace {
 			workplaces = [:]
 			orgs = [:]
@@ -849,7 +1297,7 @@ final class AgentStore: ObservableObject {
 			channels = AgentConfigExport.decodeChannels(ch)
 		}
 		syncOrgsFromWorkplaces()
-		save()
+		save(changeSource: "import")
 		if replace {
 			AgentLog.shared.config(
 				"imported setup (\(workplaces.count) workplaces, \(auths.count) auths)")

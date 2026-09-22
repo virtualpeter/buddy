@@ -68,7 +68,7 @@ Buddy still applies MCP’s runtime default deny of `jamf_*` unless you override
 
 Socket path, config file path, workplace and auth counts, **config integrity**, managed prefs (when MDM locks apply), peer-check mode, and presence mode.
 
-**Config integrity** — `ok` / `sealed` / `missing` / `tampered` / `unavailable` (unsigned dev builds cannot seal). The Agent HMAC-seals `agent-config.json` in Keychain when you save. Minting requires unlock and a matching seal. If the file was edited outside the Agent, Status warns you — review Setup/Policy and **Save** to re-seal, or restore from backup.
+**Config integrity** — `ok` / `sealed` / `missing` / `tampered` / `unavailable` (unsigned dev builds cannot seal). The Agent HMAC-seals `agent-config.json` in Keychain when you save. Minting requires unlock and a matching seal. If the file was edited outside the Agent, Status stays the only way to reseal it: **Review changes…**, then Accept or Revert every changed line. Setup and Policy stay read-only until that review finishes. A save there does not clear tampering.
 
 **Auto-lock when idle** — After no minting for the chosen interval, the Agent relocks and drops cached bearers. Turn off only if you accept staying unlocked until you lock manually.
 
@@ -119,7 +119,7 @@ An empty or missing `config.yaml` already uses this document when the Agent is r
 
 **Keychain / memory warning on Status** — Unsigned dev builds keep secrets in memory only (cleared on lock/quit). Use `make agent-app` / `dist/BuddyAgent.app` for Keychain ACL + Touch ID on secrets.
 
-**Config integrity missing or tampered** — Open Settings, review Setup/Policy, and **Save** (Policy or a workplace/auth sheet). Unlock first if minting still fails with a seal error.
+**Config integrity missing or tampered** — Open Status. If the file differs from the last sealed copy, use **Review changes…** and Accept or Revert every changed line (unlock first). Setup and Policy stay read-only until that review reseals the config. If there is no last-good snapshot, restore the config from backup.
 
 **MDM locks on Policy or Setup** — Jamf managed preferences for `virtualpete.buddy.cli` override Agent fields at runtime; locked rows cannot be edited in the window.
 

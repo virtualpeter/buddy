@@ -300,6 +300,12 @@ enum AgentKeychain {
 		}
 
 		let base = dpQuery(account: account)
+		if let context {
+			var authed = base
+			authed[kSecUseAuthenticationContext] = context
+			authed[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
+			_ = SecItemDelete(authed as CFDictionary)
+		}
 		var deleteStatus = silentDelete(account: account)
 		if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound, let context {
 			var authed = base
@@ -328,6 +334,7 @@ enum AgentKeychain {
 			forgetProtected(account)
 			return true
 		}
+		log("protected write \(account) failed (OSStatus \(status), delete \(deleteStatus))")
 		rememberProtected(account, data)
 		return false
 	}
