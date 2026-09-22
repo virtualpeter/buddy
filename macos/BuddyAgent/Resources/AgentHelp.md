@@ -52,6 +52,7 @@ The icon is **closed padlock** when locked, **open padlock** when unlocked.
 Buddy YAML policy the Agent serves (same keys as `config.yaml`):
 
 - `features.classic_instance_only` — force Classic API on Jamf Pro
+- `features.check_updates` — omitted (Automatic) checks Buddy and this Agent once a day and leaves the CLI off; `true` also checks the CLI; `false` checks nothing. An update is a link to the GitHub release, not a download.
 - `channels.cli|mcp|ide` — default workplace, readonly access, workplace allowlist, `deny_builtins` / `allow_builtins`
 
 Changes are held in a draft until you click **Save**; **Revert** discards unsaved edits. MDM-managed policy fields show a lock icon and cannot be edited here.

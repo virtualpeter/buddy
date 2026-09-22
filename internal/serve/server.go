@@ -19,7 +19,7 @@ type Options struct {
 	Addr       string // e.g. "127.0.0.1:8742"
 	DocsRoot   string // optional override
 	Open       bool
-	Embed      bool // strip logo + surface nav (Buddy.app shell); ?embed=0 opts out
+	Embed      bool   // strip logo + surface nav (Buddy.app shell); ?embed=0 opts out
 	Version    string // buddy binary version (shown in chrome)
 	TenantName string // default tenant (empty → config / ActiveSelection)
 	CredName   string // optional auth pin (empty → auto-pick); Starlark auth=
@@ -37,6 +37,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	setChromeVersion(o.Version)
 	SetDefaultEmbed(o.Embed)
+	startReleaseCheck(ctx)
 	// Default non-embed IDE HTML for tests; live requests use RequestEmbed(r).
 	ideHTML = buildIDEHTML(false)
 	host, _, err := net.SplitHostPort(o.Addr)
@@ -85,6 +86,7 @@ func Run(ctx context.Context, o Options) error {
 		serveIDEHTML(w, r)
 	})
 	mux.HandleFunc("/config", serveConfigHTML)
+	mux.HandleFunc("/api/update", handleUpdateAPI)
 	mux.HandleFunc("/api/config", handleConfigAPI)
 	mux.HandleFunc("/api/config/", handleConfigAPI)
 	mux.HandleFunc("/api/pages", func(w http.ResponseWriter, r *http.Request) {

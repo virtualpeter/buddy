@@ -1280,6 +1280,26 @@ type FeatureFlags struct {
 	// still overlay the Agent document (user file does not). Default false;
 	// BUDDY_FORCE_AGENT wins. MDM force_agent: true cannot be turned off in YAML.
 	ForceAgent *bool `yaml:"force_agent,omitempty"`
+
+	// CheckUpdates controls the once-a-day GitHub release check.
+	// Nil (omitted) checks Buddy.app and Buddy Agent only. True also checks
+	// the CLI. False checks nothing. False is stored; it is not the default.
+	CheckUpdates *bool `yaml:"check_updates,omitempty"`
+}
+
+// CheckUpdatesCLI reports whether the CLI should look for a newer release.
+// Only an explicit true enables it.
+func (cfg *Config) CheckUpdatesCLI() bool {
+	return cfg != nil && cfg.Features.CheckUpdates != nil && *cfg.Features.CheckUpdates
+}
+
+// CheckUpdatesGUI reports whether Buddy.app and Buddy Agent should look for a
+// newer release. Omitted means yes; explicit false means no.
+func (cfg *Config) CheckUpdatesGUI() bool {
+	if cfg == nil || cfg.Features.CheckUpdates == nil {
+		return true
+	}
+	return *cfg.Features.CheckUpdates
 }
 
 // ClassicInstanceOnly reports whether Classic API routing must use an
@@ -2657,6 +2677,16 @@ func marshalConfigWith(cfg *Config, existing []byte, opts marshalConfigOptions) 
 		}
 		feat.Content = append(feat.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "force_agent"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: val},
+		)
+	}
+	if cfg.Features.CheckUpdates != nil {
+		val := "false"
+		if *cfg.Features.CheckUpdates {
+			val = "true"
+		}
+		feat.Content = append(feat.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "check_updates"},
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: val},
 		)
 	}

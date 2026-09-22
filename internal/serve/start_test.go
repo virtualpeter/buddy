@@ -32,6 +32,8 @@ func TestRunDoesNotUnlockVault(t *testing.T) {
 	secrets.SetStore(store)
 	t.Cleanup(func() { secrets.SetStore(nil) })
 
+	t.Setenv("BUDDY_UPDATE_CHECK_PATH", filepath.Join(t.TempDir(), "update-check.json"))
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errCh := make(chan error, 1)

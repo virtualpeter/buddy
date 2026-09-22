@@ -176,6 +176,12 @@ func TestChromeHeaderEmbed(t *testing.T) {
 	if strings.Contains(chromeToggleScript(true), `buddyServeOpenOrFocus`) {
 		t.Fatal("embed should skip named-tab focus script")
 	}
+	if strings.Contains(chromeToggleScript(true), `/api/update`) {
+		t.Fatal("embed should not paint the web update link")
+	}
+	if !strings.Contains(chromeToggleScript(false), `/api/update`) {
+		t.Fatal("browser serve should ask /api/update for a release link")
+	}
 }
 
 func TestDocsTemplateHasChrome(t *testing.T) {

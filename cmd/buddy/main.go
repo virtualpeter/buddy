@@ -150,6 +150,10 @@ func main() {
 		credName = authPin
 	}
 
+	if len(args) < 1 || (args[0] != clispec.CmdServe && args[0] != clispec.CmdMCP && args[0] != clispec.CmdLSP) {
+		buddy.PrintUpdateNotice(os.Stderr, Version)
+	}
+
 	if globals.evalSource != "" {
 		scriptArgs := script.ParseEvalArgs(args)
 		if err := script.RunSource(credName, opts, globals.evalSource, scriptArgs, logger, globals.scriptTrace); err != nil {

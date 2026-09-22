@@ -12,6 +12,8 @@ enum AgentManagedPrefs {
 		var channelNames: Set<String> = []
 		var locksFeatures = false
 		var locksDefaultContext = false
+		/// Explicit `features.check_updates` from managed prefs, when set.
+		var checkUpdates: Bool?
 
 		var isEmpty: Bool {
 			authNames.isEmpty && contextNames.isEmpty && channelNames.isEmpty
@@ -100,7 +102,14 @@ enum AgentManagedPrefs {
 		if let channels = doc["channels"] as? [String: Any] {
 			for name in channels.keys { snap.channelNames.insert(name) }
 		}
-		if doc["features"] != nil { snap.locksFeatures = true }
+		if let feat = doc["features"] as? [String: Any] {
+			snap.locksFeatures = true
+			if let v = feat["check_updates"] as? Bool {
+				snap.checkUpdates = v
+			}
+		} else if doc["features"] != nil {
+			snap.locksFeatures = true
+		}
 		if let ctx = doc["context"] as? [String: Any], ctx["default"] != nil {
 			snap.locksDefaultContext = true
 		}

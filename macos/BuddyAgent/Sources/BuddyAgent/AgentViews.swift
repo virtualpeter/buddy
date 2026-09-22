@@ -2435,6 +2435,7 @@ struct StatusView: View {
 	]
 
 	@State private var reviewSnapshot: AgentConfigLastGood.Diagnostics?
+	@StateObject private var updateCheck = AgentUpdateCheck()
 
 	var body: some View {
 		statusScroll
@@ -2446,13 +2447,24 @@ struct StatusView: View {
 						onClose: { self.reviewSnapshot = nil })
 				}
 			}
-		.onAppear { store.refreshConfigDiagnostics(unlocked: state.unlocked) }
+		.onAppear {
+			store.refreshConfigDiagnostics(unlocked: state.unlocked)
+			refreshUpdateCheck()
+		}
+		.onChange(of: store.features.checkUpdates) { _ in
+			refreshUpdateCheck()
+		}
 		.onChange(of: state.unlocked) { unlocked in
 			store.refreshConfigDiagnostics(unlocked: unlocked)
 		}
 		.onChange(of: store.configIntegrityGeneration) { _ in
 			store.refreshConfigDiagnostics(unlocked: state.unlocked)
 		}
+	}
+
+	private func refreshUpdateCheck() {
+		let enabled = store.managedPrefs.checkUpdates ?? (store.features.checkUpdates != false)
+		updateCheck.refresh(enabled: enabled, current: AgentBranding.revision)
 	}
 
 	private func beginReview() {
@@ -2480,6 +2492,9 @@ struct StatusView: View {
 
 			VStack(alignment: .leading, spacing: 6) {
 				infoRow("Version", "\(AgentBranding.revision) (\(AgentBranding.buildTime))")
+				if let url = updateCheck.updateURL, let ver = updateCheck.updateVersion {
+					Link("Update \(ver)", destination: url)
+				}
 				infoRow("Socket", socketPath)
 				infoRow("Workplaces", "\(store.workplaces.count)")
 				infoRow("Auths", "\(store.authCount)")

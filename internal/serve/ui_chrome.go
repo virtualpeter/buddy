@@ -100,6 +100,11 @@ html[data-theme="light"] {
   font-size: .7rem; font-weight: 500; color: var(--muted);
   letter-spacing: 0;
 }
+.app-header .brand .update {
+  font-size: .7rem; font-weight: 600; color: var(--accent);
+  letter-spacing: 0; text-decoration: none; margin-left: .35rem;
+}
+.app-header .brand .update:hover { text-decoration: underline; }
 .app-nav {
   display: flex; gap: .65rem; align-items: center;
   font-size: .85rem;
@@ -365,11 +370,31 @@ func chromeHeadTags(embed bool) string {
 		"\n<style>\n" + chromeCSS + "\n</style>\n"
 }
 
+// chromeUpdateJS asks /api/update and, when a newer release exists, adds a
+// link beside the version. Embed mode hides this header, so the script is
+// only included for a browser `buddy serve`.
+const chromeUpdateJS = `(function(){
+  var prefix = "https://github.com/virtualpeter/buddy/releases/";
+  fetch("/api/update").then(function(r){ return r.json(); }).then(function(info){
+    if (!info || !info.update || !info.url || info.url.indexOf(prefix) !== 0) return;
+    var ver = document.querySelector(".brand .ver");
+    if (!ver || ver.parentNode.querySelector(".update")) return;
+    var a = document.createElement("a");
+    a.className = "update";
+    a.href = info.url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = "Update " + (info.version || "");
+    ver.insertAdjacentElement("afterend", a);
+  }).catch(function(){});
+})();`
+
 func chromeToggleScript(embed bool) string {
 	out := `<script>` + chromeThemeToggleJS + `</script>`
 	if !embed {
 		out += `<script>` + chromeDocsLinkRewriteJS + `</script>` +
-			`<script>` + chromeNamedTabFocusJS + `</script>`
+			`<script>` + chromeNamedTabFocusJS + `</script>` +
+			`<script>` + chromeUpdateJS + `</script>`
 	}
 	return out
 }

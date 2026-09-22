@@ -104,6 +104,8 @@ buddy cred set auth gateway --type=platform --client-id=<client-id> --contexts=g
 
 Classic (`/JSSResource/…`) calls are rewritten to `/proclassic/…` (the `/JSSResource` prefix is stripped). Classic follows a platform pin by default (`features.classic_instance_only`, false). Set it true (or `BUDDY_CLASSIC_INSTANCE_ONLY=true`) to force Classic onto instance. ACS (`/api/config-profiles/…`) and undocumented Pro `GET /api/v1/policies` are always instance; they are not on the gateway and are **not** gated by that flag.
 
+`features.check_updates` is optional. Omit it and Buddy.app plus Buddy Agent look at GitHub releases at most once a day; the CLI does not. Set `true` to include the CLI (one stderr line, not for `serve` / `mcp` / `lsp`). Set `false` to check nowhere — that `false` is stored. A newer release is a link to the GitHub release page. Nothing is downloaded.
+
 **Security:** Omit secrets from YAML and use `buddy cred set secret` (or `buddy cred migrate`). Secrets live in `secrets.enc` under a random data key (Keychain account `dek` on macOS, or `~/.config/buddy/dek` on Linux). `buddy cred set passphrase` writes a **user-held** recovery wrap into `secrets.enc` for `cred backup` / `restore` — it is not stored in Keychain or a `master` file. `BUDDY_SECRET_STORE=file|pass|keychain` selects where the **DEK** lives. Never commit `secrets.enc` or `dek` to source control.
 
 Full YAML shape and field descriptions are in [Auth, secrets, and tokens](auth.md#contexts-and-auths).

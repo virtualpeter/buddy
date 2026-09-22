@@ -237,9 +237,13 @@ enum BuddyChannel: String, CaseIterable, Identifiable {
 /// running; `use_agent` / `force_agent` make an absent Agent a hard error.
 struct AgentFeatures: Codable, Equatable {
 	var classicInstanceOnly: Bool = false
+	/// Nil is Automatic (GUI checks, CLI does not). True checks the CLI too.
+	/// False checks nothing and is stored.
+	var checkUpdates: Bool?
 
 	enum CodingKeys: String, CodingKey {
 		case classicInstanceOnly
+		case checkUpdates = "check_updates"
 		case useAgent
 		case forceAgent
 	}
@@ -249,14 +253,20 @@ struct AgentFeatures: Codable, Equatable {
 	init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
 		classicInstanceOnly = try c.decodeIfPresent(Bool.self, forKey: .classicInstanceOnly) ?? false
+		checkUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkUpdates)
 		_ = try c.decodeIfPresent(Bool.self, forKey: .useAgent)
 		_ = try c.decodeIfPresent(Bool.self, forKey: .forceAgent)
 	}
+
+	var encodes: Bool { classicInstanceOnly || checkUpdates != nil }
 
 	func encode(to encoder: Encoder) throws {
 		var c = encoder.container(keyedBy: CodingKeys.self)
 		if classicInstanceOnly {
 			try c.encode(true, forKey: .classicInstanceOnly)
+		}
+		if let checkUpdates {
+			try c.encode(checkUpdates, forKey: .checkUpdates)
 		}
 	}
 }
@@ -1266,8 +1276,14 @@ enum AgentConfigExport {
 	}
 
 	static func encodeFeatures(_ features: AgentFeatures) -> [String: Any]? {
-		guard features.classicInstanceOnly else { return nil }
-		return ["classic_instance_only": true]
+		var out: [String: Any] = [:]
+		if features.classicInstanceOnly {
+			out["classic_instance_only"] = true
+		}
+		if let check = features.checkUpdates {
+			out["check_updates"] = check
+		}
+		return out.isEmpty ? nil : out
 	}
 
 	static func decodeFeatures(_ raw: [String: Any]?) -> AgentFeatures {
@@ -1277,6 +1293,11 @@ enum AgentConfigExport {
 			f.classicInstanceOnly = v
 		} else if let v = raw["classic_instance_only"] as? Int {
 			f.classicInstanceOnly = v != 0
+		}
+		if let v = raw["check_updates"] as? Bool {
+			f.checkUpdates = v
+		} else if let v = raw["check_updates"] as? Int {
+			f.checkUpdates = v != 0
 		}
 		return f
 	}

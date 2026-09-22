@@ -99,6 +99,26 @@ struct PolicyView: View {
 	}
 }
 
+private enum CheckUpdatesChoice: String {
+	case automatic, on, off
+}
+
+private func checkUpdatesChoice(_ value: Bool?) -> CheckUpdatesChoice {
+	switch value {
+	case .some(true): return .on
+	case .some(false): return .off
+	case nil: return .automatic
+	}
+}
+
+private func checkUpdatesValue(_ choice: CheckUpdatesChoice) -> Bool? {
+	switch choice {
+	case .automatic: return nil
+	case .on: return true
+	case .off: return false
+	}
+}
+
 /// Editors for buddy `features:` and `channels:` policy.
 struct ConfigPolicySection: View {
 	@ObservedObject var store: AgentStore
@@ -128,6 +148,22 @@ struct ConfigPolicySection: View {
 			.disabled(store.managedPolicyLocked("features"))
 			Text(
 				"When classic instance only is on, Classic API calls stay on Jamf Pro even when a platform auth exists."
+			)
+			.font(.caption2)
+			.foregroundStyle(.tertiary)
+			Picker(
+				"Check for updates (`features.check_updates`)",
+				selection: Binding(
+					get: { checkUpdatesChoice(features.checkUpdates) },
+					set: { features.checkUpdates = checkUpdatesValue($0) }))
+			{
+				Text("Automatic").tag(CheckUpdatesChoice.automatic)
+				Text("On").tag(CheckUpdatesChoice.on)
+				Text("Off").tag(CheckUpdatesChoice.off)
+			}
+			.disabled(store.managedPolicyLocked("features"))
+			Text(
+				"Automatic checks Buddy and Buddy Agent once a day and leaves the CLI off. On also checks the CLI. Off checks nothing. An update is a link to the GitHub release."
 			)
 			.font(.caption2)
 			.foregroundStyle(.tertiary)

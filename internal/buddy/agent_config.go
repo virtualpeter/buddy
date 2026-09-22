@@ -231,7 +231,8 @@ func (cfg *Config) HasAgentConfig() bool {
 	}
 	a := cfg.agent
 	return len(a.Tenants) > 0 || len(a.Orgs) > 0 || len(a.Auths) > 0 ||
-		len(a.Channels) > 0 || a.Features.ClassicInstanceOnly != nil
+		len(a.Channels) > 0 || a.Features.ClassicInstanceOnly != nil ||
+		a.Features.CheckUpdates != nil
 }
 
 // ContextFromAgent reports whether workplace name comes from the Agent.
@@ -285,6 +286,9 @@ func (cfg *Config) AgentConfigSummary() string {
 	}
 	if cfg.agent.Features.ClassicInstanceOnly != nil {
 		parts = append(parts, "classic_instance_only")
+	}
+	if cfg.agent.Features.CheckUpdates != nil {
+		parts = append(parts, "check_updates")
 	}
 	if len(parts) == 0 {
 		return ""
@@ -369,6 +373,20 @@ func AgentDuplicates(cfg *Config) []AgentDuplicate {
 		out = append(out, AgentDuplicate{
 			Kind:    "feature",
 			Name:    "classic_instance_only",
+			Differs: detail != "",
+			Detail:  detail,
+		})
+	}
+	if cfg.user.Features.CheckUpdates != nil && cfg.agent.Features.CheckUpdates != nil {
+		detail := describeDifference(
+			"check_updates",
+			formatBoolPtr(cfg.user.Features.CheckUpdates),
+			formatBoolPtr(cfg.agent.Features.CheckUpdates),
+		)
+		detail = strings.TrimSuffix(strings.TrimSpace(detail), ";")
+		out = append(out, AgentDuplicate{
+			Kind:    "feature",
+			Name:    "check_updates",
 			Differs: detail != "",
 			Detail:  detail,
 		})
@@ -483,8 +501,12 @@ func PruneAgentDuplicates(cfg *Config, dropSecrets bool) (AgentPruneResult, erro
 			delete(pruned.Channels, d.Name)
 			res.Channels = append(res.Channels, d.Name)
 		case "feature":
-			if d.Name == "classic_instance_only" {
+			switch d.Name {
+			case "classic_instance_only":
 				pruned.Features.ClassicInstanceOnly = nil
+				res.Features = append(res.Features, d.Name)
+			case "check_updates":
+				pruned.Features.CheckUpdates = nil
 				res.Features = append(res.Features, d.Name)
 			}
 		}

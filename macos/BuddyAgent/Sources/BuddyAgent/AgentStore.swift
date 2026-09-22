@@ -328,7 +328,7 @@ final class AgentStore: ObservableObject {
 			if !orgs.isEmpty { try c.encode(orgs, forKey: .orgs) }
 			if !workplaces.isEmpty { try c.encode(workplaces, forKey: .workplaces) }
 			if !auths.isEmpty { try c.encode(auths, forKey: .auths) }
-			if features.classicInstanceOnly { try c.encode(features, forKey: .features) }
+			if features.encodes { try c.encode(features, forKey: .features) }
 			let prunedChannels = channels.filter { !$0.value.isEmpty }
 			if !prunedChannels.isEmpty { try c.encode(prunedChannels, forKey: .channels) }
 			if let integrations, !integrations.isEmpty {

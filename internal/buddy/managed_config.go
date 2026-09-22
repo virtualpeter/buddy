@@ -275,6 +275,9 @@ func overlayConfig(base, overlay *Config) *Config {
 	if overlay.Features.ForceAgent != nil {
 		out.Features.ForceAgent = cloneBoolPtr(overlay.Features.ForceAgent)
 	}
+	if overlay.Features.CheckUpdates != nil {
+		out.Features.CheckUpdates = cloneBoolPtr(overlay.Features.CheckUpdates)
+	}
 	if len(overlay.Orgs) > 0 {
 		if out.Orgs == nil {
 			out.Orgs = map[string]OrgConfig{}
@@ -318,6 +321,7 @@ func cloneConfig(c *Config) *Config {
 	out.Features.ClassicInstanceOnly = cloneBoolPtr(c.Features.ClassicInstanceOnly)
 	out.Features.UseAgent = cloneBoolPtr(c.Features.UseAgent)
 	out.Features.ForceAgent = cloneBoolPtr(c.Features.ForceAgent)
+	out.Features.CheckUpdates = cloneBoolPtr(c.Features.CheckUpdates)
 	return out
 }
 
@@ -450,6 +454,9 @@ func userOverlayForSave(cfg *Config) *Config {
 	}
 	if !boolPtrEqual(cfg.Features.ForceAgent, base.Features.ForceAgent) || userFeat.ForceAgent != nil {
 		out.Features.ForceAgent = cloneBoolPtr(cfg.Features.ForceAgent)
+	}
+	if !boolPtrEqual(cfg.Features.CheckUpdates, base.Features.CheckUpdates) || userFeat.CheckUpdates != nil {
+		out.Features.CheckUpdates = cloneBoolPtr(cfg.Features.CheckUpdates)
 	}
 
 	userOrgs := map[string]struct{}{}
