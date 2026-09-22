@@ -5,6 +5,9 @@ private let agentStatusPanelWidth: CGFloat = 240
 
 struct AgentStatusMenuSnapshot {
 	let summaryTitle: String
+	let versionTitle: String
+	let updateTitle: String?
+	let updateURL: URL?
 	let lockTitle: String
 	let openBuddyEnabled: Bool
 	let loginEnabled: Bool
@@ -124,8 +127,23 @@ private struct AgentStatusMenuContent: View {
 				.font(.callout)
 				.foregroundStyle(.secondary)
 				.padding(.horizontal, 14)
-				.padding(.vertical, 8)
+				.padding(.top, 8)
+				.padding(.bottom, 2)
 				.frame(maxWidth: .infinity, alignment: .leading)
+			Text(snapshot.versionTitle)
+				.font(.caption)
+				.foregroundStyle(.secondary)
+				.padding(.horizontal, 14)
+				.padding(.bottom, 8)
+				.frame(maxWidth: .infinity, alignment: .leading)
+			if let updateTitle = snapshot.updateTitle, snapshot.updateURL != nil {
+				Divider()
+				menuRow(updateTitle) { _ in
+					if let url = snapshot.updateURL {
+						NSWorkspace.shared.open(url)
+					}
+				}
+			}
 			Divider()
 			menuRow(snapshot.lockTitle) { controller.toggleLockFromPanel($0) }
 			Divider()

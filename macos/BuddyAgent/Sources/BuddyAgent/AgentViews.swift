@@ -2435,7 +2435,7 @@ struct StatusView: View {
 	]
 
 	@State private var reviewSnapshot: AgentConfigLastGood.Diagnostics?
-	@StateObject private var updateCheck = AgentUpdateCheck()
+	@ObservedObject private var updateCheck = AgentUpdateCheck.shared
 
 	var body: some View {
 		statusScroll

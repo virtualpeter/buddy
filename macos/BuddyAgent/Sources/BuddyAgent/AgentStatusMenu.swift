@@ -5,8 +5,12 @@ enum AgentStatusMenu {
 	static func snapshot(unlocked: Bool, authCount: Int) -> AgentStatusMenuSnapshot {
 		let lockWord = unlocked ? "Unlocked" : "Locked"
 		let plural = authCount == 1 ? "" : "s"
+		let notice = agentUpdateMenuNotice()
 		return AgentStatusMenuSnapshot(
 			summaryTitle: "Buddy Agent — \(lockWord) (\(authCount) auth\(plural))",
+			versionTitle: AgentBranding.revision,
+			updateTitle: notice.version.map { "Update Available: \($0)" },
+			updateURL: notice.url,
 			lockTitle: unlocked ? "Lock Agent" : "Unlock Agent",
 			openBuddyEnabled: AgentBranding.buddyAppURL() != nil,
 			loginEnabled: AgentLoginItem.isAvailable,

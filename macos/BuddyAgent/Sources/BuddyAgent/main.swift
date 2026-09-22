@@ -43,6 +43,7 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 			return
 		}
 		buildStatusItem()
+		refreshUpdateCheck()
 		store.startConfigFileMonitor { [weak state] in state?.unlocked ?? false }
 		offerSetupIfNeeded()
 		registerShowSettingsObserver()
@@ -98,8 +99,17 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 		refreshStatusItem()
 	}
 
+	private func refreshUpdateCheck() {
+		let enabled = store.managedPrefs.checkUpdates ?? (store.features.checkUpdates != false)
+		let revision = AgentBranding.revision
+		MainActor.assumeIsolated {
+			AgentUpdateCheck.shared.refresh(enabled: enabled, current: revision)
+		}
+	}
+
 	@objc private func toggleStatusPanel(_ sender: Any?) {
 		guard let button = statusItem?.button else { return }
+		refreshUpdateCheck()
 		statusPanel.toggle(
 			relativeTo: button,
 			snapshot: AgentStatusMenu.snapshot(unlocked: state.unlocked, authCount: store.authCount),

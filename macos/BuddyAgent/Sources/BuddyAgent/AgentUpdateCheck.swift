@@ -4,20 +4,49 @@ import Foundation
 /// the Mac asks GitHub at most once per running version per day.
 @MainActor
 final class AgentUpdateCheck: ObservableObject {
+	static let shared = AgentUpdateCheck()
+
 	@Published private(set) var updateVersion: String?
 	@Published private(set) var updateURL: URL?
 
 	func refresh(enabled: Bool, current: String) {
-		updateVersion = nil
-		updateURL = nil
-		guard enabled else { return }
+		guard enabled else {
+			updateVersion = nil
+			updateURL = nil
+			AgentUpdateMenuCache.store(version: nil, url: nil)
+			return
+		}
 		Task.detached(priority: .utility) {
 			let notice = AgentUpdateChecker.notice(current: current)
 			await MainActor.run {
 				self.updateVersion = notice.version
 				self.updateURL = notice.url
+				AgentUpdateMenuCache.store(version: notice.version, url: notice.url)
 			}
 		}
+	}
+}
+
+func agentUpdateMenuNotice() -> (version: String?, url: URL?) {
+	AgentUpdateMenuCache.current()
+}
+
+private enum AgentUpdateMenuCache {
+	private static let lock = NSLock()
+	private static var version: String?
+	private static var url: URL?
+
+	static func current() -> (version: String?, url: URL?) {
+		lock.lock()
+		defer { lock.unlock() }
+		return (version, url)
+	}
+
+	static func store(version: String?, url: URL?) {
+		lock.lock()
+		self.version = version
+		self.url = url
+		lock.unlock()
 	}
 }
 
