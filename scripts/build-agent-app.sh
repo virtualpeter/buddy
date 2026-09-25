@@ -62,6 +62,8 @@ xcodebuild \
 	-archivePath "$work/BuddyAgent.xcarchive" \
 	-allowProvisioningUpdates \
 	DEVELOPMENT_TEAM="$team" \
+	ARCHS=arm64 \
+	ONLY_ACTIVE_ARCH=NO \
 	MARKETING_VERSION="$version" \
 	archive >"$work/archive.log" 2>&1 ||
 	{ tail -40 "$work/archive.log" >&2; echo "build-agent-app: archive failed" >&2; exit 1; }

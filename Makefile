@@ -39,11 +39,11 @@ BUDDY_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || ech
 BUDDY_GO_FILES := $(shell find cmd/buddy internal docfs stdlib \( -name "*.go" -o -name "*.buddy" -o -name "buddy.png" \) 2>/dev/null)
 DOC_SOURCES := $(shell find docs examples -type f \( -name '*.md' -o -name '*.buddy' -o -name '*.json' \) 2>/dev/null) README.md
 
+.PHONY: default
+default: $(BUILDTARGET)
+
 $(DIST):
 	mkdir -p $(DIST)
-
-.PHONY: default
-default: $(SIGNED_TARGET)
 
 .PHONY: gendocs
 gendocs:

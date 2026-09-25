@@ -65,6 +65,8 @@ xcodebuild \
 	-derivedDataPath "$dd" \
 	CODE_SIGN_IDENTITY="-" \
 	CODE_SIGNING_ALLOWED=NO \
+	ARCHS=arm64 \
+	ONLY_ACTIVE_ARCH=NO \
 	MARKETING_VERSION="$version" \
 	CURRENT_PROJECT_VERSION=1 \
 	build >"$work/xcodebuild.log" 2>&1 ||
