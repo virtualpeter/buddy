@@ -2,6 +2,14 @@
 
 buddy did not keep a changelog before v12. This page is the user-facing list of notable changes per tagged release. Version strings come from git tags (`git describe`). Maintainers add a section with `make tag`.
 
+## v12.2.0
+
+"The one that has one less bug"
+
+- Document that Classic policy log rows have no id and no body.
+- Build Buddy and Buddy Agent as arm64 only.
+- Verify the config seal with the unlock context before calling it tampered.
+
 ## v12.1.6
 
 "The one where the computer says no"
