@@ -109,7 +109,9 @@ const PoliciesBuiltinsSection = `POLICY
         tenant?/surface?/auth?: session overrides.
       Notes: Still GET /JSSResource/computerhistory/id/{id}/subset/PolicyLogs per Mac; Jamf
         sends every policy that computer ran, then Buddy filters policy_id. No GET
-        /policies/{id}/logs. last_contact is not "logs since" — use since=/until=. Relative
+        /policies/{id}/logs. A policy log row has no id and no body. policy_id is the
+        policy. --json is the full Classic record (status, user, completed time).
+        last_contact is not "logs since" — use since=/until=. Relative
         date_completed strings are UI text; sort/CSV with _utc/_epoch. Does not walk policy
         scope, skip unmanaged, or resume/flush; use computer_ids + skip/limit for that.
         Multi-computer scans print progress on stderr. Unconstrained fleet scan is rejected.
@@ -144,6 +146,10 @@ Flags for 'logs':
   --skip=<n>                       Skip n computers after the candidate list is built
   --limit=<n>                      Max computers to scan; alone uses Classic computers/subset/basic
   --json                           Print flattened logs as JSON
+
+Notes:
+  A policy log row has no id and no body. policy_id is the policy.
+  --json is the full Classic record (status, user, completed time).
 
 Examples:
   buddy policy list --filter=chrome

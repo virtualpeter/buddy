@@ -619,7 +619,8 @@ Notes:
   Jamf publishes policy execution logs per computer (Classic computerhistory
   PolicyLogs subset), so buddy scans a bounded computer set and filters by
   policy ID client-side. Pass exactly one computer source; an unconstrained
-  fleet walk is rejected.
+  fleet walk is rejected. A policy log row has no id and no body. policy_id
+  is the policy. --json is the full Classic record (status, user, completed time).
 
 Examples:
   buddy policy logs 42 --computer=101

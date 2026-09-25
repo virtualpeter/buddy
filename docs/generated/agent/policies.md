@@ -26,18 +26,18 @@ List, load, mutate, copy, and migrate Jamf Classic policies with buddy.
 - Prefer fat `policy_set*` helpers over hand-edited XML when they cover the change.
 - Wait until a package is JCDS **READY** before attach — see [packages](/docs/docs/packages).
 - Do not hand-roll versioned release clones when [change batches](/docs/docs/change-batches) already encode the workflow.
-- Policy execution logs: `policy_logs(id, computer_id=…)` for one Mac, or `computer_ids=` / `limit=` for a bounded scan. Do not treat `last_contact=` as logs-since (that is v4 `general.lastContact`). Do not invent `jamf_get` or `/api/v1/policies` logs. Does not walk policy scope.
+- Policy execution logs: `policy_logs(id, computer_id=…)` for one Mac, or `computer_ids=` / `limit=` for a bounded scan. A policy log row has no id and no body; `policy_id` is the policy; `--json` is the full Classic record (status, user, completed time). Do not treat `last_contact=` as logs-since (that is v4 `general.lastContact`). Do not invent `jamf_get` or `/api/v1/policies` logs. Does not walk policy scope.
 
 ## Facts
 
 - List / find: `policies(keywords=…)` / `policies(ids=True)` · `buddy policy list` — Summary dicts `{id, name, …}`
 - Load: `policy(id=…)` / `policy(trigger=…)` / `policy_xml(id=…)` · `buddy policy get` — Full Classic XML as dict or string
-- Logs: `policy_logs(id, computer_id=… | computer_ids=… | limit=…)` · `buddy policy logs <policy-id> --computer= | --computer-ids= | --limit=` — Classic computerhistory per Mac; client-side policy_id filter. Not GET /policies/{id}/logs
+- Logs: `policy_logs(id, computer_id=… | computer_ids=… | limit=…)` · `buddy policy logs <policy-id> --computer= | --computer-ids= | --limit=` — Classic computerhistory per Mac; client-side policy_id filter. Not GET /policies/{id}/logs. A row has no id and no body; policy_id is the policy; --json is the full Classic record
 - Mutate: `policy_set*` / `policy_put_xml` · `buddy policy set` — Multi-step helpers for common fields; raw XML when needed
 - Set SS icon: `policy_set_icon(id, file=… | icon_id=…)` · `buddy policy set icon` — Upload or attach existing icon id; see [icons](/docs/docs/icons)
 - Copy / migrate: `policy_copy` / `policy_migrate` — Cross-session; remap category/scripts/packages by name; icons by re-upload
 - Versioned release bumps use [change batches](/docs/docs/change-batches) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.
-- Policy **execution** logs are Classic computerhistory per computer (`policy_logs` / `computer_policy_logs`). There is no `GET /policies/{id}/logs`; Jamf still sends every policy that Mac ran. Bound the computer list with `computer_id`, `computer_ids`, `limit=` (Classic `/computers/subset/basic`), or v4 `last_contact`/`filter` (inventory lastContact, not log date). Use `since=`/`until=` on `date_completed_epoch`. Unconstrained fleet scan is rejected. `GET /api/v1/policies` is a list index only.
+- Policy **execution** logs are Classic computerhistory per computer (`policy_logs` / `computer_policy_logs`). There is no `GET /policies/{id}/logs`; Jamf still sends every policy that Mac ran. A policy log row has no id and no body. `policy_id` is the policy. `--json` is the full Classic record (status, user, completed time). Bound the computer list with `computer_id`, `computer_ids`, `limit=` (Classic `/computers/subset/basic`), or v4 `last_contact`/`filter` (inventory lastContact, not log date). Use `since=`/`until=` on `date_completed_epoch`. Unconstrained fleet scan is rejected. `GET /api/v1/policies` is a list index only.
 
 ## Builtins
 

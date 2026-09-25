@@ -11,7 +11,7 @@ Jamf Pro computer inventory (v4) and MDM **actions** (reboot, lock, erase, …).
 | Load | `computer(id=…, section?)` | `buddy computer get [--section=…]` | Passthrough JSON; default GENERAL; `section` → `?section=` |
 | Load all sections | `computer_detail(id=…)` | `buddy computer detail` | `GET …/computers-inventory-detail/{id}` |
 | EA values | `computer_extension_attributes` / `computer_set_extension_attribute` | `buddy computer eas` / `set ea` | `section=EXTENSION_ATTRIBUTES`; TEXT/POPUP writable via PATCH |
-| Policy logs | `computer_history` / `computer_policy_logs` / `policy_logs` | `buddy computer history` / `logs` | Classic computerhistory per Mac; policy_logs needs a bounded computer list |
+| Policy logs | `computer_history` / `computer_policy_logs` / `policy_logs` | `buddy computer history` / `logs` | Classic computerhistory per Mac; policy_logs needs a bounded computer list. A row has no id and no body; policy_id is the policy; --json is the full Classic record |
 | MDM actions | `computer_reboot` / `computer_lock` / … | `buddy computer reboot\|lock\|…` | Named builtins and matching CLI verbs |
 
 ## Notes

@@ -41,6 +41,8 @@ const ComputersBuiltinsSection = `COMPUTER
         subset?: str or list — Classic subset names (PolicyLogs, General, Commands, …);
         omit = full document (can be large). tenant?/surface?/auth?: session overrides.
       Notes: GET /JSSResource/computerhistory. Flattened policy_log wrappers.
+        A policy log row has no id and no body. policy_id is the policy.
+        --json is the full Classic record (status, user, completed time).
         Not GET /api/v1/policies (list index only). Privilege: Read Computer History.
   computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, since?, until?, tenant?, surface?, auth?)
       Does: Fetch Classic PolicyLogs for one computer and return flattened rows.
@@ -49,6 +51,8 @@ const ComputersBuiltinsSection = `COMPUTER
         policy_id?: int/str (client-side filter). status?: str (case-insensitive exact; omit or None).
         since?/until?: ISO or epoch on date_completed_epoch. tenant?/surface?/auth?: session overrides.
       Notes: Always subset/PolicyLogs. date_completed* aliases date_time*. No fleet fan-out (see policy_logs).
+        A policy log row has no id and no body. policy_id is the policy.
+        --json is the full Classic record (status, user, completed time).
   computer_send_mdm_command(ids, command_type, command_data?, tenant?, surface?, auth?)
       Does: Queue a named MDM command on one or more computers.
       → None
@@ -153,6 +157,10 @@ Flags for 'logs':
   --since=<iso-or-epoch>         Keep rows with date_completed_epoch >= value
   --until=<iso-or-epoch>         Keep rows with date_completed_epoch <= value
   --json                         Print flattened logs as JSON
+
+Notes:
+  history and logs print Classic policy log rows. A row has no id and no body.
+  policy_id is the policy. --json is the full Classic record (status, user, completed time).
 
 Examples:
   buddy computer list

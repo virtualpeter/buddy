@@ -36,7 +36,7 @@ var ComputersTopic = docspec.Topic{
 		{Action: "Load", BuddyScript: "`computer(id=…, section?)`", CLI: "`buddy computer get [--section=…]`", Notes: "Passthrough JSON; default GENERAL; `section` → `?section=`"},
 		{Action: "Load all sections", BuddyScript: "`computer_detail(id=…)`", CLI: "`buddy computer detail`", Notes: "`GET …/computers-inventory-detail/{id}`"},
 		{Action: "EA values", BuddyScript: "`computer_extension_attributes` / `computer_set_extension_attribute`", CLI: "`buddy computer eas` / `set ea`", Notes: "`section=EXTENSION_ATTRIBUTES`; TEXT/POPUP writable via PATCH"},
-		{Action: "Policy logs", BuddyScript: "`computer_history` / `computer_policy_logs` / `policy_logs`", CLI: "`buddy computer history` / `logs`", Notes: "Classic computerhistory per Mac; policy_logs needs a bounded computer list"},
+		{Action: "Policy logs", BuddyScript: "`computer_history` / `computer_policy_logs` / `policy_logs`", CLI: "`buddy computer history` / `logs`", Notes: "Classic computerhistory per Mac; policy_logs needs a bounded computer list. A row has no id and no body; policy_id is the policy; --json is the full Classic record"},
 		{Action: "MDM actions", BuddyScript: "`computer_reboot` / `computer_lock` / …", CLI: "`buddy computer reboot|lock|…`", Notes: "Named builtins and matching CLI verbs"},
 	},
 	Notes: []string{
@@ -46,7 +46,7 @@ var ComputersTopic = docspec.Topic{
 	AgentNotes: []string{
 		"Do not mix Pro `computer*` with Platform `device*` — different gateways and IDs.",
 		"Do not use this page for RSQL history of MDM commands — that is [mdm](/docs/docs/mdm).",
-		"Policy execution logs are Classic `computer_history` / `computer_policy_logs` (or `policy_logs(id, computer_id=… | computer_ids=… | limit=…)`). Jamf has no policy-centric logs collection. Do not invent `jamf_get` or `GET /api/v1/policies` logs — that path is a list index only.",
+		"Policy execution logs are Classic `computer_history` / `computer_policy_logs` (or `policy_logs(id, computer_id=… | computer_ids=… | limit=…)`). Jamf has no policy-centric logs collection. A policy log row has no id and no body; `policy_id` is the policy; `--json` is the full Classic record (status, user, completed time). Do not invent `jamf_get` or `GET /api/v1/policies` logs — that path is a list index only.",
 		"Computer inventory is **v4** (`/api/v4/computers-inventory`). Do not use v3 `lastContactTime` or Platform `lastCheckInTime` / `lastInventoryUpdateTime` (see [api-endpoints](/docs/docs/api-endpoints)).",
 		"Date filters: `general.lastContact` (last MDM/binary/DDM contact), `general.lastCheckIn`, `general.reportDate` (last inventory). Unquoted ISO-8601 UTC.",
 		"`computers()` summary dicts include `lastContact`, `lastCheckIn`, `reportDate`, `lastEnrolledDate`, `platform` from GENERAL. `raw=True` is Jamf `results[]` passthrough (xor with `ids=True`). List `section=` adds HARDWARE/OS without N+1 gets.",
@@ -173,6 +173,8 @@ var ComputersTopic = docspec.Topic{
         subset?: str or list — Classic subset names (PolicyLogs, General, Commands, …);
         omit = full document (can be large). tenant?/surface?/auth?: session overrides.
       Notes: GET /JSSResource/computerhistory. Flattened policy_log wrappers.
+        A policy log row has no id and no body. policy_id is the policy.
+        --json is the full Classic record (status, user, completed time).
         Not GET /api/v1/policies (list index only). Privilege: Read Computer History.
   computer_policy_logs(id=?, name=?, serial=?, udid=?, policy_id?, status?, since?, until?, tenant?, surface?, auth?)
       Does: Fetch Classic PolicyLogs for one computer and return flattened rows.
@@ -181,6 +183,8 @@ var ComputersTopic = docspec.Topic{
         policy_id?: int/str (client-side filter). status?: str (case-insensitive exact; omit or None).
         since?/until?: ISO or epoch on date_completed_epoch. tenant?/surface?/auth?: session overrides.
       Notes: Always subset/PolicyLogs. date_completed* aliases date_time*. No fleet fan-out (see policy_logs).
+        A policy log row has no id and no body. policy_id is the policy.
+        --json is the full Classic record (status, user, completed time).
   computer_send_mdm_command(ids, command_type, command_data?, tenant?, surface?, auth?)
       Does: Queue a named MDM command on one or more computers.
       → None
@@ -283,6 +287,10 @@ Flags for 'logs':
   --since=<iso-or-epoch>         Keep rows with date_completed_epoch >= value
   --until=<iso-or-epoch>         Keep rows with date_completed_epoch <= value
   --json                         Print flattened logs as JSON
+
+Notes:
+  history and logs print Classic policy log rows. A row has no id and no body.
+  policy_id is the policy. --json is the full Classic record (status, user, completed time).
 
 Examples:
   buddy computer list

@@ -27,21 +27,21 @@ var PoliciesTopic = docspec.Topic{
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / find", BuddyScript: "`policies(keywords=…)` / `policies(ids=True)`", CLI: "`buddy policy list`", Notes: "Summary dicts `{id, name, …}`"},
 		{Action: "Load", BuddyScript: "`policy(id=…)` / `policy(trigger=…)` / `policy_xml(id=…)`", CLI: "`buddy policy get`", Notes: "Full Classic XML as dict or string"},
-		{Action: "Logs", BuddyScript: "`policy_logs(id, computer_id=… | computer_ids=… | limit=…)`", CLI: "`buddy policy logs <policy-id> --computer= | --computer-ids= | --limit=`", Notes: "Classic computerhistory per Mac; client-side policy_id filter. Not GET /policies/{id}/logs"},
+		{Action: "Logs", BuddyScript: "`policy_logs(id, computer_id=… | computer_ids=… | limit=…)`", CLI: "`buddy policy logs <policy-id> --computer= | --computer-ids= | --limit=`", Notes: "Classic computerhistory per Mac; client-side policy_id filter. Not GET /policies/{id}/logs. A row has no id and no body; policy_id is the policy; --json is the full Classic record"},
 		{Action: "Mutate", BuddyScript: "`policy_set*` / `policy_put_xml`", CLI: "`buddy policy set`", Notes: "Multi-step helpers for common fields; raw XML when needed"},
 		{Action: "Set SS icon", BuddyScript: "`policy_set_icon(id, file=… | icon_id=…)`", CLI: "`buddy policy set icon`", Notes: "Upload or attach existing icon id; see [icons](/docs/docs/icons)"},
 		{Action: "Copy / migrate", BuddyScript: "`policy_copy` / `policy_migrate`", Notes: "Cross-session; remap category/scripts/packages by name; icons by re-upload"},
 	},
 	Notes: []string{
 		"Versioned release bumps use [change batches](/docs/docs/change-batches) (`step_clone_policy` / `step_set_package`) or compose `policy_copy` + set helpers — there is no public `policy_clone` builtin.",
-		"Policy **execution** logs are Classic computerhistory per computer (`policy_logs` / `computer_policy_logs`). There is no `GET /policies/{id}/logs`; Jamf still sends every policy that Mac ran. Bound the computer list with `computer_id`, `computer_ids`, `limit=` (Classic `/computers/subset/basic`), or v4 `last_contact`/`filter` (inventory lastContact, not log date). Use `since=`/`until=` on `date_completed_epoch`. Unconstrained fleet scan is rejected. `GET /api/v1/policies` is a list index only.",
+		"Policy **execution** logs are Classic computerhistory per computer (`policy_logs` / `computer_policy_logs`). There is no `GET /policies/{id}/logs`; Jamf still sends every policy that Mac ran. A policy log row has no id and no body. `policy_id` is the policy. `--json` is the full Classic record (status, user, completed time). Bound the computer list with `computer_id`, `computer_ids`, `limit=` (Classic `/computers/subset/basic`), or v4 `last_contact`/`filter` (inventory lastContact, not log date). Use `since=`/`until=` on `date_completed_epoch`. Unconstrained fleet scan is rejected. `GET /api/v1/policies` is a list index only.",
 	},
 	AgentNotes: []string{
 		"Do not invent Classic policy PUT/POST bodies from `jamf_schema` or Jamf MCP `execute-request` when a named builtin exists.",
 		"Prefer fat `policy_set*` helpers over hand-edited XML when they cover the change.",
 		"Wait until a package is JCDS **READY** before attach — see [packages](/docs/docs/packages).",
 		"Do not hand-roll versioned release clones when [change batches](/docs/docs/change-batches) already encode the workflow.",
-		"Policy execution logs: `policy_logs(id, computer_id=…)` for one Mac, or `computer_ids=` / `limit=` for a bounded scan. Do not treat `last_contact=` as logs-since (that is v4 `general.lastContact`). Do not invent `jamf_get` or `/api/v1/policies` logs. Does not walk policy scope.",
+		"Policy execution logs: `policy_logs(id, computer_id=…)` for one Mac, or `computer_ids=` / `limit=` for a bounded scan. A policy log row has no id and no body; `policy_id` is the policy; `--json` is the full Classic record (status, user, completed time). Do not treat `last_contact=` as logs-since (that is v4 `general.lastContact`). Do not invent `jamf_get` or `/api/v1/policies` logs. Does not walk policy scope.",
 	},
 	Builtins: []docspec.Builtin{
 		{
@@ -205,7 +205,9 @@ var PoliciesTopic = docspec.Topic{
         tenant?/surface?/auth?: session overrides.
       Notes: Still GET /JSSResource/computerhistory/id/{id}/subset/PolicyLogs per Mac; Jamf
         sends every policy that computer ran, then Buddy filters policy_id. No GET
-        /policies/{id}/logs. last_contact is not "logs since" — use since=/until=. Relative
+        /policies/{id}/logs. A policy log row has no id and no body. policy_id is the
+        policy. --json is the full Classic record (status, user, completed time).
+        last_contact is not "logs since" — use since=/until=. Relative
         date_completed strings are UI text; sort/CSV with _utc/_epoch. Does not walk policy
         scope, skip unmanaged, or resume/flush; use computer_ids + skip/limit for that.
         Multi-computer scans print progress on stderr. Unconstrained fleet scan is rejected.
@@ -238,6 +240,10 @@ Flags for 'logs':
   --skip=<n>                       Skip n computers after the candidate list is built
   --limit=<n>                      Max computers to scan; alone uses Classic computers/subset/basic
   --json                           Print flattened logs as JSON
+
+Notes:
+  A policy log row has no id and no body. policy_id is the policy.
+  --json is the full Classic record (status, user, completed time).
 
 Examples:
   buddy policy list --filter=chrome
