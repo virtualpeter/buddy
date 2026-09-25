@@ -239,7 +239,7 @@ final class AgentServer {
 						"token rejected auth=\(auth): unlock unavailable")
 				}
 			}
-			if let why = self.store.configMintBlockedReason() {
+			if let why = self.store.configMintBlockedReason(presence: presence) {
 				return logBuddyToken(
 					AgentReply.failure(.configTampered, why),
 					"token rejected auth=\(auth): config integrity")

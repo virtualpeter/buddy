@@ -143,7 +143,7 @@ final class AgentStore: ObservableObject {
 				verified = AgentConfigIntegrity.verify(configPath: path, presence: context)
 				return true
 			}
-			return ok ? verified : .sealed
+			if ok { return verified }
 		}
 		if let presence {
 			return AgentConfigIntegrity.verify(configPath: path, presence: presence)
@@ -151,12 +151,33 @@ final class AgentStore: ObservableObject {
 		return .sealed
 	}
 
-	func configMintBlockedReason() -> String? {
+	/// Mint-time seal check. Pass the same `LAContext` as token minting when available.
+	func configMintBlockedReason(presence: LAContext?) -> String? {
 		guard AgentKeychain.backend == .dataProtection else { return nil }
-		guard AgentConfigIntegrity.hasStoredSeal else {
-			return "config is not sealed — open Buddy Agent Settings and save once"
+		let reason: String?
+		if let presence {
+			reason = AgentConfigIntegrity.mintBlockedReason(configPath: path, presence: presence)
+		} else if !AgentConfigIntegrity.hasStoredSeal {
+			reason = "config is not sealed — open Buddy Agent Settings and save once"
+		} else {
+			reason = Self.mintBlockedMessage(
+				for: configIntegrity(unlocked: true, presence: nil))
 		}
-		switch configIntegrity(unlocked: true, presence: nil) {
+		if let reason {
+			let integrity = presence.map {
+				AgentConfigIntegrity.verify(configPath: path, presence: $0)
+			} ?? configIntegrity(unlocked: true, presence: nil)
+			var line = "mint blocked: config integrity \(integrity.wireValue)"
+			if let detail = AgentConfigIntegrity.lastFailureReason {
+				line += " — \(detail)"
+			}
+			AgentLog.shared.config(line)
+		}
+		return reason
+	}
+
+	private static func mintBlockedMessage(for integrity: AgentConfigIntegrity.State) -> String? {
+		switch integrity {
 		case .ok:
 			return nil
 		case .tampered:
