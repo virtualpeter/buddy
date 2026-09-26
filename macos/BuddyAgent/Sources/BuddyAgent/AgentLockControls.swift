@@ -25,6 +25,29 @@ enum AgentLockUI {
 		}
 	}
 
+	/// Runs `action` now when the Agent is unlocked (or sealing is not required).
+	/// While locked, asks to unlock first and runs `action` only after that succeeds.
+	static func perform(
+		gate: UnlockGate,
+		state: AgentState,
+		reason: String = "save Buddy Agent config",
+		action: @escaping () -> Void
+	) {
+		let needsUnlock = AgentStore.configPersistRequiresUnlock && !state.unlocked
+		guard needsUnlock else {
+			action()
+			return
+		}
+		unlock(gate: gate, reason: reason) { outcome in
+			if outcome == .unlocked {
+				action()
+			} else {
+				let alert = failureAlert(for: outcome)
+				showAgentLockAlert(title: alert.title, message: alert.message)
+			}
+		}
+	}
+
 	static func unlock(
 		gate: UnlockGate,
 		reason: String = "unlock the Buddy Agent",

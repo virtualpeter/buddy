@@ -40,7 +40,8 @@ struct AgentRootView: View {
 						onShowStatus: { selectedTab = .status })
 				case .policy:
 					PolicyView(
-						store: store, unlocked: state.unlocked, onShowStatus: { selectedTab = .status })
+						store: store, state: state, gate: gate,
+						onShowStatus: { selectedTab = .status })
 				case .log:
 					LogView(log: log)
 				case .status:
@@ -165,7 +166,6 @@ struct ConfigView: View {
 				ConfigReviewLockBanner(store: store, onShowStatus: onShowStatus)
 				if store.isEmpty {
 					EmptySetupBanner(
-						isLocked: !state.unlocked,
 						onQuickSetup: { presentSheet(.quickSetup) },
 						onImportBackup: { pickBackup() },
 						onImportConfig: { importConfig() })
@@ -206,7 +206,7 @@ struct ConfigView: View {
 	private func sheetContent(_ sheet: ConfigActiveSheet) -> some View {
 		switch sheet {
 		case .workplace(let draft):
-			WorkplaceEditor(store: store, unlocked: state.unlocked, draft: draft)
+			WorkplaceEditor(store: store, state: state, gate: gate, draft: draft)
 		case .auth(let draft):
 			AuthEditor(store: store, state: state, gate: gate, draft: draft)
 		case .backup(let prompt):
@@ -214,7 +214,7 @@ struct ConfigView: View {
 				importBackup(prompt.url, passphrase: passphrase)
 			}
 		case .exportBackup:
-			BackupExportPassphraseSheet(needsUnlock: !state.unlocked) { passphrase in
+			BackupExportPassphraseSheet { passphrase in
 				exportBackupFile(passphrase: passphrase)
 			}
 		case .bearer(let draft):
@@ -265,7 +265,12 @@ struct ConfigView: View {
 								name: node.name, previousName: node.name, workplace: node.workplace,
 								kind: node.kind)))
 					},
-					onDelete: { store.removeWorkplace($0) })
+					onSetDefault: { name in
+						commitConfig { store.setDefaultContext(name) }
+					},
+					onDelete: { name in
+						commitConfig { store.removeWorkplace(name) }
+					})
 					.padding(8)
 					.background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
 					.overlay(
@@ -346,7 +351,10 @@ struct ConfigView: View {
 											name: name, previousName: name,
 											auth: store.auths[name] ?? AgentAuth())))
 								},
-								onDelete: { store.removeAuth(name) })
+								onDelete: {
+									let authName = name
+									commitConfig { store.removeAuth(authName) }
+								})
 							if name != store.sortedAuthNames.last {
 								Divider()
 							}
@@ -380,7 +388,7 @@ struct ConfigView: View {
 			}
 			.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 			Text(
-				"Setup export is identity only. Cred backup also carries secrets — unlock the Agent first, or the backup file will not contain secrets."
+				"Setup export is identity only. Cred backup also carries secrets — exporting one asks you to unlock."
 			)
 			.font(.caption)
 			.foregroundStyle(.secondary)
@@ -405,18 +413,24 @@ struct ConfigView: View {
 		return nil
 	}
 
+	private func commitConfig(_ action: @escaping () -> Void) {
+		AgentLockUI.perform(gate: gate, state: state, action: action)
+	}
+
 	private func importConfig() {
 		guard
 			let url = chooseFile(
 				types: [.json], prompt: "Choose the JSON written by 'buddy setup export --json'")
 		else { return }
-		do {
-			let added = try store.importExport(Data(contentsOf: url))
-			message =
-				"Imported \(added) item(s) from \(url.lastPathComponent). Add secrets before minting."
-			onImportFinished()
-		} catch {
-			message = "Import failed: \(error)"
+		commitConfig {
+			do {
+				let added = try store.importExport(Data(contentsOf: url))
+				message =
+					"Imported \(added) item(s) from \(url.lastPathComponent). Add secrets before minting."
+				onImportFinished()
+			} catch {
+				message = "Import failed: \(error)"
+			}
 		}
 	}
 
@@ -429,72 +443,74 @@ struct ConfigView: View {
 	}
 
 	private func importBackup(_ url: URL, passphrase: String) {
-		message = "Importing \(url.lastPathComponent)…"
-		Task { @MainActor in
-			do {
-				let data = try Data(contentsOf: url)
-				let contents = try AgentBackup.read(data, passphrase: passphrase)
-				let added = try store.importDocumentForBackup(contents.document)
-				let secrets = contents.secrets
-				let fileName = url.lastPathComponent
-				if secrets.isEmpty && !store.auths.isEmpty {
-					showAgentAlert(
-						title: "Backup has no secrets",
-						message:
-							"\(fileName) decrypted successfully but contains no client secrets or passwords. Config was imported — re-type secrets in each auth, or restore from a backup that was exported while the Agent was unlocked."
-					)
-				}
-				DispatchQueue.global(qos: .userInitiated).async { [gate, store] in
-					var presence: LAContext?
-					var unlockFailed = false
-					if !secrets.isEmpty, AgentKeychain.backend == .dataProtection {
-						switch gate.authorize(reason: "import secrets from your cred backup") {
-						case .unlocked:
-							presence = gate.presenceContext
-						default:
-							unlockFailed = true
+		commitConfig {
+			message = "Importing \(url.lastPathComponent)…"
+			Task { @MainActor in
+				do {
+					let data = try Data(contentsOf: url)
+					let contents = try AgentBackup.read(data, passphrase: passphrase)
+					let added = try store.importDocumentForBackup(contents.document)
+					let secrets = contents.secrets
+					let fileName = url.lastPathComponent
+					if secrets.isEmpty && !store.auths.isEmpty {
+						showAgentAlert(
+							title: "Backup has no secrets",
+							message:
+								"\(fileName) decrypted successfully but contains no client secrets or passwords. Config was imported — re-type secrets in each auth, or restore from a backup that was exported while the Agent was unlocked."
+						)
+					}
+					DispatchQueue.global(qos: .userInitiated).async { [gate, store] in
+						var presence: LAContext?
+						var unlockFailed = false
+						if !secrets.isEmpty, AgentKeychain.backend == .dataProtection {
+							switch gate.authorize(reason: "import secrets from your cred backup") {
+							case .unlocked:
+								presence = gate.presenceContext
+							default:
+								unlockFailed = true
+							}
+						}
+						let result = store.importBackupSecrets(secrets, presence: presence)
+						DispatchQueue.main.async {
+							var parts: [String] = []
+							parts.append("Imported \(added) item(s) from \(fileName).")
+							if result.secrets > 0 {
+								parts.append("\(result.secrets) secret(s) stored in the keychain.")
+							}
+							if result.ephemeral > 0 {
+								parts.append(
+									"\(result.ephemeral) secret(s) are memory-only until quit — unlock and re-import if needed.")
+							}
+							if result.failed > 0 {
+								parts.append("\(result.failed) secret(s) did not land.")
+							}
+							message = parts.joined(separator: " ")
+							if unlockFailed && !secrets.isEmpty {
+								showAgentAlert(
+									title: "Secrets not imported",
+									message:
+										"Config from \(fileName) was imported, but the unlock prompt was declined. Import the backup again to store secrets."
+								)
+							} else if !secrets.isEmpty && result.secrets == 0 && result.ephemeral == 0 {
+								showAgentAlert(
+									title: "Secrets not imported",
+									message:
+										"None of the \(secrets.count) secret(s) in this backup could be stored. Try the import again, or enter secrets manually in each auth."
+								)
+							} else if result.failed > 0 {
+								showAgentAlert(
+									title: "Some secrets missing",
+									message:
+										"\(result.failed) of \(secrets.count) secret(s) from the backup did not land in the Keychain. Check the Activity log and re-import or type secrets in Setup."
+								)
+							}
+							onImportFinished()
 						}
 					}
-					let result = store.importBackupSecrets(secrets, presence: presence)
-					DispatchQueue.main.async {
-						var parts: [String] = []
-						parts.append("Imported \(added) item(s) from \(fileName).")
-						if result.secrets > 0 {
-							parts.append("\(result.secrets) secret(s) stored in the keychain.")
-						}
-						if result.ephemeral > 0 {
-							parts.append(
-								"\(result.ephemeral) secret(s) are memory-only until quit — unlock and re-import if needed.")
-						}
-						if result.failed > 0 {
-							parts.append("\(result.failed) secret(s) did not land.")
-						}
-						message = parts.joined(separator: " ")
-						if unlockFailed && !secrets.isEmpty {
-							showAgentAlert(
-								title: "Secrets not imported",
-								message:
-									"Config from \(fileName) was imported, but secrets need an unlocked Agent. Choose Unlock Agent from the menu bar, then import the backup again."
-							)
-						} else if !secrets.isEmpty && result.secrets == 0 && result.ephemeral == 0 {
-							showAgentAlert(
-								title: "Secrets not imported",
-								message:
-									"None of the \(secrets.count) secret(s) in this backup could be stored. Unlock the Agent and try again, or enter secrets manually in each auth."
-							)
-						} else if result.failed > 0 {
-							showAgentAlert(
-								title: "Some secrets missing",
-								message:
-									"\(result.failed) of \(secrets.count) secret(s) from the backup did not land in the Keychain. Check the Activity log, unlock if needed, and re-import or type secrets in Setup."
-							)
-						}
-						onImportFinished()
-					}
+				} catch {
+					message = "Import failed: \(error)"
+					showAgentAlert(title: "Import failed", message: String(describing: error), style: .critical)
 				}
-			} catch {
-				message = "Import failed: \(error)"
-				showAgentAlert(title: "Import failed", message: String(describing: error), style: .critical)
 			}
 		}
 	}
@@ -530,7 +546,7 @@ struct ConfigView: View {
 							showAgentAlert(
 								title: "Unlock required",
 								message:
-									"Cred backups include secrets from the Keychain. Unlock the Agent (menu bar → Unlock Agent) and export again, or use config-only export if you only need identity."
+									"Cred backups include secrets from the Keychain. Try exporting again and complete the unlock prompt, or use config-only export if you only need identity."
 							)
 						}
 						return
@@ -548,7 +564,7 @@ struct ConfigView: View {
 							showAgentAlert(
 								title: "Unlock unavailable",
 								message:
-									"This Mac cannot authenticate for Keychain access. Unlock from the menu bar first, or use config-only export."
+									"This Mac cannot authenticate for Keychain access. Use config-only export if you only need identity."
 							)
 						}
 						return
@@ -636,7 +652,6 @@ private struct BackupPrompt: Identifiable {
 
 /// Shown when no workplaces or auths exist yet — points people at the fastest path to try buddy.
 private struct EmptySetupBanner: View {
-	let isLocked: Bool
 	let onQuickSetup: () -> Void
 	let onImportBackup: () -> Void
 	let onImportConfig: () -> Void
@@ -650,14 +665,6 @@ private struct EmptySetupBanner: View {
 			)
 			.font(.callout)
 			.foregroundStyle(.secondary)
-			if isLocked {
-				Label(
-					"Unlock using the lock icon next to the tabs before saving secrets or exporting a cred backup.",
-					systemImage: "lock.fill"
-				)
-				.font(.caption)
-				.foregroundStyle(.orange)
-			}
 			HStack(spacing: 12) {
 				Button("Quick setup…", action: onQuickSetup)
 					.buttonStyle(.borderedProminent)
@@ -665,7 +672,7 @@ private struct EmptySetupBanner: View {
 				Button("Import config only…", action: onImportConfig)
 			}
 			Text(
-				"Or add workplaces and auths manually below. Run `buddy cred status` when a row shows secret stored."
+				"Or add workplaces and auths manually below. Saving while locked asks you to unlock. Run `buddy cred status` when a row shows secret stored."
 			)
 			.font(.caption2)
 			.foregroundStyle(.tertiary)
@@ -741,14 +748,6 @@ private struct QuickSetupSheet: View {
 			Text(authMode.intro)
 				.font(.callout)
 				.foregroundStyle(.secondary)
-			if !state.unlocked {
-				Label(
-					"Unlock using the lock icon next to the tabs before saving — secrets go into the Keychain.",
-					systemImage: "lock.fill"
-				)
-				.font(.callout)
-				.foregroundStyle(.orange)
-			}
 			Form {
 				Section("Auth type") {
 					FormMenuPicker(
@@ -860,7 +859,6 @@ private struct QuickSetupSheet: View {
 
 	private var canSave: Bool {
 		if store.configEditsBlocked { return false }
-		if AgentStore.configPersistRequiresUnlock, !state.unlocked { return false }
 		guard !workplaceName.trimmed.isEmpty, !authName.trimmed.isEmpty, !secret.isEmpty else {
 			return false
 		}
@@ -938,7 +936,7 @@ private struct QuickSetupSheet: View {
 				case .declined:
 					DispatchQueue.main.async {
 						saving = false
-						saveError = "Unlock declined — use Unlock Agent in the menu bar, then try again."
+						saveError = "Unlock declined — try again and complete the prompt."
 					}
 					return
 				case .timedOut:
@@ -1052,6 +1050,7 @@ private struct WorkplaceTreeList: View {
 	let selectedWorkplace: String?
 	let onSelect: (String) -> Void
 	let onEdit: (WorkplaceTreeNode) -> Void
+	let onSetDefault: (String) -> Void
 	let onDelete: (String) -> Void
 
 	var body: some View {
@@ -1066,6 +1065,7 @@ private struct WorkplaceTreeList: View {
 					isSelected: selectedWorkplace == node.name,
 					onSelect: { onSelect(node.name) },
 					onEdit: { onEdit(node) },
+					onSetDefault: { onSetDefault(node.name) },
 					onDelete: { onDelete(node.name) })
 				if !node.children.isEmpty {
 					HStack(alignment: .top, spacing: 0) {
@@ -1080,6 +1080,7 @@ private struct WorkplaceTreeList: View {
 							selectedWorkplace: selectedWorkplace,
 							onSelect: onSelect,
 							onEdit: onEdit,
+							onSetDefault: onSetDefault,
 							onDelete: onDelete)
 					}
 					.padding(.leading, 12)
@@ -1095,6 +1096,7 @@ private struct WorkplaceTreeRow: View {
 	let isSelected: Bool
 	let onSelect: () -> Void
 	let onEdit: () -> Void
+	let onSetDefault: () -> Void
 	let onDelete: () -> Void
 
 	private var isDefault: Bool {
@@ -1103,9 +1105,7 @@ private struct WorkplaceTreeRow: View {
 
 	var body: some View {
 		HStack(spacing: 8) {
-			DefaultContextButton(isDefault: isDefault) {
-				store.setDefaultContext(node.name)
-			}
+			DefaultContextButton(isDefault: isDefault, action: onSetDefault)
 			.disabled(store.configEditsBlocked)
 			Button(action: onSelect) {
 				HStack(spacing: 8) {
@@ -1433,7 +1433,8 @@ private struct AuthTokenSheet: View {
 
 struct WorkplaceEditor: View {
 	@ObservedObject var store: AgentStore
-	var unlocked: Bool
+	@ObservedObject var state: AgentState
+	let gate: UnlockGate
 	@State var draft: WorkplaceEditDraft
 	@State private var useAsDefault = false
 	@State private var saveError: String?
@@ -1533,8 +1534,11 @@ struct WorkplaceEditor: View {
 			"Delete workplace?", isPresented: $showDeleteConfirm, titleVisibility: .visible
 		) {
 			Button("Delete", role: .destructive) {
-				store.removeWorkplace(deleteWorkplaceName)
-				dismiss()
+				let name = deleteWorkplaceName
+				AgentLockUI.perform(gate: gate, state: state) {
+					store.removeWorkplace(name)
+					dismiss()
+				}
 			}
 			Button("Cancel", role: .cancel) {}
 		} message: {
@@ -1549,7 +1553,7 @@ struct WorkplaceEditor: View {
 	}
 
 	private var maySaveConfig: Bool {
-		!store.configEditsBlocked && (!AgentStore.configPersistRequiresUnlock || unlocked)
+		!store.configEditsBlocked
 	}
 
 	private var kindLabel: String {
@@ -1563,25 +1567,32 @@ struct WorkplaceEditor: View {
 		let name = draft.name.trimmed
 		guard !name.isEmpty else { return }
 		guard !store.isManagedWorkplace(name), !store.isManagedWorkplace(draft.previousName ?? "") else { return }
-		if draft.isNew {
-			if draft.kind == "organization" {
-				store.addOrganization(name: name)
+		let isNew = draft.isNew
+		let kind = draft.kind
+		let parent = draft.parent
+		let workplace = draft.workplace
+		let previousName = draft.previousName
+		let makeDefault = useAsDefault
+		let close = dismiss
+		AgentLockUI.perform(gate: gate, state: state) {
+			if isNew {
+				if kind == "organization" {
+					store.addOrganization(name: name)
+				} else {
+					store.addChildWorkplace(
+						name: name, parent: parent, kind: kind,
+						orgName: workplace.org)
+				}
+				store.upsertWorkplace(name: name, workplace: workplace)
 			} else {
-				store.addChildWorkplace(
-					name: name, parent: draft.parent, kind: draft.kind,
-					orgName: draft.workplace.org)
+				store.upsertWorkplace(
+					name: name, workplace: workplace, previousName: previousName)
 			}
-			store.upsertWorkplace(name: name, workplace: draft.workplace)
-		} else {
-			store.upsertWorkplace(
-				name: name, workplace: draft.workplace, previousName: draft.previousName)
+			if makeDefault || store.defaultContext.trimmed.isEmpty {
+				store.setDefaultContext(name)
+			}
+			close()
 		}
-		if useAsDefault {
-			store.setDefaultContext(name)
-		} else if store.defaultContext.trimmed.isEmpty {
-			store.setDefaultContext(name)
-		}
-		dismiss()
 	}
 }
 
@@ -1797,8 +1808,11 @@ struct AuthEditor: View {
 			"Delete auth?", isPresented: $showDeleteConfirm, titleVisibility: .visible
 		) {
 			Button("Delete", role: .destructive) {
-				store.removeAuth(deleteAuthName)
-				dismiss()
+				let name = deleteAuthName
+				AgentLockUI.perform(gate: gate, state: state) {
+					store.removeAuth(name)
+					dismiss()
+				}
 			}
 			Button("Cancel", role: .cancel) {}
 		} message: {
@@ -1809,7 +1823,7 @@ struct AuthEditor: View {
 	}
 
 	private var maySaveConfig: Bool {
-		!store.configEditsBlocked && (!AgentStore.configPersistRequiresUnlock || state.unlocked)
+		!store.configEditsBlocked
 	}
 
 	private var linkableWorkplaceNames: [String] {
@@ -1875,35 +1889,33 @@ struct AuthEditor: View {
 		let name = draft.name.trimmed
 		guard !name.isEmpty else { return }
 		guard !store.isManagedAuth(name), !store.isManagedAuth(draft.previousName ?? "") else { return }
-		store.upsertAuth(name: name, auth: draft.auth, previousName: draft.previousName)
-		guard !secret.isEmpty else {
-			dismiss()
-			return
-		}
 		let secretValue = secret
 		let row = draft.auth
+		let previousName = draft.previousName
 		saveError = nil
-		DispatchQueue.global(qos: .userInitiated).async { [gate] in
-			var ok = AgentKeychain.set(secretValue, auth: name, kind: row.secretKind)
-			if !ok, AgentKeychain.backend == .dataProtection,
-				gate.authorize(reason: "Buddy Agent wants to store the secret for \(name)")
-					== .unlocked
-			{
-				ok = AgentKeychain.set(
-					secretValue, auth: name, kind: row.secretKind, context: gate.presenceContext)
+		AgentLockUI.perform(gate: gate, state: state, reason: "save Buddy Agent config") {
+			store.upsertAuth(name: name, auth: row, previousName: previousName)
+			guard !secretValue.isEmpty else {
+				dismiss()
+				return
 			}
-			DispatchQueue.main.async {
-				self.store.markSecretsChanged()
-				self.secret = ""
-				if !AgentKeychain.hasAny(auth: name) {
-					self.saveError = "Keychain write failed — secret not stored."
-					return
+			DispatchQueue.global(qos: .userInitiated).async { [gate] in
+				let context = AgentKeychain.backend == .dataProtection ? gate.presenceContext : nil
+				let ok = AgentKeychain.set(
+					secretValue, auth: name, kind: row.secretKind, context: context)
+				DispatchQueue.main.async {
+					self.store.markSecretsChanged()
+					self.secret = ""
+					if !AgentKeychain.hasAny(auth: name) {
+						self.saveError = "Keychain write failed — secret not stored."
+						return
+					}
+					if !ok, AgentKeychain.backend == .dataProtection {
+						self.saveError = "Secret is memory-only until quit — Keychain ACL write failed."
+						return
+					}
+					self.dismiss()
 				}
-				if !ok, AgentKeychain.backend == .dataProtection {
-					self.saveError = "Secret is memory-only until quit — Keychain ACL write failed."
-					return
-				}
-				self.dismiss()
 			}
 		}
 	}
@@ -1911,14 +1923,12 @@ struct AuthEditor: View {
 
 struct BackupExportPassphraseSheet: View {
 	let onExport: (String) -> Void
-	let needsUnlock: Bool
 
 	@State private var passphrase: String = ""
 	@State private var confirm: String = ""
 	@Environment(\.dismiss) private var dismiss
 
-	init(needsUnlock: Bool = false, onExport: @escaping (String) -> Void) {
-		self.needsUnlock = needsUnlock
+	init(onExport: @escaping (String) -> Void) {
 		self.onExport = onExport
 	}
 
@@ -1934,14 +1944,6 @@ struct BackupExportPassphraseSheet: View {
 			)
 			.font(.callout)
 			.foregroundStyle(.secondary)
-			if needsUnlock {
-				Label(
-					"Unlock the Agent first — secrets are read from the Keychain during export.",
-					systemImage: "lock.fill"
-				)
-				.font(.callout)
-				.foregroundStyle(.orange)
-			}
 			SecureField("Passphrase", text: $passphrase)
 				.textContentType(.password)
 			SecureField("Confirm passphrase", text: $confirm)
@@ -2105,7 +2107,14 @@ private struct ConfigIntegrityLastGoodSection: View {
 			infoLine("Status", diagnostics.integrity.wireValue)
 			configPathRow
 
-			if diagnostics.needsLineReview {
+			if diagnostics.agentAttributedDrift, diagnostics.integrity != .ok {
+				Label(
+					"This change is saved, but the Keychain seal could not be read back. Minting stays blocked until you Save again while unlocked.",
+					systemImage: "exclamationmark.triangle"
+				)
+				.font(.caption)
+				.foregroundStyle(.orange)
+			} else if diagnostics.needsLineReview {
 				Label(
 					"Config was edited outside the Agent. Minting and Setup/Policy edits stay blocked until you accept or revert every changed line.",
 					systemImage: "exclamationmark.triangle"

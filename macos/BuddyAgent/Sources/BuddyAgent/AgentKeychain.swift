@@ -300,52 +300,70 @@ enum AgentKeychain {
 		}
 
 		let base = dpQuery(account: account)
+		// Replace the payload on the existing userPresence item. Delete + SecItemAdd
+		// mints a new ACL the current unlock LAContext often cannot read back, which
+		// leaves a saved config looking unsealed.
 		if let context {
-			var authed = base
-			authed[kSecUseAuthenticationContext] = context
-			authed[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
-			_ = SecItemDelete(authed as CFDictionary)
-		}
-		var deleteStatus = silentDelete(account: account)
-		if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound, let context {
-			var authed = base
-			authed[kSecUseAuthenticationContext] = context
-			deleteStatus = SecItemDelete(authed as CFDictionary)
+			var updateQuery = base
+			updateQuery[kSecUseAuthenticationContext] = context
+			updateQuery[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
+			let update: [CFString: Any] = [kSecValueData: data]
+			let updateStatus = SecItemUpdate(updateQuery as CFDictionary, update as CFDictionary)
+			switch updateStatus {
+			case errSecSuccess:
+				forgetProtected(account)
+				return true
+			case errSecItemNotFound:
+				break
+			default:
+				log("protected update \(account) failed (OSStatus \(updateStatus))")
+				rememberProtected(account, data)
+				return false
+			}
+		} else {
+			let deleteStatus = silentDelete(account: account)
+			if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound {
+				log("protected delete \(account) failed (OSStatus \(deleteStatus))")
+			}
 		}
 
 		var add = base
 		add[kSecAttrLabel] = label
 		add[kSecAttrAccessControl] = control
 		add[kSecValueData] = data
-		var status = SecItemAdd(add as CFDictionary, nil)
-		if status == errSecDuplicateItem {
-			if let context {
-				var updateQuery = base
-				updateQuery[kSecUseAuthenticationContext] = context
-				let update: [CFString: Any] = [kSecValueData: data]
-				status = SecItemUpdate(updateQuery as CFDictionary, update as CFDictionary)
-			} else {
-				log("ACL protected write \(account) blocked by existing item (delete \(deleteStatus))")
-				rememberProtected(account, data)
-				return false
-			}
+		if let context {
+			add[kSecUseAuthenticationContext] = context
+			add[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
 		}
+		let status = SecItemAdd(add as CFDictionary, nil)
 		if status == errSecSuccess, keychainExists(account: account) {
 			forgetProtected(account)
 			return true
 		}
-		log("protected write \(account) failed (OSStatus \(status), delete \(deleteStatus))")
+		log("protected write \(account) failed (OSStatus \(status))")
 		rememberProtected(account, data)
 		return false
 	}
 
 	static func protectedData(account: String, context: LAContext?) -> Data? {
 		if let context, backend == .dataProtection {
-			if let value = copyProtected(account: account, context: context) {
-				return value
+			let (value, status) = copyProtected(account: account, context: context)
+			if let value { return value }
+			if status != errSecItemNotFound {
+				log("protected read \(account) OSStatus \(status)")
 			}
 		}
 		return recalledProtected(account)
+	}
+
+	/// Last Keychain status for a presence read. Used when a seal write cannot be read back.
+	static func protectedReadStatus(account: String, context: LAContext) -> OSStatus {
+		copyProtected(account: account, context: context).1
+	}
+
+	/// Presence read without an Activity-log line. Seal read-back retries this.
+	static func protectedPayload(account: String, context: LAContext) -> Data? {
+		copyProtected(account: account, context: context).0
 	}
 
 	static func protectedDataExists(account: String) -> Bool {
@@ -368,7 +386,7 @@ enum AgentKeychain {
 		forgetProtected(account)
 	}
 
-	private static func copyProtected(account: String, context: LAContext) -> Data? {
+	private static func copyProtected(account: String, context: LAContext) -> (Data?, OSStatus) {
 		var query = dpQuery(account: account)
 		query[kSecUseAuthenticationContext] = context
 		query[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
@@ -377,9 +395,9 @@ enum AgentKeychain {
 		var item: CFTypeRef?
 		let status = SecItemCopyMatching(query as CFDictionary, &item)
 		if status == errSecSuccess, let data = item as? Data, !data.isEmpty {
-			return data
+			return (data, status)
 		}
-		return nil
+		return (nil, status)
 	}
 
 	private static var protectedMemoryStore: [String: Data] = [:]

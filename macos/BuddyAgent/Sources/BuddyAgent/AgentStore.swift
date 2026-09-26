@@ -41,6 +41,8 @@ final class AgentStore: ObservableObject {
 	)?
 	private var configWriteSuppressionCount = 0
 	private var lastWrittenNormalizedDigest: String?
+	/// Normalized digest of an in-app save whose seal read-back failed. Not an outside edit.
+	private var pendingOwnSealDigest: String?
 	private var configUnlocked: (() -> Bool)?
 
 	/// When set, used to update the config HMAC seal after writes (Keychain ACL requires presence).
@@ -75,15 +77,19 @@ final class AgentStore: ObservableObject {
 			bumpConfigIntegrityGeneration()
 			setError(nil)
 		case .missing:
-			if AgentConfigLastGood.requiresLineReview(configPath: path) {
+			if ownUnsealedWritePending() || !AgentConfigLastGood.requiresLineReview(configPath: path) {
+				resealNow(presence: presence)
+			} else {
 				publishReviewFlags(review: true, backup: false)
 				bumpConfigIntegrityGeneration()
 				setError(Self.configReviewBlockMessage)
 				AgentLog.shared.config("re-seal skipped — config differs from last-good")
-			} else {
-				resealNow(presence: presence)
 			}
 		case .tampered:
+			if ownUnsealedWritePending() {
+				resealNow(presence: presence)
+				break
+			}
 			let diagnostics = AgentConfigLastGood.diagnostics(
 				configPath: path,
 				integrity: .tampered,
@@ -109,6 +115,7 @@ final class AgentStore: ObservableObject {
 
 	private func resealNow(presence: LAContext) {
 		if applyConfigSeal(presence: presence) {
+			pendingOwnSealDigest = nil
 			AgentLog.shared.config("re-sealed config")
 			publishReviewFlags(
 				review: AgentConfigLastGood.requiresLineReview(configPath: path), backup: false)
@@ -193,10 +200,12 @@ final class AgentStore: ObservableObject {
 
 	func configIntegrityDiagnostics(unlocked: Bool, presence: LAContext?) -> AgentConfigLastGood.Diagnostics {
 		let integrity = configIntegrity(unlocked: unlocked, presence: presence)
+		let ownWrite = ownUnsealedWritePending()
 		return AgentConfigLastGood.diagnostics(
 			configPath: path,
 			integrity: integrity,
-			observeTamper: unlocked && presence != nil
+			observeTamper: unlocked && presence != nil && !ownWrite,
+			agentAttributedDrift: ownWrite
 		)
 	}
 
@@ -469,10 +478,13 @@ final class AgentStore: ObservableObject {
 				if bypassUnlockRequirement, configSealPresence?() == nil {
 					AgentLog.shared.config("config saved without seal — unlock to re-seal")
 				} else if !persistConfigSeal() {
+					pendingOwnSealDigest = lastWrittenNormalizedDigest
+					publishReviewFlags(review: false, backup: false)
 					setError(sealFailureMessage)
 					return false
 				}
 			}
+			pendingOwnSealDigest = nil
 			setError(nil)
 			bumpConfigIntegrityGeneration()
 			publishReviewFlags(
@@ -538,6 +550,7 @@ final class AgentStore: ObservableObject {
 				let sealed = self.persistConfigSeal()
 				DispatchQueue.main.async {
 					if sealed {
+						self.pendingOwnSealDigest = nil
 						self.setError(nil)
 						self.bumpConfigIntegrityGeneration()
 						self.publishReviewFlags(
@@ -546,6 +559,7 @@ final class AgentStore: ObservableObject {
 						AgentLog.shared.config("tamper review: re-sealed config")
 						completion(!self.configEditBlockedNow())
 					} else {
+						self.pendingOwnSealDigest = self.lastWrittenNormalizedDigest
 						self.setError(self.sealFailureMessage)
 						completion(false)
 					}
@@ -560,8 +574,17 @@ final class AgentStore: ObservableObject {
 	}
 
 	private func configEditBlockedNow() -> Bool {
+		if ownUnsealedWritePending() { return false }
 		if configReviewRequired || configTamperNeedsBackup { return true }
 		return AgentConfigLastGood.requiresLineReview(configPath: path)
+	}
+
+	/// True when the on-disk config is the Agent's own save and the seal did not stick.
+	private func ownUnsealedWritePending() -> Bool {
+		guard let pending = pendingOwnSealDigest,
+			let digest = AgentConfigLastGood.normalizedFileDigest(at: path)
+		else { return false }
+		return digest == pending
 	}
 
 	private func refuseConfigEdit() -> Bool {
@@ -604,13 +627,16 @@ final class AgentStore: ObservableObject {
 		DispatchQueue.global(qos: .utility).async { [weak self] in
 			guard let self else { return }
 			let presence = unlocked ? self.configSealPresence?() : nil
+			let ownWrite = self.ownUnsealedWritePending()
 			let integrity = self.configIntegrity(unlocked: unlocked, presence: presence)
 			let diagnostics = AgentConfigLastGood.diagnostics(
 				configPath: self.path,
 				integrity: integrity,
-				observeTamper: true)
-			let needsReview = AgentConfigLastGood.requiresLineReview(configPath: self.path)
-			let needsBackup = integrity == .tampered && !needsReview
+				observeTamper: presence != nil && !ownWrite,
+				agentAttributedDrift: ownWrite)
+			let needsReview =
+				!ownWrite && AgentConfigLastGood.requiresLineReview(configPath: self.path)
+			let needsBackup = integrity == .tampered && !needsReview && !ownWrite
 			DispatchQueue.main.async {
 				self.configDiagnostics = diagnostics
 				self.publishReviewFlags(review: needsReview, backup: needsBackup)
@@ -818,8 +844,14 @@ final class AgentStore: ObservableObject {
 		let trimmed = name.trimmed
 		guard !trimmed.isEmpty, workplaces[trimmed] != nil else { return }
 		guard defaultContext != trimmed else { return }
+		let previous = defaultContext
 		defaultContext = trimmed
-		save()
+		guard save() else {
+			if lastError == "Unlock the Agent before saving config changes." {
+				defaultContext = previous
+			}
+			return
+		}
 		AgentLog.shared.config("default workplace set to \(trimmed)")
 	}
 

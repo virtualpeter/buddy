@@ -51,6 +51,8 @@ enum AgentConfigLastGood {
 		var onlyFormattingDrift: Bool
 		/// On-disk bytes differ from the last-good snapshot (no Keychain needed).
 		var fileDriftSinceSnapshot: Bool
+		/// The drift is the Agent's own save whose Keychain seal did not read back.
+		var agentAttributedDrift: Bool
 
 		var hasIntegrityConcern: Bool {
 			switch integrity {
@@ -68,7 +70,8 @@ enum AgentConfigLastGood {
 		}
 
 		var needsLineReview: Bool {
-			!snapshotMissing && !onlyFormattingDrift && diffChangeCount > 0
+			if agentAttributedDrift { return false }
+			return !snapshotMissing && !onlyFormattingDrift && diffChangeCount > 0
 		}
 
 		static let pending = Diagnostics(
@@ -78,7 +81,8 @@ enum AgentConfigLastGood {
 			currentModifiedAt: nil,
 			normalizedDiff: [],
 			onlyFormattingDrift: false,
-			fileDriftSinceSnapshot: false)
+			fileDriftSinceSnapshot: false,
+			agentAttributedDrift: false)
 	}
 
 	/// True when normalized JSON differs from the last-good snapshot, so a save would
@@ -228,14 +232,15 @@ enum AgentConfigLastGood {
 	static func diagnostics(
 		configPath: URL,
 		integrity: AgentConfigIntegrity.State,
-		observeTamper: Bool
+		observeTamper: Bool,
+		agentAttributedDrift: Bool = false
 	) -> Diagnostics {
 		let snap = snapshotURL(near: configPath)
 		let snapshotMissing = !FileManager.default.fileExists(atPath: snap.path)
 		let fileDrift =
 			!snapshotMissing
 			&& !fileBytesMatch(snapshot: snap, configPath: configPath)
-		if observeTamper, integrity == .tampered || fileDrift {
+		if observeTamper, !agentAttributedDrift, (integrity == .tampered || fileDrift) {
 			noteTamperObserved(near: configPath)
 		}
 		let meta = loadMeta(near: configPath)
@@ -253,7 +258,8 @@ enum AgentConfigLastGood {
 			currentModifiedAt: currentModified,
 			normalizedDiff: diff,
 			onlyFormattingDrift: onlyFormatting,
-			fileDriftSinceSnapshot: fileDrift
+			fileDriftSinceSnapshot: fileDrift,
+			agentAttributedDrift: agentAttributedDrift
 		)
 	}
 

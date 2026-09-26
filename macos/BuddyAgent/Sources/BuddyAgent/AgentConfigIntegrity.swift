@@ -69,30 +69,52 @@ enum AgentConfigIntegrity {
 			lastFailureReason = "Unlock the Agent before saving — Keychain needs your session to update the seal."
 			return false
 		}
-		guard let key = integrityKey(createIfMissing: true, presence: presence) else { return false }
+		let loadedKey = presence.flatMap {
+			AgentKeychain.protectedPayload(account: keyAccount, context: $0)
+		}
+		let key: SymmetricKey
+		if let loadedKey, loadedKey.count == 32 {
+			key = SymmetricKey(data: loadedKey)
+		} else {
+			guard let created = integrityKey(createIfMissing: true, presence: presence) else { return false }
+			key = created
+			let keyOk = AgentKeychain.setProtectedData(
+				key.withUnsafeBytes { Data($0) },
+				account: keyAccount,
+				label: "Buddy Agent config integrity key",
+				context: presence)
+			guard keyOk else {
+				AgentLog.shared.keychain("config seal did not persist to Keychain")
+				lastFailureReason = "Keychain rejected the config seal (see Activity log)."
+				return false
+			}
+		}
 		let sig = hmac(data: data, key: key)
-		let keyOk = AgentKeychain.setProtectedData(
-			key.withUnsafeBytes { Data($0) },
-			account: keyAccount,
-			label: "Buddy Agent config integrity key",
-			context: presence)
 		let sigOk = AgentKeychain.setProtectedData(
 			sig,
 			account: sigAccount,
 			label: "Buddy Agent config seal",
 			context: presence)
-		guard keyOk, sigOk, isSealed else {
+		guard sigOk, isSealed else {
 			AgentLog.shared.keychain("config seal did not persist to Keychain")
 			lastFailureReason = "Keychain rejected the config seal (see Activity log)."
 			return false
 		}
 		if let presence {
-			guard let rawKey = AgentKeychain.protectedData(account: keyAccount, context: presence),
-				let storedSig = AgentKeychain.protectedData(account: sigAccount, context: presence),
-				storedSig.count == 32
-			else {
-				AgentLog.shared.keychain("config seal not readable after write")
-				lastFailureReason = "Seal not readable after Keychain write — retry unlock and Save."
+			var rawKey: Data?
+			var storedSig: Data?
+			for attempt in 0..<5 {
+				rawKey = AgentKeychain.protectedPayload(account: keyAccount, context: presence)
+				storedSig = AgentKeychain.protectedPayload(account: sigAccount, context: presence)
+				if rawKey != nil, storedSig?.count == 32 { break }
+				if attempt < 4 { Thread.sleep(forTimeInterval: 0.05) }
+			}
+			guard let rawKey, let storedSig, storedSig.count == 32 else {
+				let keyStatus = AgentKeychain.protectedReadStatus(account: keyAccount, context: presence)
+				let sigStatus = AgentKeychain.protectedReadStatus(account: sigAccount, context: presence)
+				AgentLog.shared.keychain(
+					"config seal not readable after write (key \(keyStatus), sig \(sigStatus))")
+				lastFailureReason = "Seal not readable after Keychain write — stay unlocked and Save again."
 				return false
 			}
 			let check = hmac(data: data, key: SymmetricKey(data: rawKey))

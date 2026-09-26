@@ -3,7 +3,8 @@ import SwiftUI
 /// Policy tab: buddy `features:` and `channels:` (separate from workplaces/auths).
 struct PolicyView: View {
 	@ObservedObject var store: AgentStore
-	var unlocked: Bool
+	@ObservedObject var state: AgentState
+	let gate: UnlockGate
 	var onShowStatus: () -> Void = {}
 	@State private var draftFeatures = AgentFeatures()
 	@State private var draftChannels: [String: ChannelPolicy] = [:]
@@ -79,7 +80,7 @@ struct PolicyView: View {
 	}
 
 	private var maySave: Bool {
-		!store.configEditsBlocked && (!AgentStore.configPersistRequiresUnlock || unlocked)
+		!store.configEditsBlocked
 	}
 
 	private func loadDraftFromStore() {
@@ -94,8 +95,12 @@ struct PolicyView: View {
 	}
 
 	private func saveDraft() {
-		store.savePolicy(features: draftFeatures, channels: draftChannels)
-		loadDraftFromStore()
+		let features = draftFeatures
+		let channels = draftChannels
+		AgentLockUI.perform(gate: gate, state: state) {
+			store.savePolicy(features: features, channels: channels)
+			loadDraftFromStore()
+		}
 	}
 }
 
