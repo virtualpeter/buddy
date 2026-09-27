@@ -188,7 +188,7 @@ final class AgentServer {
 			}
 			// Blocks this connection thread while the system prompt is up; the
 			// CLI is waiting on the socket for exactly this.
-			switch gate.authorize(reason: "mint a Jamf token for \(auth)") {
+			switch gate.authorize(reason: "mint a Jamf token for \(auth)", keepCallerFocus: true) {
 			case .unlocked:
 				break
 			case .declined:
@@ -219,7 +219,7 @@ final class AgentServer {
 			// draws a second password sheet for the same userPresence item.
 			var presence = gate.presenceContext
 			if presence == nil {
-				switch gate.authorize(reason: "mint a Jamf token for \(auth)") {
+				switch gate.authorize(reason: "mint a Jamf token for \(auth)", keepCallerFocus: true) {
 				case .unlocked:
 					presence = gate.presenceContext
 				case .declined:

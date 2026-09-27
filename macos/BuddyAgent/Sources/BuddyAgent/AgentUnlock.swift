@@ -167,7 +167,9 @@ final class UnlockGate {
 	/// authorize returns .unlocked when the Agent may mint. Already-unlocked is
 	/// an immediate .unlocked: presence is what opens the session, and the idle
 	/// timer is what closes it again.
-	func authorize(reason: String) -> UnlockOutcome {
+	/// `keepCallerFocus` is a CLI mint: the system sheet is enough, so Settings
+	/// is not activated or made key.
+	func authorize(reason: String, keepCallerFocus: Bool = false) -> UnlockOutcome {
 		// Blocking wait for LocalAuthentication: never call this on the main
 		// queue (LA's reply needs the run loop). Socket threads are fine.
 		if Thread.isMainThread {
@@ -177,10 +179,12 @@ final class UnlockGate {
 		}
 		if state.unlocked { return .unlocked }
 		if UnlockGate.promptingDisabled { return .unavailable }
-		return runOnSessionQueue { authorizeOnSessionQueue(reason: reason) }
+		return runOnSessionQueue {
+			authorizeOnSessionQueue(reason: reason, keepCallerFocus: keepCallerFocus)
+		}
 	}
 
-	private func authorizeOnSessionQueue(reason: String) -> UnlockOutcome {
+	private func authorizeOnSessionQueue(reason: String, keepCallerFocus: Bool) -> UnlockOutcome {
 		if state.unlocked { return .unlocked }
 
 		lock.lock()
@@ -197,7 +201,7 @@ final class UnlockGate {
 		prompting = true
 		lock.unlock()
 
-		let (outcome, context) = prompt(reason: reason)
+		let (outcome, context) = prompt(reason: reason, keepCallerFocus: keepCallerFocus)
 		if outcome == .unlocked, let context {
 			lock.lock()
 			let previous = authenticated
@@ -221,7 +225,7 @@ final class UnlockGate {
 	/// Returns the outcome and, on success, the context that carries it. The
 	/// caller keeps that context: it is the session. Always `.useItem` — that
 	/// is what releases an existing presence-gated secret for minting.
-	private func prompt(reason: String) -> (UnlockOutcome, LAContext?) {
+	private func prompt(reason: String, keepCallerFocus: Bool) -> (UnlockOutcome, LAContext?) {
 		if let faked = UnlockGate.fakePresence {
 			FileHandle.standardError.write(
 				Data("buddy-agent: BUDDY_AGENT_FAKE_PRESENCE=\(faked ? "allow" : "deny")\n".utf8))
@@ -236,11 +240,14 @@ final class UnlockGate {
 			return (.unavailable, nil)
 		}
 
-		// An accessory app has no windows to bring forward, so make sure the
-		// system sheet is not drawn behind whatever the user is looking at.
-		DispatchQueue.main.async {
-			AgentAppActivation.orderForward(AgentWindowController.settingsWindow)
-			AgentAppActivation.activateIfAllowed()
+		// The Touch ID / password UI is a system sheet. It does not need Settings
+		// to be key. Raising that window is only for an unlock started in the app,
+		// so a CLI mint leaves the terminal focused.
+		if !keepCallerFocus {
+			DispatchQueue.main.async {
+				AgentAppActivation.orderForward(AgentWindowController.settingsWindow)
+				AgentAppActivation.activateIfAllowed()
+			}
 		}
 
 		let done = DispatchSemaphore(value: 0)
@@ -262,10 +269,13 @@ final class UnlockGate {
 		done.wait()
 		timer.cancel()
 
-		if granted {
+		if granted, !keepCallerFocus {
 			// Accessory apps lose key-window status while the system sheet is up;
-			// bring Settings back so mint-from-locked does not look like it closed.
+			// bring Settings back so an in-app unlock does not look like it closed.
 			DispatchQueue.main.async { AgentWindowRefocus.bringSettingsForward() }
+		}
+
+		if granted {
 			return (.unlocked, context)
 		}
 		context.invalidate()
