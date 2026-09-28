@@ -106,6 +106,12 @@ final class AgentStore: ObservableObject {
 				setError(needsReview ? Self.configReviewBlockMessage : Self.configTamperBackupMessage)
 				AgentLog.shared.config("re-seal skipped — config tampered")
 			}
+		case .sessionStale:
+			// The seal is intact. Do not reseal, do not flag review: rewriting
+			// the key off a rejected context is how a seal actually breaks.
+			bumpConfigIntegrityGeneration()
+			setError("Keychain did not accept this unlock session. Lock and unlock Buddy Agent.")
+			AgentLog.shared.keychain("re-seal skipped — unlock session not accepted by Keychain")
 		case .sealed, .unavailable:
 			bumpConfigIntegrityGeneration()
 			setError("Config re-seal failed after unlock — stay unlocked and try again from Status.")
@@ -158,29 +164,41 @@ final class AgentStore: ObservableObject {
 		return .sealed
 	}
 
+	/// Why a mint may not proceed. `staleSession` means the seal is intact but
+	/// the Keychain no longer accepts the unlock context; the caller can relock
+	/// and prompt again instead of surfacing the reason.
+	struct MintBlock {
+		let reason: String
+		let staleSession: Bool
+	}
+
 	/// Mint-time seal check. Pass the same `LAContext` as token minting when available.
 	func configMintBlockedReason(presence: LAContext?) -> String? {
+		configMintBlock(presence: presence)?.reason
+	}
+
+	func configMintBlock(presence: LAContext?) -> MintBlock? {
 		guard AgentKeychain.backend == .dataProtection else { return nil }
+		let integrity: AgentConfigIntegrity.State
 		let reason: String?
-		if let presence {
-			reason = AgentConfigIntegrity.mintBlockedReason(configPath: path, presence: presence)
-		} else if !AgentConfigIntegrity.hasStoredSeal {
+		if !AgentConfigIntegrity.hasStoredSeal {
+			integrity = .missing
 			reason = "config is not sealed — open Buddy Agent Settings and save once"
+		} else if let presence {
+			// One Keychain read: verify once and word the outcome here.
+			integrity = AgentConfigIntegrity.verify(configPath: path, presence: presence)
+			reason = Self.mintBlockedMessage(for: integrity)
 		} else {
-			reason = Self.mintBlockedMessage(
-				for: configIntegrity(unlocked: true, presence: nil))
+			integrity = configIntegrity(unlocked: true, presence: nil)
+			reason = Self.mintBlockedMessage(for: integrity)
 		}
-		if let reason {
-			let integrity = presence.map {
-				AgentConfigIntegrity.verify(configPath: path, presence: $0)
-			} ?? configIntegrity(unlocked: true, presence: nil)
-			var line = "mint blocked: config integrity \(integrity.wireValue)"
-			if let detail = AgentConfigIntegrity.lastFailureReason {
-				line += " — \(detail)"
-			}
-			AgentLog.shared.config(line)
+		guard let reason else { return nil }
+		var line = "mint blocked: config integrity \(integrity.wireValue)"
+		if let detail = AgentConfigIntegrity.lastFailureReason {
+			line += " — \(detail)"
 		}
-		return reason
+		AgentLog.shared.config(line)
+		return MintBlock(reason: reason, staleSession: integrity == .sessionStale)
 	}
 
 	private static func mintBlockedMessage(for integrity: AgentConfigIntegrity.State) -> String? {
@@ -190,7 +208,9 @@ final class AgentStore: ObservableObject {
 		case .tampered:
 			return "config was modified outside Buddy Agent — review each change in Buddy Agent Status"
 		case .missing:
-			return "config seal is unreadable — unlock Buddy Agent and save once"
+			return "config seal is missing from Keychain — open Buddy Agent Settings and save once"
+		case .sessionStale:
+			return AgentConfigIntegrity.staleSessionReason
 		case .sealed:
 			return "config seal requires unlock — unlock Buddy Agent before minting"
 		case .unavailable:
@@ -1052,19 +1072,42 @@ final class AgentStore: ObservableObject {
 			AgentLog.shared.mint("UI mint failed for \(name): \(why)")
 			return why
 		}
+		let freshSession = !state.unlocked
 		if let why = authorizeForMint(auth: name, gate: gate, state: state) {
 			AgentLog.shared.mint("UI mint failed for \(name): \(why)")
 			return why
 		}
 		let presenceResult = presenceForMint(auth: name, gate: gate, state: state)
-		guard let presence = presenceResult.0 else {
+		guard var presence = presenceResult.0 else {
 			let why = presenceResult.1 ?? "Unlock declined — unlock from the menu bar"
 			AgentLog.shared.mint("UI mint failed for \(name): \(why)")
 			return why
 		}
-		if let why = AgentConfigIntegrity.mintBlockedReason(
-			configPath: path, presence: presence)
-		{
+		// Unsigned builds have no seal to check (mintBlockedReason is nil there).
+		var integrity: AgentConfigIntegrity.State =
+			AgentKeychain.backend == .dataProtection
+			? AgentConfigIntegrity.verify(configPath: path, presence: presence) : .ok
+		if integrity == .sessionStale, !freshSession {
+			// Same recovery as a socket mint: the seal is intact, the session is
+			// not. Relock and ask once, instead of telling the user to re-save.
+			AgentLog.shared.keychain(
+				"unlock session not accepted by Keychain — relocking and prompting again")
+			state.lockVault()
+			let again = presenceForMint(auth: name, gate: gate, state: state)
+			guard let renewed = again.0 else {
+				let why = again.1 ?? "Unlock declined — unlock from the menu bar"
+				AgentLog.shared.mint("UI mint failed for \(name): \(why)")
+				return why
+			}
+			presence = renewed
+			integrity = AgentConfigIntegrity.verify(configPath: path, presence: presence)
+		}
+		if integrity != .ok {
+			let why =
+				integrity == .sessionStale
+				? "Keychain did not release the config seal to a fresh unlock — see the Activity log"
+				: (AgentConfigIntegrity.mintBlockedReason(configPath: path, presence: presence)
+					?? "config seal could not be verified")
 			AgentLog.shared.mint("UI mint failed for \(name): \(why)")
 			return why
 		}

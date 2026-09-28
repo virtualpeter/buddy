@@ -353,14 +353,44 @@ enum AgentKeychain {
 	}
 
 	static func protectedData(account: String, context: LAContext?) -> Data? {
+		protectedRead(account: account, context: context).data
+	}
+
+	/// Presence read with the Keychain status, so callers can tell "not there"
+	/// (`errSecItemNotFound`) from "this session may not open it"
+	/// (`errSecInteractionNotAllowed`). Falls back to the in-memory copy.
+	static func protectedRead(account: String, context: LAContext?) -> (data: Data?, status: OSStatus) {
 		if let context, backend == .dataProtection {
 			let (value, status) = copyProtected(account: account, context: context)
-			if let value { return value }
+			if let value { return (value, status) }
 			if status != errSecItemNotFound {
-				log("protected read \(account) OSStatus \(status)")
+				log("protected read \(account) OSStatus \(status)\(statusNote(status))")
 			}
+			if let cached = recalledProtected(account) { return (cached, errSecSuccess) }
+			return (nil, status)
 		}
-		return recalledProtected(account)
+		if let cached = recalledProtected(account) { return (cached, errSecSuccess) }
+		return (nil, errSecItemNotFound)
+	}
+
+	/// True when the item exists but the Keychain would need to show UI for
+	/// this context. The item is fine; the unlock session is not accepted.
+	static func isSessionRejected(_ status: OSStatus) -> Bool {
+		status == errSecInteractionNotAllowed || status == errSecAuthFailed
+			|| status == errSecUserCanceled
+	}
+
+	private static func statusNote(_ status: OSStatus) -> String {
+		switch status {
+		case errSecInteractionNotAllowed:
+			return " errSecInteractionNotAllowed (unlock session not accepted for this item)"
+		case errSecAuthFailed:
+			return " errSecAuthFailed"
+		case errSecUserCanceled:
+			return " errSecUserCanceled"
+		default:
+			return ""
+		}
 	}
 
 	/// Last Keychain status for a presence read. Used when a seal write cannot be read back.

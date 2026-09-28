@@ -58,7 +58,8 @@ enum AgentConfigLastGood {
 			switch integrity {
 			case .tampered, .missing: return true
 			case .sealed: return fileDriftSinceSnapshot
-			case .ok, .unavailable: return false
+			// Not a config concern: the file and seal are fine, the session is not.
+			case .ok, .unavailable, .sessionStale: return false
 			}
 		}
 

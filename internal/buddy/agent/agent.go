@@ -76,7 +76,9 @@ type Info struct {
 	// it will not prompt at all.
 	UnlockTimeout time.Duration
 	// ConfigIntegrity is the Agent's agent-config.json seal: "ok", "sealed",
-	// "missing", "tampered", or "unavailable". Empty from a pre-integrity Agent.
+	// "missing", "tampered", "session_stale" (Keychain rejected the unlock
+	// context; the Agent relocks and prompts again on the next mint), or
+	// "unavailable". Empty from a pre-integrity Agent.
 	ConfigIntegrity string
 	// ManagedPrefs is a short summary of MDM keys the Agent can see (optional).
 	ManagedPrefs string

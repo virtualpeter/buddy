@@ -284,6 +284,8 @@ func describeConfigIntegrity(state string) string {
 		return "missing (no Keychain seal yet)"
 	case "tampered":
 		return "tampered (mint will fail until the Agent re-seals)"
+	case "session_stale":
+		return "session stale (Keychain no longer accepts the unlock; the Agent re-prompts on the next mint)"
 	case "unavailable":
 		return "unavailable (unsigned Agent has no seal)"
 	}

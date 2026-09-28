@@ -281,7 +281,7 @@ Order of precedence when a bearer is needed:
 | `unlock_timeout` | fails; nobody answered the prompt |
 | `unlock_unavailable` | fails; this Mac cannot prompt, so unlock from the menu bar |
 | `denied` / `bad_request` / `mint_failed` | fails |
-| `config_tampered` | fails — `agent-config.json` was edited outside the Agent or no longer matches its Keychain seal |
+| `config_tampered` | fails — `agent-config.json` was edited outside the Agent or no longer matches its Keychain seal. A Keychain refusal of the unlock session itself (`errSecInteractionNotAllowed`) is not this: the Agent relocks and prompts once more, as if it had been locked, and never re-keys the seal |
 
 | Variable | Effect |
 |---|---|

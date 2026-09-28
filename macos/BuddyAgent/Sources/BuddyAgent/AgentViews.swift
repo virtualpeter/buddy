@@ -2107,7 +2107,14 @@ private struct ConfigIntegrityLastGoodSection: View {
 			infoLine("Status", diagnostics.integrity.wireValue)
 			configPathRow
 
-			if diagnostics.agentAttributedDrift, diagnostics.integrity != .ok {
+			if diagnostics.integrity == .sessionStale {
+				Label(
+					"The Keychain no longer accepts this unlock session. The config and its seal are intact — lock and unlock Buddy Agent from the menu bar. Do not re-save.",
+					systemImage: "lock.rotation"
+				)
+				.font(.caption)
+				.foregroundStyle(.orange)
+			} else if diagnostics.agentAttributedDrift, diagnostics.integrity != .ok {
 				Label(
 					"This change is saved, but the Keychain seal could not be read back. Minting stays blocked until you Save again while unlocked.",
 					systemImage: "exclamationmark.triangle"

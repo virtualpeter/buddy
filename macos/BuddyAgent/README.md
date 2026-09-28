@@ -208,7 +208,7 @@ Failures are `{"ok":false,"error":"<code>","message":"…"}`. Codes:
 | `unlock_unavailable` | command fails; no prompt is possible, so unlock from the tray |
 | `denied` | command fails (peer codesign rejected, or unlock attempted over the socket) |
 | `bad_request`, `mint_failed` | command fails |
-| `config_tampered` | command fails — `agent-config.json` no longer matches its Keychain seal |
+| `config_tampered` | command fails — `agent-config.json` no longer matches its Keychain seal. When the Keychain instead rejects the unlock context (`session_stale`, `-25308`), the Agent relocks and prompts again instead of returning this |
 
 ## Peer check
 

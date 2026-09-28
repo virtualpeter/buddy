@@ -21,6 +21,10 @@ enum AgentConfigIntegrity {
 		case missing
 		case tampered
 		case unavailable
+		/// Seal exists but the Keychain would not release it to the current
+		/// unlock `LAContext` (errSecInteractionNotAllowed). The seal is intact;
+		/// the session is what expired. Lock and unlock, never re-save.
+		case sessionStale
 
 		var wireValue: String {
 			switch self {
@@ -29,9 +33,14 @@ enum AgentConfigIntegrity {
 			case .missing: return "missing"
 			case .tampered: return "tampered"
 			case .unavailable: return "unavailable"
+			case .sessionStale: return "session_stale"
 			}
 		}
 	}
+
+	/// User-facing text for `.sessionStale`.
+	static let staleSessionReason =
+		"unlock session expired — lock and unlock Buddy Agent"
 
 	/// Drops in-memory seal copies on lock. Keychain items survive lock and restart.
 	static func forgetMemory() {
@@ -69,11 +78,17 @@ enum AgentConfigIntegrity {
 			lastFailureReason = "Unlock the Agent before saving — Keychain needs your session to update the seal."
 			return false
 		}
-		let loadedKey = presence.flatMap {
-			AgentKeychain.protectedPayload(account: keyAccount, context: $0)
+		let keyRead = presence.map { AgentKeychain.protectedRead(account: keyAccount, context: $0) }
+		if let keyRead, AgentKeychain.isSessionRejected(keyRead.status) {
+			// The key is there; this session cannot open it. Creating a new key
+			// here would silently re-key the seal off a stale context.
+			AgentLog.shared.keychain(
+				"config seal not updated: unlock session not accepted for the integrity key (OSStatus \(keyRead.status))")
+			lastFailureReason = "Keychain did not accept the unlock session — lock and unlock Buddy Agent."
+			return false
 		}
 		let key: SymmetricKey
-		if let loadedKey, loadedKey.count == 32 {
+		if let loadedKey = keyRead?.data, loadedKey.count == 32 {
 			key = SymmetricKey(data: loadedKey)
 		} else {
 			guard let created = integrityKey(createIfMissing: true, presence: presence) else { return false }
@@ -114,7 +129,12 @@ enum AgentConfigIntegrity {
 				let sigStatus = AgentKeychain.protectedReadStatus(account: sigAccount, context: presence)
 				AgentLog.shared.keychain(
 					"config seal not readable after write (key \(keyStatus), sig \(sigStatus))")
-				lastFailureReason = "Seal not readable after Keychain write — stay unlocked and Save again."
+				if AgentKeychain.isSessionRejected(keyStatus) || AgentKeychain.isSessionRejected(sigStatus) {
+					lastFailureReason =
+						"Seal written, but Keychain did not accept the unlock session to read it back — lock and unlock Buddy Agent."
+				} else {
+					lastFailureReason = "Seal not readable after Keychain write — stay unlocked and Save again."
+				}
 				return false
 			}
 			let check = hmac(data: data, key: SymmetricKey(data: rawKey))
@@ -130,10 +150,17 @@ enum AgentConfigIntegrity {
 
 	static func verify(configPath: URL, presence: LAContext) -> State {
 		guard let data = try? Data(contentsOf: configPath) else { return .tampered }
-		guard let key = integrityKey(createIfMissing: false, presence: presence),
-			let sig = AgentKeychain.protectedData(account: sigAccount, context: presence),
-			sig.count == 32
+		let keyRead = AgentKeychain.protectedRead(account: keyAccount, context: presence)
+		let sigRead = AgentKeychain.protectedRead(account: sigAccount, context: presence)
+		if AgentKeychain.isSessionRejected(keyRead.status)
+			|| AgentKeychain.isSessionRejected(sigRead.status)
+		{
+			return .sessionStale
+		}
+		guard let rawKey = keyRead.data, rawKey.count == 32,
+			let sig = sigRead.data, sig.count == 32
 		else { return .missing }
+		let key = SymmetricKey(data: rawKey)
 		let expected = hmac(data: data, key: key)
 		let ok = constantTimeEqual(expected, sig)
 		if ok, !FileManager.default.fileExists(atPath: AgentConfigLastGood.snapshotURL(near: configPath).path) {
@@ -156,7 +183,9 @@ enum AgentConfigIntegrity {
 		case .tampered:
 			return "config was modified outside Buddy Agent — review each change in Buddy Agent Status"
 		case .missing:
-			return "config seal is unreadable — unlock Buddy Agent and save once"
+			return "config seal is missing from Keychain — open Buddy Agent Settings and save once"
+		case .sessionStale:
+			return staleSessionReason
 		case .sealed, .unavailable:
 			return "config seal could not be verified"
 		}
@@ -173,12 +202,19 @@ enum AgentConfigIntegrity {
 	// MARK: key
 
 	private static func integrityKey(createIfMissing: Bool, presence: LAContext?) -> SymmetricKey? {
-		if let raw = AgentKeychain.protectedData(account: keyAccount, context: presence),
-			raw.count == 32
-		{
+		let read = AgentKeychain.protectedRead(account: keyAccount, context: presence)
+		if let raw = read.data, raw.count == 32 {
 			return SymmetricKey(data: raw)
 		}
 		guard createIfMissing else { return nil }
+		// Only mint a key when the Keychain says there is none. A rejected
+		// session is not "missing".
+		guard !AgentKeychain.isSessionRejected(read.status) else {
+			AgentLog.shared.keychain(
+				"config integrity key not created: unlock session not accepted (OSStatus \(read.status))")
+			lastFailureReason = "Keychain did not accept the unlock session — lock and unlock Buddy Agent."
+			return nil
+		}
 		let key = SymmetricKey(size: .bits256)
 		let stored = AgentKeychain.setProtectedData(
 			key.withUnsafeBytes { Data($0) },

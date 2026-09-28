@@ -179,38 +179,24 @@ final class AgentServer {
 				AgentReply.failure(.unsupported, "no integration named \(auth)"),
 				"token rejected auth=\(auth): unknown integration")
 		}
+		let lockedReply = {
+			self.logBuddyToken(
+				AgentReply.failure(.locked, "Buddy Agent is locked — unlock it from the menu bar"),
+				"token rejected auth=\(auth): locked")
+		}
+		// True when this request opened the session. A context that fails a
+		// second later is not stale; prompting again would not help.
+		var freshSession = false
 		if !state.unlocked {
-			guard request.allowUnlock == true else {
-				return logBuddyToken(
-					AgentReply.failure(
-						.locked, "Buddy Agent is locked — unlock it from the menu bar"),
-					"token rejected auth=\(auth): locked")
-			}
+			guard request.allowUnlock == true else { return lockedReply() }
 			// Blocks this connection thread while the system prompt is up; the
 			// CLI is waiting on the socket for exactly this.
-			switch gate.authorize(reason: "mint a Jamf token for \(auth)", keepCallerFocus: true) {
-			case .unlocked:
-				break
-			case .declined:
-				return logBuddyToken(
-					AgentReply.failure(.unlockDeclined, "unlock declined"),
-					"token rejected auth=\(auth): unlock declined")
-			case .timedOut:
-				return logBuddyToken(
-					AgentReply.failure(
-						.unlockTimeout,
-						"unlock prompt went unanswered for \(Int(UnlockGate.timeout))s"),
-					"token rejected auth=\(auth): unlock timed out")
-			case .unavailable:
-				let why =
-					UnlockGate.promptingDisabled
-					? "unlock prompting is off (BUDDY_AGENT_UNLOCK_TIMEOUT=0)"
-					: "this Mac has no presence check available"
-				return logBuddyToken(
-					AgentReply.failure(
-						.unlockUnavailable, "\(why) — unlock from the menu bar"),
-					"token rejected auth=\(auth): unlock unavailable")
+			if let failure = unlockFailure(gate.authorize(
+				reason: "mint a Jamf token for \(auth)", keepCallerFocus: true), auth: auth)
+			{
+				return failure
 			}
+			freshSession = true
 		}
 		let key = "\(auth)@\(baseURL)"
 		do {
@@ -219,29 +205,38 @@ final class AgentServer {
 			// draws a second password sheet for the same userPresence item.
 			var presence = gate.presenceContext
 			if presence == nil {
-				switch gate.authorize(reason: "mint a Jamf token for \(auth)", keepCallerFocus: true) {
-				case .unlocked:
-					presence = gate.presenceContext
-				case .declined:
-					return logBuddyToken(
-						AgentReply.failure(.unlockDeclined, "unlock declined"),
-						"token rejected auth=\(auth): unlock declined")
-				case .timedOut:
-					return logBuddyToken(
-						AgentReply.failure(
-							.unlockTimeout,
-							"unlock prompt went unanswered for \(Int(UnlockGate.timeout))s"),
-						"token rejected auth=\(auth): unlock timed out")
-				case .unavailable:
-					return logBuddyToken(
-						AgentReply.failure(
-							.unlockUnavailable, "presence unavailable — unlock from the menu bar"),
-						"token rejected auth=\(auth): unlock unavailable")
+				if let failure = unlockFailure(gate.authorize(
+					reason: "mint a Jamf token for \(auth)", keepCallerFocus: true), auth: auth)
+				{
+					return failure
 				}
+				presence = gate.presenceContext
+				freshSession = true
 			}
 			// SecItem with an LAContext has to run on the main run loop. This
 			// connection thread is what returns errSecInteractionNotAllowed.
-			if let why = onMain({ self.store.configMintBlockedReason(presence: presence) }) {
+			var block = onMain { self.store.configMintBlock(presence: presence) }
+			if let current = block, current.staleSession, !freshSession {
+				// The seal is intact; the Keychain stopped accepting the session
+				// context. Behave as if the Agent had already been locked: drop the
+				// session and prompt once. One sheet from the caller's side.
+				AgentLog.shared.keychain(
+					"unlock session not accepted by Keychain — relocking and prompting again")
+				state.lockVault()
+				guard request.allowUnlock == true else { return lockedReply() }
+				if let failure = unlockFailure(gate.authorize(
+					reason: "mint a Jamf token for \(auth)", keepCallerFocus: true), auth: auth)
+				{
+					return failure
+				}
+				presence = gate.presenceContext
+				block = onMain { self.store.configMintBlock(presence: presence) }
+			}
+			if let block {
+				let why =
+					block.staleSession
+					? "Keychain did not release the config seal to a fresh unlock — see the Buddy Agent Activity log"
+					: block.reason
 				return logBuddyToken(
 					AgentReply.failure(.configTampered, why),
 					"token rejected auth=\(auth): config integrity")
@@ -274,6 +269,32 @@ final class AgentServer {
 			return logBuddyToken(
 				AgentReply.failure(.mintFailed, "\(error)"),
 				"token failed auth=\(auth) base_url=\(baseURL): \(error)")
+		}
+	}
+
+	/// Reply for a failed unlock prompt, or nil when the session opened.
+	private func unlockFailure(_ outcome: UnlockOutcome, auth: String) -> [String: Any]? {
+		switch outcome {
+		case .unlocked:
+			return nil
+		case .declined:
+			return logBuddyToken(
+				AgentReply.failure(.unlockDeclined, "unlock declined"),
+				"token rejected auth=\(auth): unlock declined")
+		case .timedOut:
+			return logBuddyToken(
+				AgentReply.failure(
+					.unlockTimeout,
+					"unlock prompt went unanswered for \(Int(UnlockGate.timeout))s"),
+				"token rejected auth=\(auth): unlock timed out")
+		case .unavailable:
+			let why =
+				UnlockGate.promptingDisabled
+				? "unlock prompting is off (BUDDY_AGENT_UNLOCK_TIMEOUT=0)"
+				: "this Mac has no presence check available"
+			return logBuddyToken(
+				AgentReply.failure(.unlockUnavailable, "\(why) — unlock from the menu bar"),
+				"token rejected auth=\(auth): unlock unavailable")
 		}
 	}
 
