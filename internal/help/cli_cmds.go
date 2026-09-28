@@ -373,7 +373,10 @@ Notes for 'backup' / 'restore':
 
 Notes:
   cred status is the maintenance view (org → environment → product-tenant,
-  then SURFACE). SURFACE is instance vs Platform gateway — not Jamf Account
+  then SURFACE). The lines above the matrix name the config file and where
+  secrets live: Buddy Agent Keychain, this binary's macOS Keychain service
+  and account, or the vault and dek files and their modes.
+  SURFACE is instance vs Platform gateway — not Jamf Account
   scope (that lives on the auth as SCOPE=organization|environment|tenant).
   cred list prints the same tree (ORG / ENVIRONMENT / CONTEXT); Account
   UUIDs stay on cred get. Organization-scoped auths only cover the
@@ -663,7 +666,8 @@ Notes:
   Without an Agent, any interactive Jamf command, or 'buddy setup' /
   'buddy cred add', asks how to start: Jamf Pro instance (API-client JSON,
   or URL + basic), Jamf Account / Platform (paste curl), a quickstart file,
-  or an org MDM profile. --context is a workplace name; auth scope: is
+  or a cred backup. On macOS the list also includes an org MDM profile.
+  Setup prints cred status and exits when it finishes. --context is a workplace name; auth scope: is
   organization|environment|tenant. Optional orgs: YAML expands into those
   workplaces. A US curl with blank env id is an org workplace (same object
   as orgs.<name>).

@@ -28,6 +28,9 @@ func keychainDEKDescription() string {
 	return "macOS Keychain (unsupported on this platform)"
 }
 
+// KeychainAccess is empty off macOS.
+func KeychainAccess() string { return "" }
+
 func keychainTokenWrapDescription() string {
 	return "macOS Keychain (unsupported on this platform)"
 }

@@ -322,7 +322,9 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 		cfg.Auths = map[string]AuthEntry{}
 	}
 	cfg.Auths[authName] = auth
-	if strings.TrimSpace(cfg.Tenant.Default) == "" {
+	if typ == AuthTypeBasic {
+		adoptBasicDefaultContext(cfg, tenantName)
+	} else if strings.TrimSpace(cfg.Tenant.Default) == "" {
 		cfg.SetDefaultTenant(tenantName)
 	}
 	if err := SaveConfig(cfg); err != nil {
@@ -355,6 +357,22 @@ func CredAdd(cfg *Config, opts CredAddOpts, log *slog.Logger) (*CredAddResult, e
 		}
 	}
 	return res, nil
+}
+
+// A blank config loads with context default "default" and no workplace of that
+// name. Basic Q+A names a real tenant; use it so the next command does not
+// look up a workplace that was never created.
+func adoptBasicDefaultContext(cfg *Config, tenantName string) {
+	d := strings.TrimSpace(cfg.Tenant.Default)
+	if d == "" || d == tenantName {
+		cfg.SetDefaultTenant(tenantName)
+		return
+	}
+	if d == DefaultTenant {
+		if _, ok := cfg.Tenants[DefaultTenant]; !ok {
+			cfg.SetDefaultTenant(tenantName)
+		}
+	}
 }
 
 func newContextIsOrgWorkplace(url, region, eid, tid, scope, typ string) bool {

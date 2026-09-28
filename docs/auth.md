@@ -171,7 +171,7 @@ Typical profile content: `context.default`, `contexts` / `orgs:`, and `channels`
 
 `buddy setup secrets` creates an auth for any context that has none, fills instance/platform coverage gaps (instance URL with no instance auth, or platform identity with no platform oauth), then prompts for missing client IDs and store secrets. `buddy cred add` is the one-shot guided path for a named context+auth. `buddy setup export [path]` dumps secrets-free YAML from a working config. `buddy setup import <file>` merges that YAML or an ACS plist, then runs secrets. `buddy setup managed-plist [path]` dumps the same identity as XML plist for Jamf ACS.
 
-`buddy cred list` prints a `managed: …` line when prefs contributed. `buddy cred status` is the coverage matrix. Deleting a managed context or auth from YAML warns: it comes back on the next load until the profile changes or you keep a local override.
+`buddy cred list` prints a `managed: …` line when prefs contributed. `buddy cred status` prints where config and secrets live (paths, Keychain service, or file modes), then the coverage matrix. Deleting a managed context or auth from YAML warns: it comes back on the next load until the profile changes or you keep a local override.
 
 ---
 

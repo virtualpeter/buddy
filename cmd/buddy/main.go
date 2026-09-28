@@ -142,13 +142,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
-		buddy.SetActiveConfig(cfg)
-		tenantName = cfg.DefaultTenant(channel)
-		if globals.tenant != "" {
-			tenantName = globals.tenant
+		fmt.Println()
+		if err := runCredStatus(cfg, nil, logger); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
 		}
-		buddy.SetActiveSelection(tenantName, authPin)
-		credName = authPin
+		os.Exit(0)
 	}
 
 	if len(args) < 1 || (args[0] != clispec.CmdServe && args[0] != clispec.CmdMCP && args[0] != clispec.CmdLSP) {
@@ -3232,8 +3231,11 @@ func runSetup(cfg *buddy.Config, opts buddy.Opts, credName string, args []string
 	}
 	if len(args) == 0 {
 		if buddy.ConfigNeedsSetup(cfg) {
-			_, err := buddy.RunFirstTimeSetup(cfg, opts, log)
-			return err
+			if _, err := buddy.RunFirstTimeSetup(cfg, opts, log); err != nil {
+				return err
+			}
+			fmt.Println()
+			return runCredStatus(cfg, nil, log)
 		}
 		fmt.Print(helpSetup)
 		return nil

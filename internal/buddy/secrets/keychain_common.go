@@ -26,6 +26,34 @@ func keychainAccount(credName string, kind Kind) string {
 	return fmt.Sprintf("%s/%s", credName, kind)
 }
 
+// KeychainItem is one generic-password entry this binary uses for the vault.
+type KeychainItem struct {
+	Service string
+	Account string
+	Access  string // "cli" (security(1)) or "framework" (Security.framework)
+}
+
+func keychainItem(account string) (KeychainItem, bool) {
+	switch KeychainAccess() {
+	case "cli":
+		return KeychainItem{Service: keychainServiceCLI, Account: account, Access: "cli"}, true
+	case "framework":
+		return KeychainItem{Service: keychainServiceSigned, Account: account, Access: "framework"}, true
+	default:
+		return KeychainItem{}, false
+	}
+}
+
+// KeychainDEKItem is the vault data-key item for this binary.
+func KeychainDEKItem() (KeychainItem, bool) {
+	return keychainItem(dekKeychainAccount)
+}
+
+// KeychainTokenWrapItem is the AES wrap key for tokens/*.json.
+func KeychainTokenWrapItem() (KeychainItem, bool) {
+	return keychainItem(tokenWrapKeychainAccount)
+}
+
 // BuddyKeychainServices is the Keychain generic-password services buddy uses.
 // CLI builds store under "buddy"; the signed binary uses "virtualpete.buddy.cli".
 func BuddyKeychainServices() []string {

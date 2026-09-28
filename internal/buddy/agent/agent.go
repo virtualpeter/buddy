@@ -150,6 +150,28 @@ func Enabled() bool {
 	return runtime.GOOS == "darwin"
 }
 
+// KeychainService is the Agent generic-password service. Secrets stay there;
+// buddy receives tokens, not the secret values.
+const KeychainService = "virtualpete.buddy.agent"
+
+// SupportDir is ~/Library/Application Support/Buddy.
+func SupportDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return "", fmt.Errorf("resolve buddy agent directory: home directory unavailable")
+	}
+	return filepath.Join(home, "Library", "Application Support", "Buddy"), nil
+}
+
+// ConfigPath is the Agent identity file, agent-config.json under SupportDir.
+func ConfigPath() (string, error) {
+	dir, err := SupportDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "agent-config.json"), nil
+}
+
 // SocketPath is ~/Library/Application Support/Buddy/agent.sock, or EnvSocket.
 func SocketPath() (string, error) {
 	if p := strings.TrimSpace(os.Getenv(EnvSocket)); p != "" {

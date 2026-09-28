@@ -383,3 +383,74 @@ func TestFirstTimeSetupAgentHint(t *testing.T) {
 		t.Fatal("EnvSocket on a non-Mac must not print the macOS setup note")
 	}
 }
+
+func TestFirstTimeSetupOptions(t *testing.T) {
+	opts := firstTimeSetupOptions()
+	if len(opts) < 4 || opts[3].key != "4" || opts[3].label != "Restore a cred backup" {
+		t.Fatalf("options = %+v", opts)
+	}
+	hasMDM := false
+	for _, opt := range opts {
+		if strings.Contains(opt.label, "MDM") {
+			hasMDM = true
+		}
+	}
+	if hasMDM != (runtime.GOOS == "darwin") {
+		t.Fatalf("MDM choice present=%v on %s", hasMDM, runtime.GOOS)
+	}
+}
+
+func TestCredAddBasicReplacesPlaceholderDefaultContext(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, filepath.Join(dir, "no-managed.plist"))
+	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	cfg := &Config{Tenant: TenantSelection{Default: DefaultTenant}}
+	_, err := CredAdd(cfg, CredAddOpts{
+		TenantName:  "sandbox",
+		URL:         "https://example.jamfcloud.com",
+		Type:        AuthTypeBasic,
+		Username:    "admin",
+		Password:    "s3cret",
+		Kind:        "instance",
+		SkipConfirm: true,
+		NoTest:      true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tenant.Default != "sandbox" {
+		t.Fatalf("default context = %q, want sandbox", cfg.Tenant.Default)
+	}
+}
+
+func TestCredAddBasicKeepsExistingDefaultContext(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, filepath.Join(dir, "no-managed.plist"))
+	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	cfg := &Config{
+		Tenant:  TenantSelection{Default: "prod"},
+		Tenants: map[string]TenantConfig{"prod": {URL: "https://prod.example.com"}},
+	}
+	_, err := CredAdd(cfg, CredAddOpts{
+		TenantName:  "sandbox",
+		URL:         "https://example.jamfcloud.com",
+		Type:        AuthTypeBasic,
+		Username:    "admin",
+		Password:    "s3cret",
+		Kind:        "instance",
+		SkipConfirm: true,
+		NoTest:      true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tenant.Default != "prod" {
+		t.Fatalf("default context = %q, want prod", cfg.Tenant.Default)
+	}
+}

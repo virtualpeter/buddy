@@ -430,6 +430,10 @@ func runCredStatus(cfg *buddy.Config, args []string, log *slog.Logger) error {
 		}
 		testErr = err
 	}
+	if err := buddy.WriteCredStatusHeader(os.Stdout, cfg); err != nil {
+		return err
+	}
+	fmt.Println()
 	if sum := cfg.AgentConfigSummary(); sum != "" {
 		fmt.Println(sum)
 		if dups := buddy.AgentDuplicates(cfg); len(dups) > 0 {

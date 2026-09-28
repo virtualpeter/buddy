@@ -250,7 +250,8 @@ func promptPastedClientBlob(required bool) (string, error) {
 	if required {
 		fmt.Fprintln(os.Stderr, "Paste Jamf API client JSON or curl (end with a blank line):")
 	} else {
-		fmt.Fprintln(os.Stderr, "Paste Jamf API client JSON or curl (end with a blank line), or press Enter to type fields:")
+		fmt.Fprintln(os.Stderr, "Paste Jamf API client JSON or curl, then a blank line.")
+		fmt.Fprintln(os.Stderr, "Or press Enter now to answer questions instead (URL, username/password, or OAuth).")
 	}
 	sc := bufio.NewScanner(os.Stdin)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)

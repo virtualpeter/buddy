@@ -32,6 +32,9 @@ func NewPassDEK() (*PassMaster, error) {
 	return &PassMaster{dek: true}, nil
 }
 
+// PassDEKEntry is the pass(1) name of the vault data key (pass show buddy/dek).
+func PassDEKEntry() string { return passDEKEntry }
+
 func (p *PassMaster) entry() string {
 	if p != nil && p.dek {
 		return passDEKEntry

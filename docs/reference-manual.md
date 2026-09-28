@@ -127,7 +127,7 @@ buddy setup import ./quickstart.yaml
 buddy auth test
 ```
 
-You will be asked how to start: Jamf Pro instance (API-client JSON, or URL + basic), Jamf Account / Platform (paste curl), a secrets-free quickstart YAML/plist, or an org MDM profile. `--context` is a workplace name; `scope:` is on the auth. A US curl with blank env id is an org workplace (same object as `orgs.<name>`).
+You will be asked how to start: Jamf Pro instance (API-client JSON, or URL + basic), Jamf Account / Platform (paste curl), a secrets-free quickstart YAML/plist, or a cred backup. On macOS the list also includes an org MDM profile. Setup prints `buddy cred status` and exits when it finishes. `--context` is a workplace name; `scope:` is on the auth. A US curl with blank env id is an org workplace (same object as `orgs.<name>`).
 
 If an MDM profile already provides workplaces (preference domain `virtualpete.buddy.cli`), run `buddy setup secrets` instead. `buddy cred status` shows remaining holes. In `buddy serve`, **config** (`/config`) edits metadata only — not vault secrets.
 

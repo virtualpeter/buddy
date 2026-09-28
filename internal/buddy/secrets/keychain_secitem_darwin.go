@@ -288,6 +288,9 @@ const (
 	keychainReuseSecs = 0.0
 )
 
+// KeychainAccess is "framework": this binary uses Security.framework.
+func KeychainAccess() string { return "framework" }
+
 // KeychainStore stores secrets via Security.framework (signed release binary).
 type KeychainStore struct{}
 

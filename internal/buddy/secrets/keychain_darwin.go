@@ -10,6 +10,9 @@ import (
 
 const keychainService = keychainServiceCLI
 
+// KeychainAccess is "cli": this binary uses security(1), service "buddy".
+func KeychainAccess() string { return "cli" }
+
 // KeychainStore stores secrets in the macOS Keychain via the security(1) CLI.
 type KeychainStore struct{}
 
