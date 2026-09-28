@@ -50,9 +50,12 @@ enum TokenMinter {
 	}
 
 	private static func secret(for integration: Integration, presence: LAContext?) -> String? {
-		if let stored = AgentKeychain.get(
-			auth: integration.authName, kind: integration.secretKind, context: presence)
-		{
+		let read = {
+			AgentKeychain.get(
+				auth: integration.authName, kind: integration.secretKind, context: presence)
+		}
+		let stored = Thread.isMainThread ? read() : DispatchQueue.main.sync(execute: read)
+		if let stored {
 			return stored
 		}
 		// Dev fallback for a run with no stored secret yet. Refused on a signed

@@ -289,14 +289,19 @@ final class UnlockGate {
 		return (.declined, nil)
 	}
 
-	/// Authenticate the session. Secrets are still gated by a userPresence ACL
-	/// on the data-protection keychain; `evaluatePolicy` produces an LAContext
-	/// that SecItemCopyMatching accepts via kSecUseAuthenticationContext.
-	/// (evaluateAccessControl against a freshly built SecAccessControl did not
-	/// reliably release those items — reads came back errSecItemNotFound.)
+	/// Authenticate the session. Data-protection items are userPresence, so the
+	/// context has to be evaluated for item use. `evaluatePolicy` alone still
+	/// returns errSecInteractionNotAllowed (-25308) from SecItemCopyMatching.
+	/// Do not put this access-control object on the SecItem query; it only
+	/// authorizes the context.
 	private func evaluate(
 		context: LAContext, reason: String, completion: @escaping (Bool, Error?) -> Void
 	) {
+		if AgentKeychain.backend == .dataProtection, let control = AgentKeychain.presenceAccessControl() {
+			context.evaluateAccessControl(
+				control, operation: .useItem, localizedReason: reason, reply: completion)
+			return
+		}
 		context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason, reply: completion)
 	}
 }

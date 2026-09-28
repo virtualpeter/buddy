@@ -110,6 +110,13 @@ enum AgentKeychain {
 		return query
 	}
 
+	/// Same ACL stored on every userPresence item. Pass this to
+	/// `LAContext.evaluateAccessControl` — a policy-only unlock is not accepted
+	/// when reading these items (`errSecInteractionNotAllowed`).
+	static func presenceAccessControl() -> SecAccessControl? {
+		accessControl()
+	}
+
 	private static func accessControl() -> SecAccessControl? {
 		var error: Unmanaged<CFError>?
 		let control = SecAccessControlCreateWithFlags(

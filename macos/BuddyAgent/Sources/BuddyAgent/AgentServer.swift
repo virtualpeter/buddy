@@ -239,7 +239,9 @@ final class AgentServer {
 						"token rejected auth=\(auth): unlock unavailable")
 				}
 			}
-			if let why = self.store.configMintBlockedReason(presence: presence) {
+			// SecItem with an LAContext has to run on the main run loop. This
+			// connection thread is what returns errSecInteractionNotAllowed.
+			if let why = onMain({ self.store.configMintBlockedReason(presence: presence) }) {
 				return logBuddyToken(
 					AgentReply.failure(.configTampered, why),
 					"token rejected auth=\(auth): config integrity")
