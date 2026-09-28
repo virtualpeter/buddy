@@ -52,7 +52,7 @@ enum AgentKeychain {
 
 	private static func probeBackend() -> Backend {
 		guard let control = accessControl() else {
-			log("no SecAccessControl; memory-only secrets")
+			log("kept secrets in memory only; could not build a Keychain access control")
 			return .memory
 		}
 		let acct = "__buddy_acl_probe__"
@@ -62,10 +62,10 @@ enum AgentKeychain {
 		let status = SecItemAdd(add as CFDictionary, nil)
 		silentDelete(account: acct)
 		if status == errSecSuccess || status == errSecDuplicateItem {
-			log("data protection + userPresence ACL available\(keychainAccessGroup.map { " (group \($0))" } ?? "")")
+			log("probed the Keychain; a presence check is available\(keychainAccessGroup.map { " (group \($0))" } ?? "")")
 			return .dataProtection
 		}
-		log("userPresence ACL probe failed (OSStatus \(status)); memory-only secrets")
+		log("probed the Keychain for a presence check; it failed (OSStatus \(status)); kept secrets in memory only")
 		return .memory
 	}
 
@@ -82,11 +82,11 @@ enum AgentKeychain {
 		let status = SecItemDelete(query as CFDictionary)
 		switch status {
 		case errSecSuccess:
-			log("purged login-keychain leftovers for \(service)")
+			log("purged leftover items from the login Keychain for \(service)")
 		case errSecItemNotFound:
 			break
 		default:
-			log("login-keychain purge OSStatus \(status)")
+			log("Keychain refused to purge leftover login Keychain items (OSStatus \(status))")
 		}
 	}
 
@@ -123,7 +123,7 @@ enum AgentKeychain {
 			nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .userPresence, &error)
 		if control == nil {
 			let reason = error?.takeRetainedValue().localizedDescription ?? "unknown"
-			log("could not build a presence ACL (\(reason))")
+			log("could not build a Keychain presence check (\(reason))")
 		}
 		return control
 	}
@@ -143,7 +143,7 @@ enum AgentKeychain {
 		case errSecItemNotFound:
 			return false
 		default:
-			log("keychainExists(\(acct)) OSStatus \(status); treating as absent")
+			log("Keychain refused to look up \(acct) (OSStatus \(status)); treating it as absent")
 			return false
 		}
 	}
@@ -158,7 +158,7 @@ enum AgentKeychain {
 		guard backend == .dataProtection, let control = accessControl() else {
 			remember(acct, value)
 			usingFallback = true
-			log("memory write \(acct)")
+			log("kept \(acct) in memory only")
 			return false
 		}
 
@@ -185,7 +185,7 @@ enum AgentKeychain {
 				status = SecItemUpdate(updateQuery as CFDictionary, update as CFDictionary)
 			} else {
 				// Stale presence-gated item: cannot replace without a session.
-				log("ACL write \(acct) blocked by existing item (delete \(deleteStatus)); need unlock")
+				log("could not store \(acct) in the Keychain; an existing item blocked the write (delete OSStatus \(deleteStatus)); kept it in memory only")
 				remember(acct, value)
 				usingFallback = true
 				return false
@@ -193,15 +193,15 @@ enum AgentKeychain {
 		}
 		if status == errSecSuccess, keychainExists(account: acct) {
 			forget(acct)
-			log("ACL write \(acct) ok")
+			log("stored \(acct) in the Keychain")
 			return true
 		}
 		if status == errSecSuccess {
 			// SecItemAdd sometimes reports success while the item is not
 			// queryable — do not tell the UI the secret is in the keychain.
-			log("ACL write \(acct) Add ok but not readable (delete \(deleteStatus)); memory-only")
+			log("stored \(acct) in the Keychain but it is not readable (delete OSStatus \(deleteStatus)); kept it in memory only")
 		} else {
-			log("ACL write \(acct) failed (OSStatus \(status), delete \(deleteStatus)); memory-only")
+			log("Keychain refused to store \(acct) (OSStatus \(status), delete OSStatus \(deleteStatus)); kept it in memory only")
 		}
 		remember(acct, value)
 		usingFallback = true
@@ -233,7 +233,7 @@ enum AgentKeychain {
 		{
 			return value
 		}
-		log("\(acct) ACL read OSStatus \(status)")
+		log("Keychain refused to read \(acct) (OSStatus \(status))")
 		return nil
 	}
 
@@ -323,14 +323,14 @@ enum AgentKeychain {
 			case errSecItemNotFound:
 				break
 			default:
-				log("protected update \(account) failed (OSStatus \(updateStatus))")
+				log("Keychain refused to update \(account) (OSStatus \(updateStatus))")
 				rememberProtected(account, data)
 				return false
 			}
 		} else {
 			let deleteStatus = silentDelete(account: account)
 			if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound {
-				log("protected delete \(account) failed (OSStatus \(deleteStatus))")
+				log("Keychain refused to delete \(account) (OSStatus \(deleteStatus))")
 			}
 		}
 
@@ -347,7 +347,7 @@ enum AgentKeychain {
 			forgetProtected(account)
 			return true
 		}
-		log("protected write \(account) failed (OSStatus \(status))")
+		log("Keychain refused to store \(account) (OSStatus \(status))")
 		rememberProtected(account, data)
 		return false
 	}
@@ -364,7 +364,7 @@ enum AgentKeychain {
 			let (value, status) = copyProtected(account: account, context: context)
 			if let value { return (value, status) }
 			if status != errSecItemNotFound {
-				log("protected read \(account) OSStatus \(status)\(statusNote(status))")
+				log("Keychain refused to read \(account) (OSStatus \(status)\(statusNote(status)))")
 			}
 			if let cached = recalledProtected(account) { return (cached, errSecSuccess) }
 			return (nil, status)

@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -267,6 +269,7 @@ func Token(ctx context.Context, req TokenRequest) (Bearer, error) {
 		Kind:        req.Kind,
 		Force:       req.Force,
 		AllowUnlock: allowUnlock,
+		Client:      tokenLogClient(),
 	})
 	if err != nil {
 		return Bearer{}, err
@@ -292,6 +295,48 @@ type request struct {
 	Kind        string `json:"kind,omitempty"`
 	Force       bool   `json:"force,omitempty"`
 	AllowUnlock bool   `json:"allow_unlock,omitempty"`
+	// Client names the caller in the Agent activity log: cli, script, mcp, or ide.
+	// It is not an auth check. Channels policy for scripts stays cli.
+	Client string `json:"client,omitempty"`
+}
+
+// Who is asking for a token, for the Agent activity log only.
+var (
+	channelSourceMu sync.Mutex
+	channelSource   func() string
+	scriptRunning   atomic.Bool
+)
+
+// SetChannelSource supplies the process channel (cli, mcp, or ide). The CLI
+// registers buddy.ActiveChannel so an IDE session is visible on the next token.
+func SetChannelSource(fn func() string) {
+	channelSourceMu.Lock()
+	channelSource = fn
+	channelSourceMu.Unlock()
+}
+
+// SetScriptRunning marks the three CLI script entry points (a .buddy file,
+// -e, or the REPL). MCP and IDE stay their own names while executing buddyscript.
+func SetScriptRunning(on bool) {
+	scriptRunning.Store(on)
+}
+
+func tokenLogClient() string {
+	channelSourceMu.Lock()
+	fn := channelSource
+	channelSourceMu.Unlock()
+	ch := ""
+	if fn != nil {
+		ch = strings.ToLower(strings.TrimSpace(fn()))
+	}
+	switch ch {
+	case "mcp", "ide":
+		return ch
+	}
+	if scriptRunning.Load() {
+		return "script"
+	}
+	return "cli"
 }
 
 type response struct {

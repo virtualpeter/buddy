@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"buddy/internal/buddy"
+	"buddy/internal/buddy/agent"
 	"buddy/internal/clispec"
 	"buddy/internal/help"
 	"buddy/internal/script"
@@ -156,7 +157,10 @@ func main() {
 
 	if globals.evalSource != "" {
 		scriptArgs := script.ParseEvalArgs(args)
-		if err := script.RunSource(credName, opts, globals.evalSource, scriptArgs, logger, globals.scriptTrace); err != nil {
+		agent.SetScriptRunning(true)
+		err := script.RunSource(credName, opts, globals.evalSource, scriptArgs, logger, globals.scriptTrace)
+		agent.SetScriptRunning(false)
+		if err != nil {
 			logger.Error("Eval failed", "error", err)
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
@@ -165,7 +169,10 @@ func main() {
 	}
 
 	if len(args) < 1 {
-		if err := script.REPL(credName, opts, logger, globals.scriptTrace); err != nil {
+		agent.SetScriptRunning(true)
+		err := script.REPL(credName, opts, logger, globals.scriptTrace)
+		agent.SetScriptRunning(false)
+		if err != nil {
 			logger.Error("REPL failed", "error", err)
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
@@ -179,7 +186,10 @@ func main() {
 		if posTrace {
 			trace = true
 		}
-		exitOnErr(logger, "Script failed", script.Run(credName, opts, scriptPath, scriptArgs, logger, trace))
+		agent.SetScriptRunning(true)
+		err := script.Run(credName, opts, scriptPath, scriptArgs, logger, trace)
+		agent.SetScriptRunning(false)
+		exitOnErr(logger, "Script failed", err)
 		return
 	}
 

@@ -99,7 +99,7 @@ enum AgentConfigIntegrity {
 				label: "Buddy Agent config integrity key",
 				context: presence)
 			guard keyOk else {
-				AgentLog.shared.keychain("config seal did not persist to Keychain")
+				AgentLog.shared.keychain("config signature in the Keychain did not persist")
 				lastFailureReason = "Keychain rejected the config seal (see Activity log)."
 				return false
 			}
@@ -111,7 +111,7 @@ enum AgentConfigIntegrity {
 			label: "Buddy Agent config seal",
 			context: presence)
 		guard sigOk, isSealed else {
-			AgentLog.shared.keychain("config seal did not persist to Keychain")
+			AgentLog.shared.keychain("config signature in the Keychain did not persist")
 			lastFailureReason = "Keychain rejected the config seal (see Activity log)."
 			return false
 		}

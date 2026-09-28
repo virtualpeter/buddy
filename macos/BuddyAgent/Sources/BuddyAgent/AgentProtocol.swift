@@ -23,7 +23,7 @@ enum AgentErrorCode: String {
 ///
 ///   {"op":"status"} / {"op":"config"} / {"op":"integrations"} / {"op":"tokens"}
 ///   {"op":"token","auth":"…","base_url":"…","kind":"oauth|platform|basic",
-///    "force":false,"allow_unlock":true}
+///    "force":false,"allow_unlock":true,"client":"cli|script|mcp|ide"}
 ///   {"op":"lock"}
 ///
 /// Only `token` requires an unlocked Agent: config is identity, not secrets.
@@ -36,9 +36,12 @@ struct AgentRequest: Decodable {
 	let kind: String?
 	let force: Bool?
 	let allowUnlock: Bool?
+	/// Who asked: `cli`, `script`, `mcp`, or `ide`. Missing or anything else
+	/// is logged as `buddy` so an older CLI still reads cleanly. Not an auth check.
+	let client: String?
 
 	enum CodingKeys: String, CodingKey {
-		case op, auth, kind, force
+		case op, auth, kind, force, client
 		case baseURL = "base_url"
 		case allowUnlock = "allow_unlock"
 	}

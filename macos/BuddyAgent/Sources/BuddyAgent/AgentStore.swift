@@ -814,7 +814,8 @@ final class AgentStore: ObservableObject {
 	@discardableResult
 	private func applyConfigSeal(presence: LAContext?) -> Bool {
 		guard AgentConfigIntegrity.sign(configPath: path, presence: presence) else {
-			AgentLog.shared.keychain("config seal failed (presence \(presence == nil ? "none" : "available"))")
+			AgentLog.shared.keychain(
+				"config signature in the Keychain failed (presence \(presence == nil ? "none" : "available"))")
 			return false
 		}
 		if let presence {
@@ -1069,18 +1070,18 @@ final class AgentStore: ObservableObject {
 		guard auths[name] != nil else { return "Unknown auth" }
 		if !canMint(forAuth: name) {
 			let why = mintUnavailableReason(forAuth: name)
-			AgentLog.shared.mint("UI mint failed for \(name): \(why)")
+			AgentLog.shared.mint("Settings token request for \(name) failed: \(why)")
 			return why
 		}
 		let freshSession = !state.unlocked
 		if let why = authorizeForMint(auth: name, gate: gate, state: state) {
-			AgentLog.shared.mint("UI mint failed for \(name): \(why)")
+			AgentLog.shared.mint("Settings token request for \(name) failed: \(why)")
 			return why
 		}
 		let presenceResult = presenceForMint(auth: name, gate: gate, state: state)
 		guard var presence = presenceResult.0 else {
 			let why = presenceResult.1 ?? "Unlock declined — unlock from the menu bar"
-			AgentLog.shared.mint("UI mint failed for \(name): \(why)")
+			AgentLog.shared.mint("Settings token request for \(name) failed: \(why)")
 			return why
 		}
 		// Unsigned builds have no seal to check (mintBlockedReason is nil there).
@@ -1096,7 +1097,7 @@ final class AgentStore: ObservableObject {
 			let again = presenceForMint(auth: name, gate: gate, state: state)
 			guard let renewed = again.0 else {
 				let why = again.1 ?? "Unlock declined — unlock from the menu bar"
-				AgentLog.shared.mint("UI mint failed for \(name): \(why)")
+				AgentLog.shared.mint("Settings token request for \(name) failed: \(why)")
 				return why
 			}
 			presence = renewed
@@ -1108,7 +1109,7 @@ final class AgentStore: ObservableObject {
 				? "Keychain did not release the config seal to a fresh unlock — see the Activity log"
 				: (AgentConfigIntegrity.mintBlockedReason(configPath: path, presence: presence)
 					?? "config seal could not be verified")
-			AgentLog.shared.mint("UI mint failed for \(name): \(why)")
+			AgentLog.shared.mint("Settings token request for \(name) failed: \(why)")
 			return why
 		}
 
@@ -1118,7 +1119,8 @@ final class AgentStore: ObservableObject {
 		for target in targets {
 			let key = "\(name)@\(target.baseURL)"
 			if !force, state.cachedToken(key: key) != nil {
-				AgentLog.shared.mint("UI cache hit auth=\(name) base_url=\(target.baseURL)")
+				AgentLog.shared.mint(
+					"Settings asked for a token for \(name) at \(target.baseURL); used the cached token (no Jamf API call)")
 				minted += 1
 				continue
 			}
@@ -1135,11 +1137,12 @@ final class AgentStore: ObservableObject {
 						expiresAt: token.expiresAt),
 					key: key)
 				minted += 1
-				AgentLog.shared.mint("UI minted auth=\(name) base_url=\(target.baseURL)")
+				AgentLog.shared.mint(
+					"Settings asked the Jamf token API for \(name) at \(target.baseURL) and received a token")
 			} catch {
 				lastError = mintErrorMessage(error)
 				AgentLog.shared.mint(
-					"UI mint failed auth=\(name) base_url=\(target.baseURL): \(lastError ?? "error")")
+					"Settings token request for \(name) failed: \(target.baseURL): \(lastError ?? "error")")
 			}
 		}
 		if minted > 0 { return nil }
@@ -1209,7 +1212,7 @@ final class AgentStore: ObservableObject {
 
 	private func authorizeForMint(auth: String, gate: UnlockGate, state: AgentState) -> String? {
 		if state.unlocked { return nil }
-		switch gate.authorize(reason: "mint a Jamf token for \(auth)") {
+		switch gate.authorize(reason: "get Settings a token for \(auth)") {
 		case .unlocked:
 			return nil
 		case .declined:
@@ -1228,7 +1231,7 @@ final class AgentStore: ObservableObject {
 		-> (LAContext?, String?)
 	{
 		if let ctx = gate.presenceContext { return (ctx, nil) }
-		switch gate.authorize(reason: "mint a Jamf token for \(auth)") {
+		switch gate.authorize(reason: "get Settings a token for \(auth)") {
 		case .unlocked:
 			return (gate.presenceContext, nil)
 		case .declined:

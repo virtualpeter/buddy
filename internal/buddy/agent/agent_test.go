@@ -355,6 +355,52 @@ func TestSocketPathDefault(t *testing.T) {
 	}
 }
 
+func TestTokenReportsClient(t *testing.T) {
+	t.Cleanup(func() {
+		SetScriptRunning(false)
+		SetChannelSource(nil)
+	})
+	var got string
+	fakeAgent(t, func(req request) response {
+		if req.Op == "token" {
+			got = req.Client
+			return response{OK: true, AccessToken: "t", ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339)}
+		}
+		return response{Error: "bad_request", Message: "unknown op"}
+	})
+	ask := func() {
+		t.Helper()
+		if _, err := Token(context.Background(), TokenRequest{Auth: "a", BaseURL: "https://x", Kind: "oauth"}); err != nil {
+			t.Fatalf("token: %v", err)
+		}
+	}
+	ask()
+	if got != "cli" {
+		t.Fatalf("client = %q, want cli", got)
+	}
+	SetScriptRunning(true)
+	ask()
+	if got != "script" {
+		t.Fatalf("client = %q, want script", got)
+	}
+	SetChannelSource(func() string { return "mcp" })
+	ask()
+	if got != "mcp" {
+		t.Fatalf("client = %q, want mcp over script", got)
+	}
+	SetChannelSource(func() string { return "IDE" })
+	ask()
+	if got != "ide" {
+		t.Fatalf("client = %q, want ide", got)
+	}
+	SetScriptRunning(false)
+	SetChannelSource(func() string { return "cli" })
+	ask()
+	if got != "cli" {
+		t.Fatalf("client = %q, want cli", got)
+	}
+}
+
 func TestBadExpiry(t *testing.T) {
 	fakeAgent(t, func(request) response {
 		return response{OK: true, AccessToken: "bearer", ExpiresAt: "not-a-date"}

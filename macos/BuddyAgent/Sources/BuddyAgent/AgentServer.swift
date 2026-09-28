@@ -168,21 +168,22 @@ final class AgentServer {
 		let auth = (request.auth ?? "").trimmed
 		let baseURL = (request.baseURL ?? "").trimmed
 		let kind = (request.kind ?? "oauth").trimmed
+		let who = callerName(request.client)
 		guard !auth.isEmpty, !baseURL.isEmpty else {
 			return logBuddyToken(
 				AgentReply.failure(.badRequest, "token requires auth and base_url"),
-				"token rejected: missing auth or base_url")
+				"\(who) requested a token without an auth or base URL; refused")
 		}
 		guard let integration = onMain({ self.store.integration(forAuth: auth) }) else {
 			// Not ours: the CLI falls back to its own vault.
 			return logBuddyToken(
 				AgentReply.failure(.unsupported, "no integration named \(auth)"),
-				"token rejected auth=\(auth): unknown integration")
+				"\(who) requested a token for \(auth); no integration by that name, refused")
 		}
 		let lockedReply = {
 			self.logBuddyToken(
 				AgentReply.failure(.locked, "Buddy Agent is locked — unlock it from the menu bar"),
-				"token rejected auth=\(auth): locked")
+				"\(who) requested a token for \(auth); Agent is locked and will not prompt, refused")
 		}
 		// True when this request opened the session. A context that fails a
 		// second later is not stale; prompting again would not help.
@@ -192,7 +193,7 @@ final class AgentServer {
 			// Blocks this connection thread while the system prompt is up; the
 			// CLI is waiting on the socket for exactly this.
 			if let failure = unlockFailure(gate.authorize(
-				reason: "mint a Jamf token for \(auth)", keepCallerFocus: true), auth: auth)
+				reason: "get \(who) a token for \(auth)", keepCallerFocus: true), who: who, auth: auth)
 			{
 				return failure
 			}
@@ -206,7 +207,7 @@ final class AgentServer {
 			var presence = gate.presenceContext
 			if presence == nil {
 				if let failure = unlockFailure(gate.authorize(
-					reason: "mint a Jamf token for \(auth)", keepCallerFocus: true), auth: auth)
+					reason: "get \(who) a token for \(auth)", keepCallerFocus: true), who: who, auth: auth)
 				{
 					return failure
 				}
@@ -225,7 +226,7 @@ final class AgentServer {
 				state.lockVault()
 				guard request.allowUnlock == true else { return lockedReply() }
 				if let failure = unlockFailure(gate.authorize(
-					reason: "mint a Jamf token for \(auth)", keepCallerFocus: true), auth: auth)
+					reason: "get \(who) a token for \(auth)", keepCallerFocus: true), who: who, auth: auth)
 				{
 					return failure
 				}
@@ -239,12 +240,12 @@ final class AgentServer {
 					: block.reason
 				return logBuddyToken(
 					AgentReply.failure(.configTampered, why),
-					"token rejected auth=\(auth): config integrity")
+					"\(who) requested a token for \(auth); refused because the config seal check failed (\(why))")
 			}
 			if request.force != true, let cached = state.cachedToken(key: key) {
 				return logBuddyToken(
 					AgentReply.token(cached.value, expiresAt: cached.expiresAt),
-					"token cache hit auth=\(auth) base_url=\(baseURL)")
+					"\(who) requested a token for \(auth) at \(baseURL); sent the cached token (no Jamf API call)")
 			}
 			let minted = try TokenMinter.mint(
 				integration: integration, baseURL: baseURL, kind: kind, presence: presence)
@@ -253,40 +254,50 @@ final class AgentServer {
 					auth: auth, baseURL: baseURL, value: minted.value,
 					expiresAt: minted.expiresAt),
 				key: key)
-			AgentLog.shared.mint("buddy minted auth=\(auth) base_url=\(baseURL)")
+			AgentLog.shared.mint(
+				"called the Jamf token API for \(auth) at \(baseURL) and received a token")
 			return logBuddyToken(
 				AgentReply.token(minted.value, expiresAt: minted.expiresAt),
-				"token minted auth=\(auth) base_url=\(baseURL)")
+				"\(who) requested a token for \(auth) at \(baseURL); sent the new token")
 		} catch MintError.unsupported(let why) {
 			return logBuddyToken(
 				AgentReply.failure(.unsupported, why),
-				"token failed auth=\(auth) base_url=\(baseURL): \(why)")
+				"\(who) requested a token for \(auth) at \(baseURL); Jamf token API failed: \(why)")
 		} catch MintError.failed(let why) {
 			return logBuddyToken(
 				AgentReply.failure(.mintFailed, why),
-				"token failed auth=\(auth) base_url=\(baseURL): \(why)")
+				"\(who) requested a token for \(auth) at \(baseURL); Jamf token API failed: \(why)")
 		} catch {
 			return logBuddyToken(
 				AgentReply.failure(.mintFailed, "\(error)"),
-				"token failed auth=\(auth) base_url=\(baseURL): \(error)")
+				"\(who) requested a token for \(auth) at \(baseURL); Jamf token API failed: \(error)")
 		}
 	}
 
+	/// `cli` / `script` / `mcp` / `ide` become `buddy cli` and so on. Anything else,
+	/// including a missing field from an older CLI, is just `buddy`.
+	private func callerName(_ client: String?) -> String {
+		guard let client, client == "cli" || client == "script" || client == "mcp" || client == "ide" else {
+			return "buddy"
+		}
+		return "buddy \(client)"
+	}
+
 	/// Reply for a failed unlock prompt, or nil when the session opened.
-	private func unlockFailure(_ outcome: UnlockOutcome, auth: String) -> [String: Any]? {
+	private func unlockFailure(_ outcome: UnlockOutcome, who: String, auth: String) -> [String: Any]? {
 		switch outcome {
 		case .unlocked:
 			return nil
 		case .declined:
 			return logBuddyToken(
 				AgentReply.failure(.unlockDeclined, "unlock declined"),
-				"token rejected auth=\(auth): unlock declined")
+				"\(who) requested a token for \(auth); unlock declined, refused")
 		case .timedOut:
 			return logBuddyToken(
 				AgentReply.failure(
 					.unlockTimeout,
 					"unlock prompt went unanswered for \(Int(UnlockGate.timeout))s"),
-				"token rejected auth=\(auth): unlock timed out")
+				"\(who) requested a token for \(auth); unlock timed out, refused")
 		case .unavailable:
 			let why =
 				UnlockGate.promptingDisabled
@@ -294,7 +305,7 @@ final class AgentServer {
 				: "this Mac has no presence check available"
 			return logBuddyToken(
 				AgentReply.failure(.unlockUnavailable, "\(why) — unlock from the menu bar"),
-				"token rejected auth=\(auth): unlock unavailable")
+				"\(who) requested a token for \(auth); unlock unavailable, refused")
 		}
 	}
 
