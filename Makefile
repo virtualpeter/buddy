@@ -296,6 +296,16 @@ test-signed: sync-docfs
 	@echo "Testing secitem Keychain backend (CGO_ENABLED=1, tags=secitem$(if $(TAGS),$(comma)$(TAGS)))..."
 	CGO_ENABLED=1 $(GO) test -v -tags 'secitem$(if $(TAGS),$(comma)$(TAGS))' ./...
 
+# Unit tests on Linux in Podman (golang:1.27). See scripts/test-podman.sh.
+.PHONY: test-podman
+test-podman:
+	./scripts/test-podman.sh
+
+# Interactive Linux shell in the same Podman image. --rm removes the container on exit.
+.PHONY: shell-podman
+shell-podman:
+	./scripts/test-podman.sh shell
+
 # Run integration tests (requires non-production Jamf + buddy-test-source-profile; pin --tenant/--user)
 integration-test: $(BUILDTARGET)
 	$(BUILDTARGET) -y scripts/integration_test.buddy
@@ -354,6 +364,8 @@ help:
 	@echo "  publish-preview - Same checks as publish, print gh command + notes, do not create the release"
 	@echo "  test      - Run unit tests (default Keychain / CGO off)"
 	@echo "  test-signed - Darwin: unit tests with -tags secitem (Security.framework, CGO)"
+	@echo "  test-podman - Unit tests on Linux via podman (golang:1.27; see scripts/test-podman.sh)"
+	@echo "  shell-podman - Linux shell in that image; container is removed on exit"
 	@echo "  integration-test - Run Starlark integration tests against Jamf"
 	@echo "  integration-test-acs7 - ACS profile id=7 same-tenant mutate/restore suite"
 	@echo "  scan-acs-profiles - Read-only audit: profiles needing ACS hydrate/bind handling"
