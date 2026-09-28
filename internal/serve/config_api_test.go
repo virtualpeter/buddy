@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"buddy/internal/buddy"
+	"buddy/internal/buddy/agent"
 	"buddy/internal/buddy/secrets"
 )
 
@@ -17,6 +18,9 @@ func withTempBuddyHome(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	// An empty config discovers a running Agent. The test binary is unsigned,
+	// so a signed Agent refuses it and LoadConfig fails the GET with 503.
+	t.Setenv(agent.EnvDisable, "1")
 	cfg := &buddy.Config{}
 	buddy.SetActiveConfig(cfg)
 }
@@ -218,6 +222,7 @@ func TestConfigAPIRenameAndTree(t *testing.T) {
 func TestConfigAPIRestoreLastGood(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(agent.EnvDisable, "1")
 	t.Setenv(buddy.EnvManagedPlist, filepath.Join(dir, "no-managed.plist"))
 	path := filepath.Join(dir, "buddy", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
