@@ -2,6 +2,19 @@
 
 buddy did not keep a changelog before v12. This page is the user-facing list of notable changes per tagged release. Version strings come from git tags (`git describe`). Maintainers add a section with `make tag`.
 
+## v12.2.1
+
+"The one that is less of a prick about things"
+
+- Finish first-run setup by printing where config and secrets live.
+- Run Linux unit tests and a shell in a Go 1.27 Podman image.
+- Name who asked for a token in the Agent log and on the unlock sheet.
+- Keep config API tests off a running Buddy Agent.
+- Treat a rejected unlock session as stale, not a broken config seal.
+- Evaluate the unlock against the presence ACL, and read seals on the main thread.
+- keep context with the cli when seeking tokens
+- Keep config seals readable after a save, and unlock before a locked edit.
+
 ## v12.2.0
 
 "The one that has one less bug"
