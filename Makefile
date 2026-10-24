@@ -83,6 +83,7 @@ buddy: $(BUILDTARGET)
 
 $(BUILDTARGET): sync-docfs $(BUDDY_GO_FILES) docfs/content/README.embedded | $(DIST)
 	@echo "Building buddy (version $(BUDDY_VERSION)$(if $(TAGS), tags=$(TAGS)), CGO_ENABLED=$(CGO_ENABLED))..."
+	@rm -f $(BUILDTARGET)
 	$(GO) build $(GOFLAGS) $(GO_TAGS) -ldflags "-X main.Version=$(BUDDY_VERSION)" -o $(BUILDTARGET) ./cmd/buddy
 	@! santactl status>/dev/null|| santactl fileinfo $(BUILDTARGET)|grep Rule|egrep '(Allowed|None)' >/dev/null|| rm -f $(BUILDTARGET)
 	@ls -lh $(BUILDTARGET)
@@ -131,6 +132,12 @@ buddy-windows: sync-docfs | $(DIST)
 .PHONY: size-report
 size-report: sync-docfs
 	@./scripts/buddy-size-report.sh
+
+# Scan for known Go vulnerabilities in reachable code
+vuln:
+	@echo "Running govulncheck..."
+	@go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+.PHONY: vuln
 
 install: $(BUILDTARGET)
 	rm -f ~/go/bin/buddy
