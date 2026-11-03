@@ -231,6 +231,7 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "run_workflow", runWorkflowBuiltin(credName, logger))
 
 	putBuiltin(dict, "package_upload", packageUpload(credName, logger))
+	putBuiltin(dict, "package_check", packageCheck(credName, logger))
 	putBuiltin(dict, "packages_scan", packagesScanBuiltin(credName, logger))
 	putBuiltin(dict, "package_ready", packageReady(credName, logger))
 	putBuiltin(dict, "package_wait_ready", packageWaitReady(credName, logger))
@@ -1727,7 +1728,8 @@ func packageUpload(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		var file, name, categoryID, notes, info starlark.String
 		var priority starlark.Int
 		var reboot starlark.Value = starlark.None
-		var waitReady, force starlark.Bool
+		var waitReady starlark.Value = starlark.None
+		var force starlark.Bool
 		var waitReadyTimeout starlark.Value = starlark.None
 		var sess sessionArgs
 		if err := starlark.UnpackArgs("package_upload", args, kwargs,
@@ -1779,7 +1781,15 @@ func packageUpload(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			v := bool(b)
 			attrs.Reboot = &v
 		}
-		upOpts := buddy.PackageUploadOptions{WaitReady: bool(waitReady), Force: bool(force)}
+		wait := true
+		if waitReady != nil && waitReady != starlark.None {
+			b, ok := waitReady.(starlark.Bool)
+			if !ok {
+				return nil, fmt.Errorf("package_upload: wait_ready must be a bool")
+			}
+			wait = bool(b)
+		}
+		upOpts := buddy.PackageUploadOptions{WaitReady: wait, Force: bool(force)}
 		if waitReadyTimeout != nil && waitReadyTimeout != starlark.None {
 			n, ok := waitReadyTimeout.(starlark.Int)
 			if !ok {
@@ -1797,6 +1807,62 @@ func packageUpload(credName string, logger *slog.Logger) func(*starlark.Thread, 
 			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
+	}
+}
+
+// package_check(file, id?, tenant?, surface?, auth?) → dict
+func packageCheck(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var file starlark.String
+		var idVal starlark.Value = starlark.None
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("package_check", args, kwargs,
+			"file", &file,
+			"id?", &idVal,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth,
+		); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		id := ""
+		if idVal != nil && idVal != starlark.None {
+			s, err := starlarkIDString(idVal, "id")
+			if err != nil {
+				return nil, err
+			}
+			id = s
+		}
+		res, err := buddy.PackageCheck(sessionPin, string(file), id, logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		d := new(starlark.Dict)
+		_ = d.SetKey(starlark.String("ok"), starlark.Bool(res.OK))
+		_ = d.SetKey(starlark.String("class"), starlark.String(res.Class))
+		_ = d.SetKey(starlark.String("id"), starlark.String(res.ID))
+		_ = d.SetKey(starlark.String("packageName"), starlark.String(res.PackageName))
+		_ = d.SetKey(starlark.String("fileName"), starlark.String(res.FileName))
+		_ = d.SetKey(starlark.String("recordFileName"), starlark.String(res.RecordFileName))
+		_ = d.SetKey(starlark.String("cloudTransferStatus"), starlark.String(res.CloudTransferStatus))
+		_ = d.SetKey(starlark.String("match"), starlark.Bool(res.Match))
+		_ = d.SetKey(starlark.String("matchedBy"), starlark.String(res.MatchedBy))
+		_ = d.SetKey(starlark.String("localMd5"), starlark.String(res.LocalMD5))
+		_ = d.SetKey(starlark.String("localSha256"), starlark.String(res.LocalSHA256))
+		_ = d.SetKey(starlark.String("fileNameDiffers"), starlark.Bool(res.FileNameDiffers))
+		_ = d.SetKey(starlark.String("categoryId"), starlark.String(res.CategoryID))
+		_ = d.SetKey(starlark.String("priority"), starlark.MakeInt(res.Priority))
+		_ = d.SetKey(starlark.String("md5"), starlark.String(res.Md5))
+		_ = d.SetKey(starlark.String("sha256"), starlark.String(res.Sha256))
+		_ = d.SetKey(starlark.String("sha3512"), starlark.String(res.Sha3512))
+		_ = d.SetKey(starlark.String("hashType"), starlark.String(res.HashType))
+		_ = d.SetKey(starlark.String("hashValue"), starlark.String(res.HashValue))
+		return resultOK(d), nil
 	}
 }
 

@@ -14,7 +14,7 @@ Tools: get_instructions, buddy_info, docs, jamf_schema (discovery only), buddysc
 Before resource work: docs query the object noun (e.g. smart_groups, policies, packages, profile-payloads, blueprints, licenses) then get that page. Do not docs-get builtins (too large); buddyscript a bare name (no parentheses) to print one signature.
 MCP defaults deny jamf_*. Respect buddy_info.deny_builtins / allow_builtins (channel layer) plus tenant_deny_builtins / auth_deny_builtins. Allow follows deny per layer; deny ["*"] is an allowlist. Blocked builtins raise — treat as a gap, do not invent schema HTTP.
 Profiles/ACS: profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic PUT from schema. profile_xml is the Classic envelope; list with payloads_list_identifiers then identifier= (Identifier, unique Type, or unique UUID). MCX helpers only for ManagedClient / mcx_preference_settings.
-Packages/JCDS: package_ready / package_wait_ready / package_download.
+Packages/JCDS: package_check / package_ready / package_wait_ready / package_download. package_upload waits for READY by default and retries a 201 that stored no file.
 Groups: smart_group* (criteria + smart_group_computers) vs static_group* (membership mutate) — do not mix; Platform device_group* is separate.
 buddyscript: prefer def main(): … return …; Starlark has no while/try/class (use for … in / range, or builtins like package_wait_ready for polling); builtins return bare values and raise on failure; MCP wraps {ok,value} only at the tool boundary.
 Jamf remote MCP (developer.jamf.com/mcp) is useful for product schemas; prefer buddy builtins for tenant changes.`
@@ -79,7 +79,7 @@ MCP hosts (Claude Desktop, Cursor, …) often time out tool calls. Do **not** pr
 - Respect **buddy_info.deny_builtins** / **allow_builtins** (channel) and tenant_deny_builtins / auth_deny_builtins. MCP defaults deny jamf_* on the channel layer. Each layer is independent (channel allow cannot unblock a tenant deny). deny ["*"] is an allowlist at that layer. Blocked builtins raise on call — treat as a coverage gap; do not invent alternate HTTP.
 - **Groups:** smart_group* (criteria + smart_group_computers) vs static_group* (membership mutate) vs Platform device_group* — do not mix.
 - **Profiles/ACS:** profile_xml / profile_put_xml / profile_xml_patch_payload / profile_acs_bind_uuid — never invent Classic profile PUT from jamf_schema. profile_xml is the Classic envelope (not a bare plist). Inspect via profile_xml_extract_payloads → payloads_list_identifiers, then identifier= (PayloadIdentifier, unique PayloadType, or unique PayloadUUID). payloads_get_mcx_dict only for ManagedClient / flat mcx_preference_settings — not com.apple.MCX PayloadContent.
-- **Packages/JCDS:** package_ready / package_wait_ready / package_download.
+- **Packages/JCDS:** package_check / package_ready / package_wait_ready / package_download. package_upload waits for READY by default (wait_ready=False stops after the file is stored). A 201 that leaves SHA3-512 of an empty file and no size is retried, then reported as a failed upload.
 - Jamf remote MCP (developer.jamf.com/mcp) = product schemas; buddy = tenant changes with your config/secrets.
 `
 

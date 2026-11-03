@@ -1,10 +1,16 @@
 package buddy
 
 import (
+	"context"
+	"crypto/sha3"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -63,15 +69,314 @@ func TestWaitUntilPackageReadable_ProbeError(t *testing.T) {
 	}
 }
 
-func TestSettleAfterPackageCreateSleepsFiveSeconds(t *testing.T) {
+func TestRetryPackageUploadSucceedsAfter500(t *testing.T) {
 	t.Parallel()
-	var got time.Duration
-	settleAfterPackageCreate("42", func(d time.Duration) { got = d })
-	if got != 5*time.Second {
-		t.Fatalf("slept %v, want 5s", got)
+	var pauses []time.Duration
+	n := 0
+	got, elapsed, err := retryPackageUpload(packageUploadMaxAttempts, packageUploadRetryPauses, func(d time.Duration) {
+		pauses = append(pauses, d)
+	}, func() (int64, time.Duration, error) {
+		n++
+		if n < 3 {
+			return 0, 0, &packageUploadStatusError{Code: 500, Body: "busy"}
+		}
+		return 42, time.Second, nil
+	})
+	if err != nil {
+		t.Fatalf("retryPackageUpload: %v", err)
 	}
-	if packageUploadSettleAfterCreate != 5*time.Second {
-		t.Fatalf("packageUploadSettleAfterCreate = %v, want 5s", packageUploadSettleAfterCreate)
+	if got != 42 || elapsed != time.Second {
+		t.Fatalf("result = %d %v", got, elapsed)
+	}
+	if n != 3 {
+		t.Fatalf("attempts = %d, want 3", n)
+	}
+	if len(pauses) != 2 || pauses[0] != time.Second || pauses[1] != 2*time.Second {
+		t.Fatalf("pauses = %v, want 1s, 2s", pauses)
+	}
+}
+
+func TestRetryPackageUploadNoRetryOn400(t *testing.T) {
+	t.Parallel()
+	n := 0
+	_, _, err := retryPackageUpload(packageUploadMaxAttempts, packageUploadRetryPauses, func(time.Duration) {
+		t.Fatal("slept on a non-retryable status")
+	}, func() (int64, time.Duration, error) {
+		n++
+		return 0, 0, &packageUploadStatusError{Code: 400, Body: "bad"}
+	})
+	if n != 1 {
+		t.Fatalf("attempts = %d, want 1", n)
+	}
+	var st *packageUploadStatusError
+	if !errors.As(err, &st) || st.Code != 400 {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRetryPackageUploadStopsAfterSix(t *testing.T) {
+	t.Parallel()
+	var pauses []time.Duration
+	n := 0
+	_, _, err := retryPackageUpload(packageUploadMaxAttempts, packageUploadRetryPauses, func(d time.Duration) {
+		pauses = append(pauses, d)
+	}, func() (int64, time.Duration, error) {
+		n++
+		return 0, 0, &packageUploadStatusError{Code: 503, Body: "down"}
+	})
+	if n != packageUploadMaxAttempts {
+		t.Fatalf("attempts = %d, want %d", n, packageUploadMaxAttempts)
+	}
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second}
+	if len(pauses) != len(want) {
+		t.Fatalf("pauses = %v, want %v", pauses, want)
+	}
+	for i := range want {
+		if pauses[i] != want[i] {
+			t.Fatalf("pauses = %v, want %v", pauses, want)
+		}
+	}
+	var st *packageUploadStatusError
+	if !errors.As(err, &st) || st.Code != 503 {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRetryPackageUploadTransportAndLocalRead(t *testing.T) {
+	t.Parallel()
+	if !isPackageUploadRetryable(fmt.Errorf("upload package file: %w", io.ErrUnexpectedEOF)) {
+		t.Fatal("unexpected EOF should retry")
+	}
+	if !isPackageUploadRetryable(fmt.Errorf("upload package file: connection reset by peer")) {
+		t.Fatal("connection reset should retry")
+	}
+	if isPackageUploadRetryable(&packageUploadStatusError{Code: 401, Body: "nope"}) {
+		t.Fatal("401 should not retry")
+	}
+	if !isPackageUploadRetryable(fmt.Errorf("package 12: %w", errPackageUploadNotStored)) {
+		t.Fatal("accepted upload with no stored file should retry")
+	}
+	if uploadRetryReason(errPackageUploadNotStored) != "no file stored" {
+		t.Fatalf("reason = %q", uploadRetryReason(errPackageUploadNotStored))
+	}
+	readErr := fmt.Errorf("read package file: %w", &os.PathError{Op: "read", Path: "Chrome.pkg", Err: os.ErrNotExist})
+	if isPackageUploadRetryable(readErr) {
+		t.Fatal("local read should not retry")
+	}
+	n := 0
+	_, _, err := retryPackageUpload(packageUploadMaxAttempts, packageUploadRetryPauses, func(time.Duration) {
+		t.Fatal("slept on a local read error")
+	}, func() (int64, time.Duration, error) {
+		n++
+		return 0, 0, readErr
+	})
+	if n != 1 || !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("attempts=%d err=%v", n, err)
+	}
+}
+
+func TestPackageUploadStatus404UnwrapsNotFound(t *testing.T) {
+	t.Parallel()
+	err := &packageUploadStatusError{Code: 404, Body: "missing"}
+	if !isPackageUploadNotFound(err) || !isPackageUploadRetryable(err) {
+		t.Fatalf("404 = notFound %v retry %v", isPackageUploadNotFound(err), isPackageUploadRetryable(err))
+	}
+}
+
+func TestPerformHTTPStreamDoesNotBufferBody(t *testing.T) {
+	t.Parallel()
+	gotFirst := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, 1)
+		if _, err := io.ReadFull(r.Body, buf); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		close(gotFirst)
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	pr, pw := io.Pipe()
+	writeErr := make(chan error, 1)
+	go func() {
+		if _, err := pw.Write([]byte("A")); err != nil {
+			writeErr <- err
+			return
+		}
+		select {
+		case <-gotFirst:
+		case <-time.After(2 * time.Second):
+			writeErr <- fmt.Errorf("server did not read the first byte before the rest of the body")
+			_ = pw.Close()
+			return
+		}
+		if _, err := pw.Write([]byte("BC")); err != nil {
+			writeErr <- err
+			return
+		}
+		writeErr <- pw.Close()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL, pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.ContentLength = 3
+	resp, err := performHTTPStream(req)
+	if werr := <-writeErr; werr != nil && err == nil {
+		err = werr
+	}
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}
+
+func TestPackageWaitInterruptIsSuccessOnlyForSentinel(t *testing.T) {
+	t.Parallel()
+	ch := make(chan struct{})
+	close(ch)
+	err := sleepOrInterrupt(time.Hour, ch)
+	if !packageWaitInterruptOK(err) {
+		t.Fatalf("closed interrupt = %v", err)
+	}
+	if packageWaitInterruptOK(errors.New("package 1 not cloudTransferStatus READY")) {
+		t.Fatal("timeout must stay an error")
+	}
+	if err := sleepOrInterrupt(time.Millisecond, nil); err != nil {
+		t.Fatalf("nil interrupt: %v", err)
+	}
+}
+
+func TestClassifyPackageCheck(t *testing.T) {
+	t.Parallel()
+	local := packageFileHashes{MD5: "abc", SHA256: "def"}
+	class, ok, matched, _ := classifyPackageCheck(nil, local)
+	if class != PackageCheckMissing || ok || matched {
+		t.Fatalf("missing: %s ok=%v matched=%v", class, ok, matched)
+	}
+	class, ok, matched, field := classifyPackageCheck(&PackageRecord{
+		CloudTransferStatus: packageCloudTransferReady,
+		Sha256:              local.SHA256,
+	}, local)
+	if class != PackageCheckOK || !ok || !matched || field != "sha256" {
+		t.Fatalf("ok: %s ok=%v matched=%v field=%s", class, ok, matched, field)
+	}
+	class, ok, matched, _ = classifyPackageCheck(&PackageRecord{
+		CloudTransferStatus: packageCloudTransferReady,
+		Sha256:              "other",
+	}, local)
+	if class != PackageCheckMismatch || ok || matched {
+		t.Fatalf("mismatch: %s ok=%v matched=%v", class, ok, matched)
+	}
+	class, ok, _, _ = classifyPackageCheck(&PackageRecord{
+		CloudTransferStatus: "PENDING",
+		HashValue:           "x",
+	}, local)
+	if class != PackageIssuePending || ok {
+		t.Fatalf("pending: %s ok=%v", class, ok)
+	}
+	class, ok, _, _ = classifyPackageCheck(&PackageRecord{}, local)
+	if class != PackageIssueFailedUpload || ok {
+		t.Fatalf("failed: %s ok=%v", class, ok)
+	}
+	class, ok, _, _ = classifyPackageCheck(&PackageRecord{
+		HashType:  "SHA3_512",
+		HashValue: packageEmptyFileSHA3,
+	}, local)
+	if class != PackageIssueFailedUpload || ok {
+		t.Fatalf("empty-file hash: %s ok=%v", class, ok)
+	}
+	class, ok, _, _ = classifyPackageCheck(&PackageRecord{
+		CloudTransferStatus: packageCloudTransferReady,
+	}, local)
+	if class != PackageIssueUnusableReady || ok {
+		t.Fatalf("unusable: %s ok=%v", class, ok)
+	}
+}
+
+func TestPackageEmptyFileSHA3AndStoredFile(t *testing.T) {
+	t.Parallel()
+	sum := sha3.Sum512(nil)
+	if hex.EncodeToString(sum[:]) != packageEmptyFileSHA3 {
+		t.Fatalf("constant = %s, sha3-512(\"\") = %s", packageEmptyFileSHA3, hex.EncodeToString(sum[:]))
+	}
+	if packageRecordHasFile(nil) || packageRecordHasFile(&PackageRecord{HashValue: packageEmptyFileSHA3}) {
+		t.Fatal("empty-file hash is not a stored file")
+	}
+	if packageRecordHasFile(&PackageRecord{HashValue: packageEmptyFileSHA3, Size: "0"}) {
+		t.Fatal("size 0 is not a stored file")
+	}
+	if !packageRecordHasFile(&PackageRecord{HashValue: packageEmptyFileSHA3, Size: "12"}) {
+		t.Fatal("non-zero size counts as stored")
+	}
+	if !packageRecordHasFile(&PackageRecord{HashType: "SHA3_512", HashValue: "abc"}) {
+		t.Fatal("real hash counts as stored")
+	}
+	if !packageRecordHasFile(&PackageRecord{Sha256: "abc"}) {
+		t.Fatal("sha256 counts as stored")
+	}
+}
+
+func TestWaitUntilPackageFileStored(t *testing.T) {
+	t.Parallel()
+	n := 0
+	err := waitUntilPackageFileStored("12", func() (bool, error) {
+		n++
+		return n >= 3, nil
+	}, time.Second, time.Millisecond, 2*time.Millisecond, func(time.Duration) {})
+	if err != nil || n != 3 {
+		t.Fatalf("stored: n=%d err=%v", n, err)
+	}
+
+	n = 0
+	err = waitUntilPackageFileStored("12", func() (bool, error) {
+		n++
+		return false, nil
+	}, 5*time.Millisecond, time.Millisecond, 2*time.Millisecond, func(time.Duration) {})
+	if !errors.Is(err, errPackageUploadNotStored) {
+		t.Fatalf("err = %v", err)
+	}
+	if n < 2 {
+		t.Fatalf("probes = %d, want more than one", n)
+	}
+
+	want := errors.New("get failed")
+	err = waitUntilPackageFileStored("12", func() (bool, error) {
+		return false, want
+	}, time.Second, time.Millisecond, time.Millisecond, func(time.Duration) {
+		t.Fatal("slept after probe error")
+	})
+	if !errors.Is(err, want) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRetryPackageUploadNotStored(t *testing.T) {
+	t.Parallel()
+	n := 0
+	var pauses []time.Duration
+	got, _, err := retryPackageUpload(packageUploadMaxAttempts, packageUploadRetryPauses, func(d time.Duration) {
+		pauses = append(pauses, d)
+	}, func() (int64, time.Duration, error) {
+		n++
+		if n == 1 {
+			return 0, 0, fmt.Errorf("package 12: %w", errPackageUploadNotStored)
+		}
+		return 9, time.Second, nil
+	})
+	if err != nil || got != 9 || n != 2 || len(pauses) != 1 || pauses[0] != time.Second {
+		t.Fatalf("got=%d n=%d pauses=%v err=%v", got, n, pauses, err)
 	}
 }
 
@@ -296,6 +601,12 @@ func TestPackageUploadShouldWaitNotReady(t *testing.T) {
 	}) {
 		t.Fatal("READY should not wait-not-ready")
 	}
+	if packageUploadShouldWaitNotReady(&PackageRecord{
+		HashType:  "SHA3_512",
+		HashValue: packageEmptyFileSHA3,
+	}) {
+		t.Fatal("SHA3-512 of an empty file is a failed upload, not mid-transfer")
+	}
 }
 
 func TestPackageUploadWaitOnly(t *testing.T) {
@@ -333,6 +644,12 @@ func TestPackageIssueClass(t *testing.T) {
 		HashValue:           "abc",
 	}); got != PackageIssuePending {
 		t.Fatalf("pending: %q", got)
+	}
+	if got := packageIssueClass(&PackageRecord{
+		HashType:  "SHA3_512",
+		HashValue: packageEmptyFileSHA3,
+	}); got != PackageIssueFailedUpload {
+		t.Fatalf("empty-file SHA3: %q", got)
 	}
 	if got := packageIssueClass(&PackageRecord{
 		CloudTransferStatus: packageCloudTransferReady,

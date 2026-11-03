@@ -24,7 +24,8 @@ var PackagesTopic = docspec.Topic{
 	Summary: `Jamf Pro packages and Jamf Cloud Distribution Service (JCDS) readiness. Package **existence** is not the same as **READY** for attach/download.`,
 	Surfaces: []docspec.SurfaceRow{
 		{Action: "List / load", BuddyScript: "`packages(filter=…)` / `package(id=…)`", CLI: "`buddy package list` / `get`", Notes: "Or `name=` + `version=`; bare filter → `packageName==\"*term*\"`"},
-		{Action: "Upload", BuddyScript: "`package_upload(file, …, wait_ready?, force?)`", CLI: "`buddy package upload [--wait-ready] [--force]`", Notes: "Create/update by fileName; --wait-ready polls until READY (also if file already uploaded); --force re-uploads"},
+		{Action: "Upload", BuddyScript: "`package_upload(file, …, wait_ready?, force?)`", CLI: "`buddy package upload [--wait-ready] [--force]`", Notes: "Create/update by fileName; waits until READY by default (Ctrl-C leaves the upload); --wait-ready=false stops after the file transfer; --force re-uploads"},
+		{Action: "Check", BuddyScript: "`package_check(file, id?)`", CLI: "`buddy package check <file> [<package-id>]`", Notes: "Read-only local checksum vs Jamf; exit 1 unless match and usable"},
 		{Action: "Scan issues", BuddyScript: "`packages_scan(class?=…)`", CLI: "`buddy package scan [--class=…]`", Notes: "failed-upload / pending / unusable-ready from list fields"},
 		{Action: "Wait READY", BuddyScript: "`package_wait_ready(id=…, timeout?=…)`", Notes: "Polls until READY and sha256 set (~10 min default)"},
 		{Action: "Check READY", BuddyScript: "`package_ready(id=…)`", Notes: "`true` only when READY + sha256; HTTP 404 → `false`"},
@@ -35,8 +36,10 @@ var PackagesTopic = docspec.Topic{
 	},
 	AgentNotes: []string{
 		"Prefer `package_ready` / `package_wait_ready` / `package_download` — do not hand-roll single GET “exists?”, treat blank sha256 as needs-upload while transfer is pending (hashValue set, usually SHA3), or save a raw JCDS URI without hash verify.",
-		"A package record with **no hashValue** (and no sha256/md5) usually means a failed upload — re-upload is appropriate. Mid-transfer has hashValue while sha256 is still empty. `package_upload(..., wait_ready=True)` / `--wait-ready` on that pending record skips the file transfer and polls until READY (do not treat it as a failed upload).",
-		"After creating a new package record, upload waits until GET succeeds, then settles 5s before the multipart POST (Jamf Cloud often 500s if the file transfer starts immediately).",
+		"A package record with **no hashValue**, or hashValue set to SHA3-512 of an empty file (`a69f73cc…`) and no size, means the upload stored no bytes — re-upload is appropriate. Mid-transfer has a real hashValue while sha256 is still empty. The default `package_upload` / `buddy package upload` on that pending record skips the file transfer and polls until READY (do not treat it as a failed upload). `wait_ready=False` / `--wait-ready=false` errors instead of waiting and does not re-upload.",
+		"After creating a new package record, upload waits until GET succeeds, then streams the multipart POST. A 201 is followed by a short GET loop (about 15s) until the record shows a size or a hash other than SHA3-512 of empty bytes. A 404/500/502/503, a connection reset, or that empty record retries the whole POST (pauses 1s, 2s, 4s, 8s, 16s; six attempts). That retry is not controlled by wait_ready.",
+		"package_upload waits until READY by default. wait_ready=False returns once the file transfer finishes. Ctrl-C during the READY poll stops waiting; the upload is already complete.",
+		"package_check compares a local .pkg/.dmg to the Jamf record (by fileName, or id=). It does not upload or wait. ok is true only when a checksum matches and the package is READY with sha256.",
 		"Use `packages_scan` / `buddy package scan` to find failed-upload, pending, and unusable-ready records from the list API.",
 		"Do not attach a package to a policy before READY.",
 		"Do not invent Classic/Pro package PUTs from jamf_schema when named builtins exist.",
@@ -115,23 +118,37 @@ var PackagesTopic = docspec.Topic{
       → value: list of {id, packageName, fileName, cloudTransferStatus, class, …}
       Params: class?: "failed-upload" | "pending" | "unusable-ready" | "all" (default)
         or comma-separated; filter?: bare term or RSQL (same as packages).
-      Notes: failed-upload (no hashValue and no md5/sha256), pending (hashValue set, not READY),
-        unusable-ready (READY but sha256 empty).
+      Notes: failed-upload (no hashValue, or SHA3-512 of an empty file, and no md5/sha256),
+        pending (real hashValue set, not READY), unusable-ready (READY but sha256 empty).
   package_upload(file, name?, category_id?, priority?, notes?, info?, reboot?, wait_ready?, wait_ready_timeout?, force?, tenant?, surface?, auth?)
       Does: Create or update a package record and stream the file to JCDS.
       → None
       Params: file: str path (.pkg/.dmg); name?: display name (default basename);
         category_id?: str (default "-1"); priority?: int 1–20 (default 10);
         notes?/info?: str; reboot?: bool (default false);
-        wait_ready?: bool — poll until READY+sha256 (after upload, skip, or pending record; default false);
+        wait_ready?: bool — poll until READY+sha256 after the file transfer or
+        skip (default true). False stops once the upload finishes and does not
+        change upload retries. Ctrl-C during the poll returns success.
         wait_ready_timeout?: int seconds (default 600; implies wait_ready);
         force?: bool — re-upload even if checksums match or the record looks
         mid-transfer (default false).
       Notes: Same fileName → update path (GET + checksum compare; skip upload if match;
-        if hashes blank, status not READY, and hashValue set, raise not-ready —
-        wait instead of re-uploading; no hashValue → treat as failed upload
-        and re-upload; apply metadata flags when they differ). New fileName →
-        create with flags (no confirm), wait until readable, then stream upload.
+        if hashes blank, status not READY, and a real hashValue is set, wait when
+        wait_ready is true — otherwise raise not-ready and do not re-upload;
+        no hashValue, or SHA3-512 of an empty file, → treat as failed upload and
+        re-upload; apply metadata flags when they differ). New fileName → create
+        with flags (no confirm), wait until readable, then stream upload.
+        404/500/502/503, connection resets, and a 201 that leaves the empty-file
+        hash with no size retry the POST (1s, 2s, 4s, 8s, 16s; six attempts)
+        whether or not wait_ready is set.
+  package_check(file, id?, tenant?, surface?, auth?)
+      Does: Compare a local .pkg/.dmg to a Jamf package record. Does not upload or wait.
+      → value: dict {ok, class, id, packageName, fileName, recordFileName,
+        cloudTransferStatus, match, matchedBy, localMd5, localSha256, fileNameDiffers}
+      Params: file: str path (.pkg/.dmg); id?: package id (omit to look up fileName).
+      Notes: ok is true only when a server checksum matches and the package is
+        READY with sha256. class is ok, mismatch, missing, pending, failed-upload,
+        or unusable-ready. I/O and API failures raise; a missing record does not.
   package_delete(ids, tenant?, surface?, auth?)
       Does: Delete one or more package records.
       → None
@@ -152,6 +169,7 @@ Subcommands:
   get <package-id>                                    Show package record details
   download <package-id> [outfile]                     Download package file via JCDS (SHA-256 verified)
   history <package-id>                                Show recent change history (last 20 entries)
+  check <file> [<package-id>]                        Compare a local .pkg/.dmg to Jamf (no upload)
   scan [--class=…] [--filter=…]                       Find incomplete/bad package records
   delete <package-id> [package-id...]                Delete one or more package records
   upload <file> [attr-flags…]                        Upload .pkg or .dmg (create or update)
@@ -173,13 +191,19 @@ Flags for 'upload' / 'set':
   --reboot=true|false         rebootRequired flag (upload default: false)
 
 Flags for 'upload' only:
-  --wait-ready[=<seconds>]    After upload, skip-if-unchanged, or a pending
-                              (already uploaded) record, poll until
-                              cloudTransferStatus=READY and sha256 is set
-                              (default timeout 600s / 10 minutes)
+  --wait-ready[=<seconds>]    After the file transfer or a skip, poll until
+                              cloudTransferStatus=READY and sha256 is set.
+                              Default is on (timeout 600s / 10 minutes).
+                              Ctrl-C stops the wait; the upload is already complete.
+  --wait-ready=false          Do not poll after the upload finishes. Does not
+                              change retries during the upload.
   --wait-ready-timeout=<sec>  Same as --wait-ready=<sec> (implies --wait-ready)
   --force                     Re-upload even if checksums match or the package
                               looks mid-transfer (hashValue set, sha256 empty)
+
+Arguments for 'check':
+  <file>                      Local .pkg or .dmg
+  <package-id>                Optional record to compare (default: look up fileName)
 
 Notes:
   --sort=version sorts client-side by a dotted version extracted from the package
@@ -191,15 +215,24 @@ Notes:
   only on match. JCDS only (Jamf Cloud). Default outfile is the package fileName.
   upload looks up fileName first: existing record → compare checksums and skip or
   replace the file (and apply attr flags when they differ); if comparable checksums
-  are empty, status is not READY, and hashValue is set, --wait-ready skips the file
-  transfer and polls until READY (re-run after an upload that omitted the flag);
-  without --wait-ready that case is an error (do not re-upload); a record with no
-  hashValue (failed upload) is treated as needing re-upload; --force overrides
-  skip/not-ready guards.
+  are empty, status is not READY, and hashValue is set, the default wait skips
+  the file transfer and polls until READY; --wait-ready=false skips the POST
+  and the poll and errors (do not re-upload); a record with no hashValue, or
+  hashValue set to SHA3-512 of an empty file and no size, is a failed upload
+  and is re-uploaded; --force overrides skip/not-ready guards.
   New fileName → create metadata with attr flags (no y/N prompt), wait until
-  readable, then upload.
-  scan classifies from list fields: failed-upload (no hashValue / md5 / sha256),
-  pending (hashValue set, not READY), unusable-ready (READY, sha256 empty).
+  readable, then stream the upload. After a 201, buddy polls the record for
+  about 15s until it shows a size or a hash other than SHA3-512 of empty bytes.
+  404/500/502/503, connection resets, and that empty record retry the whole POST
+  (pauses 1s, 2s, 4s, 8s, 16s; six attempts). --wait-ready does not turn those
+  retries on or off.
+  check hashes the local file, compares md5/sha256 to the record, and exits 0
+  only when they match and the package is READY with sha256. It does not upload
+  or wait. Exit 1 reports mismatch, missing, pending, failed-upload, or
+  unusable-ready.
+  scan classifies from list fields: failed-upload (no hashValue, or SHA3-512 of
+  an empty file, and no md5/sha256), pending (real hashValue set, not READY),
+  unusable-ready (READY, sha256 empty).
   wait-ready / package_ready require cloudTransferStatus READY and a non-empty sha256.
   Only .pkg and .dmg are supported.
 
@@ -216,9 +249,12 @@ Examples:
   buddy package scan --class=failed-upload
   buddy package upload Chrome-121.pkg --name="Google Chrome 121" --category=3 --priority=10
   buddy package upload Chrome-121.pkg --notes="rollout" --reboot=false
-  buddy package upload Chrome-121.pkg --wait-ready
+  buddy package upload Chrome-121.pkg
   buddy package upload Chrome-121.pkg --wait-ready=900
+  buddy package upload Chrome-121.pkg --wait-ready=false
   buddy package upload Chrome-121.pkg --force
+  buddy package check Chrome-121.pkg
+  buddy package check Chrome-121.pkg 55
   buddy package set 55 --name="Google Chrome 121" --priority=5 --reboot=true
   buddy package delete 55 56
 `,

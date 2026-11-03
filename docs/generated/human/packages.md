@@ -8,7 +8,8 @@ Jamf Pro packages and Jamf Cloud Distribution Service (JCDS) readiness. Package 
 | Do this | BuddyScript | CLI | Notes |
 |---------|-------------|-----|-------|
 | List / load | `packages(filter=…)` / `package(id=…)` | `buddy package list` / `get` | Or `name=` + `version=`; bare filter → `packageName=="*term*"` |
-| Upload | `package_upload(file, …, wait_ready?, force?)` | `buddy package upload [--wait-ready] [--force]` | Create/update by fileName; --wait-ready polls until READY (also if file already uploaded); --force re-uploads |
+| Upload | `package_upload(file, …, wait_ready?, force?)` | `buddy package upload [--wait-ready] [--force]` | Create/update by fileName; waits until READY by default (Ctrl-C leaves the upload); --wait-ready=false stops after the file transfer; --force re-uploads |
+| Check | `package_check(file, id?)` | `buddy package check <file> [<package-id>]` | Read-only local checksum vs Jamf; exit 1 unless match and usable |
 | Scan issues | `packages_scan(class?=…)` | `buddy package scan [--class=…]` | failed-upload / pending / unusable-ready from list fields |
 | Wait READY | `package_wait_ready(id=…, timeout?=…)` | — | Polls until READY and sha256 set (~10 min default) |
 | Check READY | `package_ready(id=…)` | — | `true` only when READY + sha256; HTTP 404 → `false` |

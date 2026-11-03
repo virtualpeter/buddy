@@ -301,7 +301,7 @@ Base path: `/api/v1/packages`
 #### List / get / READY
 
 - `PackageGet` prints the full v1 package object (including `md5` / `sha256` / `sha3512` / `hashType` / `hashValue` / `size` / `cloudTransferStatus` when present), then adds `lastChanged` / `lastChangedBy` from `history?sort=date:desc&page-size=1`.
-- `cloudTransferStatus` is server-managed. Jamf’s UI “Availability Pending” clears when the value is `"READY"` (case-sensitive). Anything else (including empty) means not ready for policy use / JCDS download. A successful `GET /api/v1/packages/{id}` alone does **not** mean the package is usable. While transfer is pending, `sha256` is often blank while `hashValue` is already set (typically `hashType` SHA3_512) — that is **not** a signal to re-upload. A record with **no `hashValue`** (and no comparable md5/sha256) usually means the multipart upload failed after the metadata create — re-upload is appropriate (`--force` / `force=True` overrides skip/not-ready guards).
+- `cloudTransferStatus` is server-managed. Jamf’s UI “Availability Pending” clears when the value is `"READY"` (case-sensitive). Anything else (including empty) means not ready for policy use / JCDS download. A successful `GET /api/v1/packages/{id}` alone does **not** mean the package is usable. While transfer is pending, `sha256` is often blank while `hashValue` is already set to a real digest (typically `hashType` SHA3_512) — that is **not** a signal to re-upload. A record with **no `hashValue`**, or `hashValue` equal to SHA3-512 of an empty file (`a69f73cc…`) and no `size`, means the multipart upload stored no bytes — re-upload is appropriate (`--force` / `force=True` overrides skip/not-ready guards).
 - `PackageReady` / buddyscript `package_ready` return true only when the package exists, `cloudTransferStatus == "READY"`, and `sha256` is non-empty (404 → false). `PackageWaitReady` / `package_wait_ready` poll for both with backoff (default 10 minutes) and best-effort POST `jcds/refresh-inventory?file-name=…` between polls. Use after upload / before attaching the package to a policy.
 
 #### Download
@@ -310,11 +310,11 @@ Base path: `/api/v1/packages`
 
 #### Upload
 
-- `PackageUpload` looks up `fileName` first. If a record exists, it GETs the full object, compares local MD5/SHA-256 to server checksums, and **skips** the file transfer when they match; if comparable checksums are empty, status is not READY, and `hashValue` is set, `--wait-ready` / `wait_ready=True` **skips the file transfer and polls until READY** (re-run after an upload that omitted the flag); without wait-ready that case **errors as not ready** instead of treating blank hashes as “needs upload”; if there is **no `hashValue`**, it treats the record as a failed upload and streams a replacement; `--force` / `force=True` re-uploads regardless. Metadata flags (`--name`, `--notes`, `--info`, `--category`, `--priority`, `--reboot`) apply on create and on update when they differ (including metadata-only updates when the file is unchanged). If no record exists, it POSTs metadata (no confirm prompt), polls GET until the ID is readable (Jamf Cloud create is async), **waits 5s** so the upload endpoint can catch up, then streams the multipart upload. After upload, scripts should use `package_wait_ready` before attaching the package to a policy.
+- `PackageUpload` looks up `fileName` first. If a record exists, it GETs the full object, compares local MD5/SHA-256 to server checksums, and **skips** the file transfer when they match; if comparable checksums are empty, status is not READY, and a **real** `hashValue` is set, the default wait **skips the file transfer and polls until READY**; `--wait-ready=false` / `wait_ready=False` skips the POST and the poll and **errors as not ready** (do not re-upload); if there is **no `hashValue`**, or `hashValue` is SHA3-512 of an empty file and `size` is absent, it treats the record as a failed upload and streams a replacement; `--force` / `force=True` re-uploads regardless. Metadata flags (`--name`, `--notes`, `--info`, `--category`, `--priority`, `--reboot`) apply on create and on update when they differ (including metadata-only updates when the file is unchanged). If no record exists, it POSTs metadata (no confirm prompt), polls GET until the ID is readable (Jamf Cloud create is async), then streams the multipart upload. After HTTP 201, it polls the record for about 15s until `size` or a non-empty hash appears. A 404, 500, 502, 503, connection reset, or a 201 that leaves the empty-file hash retries the whole file (pauses 1s, 2s, 4s, 8s, 16s; six attempts). Those retries always run; `--wait-ready` only controls the READY poll after the file is stored. The poll is on by default (10 minutes). Ctrl-C during the poll exits 0; the file is already uploaded. `--wait-ready=false` returns as soon as the stored-file check finishes. `PackageCheck` / `package_check` / `buddy package check <file> [<package-id>]` hashes the local file and compares it to the record (by fileName, or the given id). It does not upload or wait. Exit 0 only when a checksum matches and the package is READY with sha256. The empty-file SHA3 classifies as `failed-upload`, not `pending`.
 
 #### Scan / set / find / delete
 
-- `PackageScan` / `packages_scan` / `buddy package scan` pages the packages list and classifies incomplete records from list fields: `failed-upload` (no `hashValue` and no md5/sha256), `pending` (`hashValue` set, not READY), `unusable-ready` (READY but empty `sha256`). Optional `--class=` / `class=` narrows; default is all three.
+- `PackageScan` / `packages_scan` / `buddy package scan` pages the packages list and classifies incomplete records from list fields: `failed-upload` (no `hashValue`, or SHA3-512 of an empty file, and no md5/sha256), `pending` (a real `hashValue` set, not READY), `unusable-ready` (READY but empty `sha256`). Optional `--class=` / `class=` narrows; default is all three.
 - `packagePut` / `PackageSetAttrs` (used by `buddy package set <id> --…`) omit server-managed `size` / `cloudTransferStatus` and client-only history fields from the PUT body so a metadata update does not blank Jamf’s size.
 - `PackageFindID` is shared between the CLI (`policy set package`) and buddyscript (`package(name=..., version=...)` builtin). List/search walks all pages unless a single `page` is requested from buddyscript.
 - The `delete-multiple` body is `{"ids": ["1","2",...]}`.
@@ -888,10 +888,16 @@ buddy package upload <file> [--name=] [--notes=] [--info=] [--category=] [--prio
   │    GET  /api/v1/packages/{id}               (summary + checksum compare)
   │    PUT  /api/v1/packages/{id}               (when attr flags differ; may be metadata-only)
   │    POST /api/v1/packages/{id}/upload        (streamed multipart, only when file differs)
+  │    GET  /api/v1/packages/{id}               (confirm size or a non-empty hash; ~15s)
   └─ if new:
        POST /api/v1/packages                    (create metadata with attr flags)
        GET  /api/v1/packages/{id}               (poll until readable — Jamf Cloud create is async)
-       POST /api/v1/packages/{id}/upload        (streamed multipart file upload)
+       POST /api/v1/packages/{id}/upload        (streamed multipart; retry 404/500/502/503 or 201 with no file stored)
+       GET  /api/v1/packages/{id}               (confirm size or a non-empty hash; ~15s)
+
+buddy package check <file> [<package-id>]
+  └─ GET  /api/v1/packages?filter=fileName=="…"  (or GET /api/v1/packages/{id})
+       local MD5/SHA-256 compare; no upload
 
 buddy package get <id>
   └─ GET /api/v1/packages/{id}               (full record, including checksums/size)

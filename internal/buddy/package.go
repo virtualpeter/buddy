@@ -14,11 +14,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -418,10 +420,10 @@ func packageHasComparableChecksum(pkg *PackageRecord) bool {
 // packageHasPendingTransferEvidence reports whether Jamf has started cloud
 // transfer for this package. Mid-transfer records typically populate hashValue
 // with a non-comparable type (usually SHA3_512 / hashType SHA3_512) while sha256
-// is still empty. A failed upload typically leaves a metadata record with no
-// hashValue (and no comparable checksums).
+// is still empty. A failed upload leaves no hashValue, or hashValue set to
+// SHA3-512 of an empty file, and no comparable checksums.
 func packageHasPendingTransferEvidence(pkg *PackageRecord) bool {
-	if pkg == nil || strings.TrimSpace(pkg.HashValue) == "" {
+	if pkg == nil || strings.TrimSpace(pkg.HashValue) == "" || packageHashIsEmptyFile(pkg.HashValue) {
 		return false
 	}
 	// MD5/SHA-256 hashValue is a comparable checksum (see packageHasComparableChecksum).
@@ -435,9 +437,10 @@ func packageHasPendingTransferEvidence(pkg *PackageRecord) bool {
 }
 
 // packageUploadShouldWaitNotReady is true when the record looks mid-transfer
-// (not READY, no comparable checksums yet, but hashValue present). Callers should
-// wait with package_wait_ready instead of re-uploading. Empty checksums with no
-// hashValue mean a failed/empty upload — re-upload is appropriate.
+// (not READY, no comparable checksums yet, but a real hashValue present). Callers
+// should wait with package_wait_ready instead of re-uploading. Empty checksums
+// with no hashValue, or hashValue equal to SHA3-512 of an empty file, mean the
+// upload stored no bytes — re-upload is appropriate.
 func packageUploadShouldWaitNotReady(pkg *PackageRecord) bool {
 	return pkg != nil &&
 		!packageIsCloudReady(pkg) &&
@@ -454,8 +457,8 @@ func packageUploadWaitOnly(upOpts PackageUploadOptions, pkg *PackageRecord) bool
 
 // Package issue classes returned by PackageScan / packages_scan.
 const (
-	PackageIssueFailedUpload  = "failed-upload"  // no hashValue and no md5/sha256
-	PackageIssuePending       = "pending"        // mid-transfer: hashValue set, sha256 empty, not READY
+	PackageIssueFailedUpload  = "failed-upload"  // no file stored: no hashValue, or SHA3-512 of empty bytes, and no md5/sha256
+	PackageIssuePending       = "pending"        // mid-transfer: real hashValue set, sha256 empty, not READY
 	PackageIssueUnusableReady = "unusable-ready" // READY but sha256 still empty
 )
 
@@ -605,13 +608,24 @@ func PackageReady(credName, id string) (bool, error) {
 // and sha256 is non-empty. timeout ≤ 0 uses the default (10 minutes). Optionally
 // nudges JCDS inventory using the package fileName between polls.
 func PackageWaitReady(credName, id string, timeout time.Duration, logger *slog.Logger) error {
-	_, err := packageWaitUntil(credName, id, timeout, true, logger)
+	_, err := packageWaitUntil(credName, id, timeout, true, logger, nil)
 	return err
+}
+
+// errPackageWaitInterrupted is returned when the post-upload READY poll is stopped
+// with Ctrl-C. maybeWaitPackageReady turns it into success; the upload already finished.
+// PackageWaitReady (buddy package wait-ready) does not convert this sentinel.
+var errPackageWaitInterrupted = errors.New("package wait interrupted")
+
+func packageWaitInterruptOK(err error) bool {
+	return errors.Is(err, errPackageWaitInterrupted)
 }
 
 // packageWaitUntil polls GET /api/v1/packages/{id} until cloudTransferStatus is
 // READY (and optionally sha256 is non-empty). Returns the last successful record.
-func packageWaitUntil(credName, id string, timeout time.Duration, requireSHA256 bool, logger *slog.Logger) (*PackageRecord, error) {
+// A closed or received interrupt stops the poll with errPackageWaitInterrupted.
+// interrupt may be nil (buddy package wait-ready).
+func packageWaitUntil(credName, id string, timeout time.Duration, requireSHA256 bool, logger *slog.Logger, interrupt <-chan struct{}) (*PackageRecord, error) {
 	if timeout <= 0 {
 		timeout = packageWaitReadyDefaultTimeout
 	}
@@ -694,11 +708,30 @@ func packageWaitUntil(credName, id string, timeout time.Duration, requireSHA256 
 		if d > remaining {
 			d = remaining
 		}
-		time.Sleep(d)
+		if err := sleepOrInterrupt(d, interrupt); err != nil {
+			return last, err
+		}
 		backoff *= 2
 		if backoff > packageWaitMaxBackoff {
 			backoff = packageWaitMaxBackoff
 		}
+	}
+}
+
+// sleepOrInterrupt waits for d, or returns errPackageWaitInterrupted when interrupt fires.
+// A nil interrupt sleeps without watching for a signal.
+func sleepOrInterrupt(d time.Duration, interrupt <-chan struct{}) error {
+	if interrupt == nil {
+		time.Sleep(d)
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-interrupt:
+		return errPackageWaitInterrupted
 	}
 }
 
@@ -779,7 +812,7 @@ func jcdsFetchPresignedURI(credName, fileName string) (string, error) {
 // HTTP 403 (presigned TTL). JCDS only — not for on-prem non-JCDS distribution points.
 // outfile empty defaults to the package fileName in the current directory.
 func PackageDownload(credName, id, outfile string, logger *slog.Logger) error {
-	pkg, err := packageWaitUntil(credName, id, 0, true, logger)
+	pkg, err := packageWaitUntil(credName, id, 0, true, logger, nil)
 	if err != nil {
 		return err
 	}
@@ -1190,10 +1223,32 @@ const (
 	packageWaitInitialBackoff = 500 * time.Millisecond
 	packageWaitMaxBackoff     = 3 * time.Second
 	packageWaitAnnounceEvery  = 3 * time.Second
-	// GET 200 after create is not enough for POST .../upload on a loaded Jamf;
-	// starting the file transfer immediately often 500s.
-	packageUploadSettleAfterCreate = 5 * time.Second
+	// packageUploadMaxAttempts is the first POST plus retries after 404/500/502/503,
+	// a connection reset, or a 201 that left the empty-file hash and no size.
+	// Pauses apply only between attempts.
+	packageUploadMaxAttempts = 6
+	// packageUploadStoredConfirmTimeout is how long to poll after a 201 before
+	// treating “SHA3-512 of empty bytes, no size” as a failed upload.
+	packageUploadStoredConfirmTimeout = 15 * time.Second
 )
+
+// packageEmptyFileSHA3 is SHA3-512 of zero bytes. Jamf sets hashValue to this
+// (with no size and no cloudTransferStatus) when the upload POST is accepted
+// but no file bytes are stored.
+const packageEmptyFileSHA3 = "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
+
+// errPackageUploadNotStored means POST .../upload returned success and the
+// package record still has no file.
+var errPackageUploadNotStored = errors.New("upload accepted but Jamf stored no file")
+
+// packageUploadRetryPauses are the waits after a failed upload attempt (1+2+4+8+16).
+var packageUploadRetryPauses = []time.Duration{
+	1 * time.Second,
+	2 * time.Second,
+	4 * time.Second,
+	8 * time.Second,
+	16 * time.Second,
+}
 
 // packageWaitReadable polls until GET /api/v1/packages/{id} succeeds.
 // Jamf Cloud create is often async: POST can return an ID before the record is readable.
@@ -1202,17 +1257,6 @@ func packageWaitReadable(credName, id string) (gets int, elapsed time.Duration, 
 	return waitUntilPackageReadable(id, func() (bool, error) {
 		return packageProbeReadable(credName, id)
 	}, packageWaitTimeout, packageWaitInitialBackoff, packageWaitMaxBackoff, time.Sleep)
-}
-
-// settleAfterPackageCreate pauses after the metadata record is GET-readable so
-// Jamf Cloud can finish wiring the upload endpoint (avoids 500 on POST .../upload).
-func settleAfterPackageCreate(id string, sleep func(time.Duration)) {
-	if sleep == nil {
-		sleep = time.Sleep
-	}
-	fmt.Printf("Waiting %s after create before file upload (package %s)…\n",
-		formatUploadDuration(packageUploadSettleAfterCreate), id)
-	sleep(packageUploadSettleAfterCreate)
 }
 
 // waitUntilPackageReadable runs probe until ready, deadline exceeded, or probe error.
@@ -1250,6 +1294,63 @@ func waitUntilPackageReadable(
 			d = remaining
 		}
 		sleep(d)
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+// confirmPackageUploadStored polls until the record shows a stored file.
+// A 201 alone is not enough: Jamf can accept the POST and leave hashValue as
+// SHA3-512 of an empty file, with no size. That error is retryable.
+func confirmPackageUploadStored(credName, id string) error {
+	var announced bool
+	return waitUntilPackageFileStored(id, func() (bool, error) {
+		pkg, status, err := packageGetStatus(credName, id)
+		if err != nil {
+			return false, err
+		}
+		if status == http.StatusOK && packageRecordHasFile(pkg) {
+			return true, nil
+		}
+		if !announced {
+			fmt.Fprintf(os.Stderr, "Upload accepted; Jamf has not stored the file yet…\n")
+			announced = true
+		}
+		return false, nil
+	}, packageUploadStoredConfirmTimeout, packageWaitInitialBackoff, packageWaitMaxBackoff, time.Sleep)
+}
+
+// waitUntilPackageFileStored runs probe until it reports a stored file, the
+// deadline passes, or probe returns an error. sleep is injectable for tests.
+func waitUntilPackageFileStored(
+	id string,
+	probe func() (bool, error),
+	timeout, initialBackoff, maxBackoff time.Duration,
+	sleep func(time.Duration),
+) error {
+	deadline := time.Now().Add(timeout)
+	backoff := initialBackoff
+	for {
+		ok, err := probe()
+		if err != nil {
+			return err
+		}
+		if ok {
+			return nil
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("package %s: %w", id, errPackageUploadNotStored)
+		}
+		d := backoff
+		if d > remaining {
+			d = remaining
+		}
+		if sleep != nil {
+			sleep(d)
+		}
 		backoff *= 2
 		if backoff > maxBackoff {
 			backoff = maxBackoff
@@ -1324,6 +1425,106 @@ func isPackageUploadNotFound(err error) bool {
 	return errors.Is(err, errPackageUploadNotFound)
 }
 
+// packageUploadStatusError is an HTTP status from POST .../upload.
+// 404 unwraps to errPackageUploadNotFound.
+type packageUploadStatusError struct {
+	Code int
+	Body string
+}
+
+func (e *packageUploadStatusError) Error() string {
+	if e == nil {
+		return "upload package file status"
+	}
+	msg := strings.TrimSpace(e.Body)
+	if msg == "" {
+		msg = "(empty response body)"
+	}
+	return fmt.Sprintf("upload package file status %d: %s", e.Code, msg)
+}
+
+func (e *packageUploadStatusError) Unwrap() error {
+	if e != nil && e.Code == http.StatusNotFound {
+		return errPackageUploadNotFound
+	}
+	return nil
+}
+
+// isPackageUploadRetryable reports failures that mean the package record exists
+// but JCDS was not ready for the file POST yet. It does not cover 401 (token
+// refresh) or a local file read error.
+func isPackageUploadRetryable(err error) bool {
+	if err == nil || isLocalFileReadError(err) {
+		return false
+	}
+	var st *packageUploadStatusError
+	if errors.As(err, &st) {
+		switch st.Code {
+		case http.StatusNotFound, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable:
+			return true
+		default:
+			return false
+		}
+	}
+	if isPackageUploadNotFound(err) || errors.Is(err, errPackageUploadNotStored) {
+		return true
+	}
+	return isRetryableUploadTransport(err)
+}
+
+func isLocalFileReadError(err error) bool {
+	var pe *os.PathError
+	return errors.As(err, &pe) && pe.Op == "read"
+}
+
+func isRetryableUploadTransport(err error) bool {
+	if err == nil || isLocalFileReadError(err) {
+		return false
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNABORTED) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "connection reset") || strings.Contains(msg, "unexpected eof") || strings.Contains(msg, "broken pipe")
+}
+
+func uploadRetryReason(err error) string {
+	var st *packageUploadStatusError
+	if errors.As(err, &st) {
+		return fmt.Sprintf("%d", st.Code)
+	}
+	if isPackageUploadNotFound(err) {
+		return "404"
+	}
+	if errors.Is(err, errPackageUploadNotStored) {
+		return "no file stored"
+	}
+	return "connection error"
+}
+
+// packageHashIsEmptyFile reports whether hash is SHA3-512 of zero bytes.
+func packageHashIsEmptyFile(hash string) bool {
+	return strings.EqualFold(strings.TrimSpace(hash), packageEmptyFileSHA3)
+}
+
+// packageRecordHasFile reports whether the record shows Jamf stored file bytes.
+// A real hashValue, a non-zero size, or md5/sha256 counts. SHA3-512 of an empty
+// file with no size does not.
+func packageRecordHasFile(pkg *PackageRecord) bool {
+	if pkg == nil {
+		return false
+	}
+	if packageHasComparableChecksum(pkg) {
+		return true
+	}
+	size := strings.TrimSpace(pkg.Size)
+	if size != "" && size != "0" {
+		return true
+	}
+	hash := strings.TrimSpace(pkg.HashValue)
+	return hash != "" && !packageHashIsEmptyFile(hash)
+}
+
 // multipartFormFileLength returns Content-Type and Content-Length for a
 // multipart body that contains a single form file of fileSize bytes.
 // boundary must match the writer used to stream the real body.
@@ -1373,9 +1574,24 @@ func formatUploadRate(n int64, d time.Duration) string {
 	return formatBytes(int64(float64(n)/sec)) + "/s"
 }
 
+// uploadStreamBody closes the pipe when the HTTP client finishes reading, so a
+// mid-upload failure unblocks the writer goroutine.
+type uploadStreamBody struct {
+	io.Reader
+	close func() error
+}
+
+func (b uploadStreamBody) Close() error {
+	if b.close == nil {
+		return nil
+	}
+	return b.close()
+}
+
 // packageUploadFile streams the file as multipart/form-data to /api/v1/packages/{id}/upload.
-// Progress (when shown) tracks bytes of the HTTP request body as they are sent.
+// Progress tracks bytes the HTTP client reads to send (the body is not buffered first).
 // On success it returns the file byte count and wall time of the HTTP transfer.
+// A 401 refreshes the token once and resends; that retry is not a JCDS attempt.
 func packageUploadFile(credName, id string, file *os.File, opts Opts) (uploaded int64, elapsed time.Duration, err error) {
 	_ = opts
 	info, err := file.Stat()
@@ -1384,13 +1600,70 @@ func packageUploadFile(credName, id string, file *os.File, opts Opts) (uploaded 
 	}
 	fileSize := info.Size()
 	filename := path.Base(file.Name())
+	uploadPath := uriPackages + "/" + id + "/upload"
+	endpoint, err := ResolveEndpoint(credName, uploadPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	op := opClassForPath(http.MethodPost, uploadPath)
 
+	for authTry := 0; authTry < 2; authTry++ {
+		resp, elapsed, err := postPackageUpload(endpoint, op, credName, file, filename, fileSize)
+		if err != nil {
+			if resp != nil && resp.Body != nil {
+				resp.Body.Close()
+			}
+			return 0, elapsed, err
+		}
+		if resp.StatusCode == http.StatusUnauthorized && authTry == 0 {
+			refreshed, rerr := refreshAuthAfter401(credName, op)
+			if rerr != nil {
+				resp.Body.Close()
+				return 0, elapsed, rerr
+			}
+			if refreshed {
+				_, _ = io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+				fmt.Fprintf(os.Stderr, "Auth expired; refreshing and retrying upload…\n")
+				continue
+			}
+		}
+		statusErr := packageUploadStatusFromResponse(resp)
+		resp.Body.Close()
+		if statusErr != nil {
+			return 0, elapsed, statusErr
+		}
+		if err := confirmPackageUploadStored(credName, id); err != nil {
+			return 0, elapsed, err
+		}
+		return fileSize, elapsed, nil
+	}
+	return 0, 0, fmt.Errorf("upload package file: auth refresh did not complete")
+}
+
+func packageUploadStatusFromResponse(resp *http.Response) error {
+	if resp == nil {
+		return fmt.Errorf("upload package file: empty response")
+	}
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil
+	}
+	return &packageUploadStatusError{Code: resp.StatusCode, Body: strings.TrimSpace(httpErrorBody(resp))}
+}
+
+// postPackageUpload sends one multipart POST. The body is streamed; progress counts
+// bytes as the transport reads them. resp may be nil when err is a transport failure.
+func postPackageUpload(endpoint string, op OpClass, credName string, file *os.File, filename string, fileSize int64) (resp *http.Response, elapsed time.Duration, err error) {
+	if _, err := file.Seek(0, 0); err != nil {
+		return nil, 0, fmt.Errorf("seek file for upload: %w", err)
+	}
 	pr, pw := io.Pipe()
 	w := multipart.NewWriter(pw)
 	contentType, contentLength, err := multipartFormFileLength(w.Boundary(), filename, fileSize)
 	if err != nil {
 		_ = pr.Close()
-		return 0, 0, fmt.Errorf("multipart length: %w", err)
+		return nil, 0, fmt.Errorf("multipart length: %w", err)
 	}
 
 	writeErrCh := make(chan error, 1)
@@ -1442,52 +1715,40 @@ func packageUploadFile(credName, id string, file *os.File, opts Opts) (uploaded 
 		}
 	}
 
-	endpoint, err := ResolveEndpoint(credName, uriPackages+"/"+id+"/upload")
+	req, err := http.NewRequest(http.MethodPost, endpoint, uploadStreamBody{Reader: body, close: pr.Close})
 	if err != nil {
 		_ = pr.Close()
 		<-writeErrCh
-		return 0, 0, err
-	}
-	req, err := http.NewRequest(http.MethodPost, endpoint, body)
-	if err != nil {
-		_ = pr.Close()
-		<-writeErrCh
-		return 0, 0, fmt.Errorf("create upload request: %w", err)
+		return nil, 0, fmt.Errorf("create upload request: %w", err)
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.ContentLength = contentLength
 
 	start := time.Now()
-	resp, err := PerformRequest(nil, req, credName)
+	resp, err = doAuthedStream(credName, op, req)
 	elapsed = time.Since(start)
+	if err != nil && req.Body != nil {
+		// Auth can fail before the body is read. Close the pipe so the writer
+		// goroutine is not stuck on a full buffer.
+		_ = req.Body.Close()
+	}
 	writeErr := <-writeErrCh
 	if err != nil {
 		if showProgress && !waitingShown.Load() {
 			fmt.Fprintln(os.Stderr)
 		}
-		if writeErr != nil {
-			return 0, elapsed, fmt.Errorf("upload package file: %w (writer: %v)", err, writeErr)
+		if isLocalFileReadError(writeErr) {
+			return nil, elapsed, fmt.Errorf("read package file: %w", writeErr)
 		}
-		return 0, elapsed, fmt.Errorf("upload package file: %w", err)
+		return nil, elapsed, fmt.Errorf("upload package file: %w", err)
 	}
-	defer resp.Body.Close()
 	if showProgress && !waitingShown.Load() {
 		fmt.Fprintf(os.Stderr, "\r%s\n", formatProgressBar("Uploading", contentLength, contentLength))
 	}
-	if writeErr != nil && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return 0, elapsed, fmt.Errorf("upload package file: %w", writeErr)
+	if isLocalFileReadError(writeErr) {
+		return resp, elapsed, fmt.Errorf("read package file: %w", writeErr)
 	}
-	if resp.StatusCode == http.StatusNotFound {
-		return 0, elapsed, fmt.Errorf("%w: status %d: %s", errPackageUploadNotFound, resp.StatusCode, strings.TrimSpace(httpErrorBody(resp)))
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		msg := strings.TrimSpace(httpErrorBody(resp))
-		if msg == "" {
-			msg = "(empty response body)"
-		}
-		return 0, elapsed, fmt.Errorf("upload package file status %d: %s", resp.StatusCode, msg)
-	}
-	return fileSize, elapsed, nil
+	return resp, elapsed, nil
 }
 
 // PackageUploadOptions controls optional post-upload behavior.
@@ -1508,9 +1769,12 @@ type PackageUploadOptions struct {
 // and are applied to an existing record when they differ (even if the file is skipped).
 // When upOpts.WaitReady is set, polls until the package is READY (and sha256 set)
 // after a successful upload, skip-if-unchanged, or a mid-transfer record that
-// already has the file (hashValue set, sha256 empty) — that case does not re-upload.
-// On create, waits until GET /packages/{id} succeeds, then settles 5s before
-// the multipart upload (Jamf Cloud often 500s if the file POST starts immediately).
+// already has the file (a real hashValue, sha256 empty) — that case does not re-upload.
+// SHA3-512 of an empty file is not mid-transfer; that record is uploaded again.
+// On create, waits until GET /packages/{id} succeeds, then streams the multipart
+// upload. A 404/500/502/503, a connection reset, or a 201 that leaves the empty-file
+// hash and no size retries the whole POST with pauses 1s, 2s, 4s, 8s, 16s (six
+// attempts). That retry does not depend on WaitReady.
 func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAttrs, upOpts PackageUploadOptions, logger *slog.Logger) error {
 	if err := attrs.Validate(); err != nil {
 		return err
@@ -1596,7 +1860,7 @@ func PackageUpload(credName string, opts Opts, filePath string, attrs PackageAtt
 	}
 
 	if created {
-		if err := packageWaitReadableAndSettle(credName, id, ""); err != nil {
+		if err := packageReportReadable(credName, id); err != nil {
 			return err
 		}
 	}
@@ -1672,8 +1936,8 @@ func packageUploadExisting(credName string, opts Opts, file *os.File, info os.Fi
 		}
 		return false, maybeWaitPackageReady(credName, id, upOpts, logger)
 	}
-	// Mid-transfer: sha256/md5 empty but hashValue present (usually SHA3) → wait.
-	// Failed upload: no hashValue / comparable checksums → allow re-upload.
+	// Mid-transfer: sha256/md5 empty but a real hashValue is present (usually SHA3) → wait.
+	// Failed upload: no hashValue, or SHA3-512 of an empty file → allow re-upload.
 	if !upOpts.Force && packageUploadShouldWaitNotReady(pkg) {
 		status := pkg.CloudTransferStatus
 		if status == "" {
@@ -1721,43 +1985,48 @@ func packageConfirmApplyAttrs(credName, id string, opts Opts, attrs PackageAttrs
 	return true, nil
 }
 
-func packageWaitReadableAndSettle(credName, id, retryNote string) error {
+func packageReportReadable(credName, id string) error {
 	gets, waitElapsed, err := packageWaitReadable(credName, id)
 	if err != nil {
 		return err
 	}
-	if retryNote != "" {
-		fmt.Printf("Package record ready after %s in %s (%s)\n",
-			formatPackageGETCount(gets), formatUploadDuration(waitElapsed), retryNote)
-	} else {
-		fmt.Printf("Package record ready after %s in %s\n",
-			formatPackageGETCount(gets), formatUploadDuration(waitElapsed))
-	}
-	settleAfterPackageCreate(id, time.Sleep)
+	fmt.Printf("Package record ready after %s in %s\n",
+		formatPackageGETCount(gets), formatUploadDuration(waitElapsed))
 	return nil
 }
 
 func packageUploadFileWithRetry(credName, id string, file *os.File, opts Opts) (int64, time.Duration, error) {
-	if _, err := file.Seek(0, 0); err != nil {
-		return 0, 0, fmt.Errorf("seek file for upload: %w", err)
+	return retryPackageUpload(packageUploadMaxAttempts, packageUploadRetryPauses, time.Sleep, func() (int64, time.Duration, error) {
+		return packageUploadFile(credName, id, file, opts)
+	})
+}
+
+// retryPackageUpload runs upload until it succeeds, the error is not a JCDS race,
+// or max attempts are used. Pauses are applied only after a retryable failure.
+func retryPackageUpload(max int, pauses []time.Duration, sleep func(time.Duration), upload func() (int64, time.Duration, error)) (int64, time.Duration, error) {
+	var last error
+	for attempt := 1; attempt <= max; attempt++ {
+		n, elapsed, err := upload()
+		if err == nil {
+			return n, elapsed, nil
+		}
+		last = err
+		if !isPackageUploadRetryable(err) || attempt == max || attempt-1 >= len(pauses) {
+			return 0, 0, err
+		}
+		pause := pauses[attempt-1]
+		fmt.Fprintf(os.Stderr, "Upload returned %s; retrying in %s (attempt %d/%d)\n",
+			uploadRetryReason(err), formatUploadDuration(pause), attempt+1, max)
+		if sleep != nil {
+			sleep(pause)
+		}
 	}
-	uploaded, elapsed, err := packageUploadFile(credName, id, file, opts)
-	if err == nil {
-		return uploaded, elapsed, nil
-	}
-	if !isPackageUploadNotFound(err) {
-		return 0, 0, err
-	}
-	if err := packageWaitReadableAndSettle(credName, id, "upload retry"); err != nil {
-		return 0, 0, err
-	}
-	if _, seekErr := file.Seek(0, 0); seekErr != nil {
-		return 0, 0, fmt.Errorf("seek file for upload retry: %w", seekErr)
-	}
-	return packageUploadFile(credName, id, file, opts)
+	return 0, 0, last
 }
 
 // maybeWaitPackageReady runs PackageWaitReady when upOpts.WaitReady is set.
+// Ctrl-C during this wait stops the poll and returns success: the file transfer
+// already finished. buddy package wait-ready does not use this path.
 func maybeWaitPackageReady(credName, id string, upOpts PackageUploadOptions, logger *slog.Logger) error {
 	if !upOpts.WaitReady || strings.TrimSpace(id) == "" {
 		return nil
@@ -1767,7 +2036,27 @@ func maybeWaitPackageReady(credName, id string, upOpts PackageUploadOptions, log
 		timeout = packageWaitReadyDefaultTimeout
 	}
 	fmt.Printf("Waiting until package %s is READY (timeout %s)…\n", id, formatUploadDuration(timeout))
-	if err := PackageWaitReady(credName, id, timeout, logger); err != nil {
+	fmt.Fprintf(os.Stderr, "Ctrl-C stops waiting; the file is already on Jamf.\n")
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+	defer signal.Stop(sig)
+	done := make(chan struct{})
+	defer close(done)
+	interrupt := make(chan struct{})
+	go func() {
+		select {
+		case <-sig:
+			close(interrupt)
+		case <-done:
+		}
+	}()
+
+	if _, err := packageWaitUntil(credName, id, timeout, true, logger, interrupt); err != nil {
+		if packageWaitInterruptOK(err) {
+			fmt.Fprintf(os.Stderr, "Stopped waiting for READY (interrupted).\nPackage %s upload is complete; cloud availability may still be pending.\nResume with: buddy package wait-ready %s\n", id, id)
+			return nil
+		}
 		return err
 	}
 	fmt.Printf("Package %s is READY\n", id)
@@ -1824,8 +2113,9 @@ func hexEqualFold(a, b string) bool {
 // packageFileMatches reports whether the Jamf package record's checksums match local.
 // Prefers sha256, then md5, then hashType/hashValue when those are MD5 or SHA-256.
 // Returns false when the server has no comparable checksum yet — callers must also
-// check packageUploadShouldWaitNotReady (blank hashes with hashValue while not READY
-// means transfer pending; blank hashes with no hashValue means a failed/empty upload).
+// check packageUploadShouldWaitNotReady (blank hashes with a real hashValue while
+// not READY means transfer pending; no hashValue, or SHA3-512 of an empty file,
+// means a failed upload).
 func packageFileMatches(pkg *PackageRecord, local packageFileHashes) (matched bool, field string) {
 	if pkg == nil {
 		return false, ""
@@ -1890,6 +2180,186 @@ func emptyDash(s string) string {
 		return "(none)"
 	}
 	return s
+}
+
+// Package check classes. Issue classes (pending, failed-upload, unusable-ready)
+// are reused when the Jamf record is incomplete.
+const (
+	PackageCheckOK       = "ok"
+	PackageCheckMismatch = "mismatch"
+	PackageCheckMissing  = "missing"
+)
+
+// PackageCheckResult is a read-only comparison of a local package file to a Jamf record.
+type PackageCheckResult struct {
+	OK                  bool   `json:"ok"`
+	Class               string `json:"class"`
+	ID                  string `json:"id,omitempty"`
+	PackageName         string `json:"packageName,omitempty"`
+	FileName            string `json:"fileName,omitempty"`
+	RecordFileName      string `json:"recordFileName,omitempty"`
+	CloudTransferStatus string `json:"cloudTransferStatus,omitempty"`
+	Match               bool   `json:"match"`
+	MatchedBy           string `json:"matchedBy,omitempty"`
+	LocalMD5            string `json:"localMd5,omitempty"`
+	LocalSHA256         string `json:"localSha256,omitempty"`
+	FileNameDiffers     bool   `json:"fileNameDiffers,omitempty"`
+	CategoryID          string `json:"categoryId,omitempty"`
+	Priority            int    `json:"priority,omitempty"`
+	Md5                 string `json:"md5,omitempty"`
+	Sha256              string `json:"sha256,omitempty"`
+	Sha3512             string `json:"sha3512,omitempty"`
+	HashType            string `json:"hashType,omitempty"`
+	HashValue           string `json:"hashValue,omitempty"`
+}
+
+// classifyPackageCheck decides the check class without calling Jamf.
+// A nil record is missing. ok is true only when a checksum matches and the
+// package is usable (READY with sha256).
+func classifyPackageCheck(pkg *PackageRecord, local packageFileHashes) (class string, ok bool, matched bool, field string) {
+	if pkg == nil {
+		return PackageCheckMissing, false, false, ""
+	}
+	matched, field = packageFileMatches(pkg, local)
+	if matched && packageIsUsable(pkg) {
+		return PackageCheckOK, true, true, field
+	}
+	if c := packageIssueClass(pkg); c != "" {
+		return c, false, matched, field
+	}
+	if !matched {
+		return PackageCheckMismatch, false, false, ""
+	}
+	return PackageIssuePending, false, true, field
+}
+
+// PackageCheck hashes a local .pkg or .dmg and compares it to a Jamf package.
+// id empty looks up by fileName. A missing record is a result (class missing),
+// not an error. I/O failures and unexpected API statuses are errors.
+func PackageCheck(credName, filePath, id string, logger *slog.Logger) (PackageCheckResult, error) {
+	fileName := path.Base(filePath)
+	ext := strings.ToLower(path.Ext(fileName))
+	if ext != ".pkg" && ext != ".dmg" {
+		return PackageCheckResult{}, fmt.Errorf("unsupported file type %q: only .pkg and .dmg are supported (bundle packages must be zipped first)", ext)
+	}
+	f, err := os.Open(filePath)
+	if err != nil {
+		return PackageCheckResult{}, fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return PackageCheckResult{}, fmt.Errorf("stat file: %w", err)
+	}
+	fmt.Printf("Hashing local file (%s)…\n", formatBytes(info.Size()))
+	local, err := hashPackageReader(f, info.Size())
+	if err != nil {
+		return PackageCheckResult{}, fmt.Errorf("hash local file: %w", err)
+	}
+
+	var pkg *PackageRecord
+	id = strings.TrimSpace(id)
+	if id != "" {
+		got, status, err := packageGetStatus(credName, id)
+		if err != nil {
+			return PackageCheckResult{}, err
+		}
+		if status == http.StatusNotFound {
+			pkg = nil
+		} else if status != http.StatusOK {
+			return PackageCheckResult{}, fmt.Errorf("get package %s status %d", id, status)
+		} else {
+			pkg = got
+		}
+	} else {
+		found, err := packageFindByFileName(credName, fileName, logger)
+		if err != nil {
+			return PackageCheckResult{}, err
+		}
+		if found == "" {
+			class, ok, matched, field := classifyPackageCheck(nil, local)
+			return PackageCheckResult{
+				OK: ok, Class: class, FileName: fileName, Match: matched, MatchedBy: field,
+				LocalMD5: local.MD5, LocalSHA256: local.SHA256,
+			}, nil
+		}
+		got, err := packageGet(credName, found)
+		if err != nil {
+			return PackageCheckResult{}, err
+		}
+		pkg = got
+	}
+
+	class, ok, matched, field := classifyPackageCheck(pkg, local)
+	res := PackageCheckResult{
+		OK: ok, Class: class, FileName: fileName, Match: matched, MatchedBy: field,
+		LocalMD5: local.MD5, LocalSHA256: local.SHA256,
+	}
+	if pkg != nil {
+		res.ID = pkg.ID
+		res.PackageName = pkg.PackageName
+		res.RecordFileName = pkg.FileName
+		res.CloudTransferStatus = pkg.CloudTransferStatus
+		res.FileNameDiffers = pkg.FileName != "" && pkg.FileName != fileName
+		res.CategoryID = pkg.CategoryID
+		res.Priority = pkg.Priority
+		res.Md5 = pkg.Md5
+		res.Sha256 = pkg.Sha256
+		res.Sha3512 = pkg.Sha3512
+		res.HashType = pkg.HashType
+		res.HashValue = pkg.HashValue
+	}
+	return res, nil
+}
+
+// PackageCheckPrint hashes and compares, prints the report, and returns an error
+// when the file is not a checksum match on a usable package. API and I/O errors
+// are returned before a report.
+func PackageCheckPrint(credName, filePath, id string, logger *slog.Logger) error {
+	res, err := PackageCheck(credName, filePath, id, logger)
+	if err != nil {
+		return err
+	}
+	printPackageCheck(res)
+	if !res.OK {
+		return fmt.Errorf("package check: %s", res.Class)
+	}
+	return nil
+}
+
+func printPackageCheck(res PackageCheckResult) {
+	fmt.Printf("Package check: %s\n", res.Class)
+	if res.ID != "" {
+		fmt.Printf("  id:           %s\n", res.ID)
+	}
+	if res.PackageName != "" {
+		fmt.Printf("  packageName:  %s\n", res.PackageName)
+	}
+	fmt.Printf("  fileName:     %s\n", res.FileName)
+	if res.FileNameDiffers {
+		fmt.Printf("  record file:  %s\n", res.RecordFileName)
+	}
+	if res.Class != PackageCheckMissing {
+		fmt.Printf("  categoryId:   %s\n", res.CategoryID)
+		fmt.Printf("  priority:     %d\n", res.Priority)
+		status := res.CloudTransferStatus
+		if status == "" {
+			status = "(none)"
+		}
+		fmt.Printf("  status:       %s\n", status)
+		fmt.Printf("  md5:          %s\n", emptyDash(res.Md5))
+		fmt.Printf("  sha256:       %s\n", emptyDash(res.Sha256))
+		fmt.Printf("  sha3512:      %s\n", emptyDash(res.Sha3512))
+		fmt.Printf("  hashType:     %s\n", emptyDash(res.HashType))
+		fmt.Printf("  hashValue:    %s\n", emptyDash(res.HashValue))
+	}
+	fmt.Printf("  local md5:    %s\n", res.LocalMD5)
+	fmt.Printf("  local sha256: %s\n", res.LocalSHA256)
+	if res.Match {
+		fmt.Printf("  match:        %s\n", res.MatchedBy)
+	} else {
+		fmt.Printf("  match:        no\n")
+	}
 }
 
 // packageApplyAttrs applies attrs onto existing (or fetches) and PUTs.

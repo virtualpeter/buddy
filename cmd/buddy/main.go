@@ -2078,7 +2078,7 @@ func runProfileSet(credName string, opts buddy.Opts, subcommand string, args []s
 }
 
 func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if err := resolveArg0("package", args, []string{clispec.SubList, clispec.SubGet, "download", clispec.SubDelete, clispec.SubSet, "history", clispec.SubUpload, "scan", clispec.SubHelp}); err != nil {
+	if err := resolveArg0("package", args, []string{clispec.SubList, clispec.SubGet, "download", clispec.SubDelete, clispec.SubSet, "history", clispec.SubUpload, clispec.SubCheck, "scan", clispec.SubHelp}); err != nil {
 		return err
 	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
@@ -2098,6 +2098,21 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 			return err
 		}
 		return buddy.PackageUpload(credName, opts, filePath, attrs, upOpts, log)
+	case clispec.SubCheck:
+		if len(args) < 1 {
+			return missingArg("file", clispec.UsageHelp(clispec.CmdPackage))
+		}
+		if len(args) > 2 {
+			return fmt.Errorf("unexpected arguments after package-id: %v", args[2:])
+		}
+		id := ""
+		if len(args) == 2 {
+			id = strings.TrimSpace(args[1])
+			if id == "" {
+				return missingArg("package-id", clispec.UsageHelp(clispec.CmdPackage))
+			}
+		}
+		return buddy.PackageCheckPrint(credName, args[0], id, log)
 	case clispec.SubList:
 		filter, rest, err := extractStringFlag(args, clispec.FlagFilter)
 		if err != nil {
@@ -2156,7 +2171,7 @@ func runPackage(credName string, opts buddy.Opts, args []string, log *slog.Logge
 		}
 		return buddy.PackageScanPrint(credName, filter, classSpec, log)
 	default:
-		return errUnknownSubcommand("package", subcommand, []string{clispec.SubList, clispec.SubGet, "download", clispec.SubDelete, clispec.SubSet, "history", clispec.SubUpload, "scan"})
+		return errUnknownSubcommand("package", subcommand, []string{clispec.SubList, clispec.SubGet, "download", clispec.SubDelete, clispec.SubSet, "history", clispec.SubUpload, clispec.SubCheck, "scan"})
 	}
 }
 
@@ -2178,6 +2193,7 @@ func parsePackageListSort(spec string) (order string, err error) {
 }
 
 func parsePackageUploadArgs(args []string) (filePath string, attrs buddy.PackageAttrs, upOpts buddy.PackageUploadOptions, err error) {
+	upOpts.WaitReady = true
 	filtered := make([]string, 0, len(args))
 	for _, a := range args {
 		switch {

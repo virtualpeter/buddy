@@ -21,8 +21,10 @@ Jamf Pro packages and Jamf Cloud Distribution Service (JCDS) readiness. Package 
 ## Agent rules
 
 - Prefer `package_ready` / `package_wait_ready` / `package_download` — do not hand-roll single GET “exists?”, treat blank sha256 as needs-upload while transfer is pending (hashValue set, usually SHA3), or save a raw JCDS URI without hash verify.
-- A package record with **no hashValue** (and no sha256/md5) usually means a failed upload — re-upload is appropriate. Mid-transfer has hashValue while sha256 is still empty. `package_upload(..., wait_ready=True)` / `--wait-ready` on that pending record skips the file transfer and polls until READY (do not treat it as a failed upload).
-- After creating a new package record, upload waits until GET succeeds, then settles 5s before the multipart POST (Jamf Cloud often 500s if the file transfer starts immediately).
+- A package record with **no hashValue**, or hashValue set to SHA3-512 of an empty file (`a69f73cc…`) and no size, means the upload stored no bytes — re-upload is appropriate. Mid-transfer has a real hashValue while sha256 is still empty. The default `package_upload` / `buddy package upload` on that pending record skips the file transfer and polls until READY (do not treat it as a failed upload). `wait_ready=False` / `--wait-ready=false` errors instead of waiting and does not re-upload.
+- After creating a new package record, upload waits until GET succeeds, then streams the multipart POST. A 201 is followed by a short GET loop (about 15s) until the record shows a size or a hash other than SHA3-512 of empty bytes. A 404/500/502/503, a connection reset, or that empty record retries the whole POST (pauses 1s, 2s, 4s, 8s, 16s; six attempts). That retry is not controlled by wait_ready.
+- package_upload waits until READY by default. wait_ready=False returns once the file transfer finishes. Ctrl-C during the READY poll stops waiting; the upload is already complete.
+- package_check compares a local .pkg/.dmg to the Jamf record (by fileName, or id=). It does not upload or wait. ok is true only when a checksum matches and the package is READY with sha256.
 - Use `packages_scan` / `buddy package scan` to find failed-upload, pending, and unusable-ready records from the list API.
 - Do not attach a package to a policy before READY.
 - Do not invent Classic/Pro package PUTs from jamf_schema when named builtins exist.
@@ -30,7 +32,8 @@ Jamf Pro packages and Jamf Cloud Distribution Service (JCDS) readiness. Package 
 ## Facts
 
 - List / load: `packages(filter=…)` / `package(id=…)` · `buddy package list` / `get` — Or `name=` + `version=`; bare filter → `packageName=="*term*"`
-- Upload: `package_upload(file, …, wait_ready?, force?)` · `buddy package upload [--wait-ready] [--force]` — Create/update by fileName; --wait-ready polls until READY (also if file already uploaded); --force re-uploads
+- Upload: `package_upload(file, …, wait_ready?, force?)` · `buddy package upload [--wait-ready] [--force]` — Create/update by fileName; waits until READY by default (Ctrl-C leaves the upload); --wait-ready=false stops after the file transfer; --force re-uploads
+- Check: `package_check(file, id?)` · `buddy package check <file> [<package-id>]` — Read-only local checksum vs Jamf; exit 1 unless match and usable
 - Scan issues: `packages_scan(class?=…)` · `buddy package scan [--class=…]` — failed-upload / pending / unusable-ready from list fields
 - Wait READY: `package_wait_ready(id=…, timeout?=…)` — Polls until READY and sha256 set (~10 min default)
 - Check READY: `package_ready(id=…)` — `true` only when READY + sha256; HTTP 404 → `false`

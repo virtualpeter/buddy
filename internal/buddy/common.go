@@ -344,25 +344,18 @@ func PerformRequestOp(req *http.Request, credName string, op OpClass) (*http.Res
 		return resp, nil
 	}
 
-	sess, sessErr := ResolveSessionForCred(credName, op)
-	if sessErr != nil {
-		return resp, nil
+	refreshed, rerr := refreshAuthAfter401(credName, op)
+	if rerr != nil {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		return nil, rerr
 	}
-	a, authErr := cachedAuthenticator(sessionCacheName(sess), sess.AuthName, sess.Credential)
-	if authErr != nil {
-		return resp, nil
-	}
-	// Basic: if keep-alive probe still succeeds, this is privilege-denied — do not retry.
-	if a.ProbeTokenStillValid() {
+	if !refreshed {
 		return resp, nil
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 
-	if err := a.RefreshToken(); err != nil {
-		invalidateCapsForSession(sess)
-		return nil, fmt.Errorf("refresh token after 401: %w", err)
-	}
 	authHeader, err = resolveAuthHeaderOp(credName, op)
 	if err != nil {
 		return nil, fmt.Errorf("get auth for %q after refresh: %w", credName, err)
@@ -370,6 +363,77 @@ func PerformRequestOp(req *http.Request, credName string, op OpClass) (*http.Res
 	req.Header.Set("Authorization", authHeader)
 	restoreRequestBody(req, bodyBytes)
 	return performHTTP(req)
+}
+
+// refreshAuthAfter401 refreshes the session token after HTTP 401.
+// refreshed is false when the 401 should be returned as-is (no session, auth
+// setup failed, or a basic token that is still valid — privilege denied).
+func refreshAuthAfter401(credName string, op OpClass) (refreshed bool, err error) {
+	sess, sessErr := ResolveSessionForCred(credName, op)
+	if sessErr != nil {
+		return false, nil
+	}
+	a, authErr := cachedAuthenticator(sessionCacheName(sess), sess.AuthName, sess.Credential)
+	if authErr != nil {
+		return false, nil
+	}
+	// Basic: if keep-alive probe still succeeds, this is privilege-denied — do not retry.
+	if a.ProbeTokenStillValid() {
+		return false, nil
+	}
+	if err := a.RefreshToken(); err != nil {
+		invalidateCapsForSession(sess)
+		return false, fmt.Errorf("refresh token after 401: %w", err)
+	}
+	return true, nil
+}
+
+// doAuthedStream sends req without buffering the body. Caller owns retries that
+// need a new body (package upload rebuilds the multipart stream after 401).
+func doAuthedStream(credName string, op OpClass, req *http.Request) (*http.Response, error) {
+	if req != nil && req.URL != nil && ResourceClassPreference() == "" {
+		restoreClass := setResourceClass(resourceClassForPath(req.URL.Path))
+		defer restoreClass()
+	}
+	authHeader, err := resolveAuthHeaderOp(credName, op)
+	if err != nil {
+		return nil, fmt.Errorf("get auth for %q: %w", credName, err)
+	}
+	req.Header.Set("Authorization", authHeader)
+	if sess, sessErr := ResolveSessionForCred(credName, op); sessErr == nil && sess.Surface == SurfacePlatform {
+		if LooksLikeRetiredPlatformGateway(sess.Credential.EffectiveBaseURL()) {
+			return nil, retiredPlatformGatewayError(sess.Credential.EffectiveBaseURL())
+		}
+		applyPlatformScopeHeaders(req, sess.Credential)
+	}
+	return performHTTPStream(req)
+}
+
+// performHTTPStream is performHTTP without reading the request body, so a large
+// upload is not buffered before it is sent. Response bodies are still captured
+// when HTTP trace is on.
+func performHTTPStream(req *http.Request) (*http.Response, error) {
+	if logger != nil {
+		logger.Debug("API request", "method", req.Method, "url", req.URL.String())
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
+	}
+	if logger != nil {
+		logger.Debug("API response", "status", resp.StatusCode, "url", req.URL.String())
+	}
+	if !httpTrace.Load() {
+		return resp, nil
+	}
+	respBody, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(respBody))
+	writeHTTPTrace(req, nil, resp, respBody)
+	return resp, nil
 }
 
 func bufferRequestBody(req *http.Request) ([]byte, error) {
