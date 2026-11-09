@@ -2451,6 +2451,7 @@ struct StatusView: View {
 	]
 
 	@State private var reviewSnapshot: AgentConfigLastGood.Diagnostics?
+	@State private var keychainRecoveryEpoch = 0
 	@ObservedObject private var updateCheck = AgentUpdateCheck.shared
 
 	var body: some View {
@@ -2475,6 +2476,9 @@ struct StatusView: View {
 		}
 		.onChange(of: store.configIntegrityGeneration) { _ in
 			store.refreshConfigDiagnostics(unlocked: state.unlocked)
+		}
+		.onReceive(NotificationCenter.default.publisher(for: AgentKeychain.backendChanged)) { _ in
+			keychainRecoveryEpoch += 1
 		}
 	}
 
@@ -2566,6 +2570,13 @@ struct StatusView: View {
 	}
 
 	private var keychainText: String {
+		_ = keychainRecoveryEpoch
+		if AgentKeychainRecovery.needsManualQuit {
+			return "data protection keychain unavailable — quit Buddy Agent and open it again"
+		}
+		if AgentKeychain.isDeferred {
+			return "data protection keychain, recovering"
+		}
 		switch AgentKeychain.backend {
 		case .dataProtection: return "data protection keychain, presence ACL"
 		case .memory:

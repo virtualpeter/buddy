@@ -7,6 +7,8 @@ import LocalAuthentication
 enum MintError: Error {
 	case unsupported(String)
 	case failed(String)
+	/// Presence succeeded and the item exists, but this process cannot read it.
+	case sessionRejected
 }
 
 struct MintedToken {
@@ -21,7 +23,7 @@ enum TokenMinter {
 	static func mint(
 		integration: Integration, baseURL: String, kind: String, presence: LAContext? = nil
 	) throws -> MintedToken {
-		guard let secret = secret(for: integration, presence: presence) else {
+		guard let secret = try secret(for: integration, presence: presence) else {
 			throw MintError.unsupported(
 				"no secret stored for \(integration.authName) — add it in the Buddy Agent window")
 		}
@@ -49,14 +51,19 @@ enum TokenMinter {
 		throw MintError.failed("token endpoint returned no access_token")
 	}
 
-	private static func secret(for integration: Integration, presence: LAContext?) -> String? {
+	private static func secret(for integration: Integration, presence: LAContext?) throws -> String? {
 		let read = {
-			AgentKeychain.get(
+			AgentKeychain.read(
 				auth: integration.authName, kind: integration.secretKind, context: presence)
 		}
 		let stored = Thread.isMainThread ? read() : DispatchQueue.main.sync(execute: read)
-		if let stored {
-			return stored
+		switch stored {
+		case .value(let secret):
+			return secret
+		case .sessionRejected:
+			throw MintError.sessionRejected
+		case .missing:
+			break
 		}
 		// Dev fallback for a run with no stored secret yet. Refused on a signed
 		// Agent: an env var is not something a presence prompt can gate.

@@ -295,6 +295,49 @@ func TestUnlockOutcomesAreDistinctAndFatal(t *testing.T) {
 	}
 }
 
+func TestTokenRetriesOnceAfterKeychainRestart(t *testing.T) {
+	var n int
+	fakeAgent(t, func(req request) response {
+		if req.Op != "token" {
+			return response{Error: "bad_request", Message: "unknown op"}
+		}
+		n++
+		if n == 1 {
+			return response{Error: "keychain_restart", Message: "restarting"}
+		}
+		return response{
+			OK: true, AccessToken: "bearer",
+			ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339),
+		}
+	})
+	got, err := Token(context.Background(), TokenRequest{
+		Auth: "a", BaseURL: "https://x", Kind: "oauth",
+	})
+	if err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	if got.AccessToken != "bearer" || n != 2 {
+		t.Fatalf("token %q after %d calls, want bearer after 2", got.AccessToken, n)
+	}
+}
+
+func TestTokenDoesNotLoopOnKeychainRestart(t *testing.T) {
+	var n int
+	fakeAgent(t, func(req request) response {
+		n++
+		return response{Error: "keychain_restart", Message: "still stuck"}
+	})
+	_, err := Token(context.Background(), TokenRequest{
+		Auth: "a", BaseURL: "https://x", Kind: "oauth",
+	})
+	if !errors.Is(err, errKeychainRestart) {
+		t.Fatalf("err = %v, want keychain restart", err)
+	}
+	if n != 2 {
+		t.Fatalf("calls = %d, want one retry", n)
+	}
+}
+
 // A signed Agent rejects an unsigned buddy on the Team ID, which is the most
 // likely way anyone meets "denied". The error has to name the fix.
 func TestDeniedExplainsTheSigningMismatch(t *testing.T) {

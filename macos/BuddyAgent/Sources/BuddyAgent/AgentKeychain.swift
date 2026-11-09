@@ -48,12 +48,126 @@ enum AgentKeychain {
 		return first
 	}()
 
-	static let backend: Backend = probeBackend()
+	/// Posted when a deferred probe resolves or the keychain becomes unreachable
+	/// again, so Status can leave "recovering".
+	static let backendChanged = Notification.Name("buddy.agent.keychainBackend")
 
-	private static func probeBackend() -> Backend {
+	private static let stateLock = NSLock()
+	/// Set only for a decision that will not change: data protection works, or
+	/// this build cannot use it (no ACL, missing entitlement). A not-ready
+	/// probe stays nil so a later retry can still commit.
+	private static var committed: Backend?
+	/// Last probe could not use the data-protection keychain yet. Not a
+	/// decision to keep secrets in memory.
+	private static var deferredFlag = false
+	private static var loggedDeferred = false
+
+	/// True while this process has not been able to use the data-protection
+	/// keychain. A signed Agent keeps reporting `.dataProtection` in the
+	/// meantime so secrets are not silently diverted into memory.
+	static var isDeferred: Bool {
+		stateLock.lock()
+		defer { stateLock.unlock() }
+		return deferredFlag
+	}
+
+	static var backend: Backend {
+		stateLock.lock()
+		let committed = committed
+		let deferred = deferredFlag
+		stateLock.unlock()
+		if let committed { return committed }
+		if deferred { return optimisticBackend }
+		return probe(force: false)
+	}
+
+	/// Run the probe again. A permanent memory decision is left alone.
+	@discardableResult
+	static func refreshBackend() -> Backend {
+		stateLock.lock()
+		let committed = committed
+		let deferred = deferredFlag
+		stateLock.unlock()
+		if committed == .memory { return .memory }
+		if committed == .dataProtection, !deferred { return .dataProtection }
+		return probe(force: true)
+	}
+
+	/// Signed builds expect the data-protection keychain even while a probe
+	/// is still failing. Unsigned builds have no access group and stay in memory.
+	private static var optimisticBackend: Backend {
+		keychainAccessGroup == nil ? .memory : .dataProtection
+	}
+
+	private enum ProbeOutcome {
+		case ready
+		case permanent
+		case notReady(OSStatus)
+	}
+
+	private static func probe(force: Bool) -> Backend {
+		stateLock.lock()
+		if let committed, committed == .memory || (!force && !deferredFlag) {
+			stateLock.unlock()
+			return committed
+		}
+		if deferredFlag, !force {
+			stateLock.unlock()
+			return optimisticBackend
+		}
+		stateLock.unlock()
+
+		let outcome = runProbe()
+
+		stateLock.lock()
+		var notify = false
+		var line: String?
+		let resolved: Backend
+		switch outcome {
+		case .ready:
+			let first = committed == nil && !deferredFlag
+			let recovered = deferredFlag
+			committed = .dataProtection
+			deferredFlag = false
+			loggedDeferred = false
+			if first {
+				line =
+					"probed the Keychain; a presence check is available\(keychainAccessGroup.map { " (group \($0))" } ?? "")"
+			} else if recovered {
+				line = "data protection keychain is available"
+				notify = true
+			}
+			resolved = .dataProtection
+		case .permanent:
+			committed = .memory
+			deferredFlag = false
+			notify = true
+			resolved = .memory
+		case .notReady(let status):
+			committed = nil
+			deferredFlag = true
+			if !loggedDeferred {
+				loggedDeferred = true
+				line =
+					"data protection keychain is not usable in this process yet (OSStatus \(status)); will retry"
+				notify = true
+			}
+			resolved = optimisticBackend
+		}
+		stateLock.unlock()
+		if let line { log(line) }
+		if notify {
+			DispatchQueue.main.async {
+				NotificationCenter.default.post(name: backendChanged, object: nil)
+			}
+		}
+		return resolved
+	}
+
+	private static func runProbe() -> ProbeOutcome {
 		guard let control = accessControl() else {
 			log("kept secrets in memory only; could not build a Keychain access control")
-			return .memory
+			return .permanent
 		}
 		let acct = "__buddy_acl_probe__"
 		var add = dpQuery(account: acct)
@@ -62,11 +176,29 @@ enum AgentKeychain {
 		let status = SecItemAdd(add as CFDictionary, nil)
 		silentDelete(account: acct)
 		if status == errSecSuccess || status == errSecDuplicateItem {
-			log("probed the Keychain; a presence check is available\(keychainAccessGroup.map { " (group \($0))" } ?? "")")
-			return .dataProtection
+			return .ready
+		}
+		// These mean "not in this process, right now" — a launch macOS restored
+		// before the keybag was ready, or a process kept across a restart.
+		// Missing entitlement is permanent on an unsigned binary and the same
+		// stuck-process symptom when the profile granted an access group.
+		if isTransientProbeFailure(status) {
+			return .notReady(status)
 		}
 		log("probed the Keychain for a presence check; it failed (OSStatus \(status)); kept secrets in memory only")
-		return .memory
+		return .permanent
+	}
+
+	/// Failures that a later probe, or a fresh process, can still get past.
+	private static func isTransientProbeFailure(_ status: OSStatus) -> Bool {
+		switch status {
+		case errSecInteractionNotAllowed, errSecNotAvailable, errSecAuthFailed:
+			return true
+		case errSecMissingEntitlement:
+			return keychainAccessGroup != nil
+		default:
+			return false
+		}
 	}
 
 	/// Wipe pre-publish login-keychain leftovers for this service without
@@ -208,19 +340,36 @@ enum AgentKeychain {
 		return false
 	}
 
+	enum SecretRead {
+		case value(String)
+		case missing
+		/// The item is there, but this process's unlock context cannot open it.
+		case sessionRejected(OSStatus)
+	}
+
 	/// Prefer the presence-gated item with UnlockGate's LAContext. Never draw a
 	/// Keychain password sheet. Memory is the unsigned/dev path only.
 	static func get(auth: String, kind: Kind, context: LAContext? = nil) -> String? {
-		let acct = account(auth: auth, kind: kind)
-		if backend == .dataProtection, let context {
-			if let value = copySecret(account: acct, context: context) {
-				return value
-			}
+		switch read(auth: auth, kind: kind, context: context) {
+		case .value(let value):
+			return value
+		case .missing, .sessionRejected(_):
+			return nil
 		}
-		return recalled(acct)
 	}
 
-	private static func copySecret(account acct: String, context: LAContext) -> String? {
+	static func read(auth: String, kind: Kind, context: LAContext?) -> SecretRead {
+		let acct = account(auth: auth, kind: kind)
+		if backend == .dataProtection, let context {
+			let (value, status) = copySecret(account: acct, context: context)
+			if let value { return .value(value) }
+			if isSessionRejected(status) { return .sessionRejected(status) }
+		}
+		if let cached = recalled(acct) { return .value(cached) }
+		return .missing
+	}
+
+	private static func copySecret(account acct: String, context: LAContext) -> (String?, OSStatus) {
 		var query = dpQuery(account: acct)
 		query[kSecUseAuthenticationContext] = context
 		query[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
@@ -231,10 +380,10 @@ enum AgentKeychain {
 		if status == errSecSuccess, let data = item as? Data,
 			let value = String(data: data, encoding: .utf8), !value.isEmpty
 		{
-			return value
+			return (value, status)
 		}
-		log("Keychain refused to read \(acct) (OSStatus \(status))")
-		return nil
+		log("Keychain refused to read \(acct) (OSStatus \(status)\(statusNote(status)))")
+		return (nil, status)
 	}
 
 	/// Existence only — never prompts. Safe while the Agent is locked.

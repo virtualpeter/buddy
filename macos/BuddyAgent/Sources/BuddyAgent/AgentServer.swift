@@ -10,6 +10,9 @@ final class AgentServer {
 	private let gate: UnlockGate
 	private let queue = DispatchQueue(label: "buddy.agent.server")
 	private var listenFD: Int32 = -1
+	/// Set when a replacement process is about to bind the same path. stop()
+	/// must not unlink that new socket on the way out.
+	private var leaveSocketInPlace = false
 	private(set) var socketPath: String = AgentPaths.socketPath
 
 	init(state: AgentState, store: AgentStore, gate: UnlockGate) {
@@ -19,6 +22,8 @@ final class AgentServer {
 	}
 
 	func start() throws {
+		if listenFD >= 0 { return }
+		leaveSocketInPlace = false
 		try AgentPaths.prepareSocketDirectory()
 		socketPath = AgentPaths.socketPath
 		unlink(socketPath)
@@ -57,12 +62,24 @@ final class AgentServer {
 		queue.async { [weak self] in self?.acceptLoop(fd) }
 	}
 
+	/// Close the listener without deleting the socket path, so a replacement
+	/// Agent can unlink and bind it. A later stop() must not remove that path.
+	func handoffSocket() {
+		leaveSocketInPlace = true
+		if listenFD >= 0 {
+			close(listenFD)
+			listenFD = -1
+		}
+	}
+
 	func stop() {
 		if listenFD >= 0 {
 			close(listenFD)
 			listenFD = -1
 		}
-		unlink(socketPath)
+		if !leaveSocketInPlace {
+			unlink(socketPath)
+		}
 	}
 
 	private func acceptLoop(_ fd: Int32) {
@@ -231,12 +248,16 @@ final class AgentServer {
 					return failure
 				}
 				presence = gate.presenceContext
+				freshSession = true
 				block = onMain { self.store.configMintBlock(presence: presence) }
 			}
 			if let block {
+				if block.staleSession, freshSession, AgentKeychainRecovery.recoverStuckSession() {
+					return keychainRestartReply(who: who, auth: auth)
+				}
 				let why =
 					block.staleSession
-					? "Keychain did not release the config seal to a fresh unlock — see the Buddy Agent Activity log"
+					? "Keychain will not release the config seal in this process — quit Buddy Agent and open it again"
 					: block.reason
 				return logBuddyToken(
 					AgentReply.failure(.configTampered, why),
@@ -259,6 +280,15 @@ final class AgentServer {
 			return logBuddyToken(
 				AgentReply.token(minted.value, expiresAt: minted.expiresAt),
 				"\(who) requested a token for \(auth) at \(baseURL); sent the new token")
+		} catch MintError.sessionRejected {
+			if AgentKeychainRecovery.recoverStuckSession() {
+				return keychainRestartReply(who: who, auth: auth)
+			}
+			return logBuddyToken(
+				AgentReply.failure(
+					.configTampered,
+					"Keychain will not release the secret in this process — quit Buddy Agent and open it again"),
+				"\(who) requested a token for \(auth); Keychain rejected the unlock and relaunch did not start")
 		} catch MintError.unsupported(let why) {
 			return logBuddyToken(
 				AgentReply.failure(.unsupported, why),
@@ -281,6 +311,14 @@ final class AgentServer {
 			return "buddy"
 		}
 		return "buddy \(client)"
+	}
+
+	private func keychainRestartReply(who: String, auth: String) -> [String: Any] {
+		logBuddyToken(
+			AgentReply.failure(
+				.keychainRestart,
+				"Buddy Agent is restarting to recover Keychain access — this command is retried once"),
+			"\(who) requested a token for \(auth); relaunching so the data protection keychain can be opened")
 	}
 
 	/// Reply for a failed unlock prompt, or nil when the session opened.

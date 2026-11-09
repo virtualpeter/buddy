@@ -67,7 +67,7 @@ Buddy still applies MCP’s runtime default deny of `jamf_*` unless you override
 
 ### Status tab
 
-Socket path, config file path, workplace and auth counts, **config integrity**, managed prefs (when MDM locks apply), peer-check mode, and presence mode.
+Socket path, config file path, workplace and auth counts, **config integrity**, managed prefs (when MDM locks apply), peer-check mode, and presence mode. If macOS kept this process across a restart and the Keychain will not open, the Agent relaunches itself. Quit it from the menu bar only if Status still says the Keychain is recovering after that.
 
 **Config integrity** — `ok` / `sealed` / `missing` / `tampered` / `unavailable` (unsigned dev builds cannot seal). The Agent HMAC-seals `agent-config.json` in Keychain when you save. Minting requires unlock and a matching seal. If the file was edited outside the Agent, Status stays the only way to reseal it: **Review changes…**, then Accept or Revert every changed line. Setup and Policy stay read-only until that review finishes. A save there does not clear tampering.
 

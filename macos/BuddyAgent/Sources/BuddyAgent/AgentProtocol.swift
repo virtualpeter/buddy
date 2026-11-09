@@ -17,6 +17,9 @@ enum AgentErrorCode: String {
 	case unlockUnavailable = "unlock_unavailable"
 	/// agent-config.json no longer matches its HMAC seal.
 	case configTampered = "config_tampered"
+	/// This process cannot open the data-protection keychain. A replacement
+	/// Agent is starting; the caller retries the mint once.
+	case keychainRestart = "keychain_restart"
 }
 
 /// One newline-delimited JSON request.

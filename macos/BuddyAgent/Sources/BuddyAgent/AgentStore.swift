@@ -1088,6 +1088,13 @@ final class AgentStore: ObservableObject {
 		var integrity: AgentConfigIntegrity.State =
 			AgentKeychain.backend == .dataProtection
 			? AgentConfigIntegrity.verify(configPath: path, presence: presence) : .ok
+		if integrity == .sessionStale, freshSession {
+			if AgentKeychainRecovery.recoverStuckSession() {
+				let why = "Buddy Agent is restarting to recover Keychain access"
+				AgentLog.shared.mint("Settings token request for \(name) failed: \(why)")
+				return why
+			}
+		}
 		if integrity == .sessionStale, !freshSession {
 			// Same recovery as a socket mint: the seal is intact, the session is
 			// not. Relock and ask once, instead of telling the user to re-save.
@@ -1102,11 +1109,16 @@ final class AgentStore: ObservableObject {
 			}
 			presence = renewed
 			integrity = AgentConfigIntegrity.verify(configPath: path, presence: presence)
+			if integrity == .sessionStale, AgentKeychainRecovery.recoverStuckSession() {
+				let why = "Buddy Agent is restarting to recover Keychain access"
+				AgentLog.shared.mint("Settings token request for \(name) failed: \(why)")
+				return why
+			}
 		}
 		if integrity != .ok {
 			let why =
 				integrity == .sessionStale
-				? "Keychain did not release the config seal to a fresh unlock — see the Activity log"
+				? "Keychain will not release the config seal in this process — quit Buddy Agent and open it again"
 				: (AgentConfigIntegrity.mintBlockedReason(configPath: path, presence: presence)
 					?? "config seal could not be verified")
 			AgentLog.shared.mint("Settings token request for \(name) failed: \(why)")
@@ -1139,6 +1151,15 @@ final class AgentStore: ObservableObject {
 				minted += 1
 				AgentLog.shared.mint(
 					"Settings asked the Jamf token API for \(name) at \(target.baseURL) and received a token")
+			} catch MintError.sessionRejected {
+				if AgentKeychainRecovery.recoverStuckSession() {
+					lastError = "Buddy Agent is restarting to recover Keychain access"
+				} else {
+					lastError =
+						"Keychain will not release the secret in this process — quit Buddy Agent and open it again"
+				}
+				AgentLog.shared.mint(
+					"Settings token request for \(name) failed: \(target.baseURL): \(lastError ?? "error")")
 			} catch {
 				lastError = mintErrorMessage(error)
 				AgentLog.shared.mint(

@@ -79,8 +79,9 @@ type Info struct {
 	UnlockTimeout time.Duration
 	// ConfigIntegrity is the Agent's agent-config.json seal: "ok", "sealed",
 	// "missing", "tampered", "session_stale" (Keychain rejected the unlock
-	// context; the Agent relocks and prompts again on the next mint), or
-	// "unavailable". Empty from a pre-integrity Agent.
+	// context; the Agent relocks and prompts again, then relaunches once if
+	// that fresh unlock is still rejected), or "unavailable". Empty from a
+	// pre-integrity Agent.
 	ConfigIntegrity string
 	// ManagedPrefs is a short summary of MDM keys the Agent can see (optional).
 	ManagedPrefs string
@@ -284,15 +285,20 @@ func Token(ctx context.Context, req TokenRequest) (Bearer, error) {
 			defer cancel()
 		}
 	}
-	resp, err := call(ctx, path, request{
-		Op:          "token",
-		Auth:        req.Auth,
-		BaseURL:     req.BaseURL,
-		Kind:        req.Kind,
-		Force:       req.Force,
-		AllowUnlock: allowUnlock,
-		Client:      tokenLogClient(),
-	})
+	resp, err := call(ctx, path, tokenRequest(req, allowUnlock))
+	if errors.Is(err, errKeychainRestart) {
+		// The Agent is replacing itself. The listen socket is already closed;
+		// wait until the new process binds, then mint once more. A dial that
+		// fails here must not surface as ErrAbsent — that would open the vault
+		// behind an Agent that is coming back.
+		if werr := waitForAgentSocket(ctx, path); werr != nil {
+			return Bearer{}, err
+		}
+		resp, err = call(ctx, path, tokenRequest(req, allowUnlock))
+		if errors.Is(err, ErrAbsent) {
+			return Bearer{}, fmt.Errorf("%w: the new process did not start listening", errKeychainRestart)
+		}
+	}
 	if err != nil {
 		return Bearer{}, err
 	}
@@ -308,6 +314,52 @@ func Token(ctx context.Context, req TokenRequest) (Bearer, error) {
 		expiry = parsed
 	}
 	return Bearer{AccessToken: resp.AccessToken, ExpiresAt: expiry}, nil
+}
+
+func tokenRequest(req TokenRequest, allowUnlock bool) request {
+	return request{
+		Op:          "token",
+		Auth:        req.Auth,
+		BaseURL:     req.BaseURL,
+		Kind:        req.Kind,
+		Force:       req.Force,
+		AllowUnlock: allowUnlock,
+		Client:      tokenLogClient(),
+	}
+}
+
+// errKeychainRestart is the Agent replacing a process whose data-protection
+// keychain session cannot be recovered in place (macOS kept it across a restart,
+// or launched it before the keybag was ready).
+var errKeychainRestart = errors.New("buddy agent is restarting to recover keychain access")
+
+func waitForAgentSocket(ctx context.Context, path string) error {
+	deadline := time.Now().Add(8 * time.Second)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	var last error
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		conn, err := net.DialTimeout("unix", path, 200*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		last = err
+		if !time.Now().Before(deadline) {
+			return last
+		}
+		timer := time.NewTimer(200 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 type request struct {
@@ -461,6 +513,11 @@ func agentError(resp response) error {
 			msg = "unlock it from the menu bar"
 		}
 		return fmt.Errorf("buddy agent: cannot prompt for unlock — %s", msg)
+	case "keychain_restart":
+		if msg == "" {
+			msg = "run this command again"
+		}
+		return fmt.Errorf("%w: %s", errKeychainRestart, msg)
 	case "denied":
 		// Nearly always the signed-Agent / unsigned-buddy mismatch: the Agent
 		// checks the caller's Team ID, and a `go build` or `make buddy` binary

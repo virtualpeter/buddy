@@ -244,6 +244,8 @@ The notarized package ships a menu-bar **Buddy Agent** inside **Buddy.app** (`Co
 
 The difference is the entitlement. A `userPresence` ACL only works on the **data protection** keychain, which on macOS needs `keychain-access-groups` — a restricted entitlement authorized by a provisioning profile. Xcode automatic signing embeds one; a `swift build` binary has none, so the Agent detects that at launch and keeps secrets in memory rather than failing open into the login keychain. The Status tab shows which backend is in use.
 
+A process macOS keeps across a restart, or starts before the keybag is ready (login item, reopen windows), can get `errSecInteractionNotAllowed` for the rest of its life — quitting and opening the Agent again was the workaround, because that is a new `securityd` connection. The Agent does not treat that probe failure as "no Keychain": it retries when the screen unlocks, and if `kern.boottime` has changed under the process, or a fresh unlock is still rejected, it relaunches itself once. `BUDDY_AGENT_NO_RELAUNCH=1` leaves the stuck process up. A mint in that window returns `keychain_restart`; buddy waits for the new process and retries the call once.
+
 `buddy agent status | config [--json] | integrations | tokens | lock` inspects it (`buddy auth agent` is an alias of `agent status`). There is no `unlock` and no `push`: unlock is a tray action, and secrets are typed into the Agent window — or imported by it. The Agent's **Setup** tab **Import from buddy** reads two files an existing setup already has:
 
 | File | Carries | In the Agent |
@@ -281,7 +283,8 @@ Order of precedence when a bearer is needed:
 | `unlock_timeout` | fails; nobody answered the prompt |
 | `unlock_unavailable` | fails; this Mac cannot prompt, so unlock from the menu bar |
 | `denied` / `bad_request` / `mint_failed` | fails |
-| `config_tampered` | fails — `agent-config.json` was edited outside the Agent or no longer matches its Keychain seal. A Keychain refusal of the unlock session itself (`errSecInteractionNotAllowed`) is not this: the Agent relocks and prompts once more, as if it had been locked, and never re-keys the seal |
+| `config_tampered` | fails — `agent-config.json` was edited outside the Agent or no longer matches its Keychain seal. A Keychain refusal of the unlock session itself (`errSecInteractionNotAllowed`) is not this: the Agent relocks and prompts once more, and if that fresh unlock is still rejected it relaunches once (`keychain_restart`) instead of re-keying the seal |
+| `keychain_restart` | buddy waits for the replacement Agent and retries the mint once. If that process is still stuck, the command fails — quit Buddy Agent and open it again |
 
 | Variable | Effect |
 |---|---|
@@ -293,6 +296,7 @@ Order of precedence when a bearer is needed:
 | `BUDDY_AGENT_UNLOCK_TIMEOUT` | Agent-side seconds the prompt stays up (default 60, `0` disables prompting) |
 | `BUDDY_AGENT_IDLE_LOCK` | Agent-side seconds of no minting before it relocks (default 900, `0` = never) |
 | `BUDDY_AGENT_FAKE_PRESENCE` | `allow`/`deny` answers without a prompt, for soaks; dev Agents only (`BUDDY_AGENT_ALLOW_UNSIGNED=1`) |
+| `BUDDY_AGENT_NO_RELAUNCH=1` | Do not replace a process whose data-protection keychain session is stuck. Quit and open the Agent by hand |
 
 **Building and shipping it.** `make agent-app` archives and exports `dist/BuddyAgent.app` with Developer ID automatic signing, then refuses the result unless it carries a hardened runtime, a secure timestamp, an `embedded.provisionprofile`, and the `keychain-access-groups` entitlement — without those the Agent would silently lose the presence ACL. `make app` nests that bundle at `Buddy.app/Contents/Library/LoginItems/BuddyAgent.app` (the `SMAppService` location, for a later "Open at Login") and **verifies rather than re-signs** it: `codesign --force` there would strip the profile. The pkg carries it with no extra `/Applications` entry and no postinstall change. `make agent-dev` is the unsigned SwiftPM loop over the same sources.
 

@@ -42,6 +42,17 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 			presentFatal("Could not listen on \(AgentPaths.socketPath): \(error)")
 			return
 		}
+		AgentKeychainRecovery.start(
+			prepareForReplacement: { [weak self] in self?.server.handoffSocket() },
+			resumeListening: { [weak self] in
+				guard let self else { return }
+				do {
+					try self.server.start()
+				} catch {
+					self.presentFatal("Could not listen on \(AgentPaths.socketPath): \(error)")
+				}
+			},
+			quit: { [weak self] in self?.quit() })
 		buildStatusItem()
 		refreshUpdateCheck()
 		store.startConfigFileMonitor { [weak state] in state?.unlocked ?? false }
