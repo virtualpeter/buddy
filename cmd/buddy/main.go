@@ -2794,7 +2794,7 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 		}
 		return buddy.ScriptDownload(credName, args[0], outfile, log)
 
-	case "upload":
+	case clispec.SubUpload, clispec.SubUpdate:
 		var nameFlag string
 		var positional []string
 		for _, a := range args {

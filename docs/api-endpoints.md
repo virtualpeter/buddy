@@ -728,7 +728,7 @@ buddy script history <id>
 buddy script create <name> <file> [flags]
   └─ POST /api/v1/scripts
 
-buddy script upload <id> <file>
+buddy script upload|update <id> <file>
   └─ GET /api/v1/scripts/{id}                (fetch current)
   └─ PUT /api/v1/scripts/{id}                (replace scriptContents)
 

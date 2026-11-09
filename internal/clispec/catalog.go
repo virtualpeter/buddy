@@ -112,7 +112,7 @@ var en = map[string]string{
 	MsgCmdLicense:            "List Jamf Account licenses (organization workplace)",
 	MsgCmdRole:               "Manage API roles (list/get/create/update/delete/privileges)",
 	MsgCmdClient:             "Manage API integrations (list/get/create/update/delete/credentials/set)",
-	MsgCmdScript:             "Manage Jamf scripts (list/get/create/upload/download/delete/set)",
+	MsgCmdScript:             "Manage Jamf scripts (list/get/create/upload|update/download/delete/set)",
 	MsgCmdExtensionAttribute: "Manage computer extension attributes (list/get/create/upload/download/delete/set)",
 	MsgCmdMobileExtAttr:      "Manage mobile-device extension attributes (list/get/create/delete)",
 	MsgCmdSetup:              "First-run chooser; import; export; secrets; managed-plist",

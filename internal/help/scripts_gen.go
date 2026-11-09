@@ -72,7 +72,7 @@ Subcommands:
   get id <name>                                       Resolve script name to numeric ID
   history <script-id>                                 Show recent change history (last 20 entries)
   create <name> <file> [--category=<category-id>] [--priority=BEFORE|AFTER|AT_REBOOT] [--info=<text>] [--notes=<text>]
-  upload <script-id> <file> [--name=<new-name>]       Upload (replace) contents of an existing script
+  upload|update <script-id> <file> [--name=<new-name>] Replace contents of an existing script
   download <script-id> [outfile]                      Save script body to a local file (default: <name>.sh)
   delete <script-id> [script-id...]                   Delete one or more scripts
   set name     <script-id> <value>                    Rename script
@@ -89,6 +89,7 @@ Examples:
   buddy script get 7
   buddy script create "Install Chrome" chrome.sh --priority=AFTER
   buddy script upload 7 chrome.sh
+  buddy script update 7 chrome.sh
   buddy script download 7
   buddy script delete 7 8
 `
