@@ -2,6 +2,14 @@
 
 buddy did not keep a changelog before v12. This page is the user-facing list of notable changes per tagged release. Version strings come from git tags (`git describe`). Maintainers add a section with `make tag`.
 
+## v12.3.0
+
+- Match script commands and builtins on id, name, or download filename.
+- Accept script update as a synonym of upload.
+- Relaunch Buddy Agent when a restart leaves its keychain session stuck.
+- Retry package uploads when Jamf accepts the POST but stores no file.
+- bump go to 1.27.3 for http2 vuln
+
 ## v12.2.1
 
 "The one that is less of a prick about things"
