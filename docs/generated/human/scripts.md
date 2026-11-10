@@ -7,15 +7,17 @@ Jamf Pro scripts — list summaries vs full body, create/update/delete, and copy
 
 | Do this | BuddyScript | CLI | Notes |
 |---------|-------------|-----|-------|
-| List | `scripts(filter?)` | `buddy script list` | Summaries `{id, name, categoryId, categoryName}` only; bodies stripped |
-| Load | `script(id=…)` / `script(name=…)` / `script_contents(id=…)` | `buddy script get` / `get contents` | Full Jamf JSON dict (id= and name=); or body only |
-| Create / update | `script_create` / `script_put` / `script_update` | `buddy script create` / `upload\|update` | Create from string body; PUT dict or replace from file. `upload` and `update` are the same. |
-| Delete | `script_delete(id=…)` / `script_delete(ids=…)` | `buddy script delete` | One ID or a list |
-| Copy / migrate | `script_copy` / `script_migrate` | — | Upsert by name; category remapped on destination |
+| List | `scripts(filter?)` | `buddy script list` | Summaries `{id, name, categoryId, categoryName, localFilename}`. Omit page to fetch every page. `--page` fetches one page. |
+| Load | `script(id=…)` / `script(name=…)` / `script(file=…)` / `script_contents(id=…)` | `buddy script get` / `get contents` / `get id` | `script()` and the get commands accept an id, an exact name, or a local download file. `script_contents(id)` returns the body for an id. |
+| Create / update | `script_create` / `script_put` / `script_update` | `buddy script create` / `upload\|update` / `put` | CLI create reads a file. `script_create` takes the body as a string. Both accept os requirements and parameter4–parameter11, and both refuse a taken name or download filename. `upload` and `update` replace the script that owns the file. `put` merges known JSON keys onto the current record. |
+| Check | `script_check(file, id?)` | `buddy script check <file> [<script-id>]` | SHA-256 of the local file against the script body. `missing` is ok=False. Exit 0 only on a match. |
+| Download / rename / history | `script_download` / `script_rename` / `script_history` | `buddy script download` / `rename` / `history` | Download writes the download filename when path is omitted. Rename of a local file also renames that file. History accepts an id, exact name, or local file. |
+| Delete | `script_delete(id=…)` / `script_delete(ids=…)` / `script_delete(name=…)` / `script_delete(file=…)` | `buddy script delete` | One mode per call. The local file is left in place. |
+| Copy / migrate | `script_copy` / `script_clone` / `script_migrate` | `buddy script copy` / `clone` / `migrate` | The builtins take a source id. The CLI accepts an id, exact name, or local file. Clone stays in the same session. Copy and migrate remap category by name. Migrate upserts by exact name. |
 
 ## Notes
 
-Bare `filter` terms become `name=="*term*"` on the server. List JSON never yields usable `scriptContents` — load with `script(id=…)`.
+Bare `filter` terms become `name=="*term*"` on the server. List results omit `scriptContents`. Load a body with `script(id=…)`, `script(name=…)`, or `script(file=…)`.
 
 ## Example
 

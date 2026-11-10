@@ -340,23 +340,40 @@ func scriptsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread,
 			_ = d.SetKey(starlark.String("name"), starlark.String(s.Name))
 			_ = d.SetKey(starlark.String("categoryId"), starlark.String(s.CategoryID))
 			_ = d.SetKey(starlark.String("categoryName"), starlark.String(s.CategoryName))
+			_ = d.SetKey(starlark.String("localFilename"), starlark.String(buddy.ScriptFilename(s.Name)))
 			_ = list.Append(d)
 		}
 		return resultOK(list), nil
 	}
 }
 
-// script(id=?) | script(name=?) → full Jamf JSON dict
+// script(id=?) | script(name=?) | script(file=?) → full Jamf JSON dict
 func scriptBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value = starlark.None
-		var name starlark.String
+		var name, file starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("script", args, kwargs, "id?", &idVal, "name?", &name,
+		if err := starlark.UnpackArgs("script", args, kwargs, "id?", &idVal, "name?", &name, "file?", &file,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
 			return nil, err
+		}
+		idSet := idVal != nil && idVal != starlark.None
+		nameSet := name != ""
+		fileSet := file != ""
+		n := 0
+		if idSet {
+			n++
+		}
+		if nameSet {
+			n++
+		}
+		if fileSet {
+			n++
+		}
+		if n != 1 {
+			return nil, fmt.Errorf("script: pass exactly one of id=, name=, or file=")
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
@@ -364,27 +381,21 @@ func scriptBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		}
 		defer restoreSession()
 		c := sessionPin
-		idSet := idVal != nil && idVal != starlark.None
-		keySet := name != ""
-		if err := xorIDOrKey("script", idSet, keySet, "name"); err != nil {
-			return nil, err
-		}
-		if keySet {
-			s, err := buddy.ScriptFetchByName(c, string(name), logger)
+		var s *buddy.ScriptDetail
+		var err error
+		switch {
+		case fileSet:
+			s, err = buddy.ScriptResolve(c, string(file), logger)
+		case nameSet:
+			s, err = buddy.ScriptFetchByName(c, string(name), logger)
+		default:
+			var id string
+			id, err = starlarkIDString(idVal, "id")
 			if err != nil {
-				return resultErr(err.Error())
+				return nil, err
 			}
-			val, err := scriptDetailValue(s)
-			if err != nil {
-				return resultErr(err.Error())
-			}
-			return resultOK(val), nil
+			s, err = buddy.ScriptFetchFull(c, id)
 		}
-		id, err := starlarkIDString(idVal, "id")
-		if err != nil {
-			return nil, err
-		}
-		s, err := buddy.ScriptFetchFull(c, id)
 		if err != nil {
 			return resultErr(err.Error())
 		}
@@ -1257,7 +1268,6 @@ func roleBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *s
 		return resultOK(val), nil
 	}
 }
-
 
 // clients(filter?, page?, page_size?, tenant?, surface?, auth?)
 func clientsBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {

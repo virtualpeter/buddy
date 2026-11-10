@@ -192,20 +192,22 @@ Base path: `/api/v1/scripts`
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v1/scripts` | `ScriptSearch`, `ScriptList`, `ScriptGetID` | List scripts (paginated; all pages by default); bare filter → `name=="*term*"` server-side, RSQL = pass-through |
-| `GET` | `/api/v1/scripts/{id}` | `scriptGetFull`, `ScriptGet`, `ScriptGetContents`, `ScriptGetContentsStr`, `ScriptUpdate`, `ScriptSet*` | Fetch full script record including `scriptContents` |
-| `POST` | `/api/v1/scripts` | `ScriptCreate` | Create a new script |
-| `PUT` | `/api/v1/scripts/{id}` | `scriptPut`, `ScriptUpdate`, `ScriptSet*` | Replace a script record (fetch-then-PUT pattern) |
-| `DELETE` | `/api/v1/scripts/{id}` | `scriptDeleteOne`, `ScriptDelete` | Delete a script by ID |
-| `GET` | `/api/v1/scripts/{id}/history` | `ScriptHistory` | Fetch audit history; sorted `date:desc` |
+| `GET` | `/api/v1/scripts` | `ScriptSearch`, `ScriptList`, download-name lookup | List scripts. Omit `page` / `--page` to fetch every page. A bare filter becomes `name=="*term*"`. A download-name lookup uses `name=="*tok*tok*"` and, when that page has no download-name hit, lists once with no filter |
+| `GET` | `/api/v1/scripts/{id}` | `scriptGetFull`, `ScriptGet`, `ScriptGetContents`, `ScriptUpdate`, `ScriptPutFields` | Fetch the full script record, including `scriptContents` |
+| `POST` | `/api/v1/scripts` | `ScriptCreate`, `ScriptPostDetail` (clone/copy/migrate) | Create a script |
+| `PUT` | `/api/v1/scripts/{id}` | `scriptPut`, `ScriptUpdate`, `ScriptPutFields`, rename | Fetch-then-PUT. `put` merges known keys and leaves the rest |
+| `DELETE` | `/api/v1/scripts/{id}` | `ScriptDelete` | Delete a script by ID. A file argument does not delete the local file |
+| `GET` | `/api/v1/scripts/{id}/history` | `ScriptHistory`, `ScriptHistoryFetch` | Audit history, `date:desc`, default 20 |
 
 ### Notes
 
 - Script `id` values are strings (numeric, e.g. `"42"`), consistent with packages, roles, and clients.
 - `priority` values in the v1 API are uppercase: `BEFORE`, `AFTER`, `AT_REBOOT` (Classic API used `Before`, `After`, `At Reboot`).
-- `ScriptCreate` and `ScriptUpdate` read script body from a local file and send it as the `scriptContents` JSON field.
-- `ScriptSet*` functions use a fetch-then-PUT pattern, preserving all fields not being modified.
-- Jamf’s list OpenAPI model may include `scriptContents` on each row; buddy’s `ScriptSearch` / buddyscript `scripts()` strip bodies and return `{id,name,categoryId,categoryName}` only. Use `GET /api/v1/scripts/{id}` (`script(id=…)`, `script_contents`) for the script body.
+- `ScriptCreate` reads the body from a local file. `script_create` sends the string it was given. Both accept `osRequirements` and `parameter4`–`parameter11`, and both refuse an existing exact name or a download filename another script already owns.
+- `script_put` and `buddy script put` fetch the record and merge known keys (`name`, `categoryId`, `info`, `notes`, `osRequirements`, `priority`, `parameter4`–`parameter11`, `scriptContents`), then PUT. Omitted keys stay as they are.
+- `ScriptSet*` uses the same fetch-then-PUT pattern for one field. `set name` accepts an id, an exact name, or a local download file, same as `rename`.
+- List rows omit `scriptContents`. `scripts()` and `buddy script list --json` add `localFilename`, the download name. Load a body with `script(id=…)`, `script(name=…)`, `script(file=…)`, or `script_contents(id)`.
+- A local file is matched when its basename equals that download name. The list filter is `name=="*tok*tok*"` from the lowercase stem (`restart-jamf-agent.sh` → `*restart*jamf*agent*`). When that page has no download-name hit, buddy lists once with no filter. `get id` prints only the id: an existing file matches by download name, and any other token, including a numeric string, is an exact name.
 
 ---
 
@@ -710,35 +712,67 @@ Base path: `/api/v1/categories`
 ## Request Flow per Operation
 
 ```
-buddy script list [--filter=<term|rsql>]
-  └─ GET /api/v1/scripts                     (page-size=200; bare → name=="*term*")
+buddy script list [--filter=<term|rsql>] [--page=<n>] [--page-size=<n>]
+  └─ GET /api/v1/scripts                     (page-size=200; bare → name=="*term*"; omit --page to fetch every page)
 
-buddy script get <id>
+buddy script get <script>
+  └─ GET /api/v1/scripts/{id}                (id, exact name, or local download file)
+
+buddy script get contents <script>
   └─ GET /api/v1/scripts/{id}
 
-buddy script get contents <id>
-  └─ GET /api/v1/scripts/{id}
+buddy script get id <script>
+  └─ GET /api/v1/scripts                     (existing file: download name; any other token, including digits: exact name)
 
-buddy script get id <name>
-  └─ GET /api/v1/scripts                     (page-size=200; exact name match)
+buddy script history <script>
+  └─ GET /api/v1/scripts/{id}/history        (id, exact name, or local file; sort=date:desc&page-size=20)
 
-buddy script history <id>
-  └─ GET /api/v1/scripts/{id}/history        (sort=date:desc&page-size=20)
-
+buddy script create <file> [--os-requirements=] [--parameter4= … --parameter11=]
 buddy script create <name> <file> [flags]
-  └─ POST /api/v1/scripts
+  └─ GET /api/v1/scripts                     (exact name, then download-name ownership)
+  └─ POST /api/v1/scripts                    (fails when the name or download name is taken)
 
-buddy script upload|update <id> <file>
+buddy script upload|update <file>
+buddy script upload|update <id>|<name> <file>
+  └─ GET /api/v1/scripts                     (download name, exact name, or id)
   └─ GET /api/v1/scripts/{id}                (fetch current)
   └─ PUT /api/v1/scripts/{id}                (replace scriptContents)
 
-buddy script delete <id> [id...]
-  └─ GET /api/v1/scripts/{id}                (fetch name for confirmation, per ID)
-  └─ DELETE /api/v1/scripts/{id}             (delete, per ID)
+buddy script check <file> [<id>]
+  └─ GET /api/v1/scripts                     (download name, unless an id is given)
+  └─ GET /api/v1/scripts/{id}                (hash scriptContents against the local file)
 
-buddy script set <property> <id> <value>
+buddy script download <id>|<name> [outfile]
+  └─ GET /api/v1/scripts/{id}                (name is resolved with an exact-name list first)
+
+buddy script rename <script> <new-name>
+  └─ GET /api/v1/scripts                     (resolve id, name, or download name; refuse a taken name)
+  └─ GET /api/v1/scripts/{id}
+  └─ PUT /api/v1/scripts/{id}
+
+buddy script delete <script> [script...]
+  └─ GET /api/v1/scripts                     (resolve each id, name, or download name)
+  └─ GET /api/v1/scripts/{id}                (fetch name for confirmation, per ID)
+  └─ DELETE /api/v1/scripts/{id}             (delete, per ID; local file stays)
+
+buddy script put <script> <json-file>
+  └─ GET /api/v1/scripts/{id}                (resolve id, name, or local file)
+  └─ PUT /api/v1/scripts/{id}                (merge known JSON keys; omitted keys stay)
+
+buddy script clone <script> <name>
+  └─ GET /api/v1/scripts/{id}                (same session)
+  └─ POST /api/v1/scripts
+
+buddy script copy <script> [--name=<name>] [--upsert] [--to-tenant=] [--to-surface=] [--to-auth=]
+buddy script migrate <script>
+  └─ GET /api/v1/scripts/{id}                (source)
+  └─ POST /api/v1/scripts                    (or PUT when migrate / --upsert finds the destination name)
+
+buddy script set name <script> <value>
+buddy script set <property> <script-id> <value>
   └─ GET /api/v1/scripts/{id}                (fetch current)
-  └─ PUT /api/v1/scripts/{id}                (update with modified field)
+  └─ PUT /api/v1/scripts/{id}                (update the one field)
+     set name accepts the same identity as rename
 
 buddy policy get <policy-id>
   └─ GET /JSSResource/policies/id/{id}      (detail → JSON summary)

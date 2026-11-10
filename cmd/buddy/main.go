@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -2721,7 +2722,8 @@ func runClientSet(credName string, opts buddy.Opts, args []string, log *slog.Log
 }
 
 func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	if err := resolveArg0("script", args, []string{clispec.SubList, clispec.SubGet, "history", clispec.SubCreate, clispec.SubUpload, clispec.SubUpdate, "download", clispec.SubDelete, clispec.SubSet, clispec.SubHelp}); err != nil {
+	scriptSubs := []string{clispec.SubList, clispec.SubGet, "history", clispec.SubCreate, clispec.SubUpload, clispec.SubUpdate, clispec.SubCheck, clispec.SubDownload, clispec.SubRename, clispec.SubDelete, clispec.SubPut, clispec.SubClone, "copy", "migrate", clispec.SubSet, clispec.SubHelp}
+	if err := resolveArg0("script", args, scriptSubs); err != nil {
 		return err
 	}
 	if len(args) == 0 || args[0] == clispec.SubHelp {
@@ -2745,25 +2747,52 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 			return err
 		}
 		asJSON, rest := extractBareFlag(rest, clispec.FlagJSON)
+		pageStr, rest, err := extractStringFlag(rest, "page")
+		if err != nil {
+			return err
+		}
+		pageSizeStr, rest, err := extractStringFlag(rest, clispec.FlagPageSize)
+		if err != nil {
+			return err
+		}
 		if len(rest) > 0 {
 			return fmt.Errorf("unknown list flag %q; run '%s'", rest[0], clispec.UsageHelp(clispec.CmdScript))
 		}
-		return buddy.ScriptList(credName, filter, asJSON, log)
+		pageOpts := buddy.PageOpts{Page: buddy.PageAll}
+		if pageStr != "" {
+			n, err := strconv.Atoi(pageStr)
+			if err != nil || n < 0 {
+				return fmt.Errorf("--page must be a non-negative integer")
+			}
+			pageOpts.Page = n
+		}
+		if pageSizeStr != "" {
+			n, err := strconv.Atoi(pageSizeStr)
+			if err != nil || n <= 0 {
+				return fmt.Errorf("--page-size must be a positive integer")
+			}
+			pageOpts.PageSize = n
+		}
+		return buddy.ScriptList(credName, filter, asJSON, pageOpts, log)
 
 	case clispec.SubGet:
 		if len(args) < 1 {
-			return missingArg("script-id", clispec.UsageHelp(clispec.CmdScript, clispec.SubGet))
+			return missingArg("script", clispec.UsageHelp(clispec.CmdScript, clispec.SubGet))
 		}
 		return runJamfScriptGet(credName, opts, args[0], args[1:], log)
 
 	case "history":
 		if len(args) < 1 {
-			return missingArg("script-id", clispec.UsageHelp(clispec.CmdScript))
+			return missingArg("script", clispec.UsageHelp(clispec.CmdScript))
 		}
-		return buddy.ScriptHistory(credName, args[0], 20, log)
+		if len(args) > 1 {
+			return fmt.Errorf("unexpected arguments after script: %v", args[1:])
+		}
+		return buddy.ScriptHistoryRef(credName, args[0], 20, log)
 
 	case clispec.SubCreate:
 		var category, priority, info, notes string
+		var extra buddy.ScriptCreateExtra
 		var positional []string
 		for _, a := range args {
 			switch {
@@ -2775,24 +2804,44 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 				info = strings.TrimPrefix(a, "--info=")
 			case strings.HasPrefix(a, "--notes="):
 				notes = strings.TrimPrefix(a, "--notes=")
+			case strings.HasPrefix(a, "--os-requirements="):
+				extra.OSRequirements = strings.TrimPrefix(a, "--os-requirements=")
+			case scriptParameterFlag(a, &extra):
 			default:
 				positional = append(positional, a)
 			}
 		}
-		if len(positional) < 2 {
+		if len(positional) == 0 {
 			return missingArg("name or file", clispec.UsageHelp(clispec.CmdScript))
 		}
-		return buddy.ScriptCreate(credName, opts, positional[0], positional[1], category, priority, info, notes, log)
+		if len(positional) > 2 {
+			return fmt.Errorf("unexpected arguments after file: %v", positional[2:])
+		}
+		var name, file string
+		if len(positional) == 1 {
+			file = positional[0]
+			if !buddy.ScriptFileIsDownloadName(file) {
+				return fmt.Errorf("script file %q is not a download name; pass the Jamf name and the file", file)
+			}
+			name = filepath.Base(file)
+		} else {
+			name, file = positional[0], positional[1]
+		}
+		return buddy.ScriptCreate(credName, opts, name, file, category, priority, info, notes, extra, log)
 
-	case "download":
+	case clispec.SubDownload:
 		if len(args) < 1 {
-			return missingArg("script-id", clispec.UsageHelp(clispec.CmdScript))
+			return missingArg("script-id or name", clispec.UsageHelp(clispec.CmdScript))
+		}
+		if len(args) > 2 {
+			return fmt.Errorf("unexpected arguments after outfile: %v", args[2:])
 		}
 		outfile := ""
-		if len(args) >= 2 {
+		if len(args) == 2 {
 			outfile = strings.TrimSpace(args[1])
 		}
-		return buddy.ScriptDownload(credName, args[0], outfile, log)
+		_, err := buddy.ScriptDownload(credName, args[0], outfile, log)
+		return err
 
 	case clispec.SubUpload, clispec.SubUpdate:
 		var nameFlag string
@@ -2804,22 +2853,79 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 				positional = append(positional, a)
 			}
 		}
-		if len(positional) < 2 {
-			return missingArg("script-id or file", clispec.UsageHelp(clispec.CmdScript))
+		if len(positional) == 0 {
+			return missingArg("file", clispec.UsageHelp(clispec.CmdScript))
 		}
-		if err := buddy.ScriptUpdate(credName, opts, positional[0], positional[1], log); err != nil {
+		if len(positional) > 2 {
+			return fmt.Errorf("unexpected arguments after file: %v", positional[2:])
+		}
+		var id string
+		var err error
+		if len(positional) == 1 {
+			id, err = buddy.ScriptUpdateByFile(credName, opts, positional[0], log)
+		} else if buddy.ScriptTokenIsID(positional[0]) {
+			id = strings.TrimSpace(positional[0])
+			err = buddy.ScriptUpdate(credName, opts, id, positional[1], log)
+		} else {
+			id, err = buddy.ScriptUpdateByName(credName, opts, positional[0], positional[1], log)
+		}
+		if err != nil {
 			return err
 		}
 		if nameFlag != "" {
-			return buddy.ScriptSetName(credName, positional[0], opts, nameFlag, log)
+			return buddy.ScriptRenameID(credName, opts, id, nameFlag, log)
 		}
 		return nil
 
+	case clispec.SubCheck:
+		if len(args) < 1 {
+			return missingArg("file", clispec.UsageHelp(clispec.CmdScript))
+		}
+		if len(args) > 2 {
+			return fmt.Errorf("unexpected arguments after script-id: %v", args[2:])
+		}
+		id := ""
+		if len(args) == 2 {
+			id = strings.TrimSpace(args[1])
+			if id == "" {
+				return missingArg("script-id", clispec.UsageHelp(clispec.CmdScript))
+			}
+		}
+		return buddy.ScriptCheckPrint(credName, args[0], id, log)
+
+	case clispec.SubRename:
+		if len(args) < 2 {
+			return missingArg("script or new name", clispec.UsageHelp(clispec.CmdScript))
+		}
+		if len(args) > 2 {
+			return fmt.Errorf("unexpected arguments after new name: %v", args[2:])
+		}
+		return buddy.ScriptRename(credName, opts, args[0], args[1], log)
+
 	case clispec.SubDelete:
 		if len(args) < 1 {
-			return missingArg("script-id", clispec.UsageHelp(clispec.CmdScript))
+			return missingArg("script", clispec.UsageHelp(clispec.CmdScript))
 		}
-		return buddy.ScriptDelete(credName, opts, args, log)
+		return buddy.ScriptDeleteRefs(credName, opts, args, log)
+
+	case clispec.SubPut:
+		if len(args) < 2 {
+			return missingArg("script or json file", clispec.UsageHelp(clispec.CmdScript))
+		}
+		if len(args) > 2 {
+			return fmt.Errorf("unexpected arguments after json file: %v", args[2:])
+		}
+		_, err := buddy.ScriptPutJSONFile(credName, opts, args[0], args[1], log)
+		return err
+
+	case clispec.SubClone:
+		return runScriptClone(credName, opts, args, log)
+
+	case "copy":
+		return runScriptCopy(credName, opts, args, false, log)
+
+	case "migrate":
+		return runScriptCopy(credName, opts, args, true, log)
 
 	case clispec.SubSet:
 		if len(args) < 3 {
@@ -2828,8 +2934,120 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 		return runJamfScriptSet(credName, opts, args, log)
 
 	default:
-		return errUnknownSubcommand("script", subcommand, []string{clispec.SubList, clispec.SubGet, "history", clispec.SubCreate, clispec.SubUpload, clispec.SubUpdate, "download", clispec.SubDelete, clispec.SubSet})
+		return errUnknownSubcommand("script", subcommand, []string{clispec.SubList, clispec.SubGet, "history", clispec.SubCreate, clispec.SubUpload, clispec.SubUpdate, clispec.SubCheck, clispec.SubDownload, clispec.SubRename, clispec.SubDelete, clispec.SubPut, clispec.SubClone, "copy", "migrate", clispec.SubSet})
 	}
+}
+
+func scriptParameterFlag(arg string, extra *buddy.ScriptCreateExtra) bool {
+	const prefix = "--parameter"
+	if !strings.HasPrefix(arg, prefix) {
+		return false
+	}
+	key, val, ok := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
+	if !ok {
+		return false
+	}
+	switch key {
+	case "parameter4":
+		extra.Parameter4 = val
+	case "parameter5":
+		extra.Parameter5 = val
+	case "parameter6":
+		extra.Parameter6 = val
+	case "parameter7":
+		extra.Parameter7 = val
+	case "parameter8":
+		extra.Parameter8 = val
+	case "parameter9":
+		extra.Parameter9 = val
+	case "parameter10":
+		extra.Parameter10 = val
+	case "parameter11":
+		extra.Parameter11 = val
+	default:
+		return false
+	}
+	return true
+}
+
+func runScriptClone(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
+	var category string
+	var positional []string
+	for _, a := range args {
+		if strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagCategory)) {
+			category = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagCategory))
+			continue
+		}
+		positional = append(positional, a)
+	}
+	if len(positional) < 2 {
+		return missingArg("script or name", clispec.UsageHelp(clispec.CmdScript))
+	}
+	if len(positional) > 2 {
+		return fmt.Errorf("unexpected arguments after name: %v", positional[2:])
+	}
+	resolved, err := buddy.ScriptResolve(credName, positional[0], log)
+	if err != nil {
+		return err
+	}
+	_, err = buddy.ScriptClone(credName, opts, resolved.ID, positional[1], category, log)
+	return err
+}
+
+func runScriptCopy(credName string, opts buddy.Opts, args []string, migrate bool, log *slog.Logger) error {
+	var name, category, toTenant, toSurface, toAuth string
+	upsert := migrate
+	var positional []string
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagName)):
+			name = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagName))
+		case strings.HasPrefix(a, clispec.FlagPrefix(clispec.FlagCategory)):
+			category = strings.TrimPrefix(a, clispec.FlagPrefix(clispec.FlagCategory))
+		case a == "--upsert":
+			upsert = true
+		case strings.HasPrefix(a, "--to-tenant="):
+			toTenant = strings.TrimPrefix(a, "--to-tenant=")
+		case strings.HasPrefix(a, "--to-surface="):
+			toSurface = strings.TrimPrefix(a, "--to-surface=")
+		case strings.HasPrefix(a, "--to-auth="):
+			toAuth = strings.TrimPrefix(a, "--to-auth=")
+		default:
+			positional = append(positional, a)
+		}
+	}
+	if len(positional) < 1 {
+		return missingArg("script", clispec.UsageHelp(clispec.CmdScript))
+	}
+	if len(positional) > 1 {
+		return fmt.Errorf("unexpected arguments after script: %v", positional[1:])
+	}
+	if !upsert && strings.TrimSpace(name) == "" {
+		return fmt.Errorf("copy requires --name= (or use migrate / --upsert to keep the source name)")
+	}
+	resolved, err := buddy.ScriptResolve(credName, positional[0], log)
+	if err != nil {
+		return err
+	}
+	src := buddy.SessionRef{Auth: credName}
+	dst := src
+	if toTenant != "" || toSurface != "" || toAuth != "" {
+		dst = buddy.SessionRef{Tenant: toTenant, Auth: toAuth, Surface: toSurface}
+	}
+	if upsert {
+		_, err = buddy.ScriptMigrate(src, dst, opts, buddy.ScriptMigrateSpec{
+			SourceScriptID: resolved.ID,
+			Name:           name,
+			CategoryID:     category,
+		}, log)
+		return err
+	}
+	_, err = buddy.ScriptCopy(src, dst, opts, buddy.ScriptCopySpec{
+		SourceScriptID: resolved.ID,
+		Name:           name,
+		CategoryID:     category,
+	}, log)
+	return err
 }
 
 func runJamfScriptGet(credName string, opts buddy.Opts, subcommand string, args []string, log *slog.Logger) error {
@@ -2847,7 +3065,7 @@ func runJamfScriptGet(credName string, opts buddy.Opts, subcommand string, args 
 		if len(args) < 1 {
 			return missingArg("name", clispec.UsageHelp(clispec.CmdScript, clispec.SubGet))
 		}
-		id, err := buddy.ScriptGetID(credName, args[0], log)
+		id, err := buddy.ScriptLookupID(credName, args[0], log)
 		if err != nil {
 			return err
 		}
@@ -2870,7 +3088,7 @@ func runJamfScriptSet(credName string, opts buddy.Opts, args []string, log *slog
 
 	switch property {
 	case "name":
-		return buddy.ScriptSetName(credName, scriptID, opts, value, log)
+		return buddy.ScriptRename(credName, opts, scriptID, value, log)
 	case "category":
 		return buddy.ScriptSetCategory(credName, scriptID, opts, value, log)
 	case "priority":

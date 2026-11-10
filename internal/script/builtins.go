@@ -188,6 +188,8 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "version_extract", versionExtractBuiltin)
 	putBuiltin(dict, "version_compare", versionCompareBuiltin)
 	putBuiltin(dict, "version_sort", versionSortBuiltin)
+	putBuiltin(dict, "script_local_filename", scriptLocalFilenameBuiltin)
+	putBuiltin(dict, "script_local_stem", scriptLocalStemBuiltin)
 
 	putBuiltin(dict, "rsql_escape", rsqlEscapeBuiltin)
 	putBuiltin(dict, "rsql_quote", rsqlQuoteBuiltin)
@@ -282,6 +284,10 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "script_update", scriptUpdate(credName, logger))
 	putBuiltin(dict, "script_put", scriptPutBuiltin(credName, logger))
 	putBuiltin(dict, "script_delete", scriptDelete(credName, logger))
+	putBuiltin(dict, "script_check", scriptCheckBuiltin(credName, logger))
+	putBuiltin(dict, "script_download", scriptDownloadBuiltin(credName, logger))
+	putBuiltin(dict, "script_rename", scriptRenameBuiltin(credName, logger))
+	putBuiltin(dict, "script_history", scriptHistoryBuiltin(credName, logger))
 
 	putBuiltin(dict, "computer_send_mdm_command", computerSendMDMCommand(credName, logger))
 	putBuiltin(dict, "computer_reboot", computerReboot(credName, logger))
@@ -2071,6 +2077,9 @@ func scriptCreate(credName string, logger *slog.Logger) func(*starlark.Thread, *
 			return resultErr(sessErr.Error())
 		}
 		defer restoreSession()
+		if err := buddy.RequireNewScriptName(sessionPin, strings.TrimSpace(string(name))); err != nil {
+			return resultErr(err.Error())
+		}
 		pri := strings.TrimSpace(string(priority))
 		if pri != "" {
 			pri = strings.ToUpper(pri)
@@ -2117,16 +2126,20 @@ func scriptDetailValue(s *buddy.ScriptDetail) (starlark.Value, error) {
 	return JSONDecodeToStarlark(string(b))
 }
 
-// script_update(id, file, tenant?, surface?, auth?) → None
+// script_update(id?, file, name?, tenant?, surface?, auth?) → None
+// file is the contents path. Omit id and name to update the script that owns that filename.
 func scriptUpdate(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var scriptID, file starlark.String
+		var scriptID, file, name starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("script_update", args, kwargs, "id", &scriptID, "file", &file,
+		if err := starlark.UnpackArgs("script_update", args, kwargs, "id?", &scriptID, "file", &file, "name?", &name,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
 			return nil, err
+		}
+		if scriptID != "" && name != "" {
+			return nil, fmt.Errorf("script_update: pass either id= or name=, not both")
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
@@ -2134,20 +2147,30 @@ func scriptUpdate(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		defer restoreSession()
 		c := sessionPin
-		if err := buddy.ScriptUpdate(c, scriptOpts, string(scriptID), string(file), logger); err != nil {
+		var err error
+		switch {
+		case scriptID != "":
+			err = buddy.ScriptUpdate(c, scriptOpts, string(scriptID), string(file), logger)
+		case name != "":
+			_, err = buddy.ScriptUpdateByName(c, scriptOpts, string(name), string(file), logger)
+		default:
+			_, err = buddy.ScriptUpdateByFile(c, scriptOpts, string(file), logger)
+		}
+		if err != nil {
 			return resultErr(err.Error())
 		}
 		return resultOK(starlark.None), nil
 	}
 }
 
-// script_delete(id=?) | script_delete(ids=?, tenant?, surface?, auth?) → None
+// script_delete(id=?) | script_delete(ids=?) | script_delete(name=?) | script_delete(file=?)
 func scriptDelete(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var idVal starlark.Value = starlark.None
 		var idsVal starlark.Value = starlark.None
+		var name, file starlark.String
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("script_delete", args, kwargs, "id?", &idVal, "ids?", &idsVal,
+		if err := starlark.UnpackArgs("script_delete", args, kwargs, "id?", &idVal, "ids?", &idsVal, "name?", &name, "file?", &file,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -2155,8 +2178,43 @@ func scriptDelete(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		idSet := idVal != nil && idVal != starlark.None
 		idsSet := idsVal != nil && idsVal != starlark.None
-		if err := xorIDOrKey("script_delete", idSet, idsSet, "ids"); err != nil {
-			return nil, err
+		nameSet := name != ""
+		fileSet := file != ""
+		if idSet && idsSet {
+			if err := xorIDOrKey("script_delete", true, true, "ids"); err != nil {
+				return nil, err
+			}
+		}
+		n := 0
+		if idSet {
+			n++
+		}
+		if idsSet {
+			n++
+		}
+		if nameSet {
+			n++
+		}
+		if fileSet {
+			n++
+		}
+		if n != 1 {
+			return nil, fmt.Errorf("script_delete: pass exactly one of id=, ids=, name=, or file=")
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		if nameSet || fileSet {
+			ref := string(name)
+			if fileSet {
+				ref = string(file)
+			}
+			if err := buddy.ScriptDeleteRefs(sessionPin, scriptOpts, []string{ref}, logger); err != nil {
+				return resultErr(err.Error())
+			}
+			return resultOK(starlark.None), nil
 		}
 		raw := idVal
 		label := "id"
@@ -2168,11 +2226,6 @@ func scriptDelete(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		if err != nil {
 			return nil, fmt.Errorf("script_delete: %w", err)
 		}
-		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
-		if sessErr != nil {
-			return resultErr(sessErr.Error())
-		}
-		defer restoreSession()
 		if err := buddy.ScriptDelete(sessionPin, scriptOpts, ids, logger); err != nil {
 			return resultErr(err.Error())
 		}

@@ -7,14 +7,26 @@ package help
 const ScriptsBuiltinsSection = `SCRIPT (Jamf Pro scripts)
   scripts(filter?, page?, page_size?, tenant?, surface?, auth?)
       Does: List Jamf Pro scripts.
-      → value: list of {id, name, categoryId, categoryName}
+      → value: list of {id, name, categoryId, categoryName, localFilename}
       Params: filter?: bare term → name=="*term*", or full RSQL. page?: int (omit = all);
-        page_size?: int (default 200).
-  script(id=?) | script(name=?, tenant?, surface?, auth?)
-      Does: Load one script by id or exact name (case-insensitive).
+        page_size?: int (default 200). localFilename is the download name.
+  script(id=?) | script(name=?) | script(file=?, tenant?, surface?, auth?)
+      Does: Load one script by id, exact name, or a local file's download name.
       → value: dict (full Jamf JSON: id, name, categoryId, scriptContents, …)
-      Params: pass either id= or name=, not both. name= uses RSQL name=="…" and
-        returns that list row when it includes scriptContents; otherwise GET by id.
+      Params: pass exactly one of id=, name=, or file=. name= is exact and case-insensitive.
+        file= is an existing path matched by script_local_filename. Zero or several
+        download-name hits raise and list ids.
+  script_local_filename(name)
+      Does: Return the download filename for a Jamf script name. No API call.
+      → value: str
+      Params: name: str. Install Chrome.SH → install-chrome.sh. notes.py → notes-py.sh.
+  script_local_stem(filename)
+      Does: Return the stem of a download filename. No API call.
+      → value: str
+      Params: filename: str. install-chrome.sh → install-chrome.
+      Notes: The basename must already be a download name, so
+        script_local_filename(script_local_stem(filename)) is that filename again.
+        A name with spaces, or notes.py, raises. This is the stem, not the original Jamf name.
   script_contents(id, tenant?, surface?, auth?)
       Does: Return the raw script body only.
       → value: str
@@ -27,21 +39,47 @@ const ScriptsBuiltinsSection = `SCRIPT (Jamf Pro scripts)
       Params: name: str; script_contents: str (same field as script(id=…)["scriptContents"]). category_id?: str. priority?: BEFORE|AFTER|AT_REBOOT.
         info?/notes?/os_requirements?: str. parameter4?…parameter11?: str (Jamf script parameters).
         tenant?/surface?/auth?: omit for process defaults.
-      Notes: Jamf POST returns {id, href}. The builtin returns the posted script with id applied
-        (plus any extra Script fields in the POST body). No follow-up GET.
-  script_update(id, file, tenant?, surface?, auth?)
+      Notes: Fails when that exact name already exists, or when another script already
+        downloads to script_local_filename(name). Jamf POST returns {id, href}.
+        The builtin returns the posted script with id applied (plus any extra Script fields in the
+        POST body). No follow-up GET.
+  script_update(id?, file, name?, tenant?, surface?, auth?)
       Does: Replace a script's body from a local file.
       → None
-      Params: id: str/int; file: str (filesystem path).
+      Params: file: str (filesystem path, required). Pass id= or name= to choose the script.
+        Omit both to update the script that owns that download filename. name= is the exact Jamf name.
   script_put(id, dict, tenant?, surface?, auth?)
-      Does: PUT a full script JSON record.
+      Does: Fetch the script, merge known keys from dict, and PUT the record.
       → value: dict (updated script; PUT body confirms the write)
-      Params: id: str/int; dict: full script body.
-  script_delete(id=?) | script_delete(ids=?, tenant?, surface?, auth?)
+      Params: id: str/int. dict keys: name, categoryId, info, notes, osRequirements, priority,
+        parameter4–parameter11, scriptContents. Omitted keys stay as they are. Other keys are ignored.
+  script_check(file, id?, tenant?, surface?, auth?)
+      Does: SHA-256 the local file against the script body.
+      → value: dict {ok, class, id, name, file, sha256, localSha256}
+      Params: file: str. id?: str/int. Omit id to resolve the download filename.
+      Notes: class is match, mismatch, or missing. Missing is ok=False and does not raise.
+        Several owners raise. Bytes are compared as stored.
+  script_download(id?, path?, name?, tenant?, surface?, auth?)
+      Does: Write a script body to a local file.
+      → value: str (path written)
+      Params: pass exactly one of id= or name=. path?: str. Omit path to use the download filename.
+  script_rename(id?, name, file?, from?, tenant?, surface?, auth?)
+      Does: Rename a script. name is the new Jamf name.
+      → None
+      Params: pass exactly one of id=, file=, or from=. from= is the exact current Jamf name.
+        file= is a local download file and is renamed to the new download name.
+      Notes: Refuses an existing name or a download filename owned by another script.
+        file= also refuses when the destination path already exists.
+  script_history(id?, name?, file?, limit?, tenant?, surface?, auth?)
+      Does: Return recent audit history for one script.
+      → value: list of {id, username, date, note, details}
+      Params: pass exactly one of id=, name=, or file=. limit?: int (default 20).
+  script_delete(id=?) | script_delete(ids=?) | script_delete(name=?) | script_delete(file=?, tenant?, surface?, auth?)
       Does: Delete one or more Jamf Pro scripts (DELETE /api/v1/scripts/{id}).
       → None
-      Params: pass either id= (one script) or ids= (one ID or list of IDs), not both.
-        IDs are str/int. tenant?/surface?/auth?: omit for process defaults.
+      Params: pass exactly one of id= (one script), ids= (one ID or a list), name= (exact name),
+        or file= (local download file). IDs are str/int. A file argument does not delete the local file.
+        tenant?/surface?/auth?: omit for process defaults.
   script_clone(id, name, category_id?, tenant?, surface?, auth?)
       Does: Clone a script in the same session (alias of script_copy without to_*).
       → value: dict (created script; same shape as script(id=…))
@@ -66,30 +104,93 @@ Usage:
   buddy [global-flags] script <subcommand> [args...]
 
 Subcommands:
-  list [--filter=<term|rsql>] [--json]                List scripts (bare term → name contains; or RSQL)
-  get <script-id>                                     Show full script record (includes body)
-  get contents <script-id>                            Output raw script body only (pipeable)
-  get id <name>                                       Resolve script name to numeric ID
-  history <script-id>                                 Show recent change history (last 20 entries)
-  create <name> <file> [--category=<category-id>] [--priority=BEFORE|AFTER|AT_REBOOT] [--info=<text>] [--notes=<text>]
-  upload|update <script-id> <file> [--name=<new-name>] Replace contents of an existing script
-  download <script-id> [outfile]                      Save script body to a local file (default: <name>.sh)
-  delete <script-id> [script-id...]                   Delete one or more scripts
-  set name     <script-id> <value>                    Rename script
-  set category <script-id> <category-id>              Set category
-  set priority <script-id> BEFORE|AFTER|AT_REBOOT    Set execution priority
-  set info     <script-id> <value>                    Set info field
-  set notes    <script-id> <value>                    Set notes field
+  list                                              List scripts
+  get <script>                                      Show full script record (includes body)
+  get contents <script>                             Output raw script body only (pipeable)
+  get id <script>                                   Print the numeric ID
+  history <script>                                  Show recent change history (last 20 entries)
+  create <file>
+  create <name> <file>
+  upload|update <file> [--name=<new-name>]          Replace the script that downloads as this filename
+  upload|update <script-id>|<name> <file> [--name=<new-name>]
+                                                    Replace by id or exact name
+  check <file> [<script-id>]                        SHA-256 the local file against the script body
+  download <script-id>|<name> [outfile]             Save script body (default: download name)
+  rename <script> <new-name>                        Rename by id, exact name, or local file
+  delete <script> [<script>...]                     Delete by id, exact name, or local file
+  put <script> <json-file>                          Merge known JSON fields onto the script
+  clone <script> <name>                             Copy in the same session
+  copy <script>                                     Copy to this session or another
+  migrate <script>                                  Copy with upsert by exact name
+  set name     <script> <value>                     Rename script (same identity as rename)
+  set category <script-id> <category-id>            Set category
+  set priority <script-id> BEFORE|AFTER|AT_REBOOT  Set execution priority
+  set info     <script-id> <value>                  Set info field
+  set notes    <script-id> <value>                  Set notes field
 
-Use 'buddy script get help' or 'buddy script set help' for more detail.
+Flags for 'list':
+  --filter=<term|rsql>   Bare term → name=="*term*"; or full RSQL
+  --json                 Print JSON rows, including localFilename
+  --page=<n>             Fetch this 0-based page only (omit to fetch every page)
+  --page-size=<n>        Page size (default 200)
+
+Flags for 'create':
+  --category=<category-id>
+  --priority=BEFORE|AFTER|AT_REBOOT
+  --info=<text>
+  --notes=<text>
+  --os-requirements=<text>
+  --parameter4=<text> … --parameter11=<text>
+
+Flags for 'clone':
+  --category=<category-id>   Category on the new script
+
+Flags for 'copy':
+  --name=<name>              Destination name. Required when --upsert is omitted
+  --category=<category-id>   Category on the destination
+  --upsert                   Upsert by exact name
+  --to-tenant=<tenant>       Destination session
+  --to-surface=<surface>
+  --to-auth=<auth>
+
+Flags for 'migrate':
+  --name=<name>              Destination name. Omit to keep the source name
+  --category=<category-id>   Category on the destination
+  --to-tenant=<tenant>       Destination session
+  --to-surface=<surface>
+  --to-auth=<auth>
+
+Notes:
+  <script> is an id, an exact name, or a local file whose name is the download filename.
+  get id prints only the id. When the argument is an existing file, it is matched by
+  download name; otherwise it is an exact name, including a numeric string.
+  Download names are lowercase. Spaces and punctuation become hyphens, and .sh is
+  the extension. A Jamf name that already ends in .sh keeps it: Install Chrome.SH
+  downloads as install-chrome.sh. Restart Jamf Agent! downloads as restart-jamf-agent.sh.
+  create <file> accepts only that form and stores the filename as the Jamf name.
+  create fails when the name or that download name is already used. upload and update
+  are the same and fail when no script owns the file. check prints the id and exits
+  0 only when the SHA-256 values match. rename of a local file also renames that file.
+  delete leaves the local file in place. More than one match is an error.
+  list's Local Filename column is that download filename. --json adds localFilename to each summary.
+  A file lookup asks Jamf for names containing the filename's tokens, then compares
+  download names. When that page has no match it lists every script once.
 
 Examples:
   buddy script list --filter=Chrome
-  buddy script list --filter='name=="*Chrome*"'
-  buddy script get 7
-  buddy script create "Install Chrome" chrome.sh --priority=AFTER
-  buddy script upload 7 chrome.sh
-  buddy script update 7 chrome.sh
-  buddy script download 7
-  buddy script delete 7 8
+  buddy script list --page=0 --page-size=50
+  buddy script get install-chrome.sh
+  buddy script get id "Install Chrome"
+  buddy script history install-chrome.sh
+  buddy script create install-chrome.sh --priority=AFTER --parameter4=hello
+  buddy script create "Install Chrome" install-chrome.sh
+  buddy script update install-chrome.sh
+  buddy script check install-chrome.sh
+  buddy script put 7 script.json
+  buddy script clone 7 "Install Chrome copy"
+  buddy script copy 7 --name="Install Chrome" --to-tenant=sandbox
+  buddy script migrate install-chrome.sh
+  buddy script download "Restart Jamf Agent!"
+  buddy script rename install-chrome.sh "Install Chrome"
+  buddy script delete install-chrome.sh
 `

@@ -27,7 +27,7 @@ Typed per-resource MCP tools (smart/static groups, profiles, policies, packages 
 | Create/clone profile | `profiles` / `profile-payloads` | `profile_create` / `profile_clone` / `profile_copy` | Hand-edit UUIDs |
 | Package after upload | `packages` / `jcds` | `package_wait_ready` / `package_ready` / `package_download` | Attach/download before READY |
 | Self Service icons | `icons` / `icon` | `icons` / `icon` / `icon_upload` / `icon_check` / `icon_download` / `policy_set_icon` | Skip dest POST because ICS HEAD was 200; scrape Classic `policies.html` |
-| Scripts | `scripts` | `scripts` (summaries) / `script(id=…)` for body / `script_copy` | Expect bodies from list |
+| Scripts | `scripts` | `scripts` (summaries include `localFilename`, no body) / `script(id=|name=|file=)` / `script_check` / `script_update` / `script_copy` | Expect bodies from `scripts()`. Pass a file path to `script_create` (the body is a string). `script_put` replaces only the keys it knows |
 | Categories | `categories` | `category_copy(..., upsert=True)` first in migrate order | Skip before policy migrate |
 | Computers / MDM actions | `computers` | `computers` / `computer_*` actions | Mix with Platform `device*` |
 | Policy execution logs | `computers` / `policies` | `computer_history` / `computer_policy_logs` / `policy_logs(id, computer_id=… or computer_ids=… or limit=…)` | `jamf_get` computerhistory; `/api/v1/policies` logs; unconstrained fleet scan; treating `last_contact` as logs-since |

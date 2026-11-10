@@ -697,12 +697,16 @@ Examples:
 const ScriptGet = `buddy script get - Retrieve script information
 
 Usage:
-  buddy [global-flags] script get <script-id>           Show full script record (includes scriptContents)
-  buddy [global-flags] script get contents <script-id>  Output raw script body only (pipeable)
-  buddy [global-flags] script get id <name>             Resolve script name to numeric ID
+  buddy [global-flags] script get <script>           Show full script record (includes scriptContents)
+  buddy [global-flags] script get contents <script>  Output raw script body only (pipeable)
+  buddy [global-flags] script get id <script>        Print the numeric ID
+
+<script> is an id, an exact name, or a local file whose name is the download filename.
+get id prints only the id. A numeric token is a name lookup unless that path exists as a file.
 
 Examples:
   buddy script get 7
+  buddy script get install-chrome.sh
   buddy script get contents 7
   buddy script get contents 7 > myscript.sh
   buddy script get id "Install Chrome"
@@ -710,7 +714,7 @@ Examples:
 const ScriptSet = `buddy script set - Modify script properties
 
 Usage:
-  buddy [global-flags] script set name     <script-id> <value>             Rename script
+  buddy [global-flags] script set name     <script> <value>                 Rename by id, exact name, or local file
   buddy [global-flags] script set category <script-id> <category-id>        Set category
   buddy [global-flags] script set priority <script-id> BEFORE|AFTER|AT_REBOOT  Set execution priority
   buddy [global-flags] script set info     <script-id> <value>              Set info field
@@ -718,6 +722,7 @@ Usage:
 
 Examples:
   buddy script set name 7 "Install Chrome"
+  buddy script set name install-chrome.sh "Install Chrome"
   buddy script set category 7 3
   buddy script set priority 7 AFTER
   buddy script set notes 7 "Installs Google Chrome"

@@ -9,7 +9,14 @@ keywords:
   - scripts
   - script_copy
   - script_migrate
+  - script_clone
   - script_delete
+  - script_check
+  - script_download
+  - script_rename
+  - script_history
+  - script_local_filename
+  - script_local_stem
   - scriptContents
 ---
 
@@ -19,17 +26,19 @@ Jamf Pro scripts — list summaries vs full body, create/update/delete, and copy
 
 ## Agent rules
 
-- Do not expect `scripts(...)` to return script bodies — use `script(id=…)` for contents.
+- scripts() returns summaries with localFilename and no script body. Load a body with script(id=), script(name=), or script(file=).
 - Migrate scripts before policies that reference them (see migrate order under [policies](/docs/docs/policies) / [categories](/docs/docs/categories)).
 
 ## Facts
 
-- List: `scripts(filter?)` · `buddy script list` — Summaries `{id, name, categoryId, categoryName}` only; bodies stripped
-- Load: `script(id=…)` / `script(name=…)` / `script_contents(id=…)` · `buddy script get` / `get contents` — Full Jamf JSON dict (id= and name=); or body only
-- Create / update: `script_create` / `script_put` / `script_update` · `buddy script create` / `upload|update` — Create from string body; PUT dict or replace from file. `upload` and `update` are the same.
-- Delete: `script_delete(id=…)` / `script_delete(ids=…)` · `buddy script delete` — One ID or a list
-- Copy / migrate: `script_copy` / `script_migrate` — Upsert by name; category remapped on destination
-- Bare `filter` terms become `name=="*term*"` on the server. List JSON never yields usable `scriptContents` — load with `script(id=…)`.
+- List: `scripts(filter?)` · `buddy script list` — Summaries `{id, name, categoryId, categoryName, localFilename}`. Omit page to fetch every page. `--page` fetches one page.
+- Load: `script(id=…)` / `script(name=…)` / `script(file=…)` / `script_contents(id=…)` · `buddy script get` / `get contents` / `get id` — `script()` and the get commands accept an id, an exact name, or a local download file. `script_contents(id)` returns the body for an id.
+- Create / update: `script_create` / `script_put` / `script_update` · `buddy script create` / `upload|update` / `put` — CLI create reads a file. `script_create` takes the body as a string. Both accept os requirements and parameter4–parameter11, and both refuse a taken name or download filename. `upload` and `update` replace the script that owns the file. `put` merges known JSON keys onto the current record.
+- Check: `script_check(file, id?)` · `buddy script check <file> [<script-id>]` — SHA-256 of the local file against the script body. `missing` is ok=False. Exit 0 only on a match.
+- Download / rename / history: `script_download` / `script_rename` / `script_history` · `buddy script download` / `rename` / `history` — Download writes the download filename when path is omitted. Rename of a local file also renames that file. History accepts an id, exact name, or local file.
+- Delete: `script_delete(id=…)` / `script_delete(ids=…)` / `script_delete(name=…)` / `script_delete(file=…)` · `buddy script delete` — One mode per call. The local file is left in place.
+- Copy / migrate: `script_copy` / `script_clone` / `script_migrate` · `buddy script copy` / `clone` / `migrate` — The builtins take a source id. The CLI accepts an id, exact name, or local file. Clone stays in the same session. Copy and migrate remap category by name. Migrate upserts by exact name.
+- Bare `filter` terms become `name=="*term*"` on the server. List results omit `scriptContents`. Load a body with `script(id=…)`, `script(name=…)`, or `script(file=…)`.
 
 ## Builtins
 
@@ -37,7 +46,7 @@ Jamf Pro scripts — list summaries vs full body, create/update/delete, and copy
 
 List script summaries
 
-Returns: list of {id,name,…}
+Returns: list of {id,name,localFilename,…}
 
 #### Parameters (JSON Schema)
 
@@ -46,8 +55,16 @@ Returns: list of {id,name,…}
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "filter": {
-      "description": "filter",
+      "description": "bare term or RSQL",
       "type": "string"
+    },
+    "page": {
+      "description": "0-based page; omit to fetch every page",
+      "type": "integer"
+    },
+    "page_size": {
+      "description": "page size (default 200)",
+      "type": "integer"
     }
   },
   "title": "scripts",
@@ -57,24 +74,7 @@ Returns: list of {id,name,…}
 
 ### script
 
-Load full script
-
-Returns: dict
-
-#### Parameters (JSON Schema)
-
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "properties": {},
-  "title": "script",
-  "type": "object"
-}
-```
-
-### script_copy
-
-Copy/migrate script
+Load one full script
 
 Returns: dict
 
@@ -84,9 +84,253 @@ Returns: dict
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "id": {
-      "description": "id",
+    "file": {
+      "description": "local path matched by download filename",
       "type": "string"
+    },
+    "id": {
+      "description": "script id",
+      "type": "string"
+    },
+    "name": {
+      "description": "exact Jamf name",
+      "type": "string"
+    }
+  },
+  "title": "script",
+  "type": "object"
+}
+```
+
+- Pass exactly one of id, name, or file.
+
+### script_local_filename
+
+Download filename for a Jamf script name
+
+Returns: str
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "name": {
+      "description": "Jamf script name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "script_local_filename",
+  "type": "object"
+}
+```
+
+### script_local_stem
+
+Stem of a download filename
+
+Returns: str
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "filename": {
+      "description": "basename that is already a download name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "filename"
+  ],
+  "title": "script_local_stem",
+  "type": "object"
+}
+```
+
+### script_check
+
+Compare a local file to a script body
+
+Returns: dict {ok, class, id, name, file, sha256, localSha256}
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "file": {
+      "description": "local file",
+      "type": "string"
+    },
+    "id": {
+      "description": "script id; omit to use the download filename",
+      "type": "string"
+    }
+  },
+  "required": [
+    "file"
+  ],
+  "title": "script_check",
+  "type": "object"
+}
+```
+
+- class is match, mismatch, or missing. missing is ok=False and does not raise.
+
+### script_download
+
+Write a script body to a local file
+
+Returns: str
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "description": "script id",
+      "type": "string"
+    },
+    "name": {
+      "description": "exact Jamf name",
+      "type": "string"
+    },
+    "path": {
+      "description": "output path; omit to use the download filename",
+      "type": "string"
+    }
+  },
+  "title": "script_download",
+  "type": "object"
+}
+```
+
+- Pass exactly one of id or name.
+
+### script_rename
+
+Rename a script
+
+Returns: None
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "file": {
+      "description": "local download file; that file is renamed too",
+      "type": "string"
+    },
+    "from": {
+      "description": "exact current Jamf name",
+      "type": "string"
+    },
+    "id": {
+      "description": "script id",
+      "type": "string"
+    },
+    "name": {
+      "description": "new Jamf name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "script_rename",
+  "type": "object"
+}
+```
+
+- Pass exactly one of id, file, or from.
+
+### script_history
+
+Recent audit history for one script
+
+Returns: list of {id, username, date, note, details}
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "file": {
+      "description": "local download file",
+      "type": "string"
+    },
+    "id": {
+      "description": "script id",
+      "type": "string"
+    },
+    "limit": {
+      "description": "default 20",
+      "type": "integer"
+    },
+    "name": {
+      "description": "exact Jamf name",
+      "type": "string"
+    }
+  },
+  "title": "script_history",
+  "type": "object"
+}
+```
+
+- Pass exactly one of id, name, or file.
+
+### script_copy
+
+Copy a script to this session or another
+
+Returns: dict
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "category_id": {
+      "description": "destination category",
+      "type": "string"
+    },
+    "id": {
+      "description": "source script id",
+      "type": "string"
+    },
+    "name": {
+      "description": "destination name; required unless upsert",
+      "type": "string"
+    },
+    "to_auth": {
+      "description": "destination auth",
+      "type": "string"
+    },
+    "to_surface": {
+      "description": "destination surface",
+      "type": "string"
+    },
+    "to_tenant": {
+      "description": "destination tenant",
+      "type": "string"
+    },
+    "upsert": {
+      "description": "upsert by exact name",
+      "type": "boolean"
     }
   },
   "required": [
@@ -96,6 +340,8 @@ Returns: dict
   "type": "object"
 }
 ```
+
+- script_clone is the same session. script_migrate is upsert=True.
 
 ### script_delete
 
@@ -109,12 +355,20 @@ Returns: None
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "file": {
+      "description": "local download file; the file is left in place",
+      "type": "string"
+    },
     "id": {
-      "description": "one script ID (not with ids=)",
+      "description": "one script ID",
       "type": "string"
     },
     "ids": {
-      "description": "script ID or list of IDs (not with id=)",
+      "description": "script ID or list of IDs",
+      "type": "string"
+    },
+    "name": {
+      "description": "exact Jamf name",
       "type": "string"
     }
   },
@@ -122,6 +376,8 @@ Returns: None
   "type": "object"
 }
 ```
+
+- Pass exactly one of id, ids, name, or file.
 
 ## Examples
 
