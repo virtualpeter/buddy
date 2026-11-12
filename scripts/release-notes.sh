@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Write GitHub release notes for the exact git tag on HEAD.
-# Body is docs/releases.md from ## <tag> through ## <major>.0.0.
+# Body is the ## <tag> section of docs/releases.md, through the next heading.
 # Args: <out.md>
 # Env: NOTES_SRC  (default docs/releases.md)
 set -euo pipefail
@@ -22,38 +22,26 @@ fi
 
 bare="${tag#v}"
 notes="$(awk -v tag="$tag" -v bare="$bare" '
-	function parse_ver(s,    n, a) {
+	function dotted(s) {
 		sub(/^v/, "", s)
-		n = split(s, a, ".")
-		if (n < 1 || a[1] !~ /^[0-9]+$/) return 0
-		maj = a[1] + 0
-		min = (n >= 2 && a[2] ~ /^[0-9]+$/ ? a[2] + 0 : 0)
-		pat = (n >= 3 && a[3] ~ /^[0-9]+$/ ? a[3] + 0 : 0)
-		return 1
+		return s ~ /^[0-9]+(\.[0-9]+)+$/
 	}
 	BEGIN {
-		if (!parse_ver(bare)) {
+		if (!dotted(bare)) {
 			print "release-notes: tag is not dotted-numeric (got \"" tag "\")" > "/dev/stderr"
 			failed = 1
 			exit 2
 		}
-		want_maj = maj
-		started = 0
-		saw_floor = 0
 	}
 	/^## / {
 		heading = $0
 		sub(/^## /, "", heading)
 		is_tag = (heading == tag || heading == bare || heading == "v" bare)
-		ok = parse_ver(heading)
 		if (!started) {
 			if (!is_tag) next
 			started = 1
-		} else if (!ok || maj != want_maj) {
+		} else {
 			exit
-		}
-		if (ok && maj == want_maj && min == 0 && pat == 0) {
-			saw_floor = 1
 		}
 	}
 	started { print }
@@ -61,10 +49,6 @@ notes="$(awk -v tag="$tag" -v bare="$bare" '
 		if (failed) exit 2
 		if (!started) {
 			print "release-notes: " ARGV[1] ": no \"## " tag "\" section" > "/dev/stderr"
-			exit 2
-		}
-		if (!saw_floor) {
-			print "release-notes: " ARGV[1] ": missing \"## v" want_maj ".0.0\" (notes go back to the major .0.0)" > "/dev/stderr"
 			exit 2
 		}
 	}
@@ -77,4 +61,4 @@ fi
 
 mkdir -p "$(dirname "$out")"
 printf '%s\n' "$notes" >"$out"
-echo "release-notes: $out (tag $tag through v${bare%%.*}.0.0)"
+echo "release-notes: $out (tag $tag)"

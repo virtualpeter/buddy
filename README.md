@@ -84,7 +84,7 @@ make publish-preview TAG=v1.2.3   # same checks; print command + notes; no uploa
 | `make buddy-darwin-arm64` | `dist/buddy-darwin-arm64` | Hardened Runtime; service `virtualpete.buddy.cli`; identifier must stay stable |
 | `make app` | `dist/Buddy.app` | Helper at `Contents/Helpers/buddy`; shell hosts `buddy serve --embed` |
 | `make install-signed` | `~/Applications/Buddy.app` | Symlink (not a copy) at `~/go/bin/buddy` |
-| `make package` | `dist/buddy-<version>.pkg` + `.md` notes | HEAD must be an exact tag; Buddy.app, nested Agent, and helper must match it; notes are this tag back to the major `.0.0`; optional `BUDDY_PKG_SIGN_IDENTITY` |
+| `make package` | `dist/buddy-<version>.pkg` + `.md` notes | HEAD must be an exact tag; Buddy.app, nested Agent, and helper must match it; notes are the section for this tag in `docs/releases.md`; optional `BUDDY_PKG_SIGN_IDENTITY` |
 | `make tag` | annotated git tag | Must be on `main`; clean untagged HEAD; `TAG=vX.Y.Z` or prompt (default last tag + patch); confirm `docs/releases.md`, commit that file if it changed, then tag |
 | `make release` | pkg + linux + windows | Aborts if dirty; notarizes when `BUDDY_NOTARY_PROFILE` is set |
 | `make publish` | GitHub release from `dist/` | `TAG=vX.Y.Z` required and must match HEAD; pkg must be notarized (`stapler validate`); needs `gh`; optional `REPO=` / `DRAFT=1` |
