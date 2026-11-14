@@ -82,25 +82,32 @@ expires, the submission is still live and `make staple` finishes the run once
 Apple answers. Do not rebuild before stapling.
 
 A padlock appears in the menu bar (`lock.fill` locked, `lock.open.fill`
-unlocked). The menu opens with a **Buddy Agent** title (app icon), lock state,
-Unlock / Lock, **Settings…**, **Open Buddy…** (launches Buddy.app when
-found), **Open at Login** (`SMAppService.mainApp` — Apple's API for registering
-this process to launch at login; System Settings approval when required),
-**Help** (⌘?), **About Buddy Agent…**, and Quit. Unlock goes through the same
-presence gate a token request does; the CLI still cannot unlock the Agent over
-the socket, it can only ask the Agent to put up its own prompt.
+unlocked). The panel lists auths and opens Settings. While locked, clicking the padlock shows the lock card and Touch ID is drawn in
+that card (the same presence gate as a token request), not in a second system
+sheet. **Use Password…** on the card opens the system password sheet. While
+unlocked it lists auths (name, type, linked workplaces; **secret missing** when
+the keychain has no secret — never the secret itself). Search filters that
+list. The lock icon locks the Agent. The squircle opens Settings. The key on a row mints a bearer, or opens the cached-bearer sheet when one
+is already stored. The rest of the row opens that auth's editor. The gear menu, on the lock card, holds an update notice when there is one, **Open Buddy…** (launches Buddy.app when found), **Open at Login**
+(`SMAppService.mainApp` — Apple's API for registering this process to launch at
+login; System Settings approval when required), **Help**, **About Buddy
+Agent…**, and **Quit Buddy Agent**. The CLI still cannot unlock the Agent over
+the socket; it can only ask the Agent to put up its own prompt.
 
 The app icon is `Resources/Assets.xcassets/AppIcon.appiconset` so Finder, About,
-and Login Items are not confused with Buddy.app. The shipping app stays
-menu-bar-only (no Dock tile while Settings is open). Quit the tray agent only
-from the menu bar **Quit Buddy Agent** item — ⌘Q with Settings open closes
-Settings; it does not exit the agent.
+and Login Items are not confused with Buddy.app. Launch stays menu-bar-only
+(`LSUIElement`, no Dock tile). Opening Settings or About adopts the regular
+activation policy for the life of that window, so the window is a normal key
+window and a Dock tile is shown. Closing the last window returns to accessory
+and leaves the socket listening. **Quit Buddy Agent** in the gear menu, and
+Quit from the Dock while a window is open, exit the process. ⌘Q with Settings
+open closes Settings; it does not exit the agent.
 
-The window has four tabs. User-facing setup guide: `Resources/AgentHelp.md`
-(in-app via **Help** in the menu bar or the **?** icon on the Setup tab).
+The window’s sidebar is four colored cards — Setup, Policy, Log, and Status. User-facing setup guide: `Resources/AgentHelp.md`
+(in-app via **Help** in the gear menu or the **?** icon on the Setup tab).
 
-- **Setup** — add, edit, and delete workplaces and auths. The secret
-  field is write-only; rows show `stored` or `missing`, never a value. The
+- **Setup** — add, edit, and delete workplaces and auths. Auths are listed under each workplace they link to; the server URL stays in the workplace editor. The secret
+  field is write-only; a warning shows when a secret is missing, never the value. The
   key icon on an auth row mints or shows cached bearer metadata (when unlocked).
   **Import from buddy** takes either file an existing setup can provide:
   - *Config only* — the JSON from `buddy setup export --json`: workplaces and

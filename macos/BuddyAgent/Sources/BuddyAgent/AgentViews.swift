@@ -14,28 +14,20 @@ struct AgentRootView: View {
 
 	@State private var showHelp = false
 	@State private var selectedTab: AgentSettingsTab = .setup
+	@State private var revealAuth: String?
+	@State private var revealBearer: String?
 
 	var body: some View {
-		VStack(spacing: 0) {
-			HStack(spacing: 12) {
-				Picker("", selection: $selectedTab) {
-					ForEach(AgentSettingsTab.allCases) { tab in
-						Label(tab.title, systemImage: tab.icon).tag(tab)
-					}
-				}
-				.labelsHidden()
-				.accessibilityLabel("Settings section")
-				.pickerStyle(.segmented)
-				AgentLockButton(state: state, gate: gate)
-			}
-			.padding(.horizontal, 12)
-			.padding(.top, 8)
-
+		HStack(spacing: 0) {
+			settingsSidebar
+			Divider()
 			Group {
 				switch selectedTab {
 				case .setup:
 					ConfigView(
 						store: store, state: state, gate: gate, showHelp: $showHelp,
+						revealAuth: $revealAuth,
+						revealBearer: $revealBearer,
 						onImportFinished: onImportFinished,
 						onShowStatus: { selectedTab = .status })
 				case .policy:
@@ -51,13 +43,93 @@ struct AgentRootView: View {
 			.frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
 			.padding(12)
 		}
-		.frame(minWidth: 720, minHeight: 520)
+		.frame(minWidth: 760, minHeight: 520)
 		.sheet(isPresented: $showHelp) {
 			AgentHelpView()
 		}
 		.onReceive(NotificationCenter.default.publisher(for: .agentShowHelp)) { _ in
 			showHelp = true
 		}
+		.onReceive(NotificationCenter.default.publisher(for: .agentRevealAuth)) { note in
+			selectedTab = .setup
+			revealAuth = note.object as? String
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .agentShowBearer)) { note in
+			selectedTab = .setup
+			revealBearer = note.object as? String
+		}
+	}
+
+	private var settingsSidebar: some View {
+		VStack(alignment: .leading, spacing: 16) {
+			LazyVGrid(
+				columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
+				spacing: 8
+			) {
+				ForEach(AgentSettingsTab.allCases) { tab in
+					SettingsSectionCard(
+						tab: tab,
+						count: sectionCount(tab),
+						selected: selectedTab == tab,
+						action: { selectedTab = tab })
+				}
+			}
+			.accessibilityLabel("Settings section")
+			Spacer(minLength: 0)
+			AgentLockButton(state: state, gate: gate)
+				.frame(maxWidth: .infinity, alignment: .leading)
+		}
+		.padding(12)
+		.frame(width: 196)
+		.frame(maxHeight: .infinity, alignment: .top)
+	}
+
+	private func sectionCount(_ tab: AgentSettingsTab) -> Int? {
+		switch tab {
+		case .setup: return store.workplaces.count
+		case .policy: return nil
+		case .log: return log.entries.count
+		case .status: return nil
+		}
+	}
+}
+
+/// Passwords-style section tile: colored glyph, count, and label.
+private struct SettingsSectionCard: View {
+	let tab: AgentSettingsTab
+	let count: Int?
+	let selected: Bool
+	let action: () -> Void
+
+	var body: some View {
+		Button(action: action) {
+			VStack(alignment: .leading, spacing: 0) {
+				HStack(alignment: .top, spacing: 4) {
+					Image(systemName: tab.icon)
+						.font(.system(size: 18, weight: .semibold))
+						.symbolRenderingMode(.hierarchical)
+						.foregroundStyle(selected ? Color.white : tab.tint)
+					Spacer(minLength: 0)
+					if let count {
+						Text("\(count)")
+							.font(.system(size: 13, weight: .semibold))
+							.foregroundStyle(selected ? Color.white.opacity(0.92) : Color.secondary)
+					}
+				}
+				Spacer(minLength: 10)
+				Text(tab.title)
+					.font(.system(size: 13, weight: .semibold))
+					.foregroundStyle(selected ? Color.white : Color.primary)
+			}
+			.padding(10)
+			.frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+			.background(
+				selected ? tab.tint : Color.primary.opacity(0.07),
+				in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+		}
+		.buttonStyle(.plain)
+		.accessibilityLabel(tab.title)
+		.accessibilityAddTraits(selected ? .isSelected : [])
 	}
 }
 
@@ -143,6 +215,8 @@ struct ConfigView: View {
 	@ObservedObject var state: AgentState
 	let gate: UnlockGate
 	@Binding var showHelp: Bool
+	@Binding var revealAuth: String?
+	@Binding var revealBearer: String?
 	var onImportFinished: () -> Void = {}
 	var onShowStatus: () -> Void = {}
 	@State private var selectedWorkplace: String?
@@ -171,7 +245,6 @@ struct ConfigView: View {
 						onImportConfig: { importConfig() })
 				}
 				workplacesSection
-				authsSection
 				transferSection
 				if let message {
 					Text(message).font(.callout).foregroundStyle(.secondary)
@@ -183,6 +256,25 @@ struct ConfigView: View {
 			sheetContent(sheet)
 				.frame(width: configSheetSize(for: sheet).width, height: configSheetSize(for: sheet).height)
 		}
+		.onAppear(perform: consumeRevealAuth)
+		.onChange(of: revealAuth) { _ in consumeRevealAuth() }
+		.onAppear(perform: consumeRevealBearer)
+		.onChange(of: revealBearer) { _ in consumeRevealBearer() }
+	}
+
+	/// Tray row asked for this auth's editor. Clear first so a second delivery is a no-op.
+	private func consumeRevealAuth() {
+		guard let name = revealAuth else { return }
+		revealAuth = nil
+		guard let auth = store.auths[name] else { return }
+		presentSheet(.auth(AuthEditDraft(name: name, previousName: name, auth: auth)))
+	}
+
+	/// Tray key asked for this auth's cached bearer. Clear first so a second delivery is a no-op.
+	private func consumeRevealBearer() {
+		guard let name = revealBearer else { return }
+		revealBearer = nil
+		presentSheet(.bearer(BearerDetailsDraft(authName: name)))
 	}
 
 	/// Present on the next run-loop turn so AppKit is not mid-layout in the Setup scroll view.
@@ -235,16 +327,26 @@ struct ConfigView: View {
 				Text("Workplaces").font(.headline)
 				Spacer()
 				if let def = defaultContextLabel {
-					Text("default: \(def)").font(.callout).foregroundStyle(.secondary)
+					HStack(spacing: 4) {
+						Image(systemName: "arrowtriangle.right.fill")
+							.font(.system(size: 11, weight: .bold))
+							.foregroundStyle(Color.accentColor)
+							.accessibilityHidden(true)
+						Text("default: \(def)")
+							.font(.callout)
+							.foregroundStyle(.secondary)
+					}
+					.accessibilityElement(children: .combine)
+					.accessibilityLabel("Default context \(def). The blue arrow in the tree marks it.")
 				}
 			}
 			Text(
-				"Org → environment → product-tenant, matching `buddy cred list`. Scope lives on each auth."
+				"Org → environment → product-tenant. Auths are listed under each workplace they link to. The server URL is in the workplace editor."
 			)
 			.font(.caption)
 			.foregroundStyle(.secondary)
 
-			if store.configTree.isEmpty {
+			if store.configTree.isEmpty && unlinkedAuthNames.isEmpty {
 				VStack(alignment: .leading, spacing: 6) {
 					Text("No workplaces yet").foregroundStyle(.secondary)
 					if !store.sortedAuthNames.isEmpty {
@@ -254,28 +356,67 @@ struct ConfigView: View {
 					}
 				}
 			} else {
-				WorkplaceTreeList(
-					store: store,
-					nodes: store.configTree,
-					selectedWorkplace: selectedWorkplace,
-					onSelect: { selectedWorkplace = $0 },
-					onEdit: { node in
-						presentSheet(.workplace(
-							WorkplaceEditDraft(
-								name: node.name, previousName: node.name, workplace: node.workplace,
-								kind: node.kind)))
-					},
-					onSetDefault: { name in
-						commitConfig { store.setDefaultContext(name) }
-					},
-					onDelete: { name in
-						commitConfig { store.removeWorkplace(name) }
-					})
-					.padding(8)
-					.background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
-					.overlay(
-						RoundedRectangle(cornerRadius: 8)
-							.strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+				VStack(alignment: .leading, spacing: 8) {
+					if !store.configTree.isEmpty {
+						WorkplaceTreeList(
+							store: store,
+							state: state,
+							gate: gate,
+							nodes: store.configTree,
+							selectedWorkplace: selectedWorkplace,
+							onSelect: { selectedWorkplace = $0 },
+							onEdit: { node in
+								presentSheet(.workplace(
+									WorkplaceEditDraft(
+										name: node.name, previousName: node.name, workplace: node.workplace,
+										kind: node.kind)))
+							},
+							onSetDefault: { name in
+								commitConfig { store.setDefaultContext(name) }
+							},
+							onDelete: { name in
+								commitConfig { store.removeWorkplace(name) }
+							},
+							onShowBearer: { presentSheet(.bearer(BearerDetailsDraft(authName: $0))) },
+							onEditAuth: { name in
+								presentSheet(.auth(
+									AuthEditDraft(
+										name: name, previousName: name,
+										auth: store.auths[name] ?? AgentAuth())))
+							},
+							onDeleteAuth: { name in
+								commitConfig { store.removeAuth(name) }
+							})
+					}
+					if !unlinkedAuthNames.isEmpty {
+						Text("Not linked to a workplace")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+							.padding(.top, store.configTree.isEmpty ? 0 : 6)
+						ForEach(unlinkedAuthNames, id: \.self) { name in
+							WorkplaceAuthRow(
+								store: store,
+								state: state,
+								gate: gate,
+								name: name,
+								auth: store.auths[name] ?? AgentAuth(),
+								onShowBearer: { presentSheet(.bearer(BearerDetailsDraft(authName: name))) },
+								onEdit: {
+									presentSheet(.auth(
+										AuthEditDraft(
+											name: name, previousName: name,
+											auth: store.auths[name] ?? AgentAuth())))
+								},
+								onDelete: { commitConfig { store.removeAuth(name) } })
+						}
+					}
+				}
+				.padding(8)
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+				.overlay(
+					RoundedRectangle(cornerRadius: 8)
+						.strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
 			}
 
 			HStack {
@@ -300,74 +441,23 @@ struct ConfigView: View {
 							workplace: Workplace(org: parent?.kind == "organization" ? parent?.name ?? "" : parent?.org ?? ""),
 							kind: kind, parent: parent)))
 				}
+				Button("Add Auth") {
+					var auth = AgentAuth()
+					if let selectedWorkplace {
+						auth.contexts = [selectedWorkplace]
+					}
+					presentSheet(.auth(AuthEditDraft(name: "", previousName: nil, auth: auth)))
+				}
 			}
 			.disabled(store.configEditsBlocked)
 		}
 	}
 
-	private var authsSection: some View {
-		VStack(alignment: .leading, spacing: 8) {
-			HStack {
-				Text("Auths").font(.headline)
-				Spacer()
-				Button("Add Auth") {
-					presentSheet(.auth(AuthEditDraft(name: "", previousName: nil, auth: AgentAuth())))
-				}
-				.disabled(store.configEditsBlocked)
-			}
-			Text("oauth/basic → Jamf Pro. platform → Account gateway; scope picks the header.")
-				.font(.caption)
-				.foregroundStyle(.secondary)
-
-			if store.sortedAuthNames.isEmpty {
-				VStack(alignment: .leading, spacing: 6) {
-					Text("No auths yet").foregroundStyle(.secondary)
-					if !store.workplaces.isEmpty {
-						Text("Add an auth with a stored secret to mint bearer tokens.")
-							.font(.caption)
-							.foregroundStyle(.orange)
-					}
-				}
-			} else {
-				ScrollView(.horizontal, showsIndicators: true) {
-					VStack(spacing: 0) {
-						AuthTableHeader()
-						Divider()
-						ForEach(store.sortedAuthNames, id: \.self) { name in
-							AuthTableRow(
-								store: store,
-								state: state,
-								gate: gate,
-								name: name,
-								auth: store.auths[name] ?? AgentAuth(),
-								workplaces: store.workplaces,
-								selectedWorkplace: selectedWorkplace,
-								onShowBearerDetails: {
-									presentSheet(.bearer(BearerDetailsDraft(authName: $0)))
-								},
-								onEdit: {
-									presentSheet(.auth(
-										AuthEditDraft(
-											name: name, previousName: name,
-											auth: store.auths[name] ?? AgentAuth())))
-								},
-								onDelete: {
-									let authName = name
-									commitConfig { store.removeAuth(authName) }
-								})
-							if name != store.sortedAuthNames.last {
-								Divider()
-							}
-						}
-					}
-					.frame(minWidth: AuthTableLayout.minTableWidth, alignment: .leading)
-				}
-				.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-				.background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
-				.overlay(
-					RoundedRectangle(cornerRadius: 8)
-						.strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
-			}
+	/// Auths whose contexts do not name a workplace that exists.
+	private var unlinkedAuthNames: [String] {
+		store.sortedAuthNames.filter { name in
+			let contexts = store.auths[name]?.contexts ?? []
+			return !contexts.contains { store.workplaces[$0] != nil }
 		}
 	}
 
@@ -1038,20 +1128,20 @@ private struct BearerDetailsDraft: Identifiable {
 	var id: String { authName }
 }
 
-private enum WorkplaceTreeStyle {
-	static let indent: CGFloat = 24
-	static let line = Color.primary.opacity(0.28)
-}
-
-/// Recursive org → environment → tenant list with indent guides (like serve /config).
+/// Recursive org → environment → product-tenant list. Linked auths hang under each workplace.
 private struct WorkplaceTreeList: View {
 	@ObservedObject var store: AgentStore
+	@ObservedObject var state: AgentState
+	let gate: UnlockGate
 	let nodes: [WorkplaceTreeNode]
 	let selectedWorkplace: String?
 	let onSelect: (String) -> Void
 	let onEdit: (WorkplaceTreeNode) -> Void
 	let onSetDefault: (String) -> Void
 	let onDelete: (String) -> Void
+	let onShowBearer: (String) -> Void
+	let onEditAuth: (String) -> Void
+	let onDeleteAuth: (String) -> Void
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 0) {
@@ -1067,25 +1157,46 @@ private struct WorkplaceTreeList: View {
 					onEdit: { onEdit(node) },
 					onSetDefault: { onSetDefault(node.name) },
 					onDelete: { onDelete(node.name) })
-				if !node.children.isEmpty {
-					HStack(alignment: .top, spacing: 0) {
-						Rectangle()
-							.fill(WorkplaceTreeStyle.line)
-							.frame(width: 1)
-							.padding(.top, 2)
-							.padding(.bottom, 2)
-						WorkplaceTreeList(
-							store: store,
-							nodes: node.children,
-							selectedWorkplace: selectedWorkplace,
-							onSelect: onSelect,
-							onEdit: onEdit,
-							onSetDefault: onSetDefault,
-							onDelete: onDelete)
+				let linked = authNames(forWorkplace: node.name)
+				if !linked.isEmpty {
+					VStack(alignment: .leading, spacing: 0) {
+						ForEach(linked, id: \.self) { name in
+							WorkplaceAuthRow(
+								store: store,
+								state: state,
+								gate: gate,
+								name: name,
+								auth: store.auths[name] ?? AgentAuth(),
+								onShowBearer: { onShowBearer(name) },
+								onEdit: { onEditAuth(name) },
+								onDelete: { onDeleteAuth(name) })
+						}
 					}
-					.padding(.leading, 12)
+					.padding(.leading, 46)
+				}
+				if !node.children.isEmpty {
+					WorkplaceTreeList(
+						store: store,
+						state: state,
+						gate: gate,
+						nodes: node.children,
+						selectedWorkplace: selectedWorkplace,
+						onSelect: onSelect,
+						onEdit: onEdit,
+						onSetDefault: onSetDefault,
+						onDelete: onDelete,
+						onShowBearer: onShowBearer,
+						onEditAuth: onEditAuth,
+						onDeleteAuth: onDeleteAuth)
+						.padding(.leading, 22)
 				}
 			}
+		}
+	}
+
+	private func authNames(forWorkplace name: String) -> [String] {
+		store.sortedAuthNames.filter { authName in
+			store.auths[authName]?.contexts.contains(name) == true
 		}
 	}
 }
@@ -1113,13 +1224,6 @@ private struct WorkplaceTreeRow: View {
 					Text(node.name)
 						.font(.callout.monospaced())
 						.fontWeight(.medium)
-					if !node.url.isEmpty {
-						Text(node.url)
-							.font(.caption.monospaced())
-							.foregroundStyle(.secondary)
-							.lineLimit(1)
-							.truncationMode(.middle)
-					}
 					if let problem = node.workplace.problem() {
 						Image(systemName: "exclamationmark.triangle.fill")
 							.font(.caption)
@@ -1159,157 +1263,119 @@ private struct WorkplaceTreeRow: View {
 private struct DefaultContextButton: View {
 	let isDefault: Bool
 	let action: () -> Void
+	@State private var hovered = false
 
 	var body: some View {
 		Button(action: action) {
-			Image(systemName: isDefault ? "largecircle.fill.circle" : "circle")
-				.font(.body)
-				.foregroundStyle(isDefault ? Color.accentColor : Color.secondary.opacity(0.75))
-				.frame(width: 18, height: 18)
+			Image(systemName: isDefault ? "arrowtriangle.right.fill" : "arrowtriangle.right")
+				.font(.system(size: 11, weight: .bold))
+				.foregroundStyle(isDefault ? Color.accentColor : Color.secondary.opacity(hovered ? 0.85 : 0.28))
+				.frame(width: 16, height: 16)
+				.contentShape(Rectangle())
 		}
 		.buttonStyle(.plain)
+		.onHover { hovered = $0 }
+		.help(isDefault ? "Default context" : "Set as default context")
 		.accessibilityLabel(isDefault ? "Default context" : "Set as default context")
 	}
 }
 
-private enum AuthTableLayout {
-	static let bearerWidth: CGFloat = 52
-	static let contextsWidth: CGFloat = 140
-	static let minTableWidth: CGFloat = 620
-}
-
-private struct AuthTableHeader: View {
-	var body: some View {
-		HStack(spacing: 8) {
-			Text("Name").agentFlexibleWidth()
-			Text("Type").frame(width: 72, alignment: .leading)
-			Text("Scope").frame(width: 88, alignment: .leading)
-			Text("Contexts").frame(width: AuthTableLayout.contextsWidth, alignment: .leading)
-			Text("Secret").frame(width: 64, alignment: .leading)
-			Text("Bearer")
-				.lineLimit(1)
-				.fixedSize(horizontal: true, vertical: false)
-				.frame(width: AuthTableLayout.bearerWidth, alignment: .center)
-			Spacer().frame(width: 56)
-		}
-		.font(.caption.weight(.semibold))
-		.foregroundStyle(.secondary)
-		.padding(.horizontal, 10)
-		.padding(.vertical, 6)
-	}
-}
-
-private struct AuthTableRow: View {
+private struct WorkplaceAuthRow: View {
 	@ObservedObject var store: AgentStore
 	@ObservedObject var state: AgentState
 	let gate: UnlockGate
 	let name: String
 	let auth: AgentAuth
-	let workplaces: [String: Workplace]
-	let selectedWorkplace: String?
-	let onShowBearerDetails: (String) -> Void
+	let onShowBearer: () -> Void
 	let onEdit: () -> Void
 	let onDelete: () -> Void
 
+	private var caption: String {
+		var parts = [auth.type]
+		let scope = auth.displayScope(workplaces: store.workplaces)
+		if scope != "—", !scope.isEmpty { parts.append(scope) }
+		return parts.joined(separator: " · ")
+	}
+
 	var body: some View {
 		HStack(spacing: 8) {
-			AuthNameCell(
-				store: store, name: name, auth: auth, workplaces: workplaces,
-				selectedWorkplace: selectedWorkplace)
-				.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-			Text(auth.type).frame(width: 72, alignment: .leading)
-			Text(auth.displayScope(workplaces: workplaces)).frame(width: 88, alignment: .leading)
-			Text(auth.contexts.joined(separator: ", "))
-				.lineLimit(2)
-				.frame(width: AuthTableLayout.contextsWidth, alignment: .leading)
-			SecretBadge(store: store, name: name).frame(width: 64, alignment: .leading)
 			AuthTokenCell(
 				store: store, state: state, gate: gate, authName: name,
-				onShowDetails: { onShowBearerDetails(name) })
-				.frame(width: AuthTableLayout.bearerWidth, alignment: .center)
-			HStack(spacing: 4) {
-				Button(action: onEdit) { Image(systemName: "pencil") }
-					.buttonStyle(.borderless)
-					.disabled(store.configEditsBlocked)
-				DestructiveTrashButton(
-					dialogTitle: "Delete auth?",
-					dialogMessage:
-						"Remove “\(name)” from the Agent config? Keychain secrets for this auth will be deleted.",
-					action: onDelete,
-					disabled: store.configEditsBlocked
-				)
+				onShowDetails: onShowBearer)
+			Button(action: onEdit) {
+				HStack(spacing: 8) {
+					Text(name)
+						.font(.callout.monospaced())
+						.lineLimit(1)
+						.truncationMode(.tail)
+					Text(caption)
+						.font(.caption)
+						.foregroundStyle(.secondary)
+						.lineLimit(1)
+					if let problem = auth.problem(name: name, workplaces: store.workplaces),
+						!(store.hasSecret(forAuth: name) && problem == "secret not stored yet")
+					{
+						Image(systemName: "exclamationmark.triangle")
+							.foregroundStyle(.orange)
+							.accessibilityLabel(problem)
+					}
+					Spacer(minLength: 0)
+				}
+				.contentShape(Rectangle())
 			}
-			.frame(width: 56)
+			.buttonStyle(.plain)
+			.accessibilityLabel("Edit \(name)")
+			DestructiveTrashButton(
+				dialogTitle: "Delete auth?",
+				dialogMessage:
+					"Remove “\(name)” from the Agent config? Keychain secrets for this auth will be deleted.",
+				action: onDelete,
+				disabled: store.configEditsBlocked
+			)
 		}
-		.font(.callout)
-		.padding(.horizontal, 10)
-		.padding(.vertical, 6)
+		.padding(.vertical, 3)
+		.padding(.trailing, 8)
 	}
 }
 
 private struct WorkplaceKindBadge: View {
 	let kind: String
 
-	private var label: String {
+	private var style: WorkplaceGlyph {
+		WorkplaceGlyph.style(for: kind)
+	}
+
+	var body: some View {
+		Image(systemName: style.symbol)
+			.font(.system(size: 13, weight: .semibold))
+			.symbolRenderingMode(.hierarchical)
+			.foregroundStyle(style.tint)
+			.frame(width: 28, height: 28)
+			.background(
+				style.tint.opacity(0.18),
+				in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+			.accessibilityLabel(style.label)
+	}
+}
+
+private struct WorkplaceGlyph {
+	var symbol: String
+	var tint: Color
+	var label: String
+
+	static func style(for kind: String) -> WorkplaceGlyph {
 		switch kind {
-		case "product-tenant", "tenant": return "jamfpro"
-		default: return kind
+		case "organization":
+			return WorkplaceGlyph(symbol: "building.2.fill", tint: Color(red: 0.16, green: 0.45, blue: 0.96), label: "Organization")
+		case "environment":
+			return WorkplaceGlyph(symbol: "globe.americas.fill", tint: Color(red: 0.12, green: 0.68, blue: 0.55), label: "Environment")
+		case "product-tenant", "tenant":
+			return WorkplaceGlyph(symbol: "desktopcomputer", tint: Color(red: 0.56, green: 0.36, blue: 0.95), label: "Product tenant")
+		case "instance":
+			return WorkplaceGlyph(symbol: "server.rack", tint: Color(red: 0.95, green: 0.58, blue: 0.12), label: "Instance")
+		default:
+			return WorkplaceGlyph(symbol: "folder.fill", tint: Color.secondary, label: kind)
 		}
-	}
-
-	var body: some View {
-		Text(label)
-			.font(.caption2.weight(.semibold))
-			.foregroundStyle(.secondary)
-			.padding(.horizontal, 6)
-			.padding(.vertical, 2)
-			.background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
-			.overlay(
-				RoundedRectangle(cornerRadius: 4)
-					.strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
-	}
-}
-
-private struct AuthNameCell: View {
-	@ObservedObject var store: AgentStore
-	let name: String
-	let auth: AgentAuth
-	let workplaces: [String: Workplace]
-	let selectedWorkplace: String?
-
-	var body: some View {
-		HStack(spacing: 4) {
-			Text(name)
-				.font(.body.monospaced())
-				.lineLimit(1)
-				.truncationMode(.tail)
-			if auth.contexts.contains(where: { $0 == selectedWorkplace }) {
-				Circle().fill(Color.accentColor).frame(width: 6, height: 6)
-			}
-			if let problem = auth.problem(name: name, workplaces: workplaces),
-				!(store.hasSecret(forAuth: name) && problem == "secret not stored yet")
-			{
-				Image(systemName: "exclamationmark.triangle")
-					.foregroundStyle(.orange)
-					.accessibilityLabel(problem)
-			}
-		}
-	}
-}
-
-private struct SecretBadge: View {
-	@ObservedObject var store: AgentStore
-	let name: String
-
-	var body: some View {
-		let stored = store.hasSecret(forAuth: name)
-		Text(stored ? "stored" : "missing")
-			.font(.caption)
-			.padding(.horizontal, 6)
-			.padding(.vertical, 2)
-			.background(stored ? Color.green.opacity(0.15) : Color.orange.opacity(0.15),
-				in: RoundedRectangle(cornerRadius: 4))
-			.foregroundStyle(stored ? Color.secondary : Color.orange)
 	}
 }
 

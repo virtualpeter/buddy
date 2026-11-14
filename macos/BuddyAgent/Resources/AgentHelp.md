@@ -5,40 +5,43 @@ Buddy Agent is a menu-bar app that **owns your Jamf workplaces, auths, and secre
 ## Quick start
 
 1. **Launch** Buddy Agent (from Buddy.app’s Login Items copy, `dist/BuddyAgent.app`, or your dev build). From **Buddy.app**, use the toolbar gear or **Agent Settings…** (⇧⌘,) — same window as below.
-2. Click the **padlock** in the menu bar → **Settings…** (⌘,).
+2. Click the **padlock** in the menu bar, then the **window** icon (or an auth row) to open Settings.
 3. Add **workplaces** (org → environment → tenant) and **auths** (oauth, basic, or platform).
 4. Store each auth’s **secret** in the auth editor (write-only; rows show `stored` or `missing`).
 5. On a Mac with no `config.yaml`, run any buddy command — it uses this Agent in memory and does not write that file. A running Agent with no workplaces is an error (add them here). `buddy agent enable` writes `features.use_agent: true` so a *missing* Agent is a hard error; `buddy agent disable` writes `false` so empty config does not rediscover the Agent. `BUDDY_USE_AGENT=1` is the env override.
 6. Run `buddy cred status` — Agent-owned auths show `SECRET=agent`.
 
-Optional: **Open at Login** in the menu bar menu so the Agent starts with your session.
+Optional: **Open at Login** in the gear menu so the Agent starts with your session.
 
 ## Menu bar
 
-| Item | Action |
-|------|--------|
-| Summary line | Lock state and auth count |
-| Unlock / Lock Agent | Same presence gate as minting (⌘L when Unlock is shown) |
-| Settings… | Setup, Policy, Log, and Status window (⌘,) |
-| Open Buddy… | Launches Buddy.app when installed |
-| Open at Login | Registers with System Settings → Login Items |
-| Help… | This guide (⌘?) |
-| About… | Version, what the Agent does, license, and GitHub |
-| Quit | Stops the Agent (⌘Q) |
+The padlock opens a panel. While the Agent is locked, that panel is the Touch ID prompt — touch the sensor, or choose **Use Password…** for the system password sheet. While it is unlocked, the panel lists auths. Search filters by name, type, and workplace. Nothing in the list is a secret.
 
-The icon is **closed padlock** when locked, **open padlock** when unlocked.
+| Control | Action |
+|---------|--------|
+| Lock | Locks the Agent |
+| Squircle | Opens the Settings window |
+| Auth key | Mints a bearer, or shows the cached bearer |
+| Rest of auth row | Opens Settings to that auth’s editor |
+| Gear → Lock | Locks the Agent (unlocked only) |
+| Gear → Open Buddy… | Launches Buddy.app when installed |
+| Gear → Open at Login | Registers with System Settings → Login Items |
+| Gear → Help | This guide |
+| Gear → About Buddy Agent… | Version, what the Agent does, license, and GitHub |
+| Gear → Quit Buddy Agent | Stops the Agent |
+
+The menu-bar icon is a **closed padlock** when locked and an **open padlock** when unlocked. Opening Settings shows a Dock tile until you close the window. ⌘Q closes the window; it does not quit the Agent. Quit from the Dock while the window is open does quit.
 
 ## Settings window
 
 ### Setup tab
 
-**Workplaces** — Org tree matching `buddy cred list`: organization → environment → product-tenant. Select a row to add children. Set a default context with the radio control.
+**Workplaces** — Org tree matching `buddy cred list`: organization → environment → product-tenant. Select a row to add children. The pointer marks the default context; click a faint pointer to move it. The server URL is in the workplace editor, not on the row.
 
-**Auths** — One row per auth name:
+**Auths** — Listed under each workplace they link to. An auth linked to more than one workplace appears under each. Auths that do not name an existing workplace are grouped as “Not linked to a workplace”.
 
 - **oauth / basic** → Jamf Pro token minting
 - **platform** → Jamf Account gateway; pick scope (environment, organization, tenant)
-- Link each auth to one or more workplaces
 - **Secret** — stored in the Mac Keychain (signed app) or in memory only (unsigned dev build)
 - **Bearer** — click the key icon to mint (when unlocked) or view cached token expiry
 

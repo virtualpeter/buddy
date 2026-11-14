@@ -1,11 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// Brings the Settings window back after LocalAuthentication on an accessory app.
+/// Brings the Settings window back after LocalAuthentication.
 enum AgentWindowRefocus {
-	/// Order the settings window forward on the next run-loop turn. Avoids
-	/// reentrant layout and does not call makeKey (SwiftUI popovers use glass
-	/// windows that cannot become key).
+	/// One `makeKeyAndOrderFront` on the next turn, once the system sheet is gone.
 	static func bringSettingsForward() {
 		DispatchQueue.main.async {
 			AgentAppActivation.present(AgentWindowController.settingsWindow)
@@ -13,8 +11,8 @@ enum AgentWindowRefocus {
 	}
 }
 
-/// Holds the single Agent window. The app is an accessory (no Dock tile); the window
-/// is created lazily from the menu and brought forward explicitly.
+/// Holds the single Agent window. The process launches as an accessory; while this
+/// window is open the app adopts the regular policy (Dock tile) and can become key.
 final class AgentWindowController: NSObject, NSWindowDelegate {
 	/// Settings window for refocus after LocalAuthentication (avoid scanning NSApp.windows).
 	static weak var settingsWindow: NSWindow?

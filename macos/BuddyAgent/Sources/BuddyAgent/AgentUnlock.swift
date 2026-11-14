@@ -184,9 +184,41 @@ final class UnlockGate {
 		}
 	}
 
+	/// Touch ID drawn in an `LAAuthenticationView` already on screen and paired with
+	/// `context`. Same session result as `authorize`, without the system sheet.
+	/// Blocks; do not call on the main thread.
+	func authorizeEmbedded(context: LAContext, reason: String) -> UnlockOutcome {
+		if Thread.isMainThread {
+			FileHandle.standardError.write(
+				Data("buddy-agent: UnlockGate.authorizeEmbedded called on the main thread\n".utf8))
+			assertionFailure("UnlockGate.authorizeEmbedded must not run on the main thread")
+		}
+		if state.unlocked { return .unlocked }
+		if UnlockGate.promptingDisabled { return .unavailable }
+		return runOnSessionQueue {
+			authorizeEmbeddedOnSessionQueue(context: context, reason: reason)
+		}
+	}
+
 	private func authorizeOnSessionQueue(reason: String, keepCallerFocus: Bool) -> UnlockOutcome {
 		if state.unlocked { return .unlocked }
+		if let queued = claimPrompt() { return queued }
 
+		let (outcome, context) = prompt(reason: reason, keepCallerFocus: keepCallerFocus)
+		return finishPrompt(outcome: outcome, context: context)
+	}
+
+	private func authorizeEmbeddedOnSessionQueue(context: LAContext, reason: String) -> UnlockOutcome {
+		if state.unlocked { return .unlocked }
+		if let queued = claimPrompt() { return queued }
+
+		let (outcome, sessionContext) = embeddedPrompt(context: context, reason: reason)
+		return finishPrompt(outcome: outcome, context: sessionContext)
+	}
+
+	/// Marks this caller as the prompt owner, or waits out the prompt already running.
+	/// Caller holds no lock.
+	private func claimPrompt() -> UnlockOutcome? {
 		lock.lock()
 		if prompting {
 			let waiter = DispatchSemaphore(value: 0)
@@ -200,8 +232,10 @@ final class UnlockGate {
 		}
 		prompting = true
 		lock.unlock()
+		return nil
+	}
 
-		let (outcome, context) = prompt(reason: reason, keepCallerFocus: keepCallerFocus)
+	private func finishPrompt(outcome: UnlockOutcome, context: LAContext?) -> UnlockOutcome {
 		if outcome == .unlocked, let context {
 			lock.lock()
 			let previous = authenticated
@@ -250,6 +284,37 @@ final class UnlockGate {
 			}
 		}
 
+		let result = waitForEvaluation(context: context, reason: reason)
+
+		if result.granted, !keepCallerFocus {
+			// Accessory apps lose key-window status while the system sheet is up;
+			// bring Settings back so an in-app unlock does not look like it closed.
+			DispatchQueue.main.async { AgentWindowRefocus.bringSettingsForward() }
+		}
+
+		return classification(of: result, context: context)
+	}
+
+	/// `context` is already paired with an on-screen `LAAuthenticationView`, so
+	/// Touch ID is drawn there instead of in the system sheet.
+	private func embeddedPrompt(context: LAContext, reason: String) -> (UnlockOutcome, LAContext?) {
+		if let faked = UnlockGate.fakePresence {
+			FileHandle.standardError.write(
+				Data("buddy-agent: BUDDY_AGENT_FAKE_PRESENCE=\(faked ? "allow" : "deny")\n".utf8))
+			return faked ? (.unlocked, context) : (.declined, nil)
+		}
+		context.touchIDAuthenticationAllowableReuseDuration = 0
+		var policyError: NSError?
+		guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &policyError) else {
+			return (.unavailable, nil)
+		}
+		let result = waitForEvaluation(context: context, reason: reason)
+		return classification(of: result, context: context)
+	}
+
+	private func waitForEvaluation(
+		context: LAContext, reason: String
+	) -> (granted: Bool, failure: Error?, timedOut: Bool) {
 		let done = DispatchSemaphore(value: 0)
 		var granted = false
 		var failure: Error?
@@ -268,19 +333,16 @@ final class UnlockGate {
 		}
 		done.wait()
 		timer.cancel()
+		return (granted, failure, timedOut)
+	}
 
-		if granted, !keepCallerFocus {
-			// Accessory apps lose key-window status while the system sheet is up;
-			// bring Settings back so an in-app unlock does not look like it closed.
-			DispatchQueue.main.async { AgentWindowRefocus.bringSettingsForward() }
-		}
-
-		if granted {
-			return (.unlocked, context)
-		}
-		context.invalidate()
-		if timedOut { return (.timedOut, nil) }
-		switch (failure as? LAError)?.code {
+	private func classification(
+		of result: (granted: Bool, failure: Error?, timedOut: Bool), context: LAContext
+	) -> (UnlockOutcome, LAContext?) {
+		if result.granted { return (.unlocked, context) }
+		if !result.timedOut { context.invalidate() }
+		if result.timedOut { return (.timedOut, nil) }
+		switch (result.failure as? LAError)?.code {
 		case .biometryNotAvailable, .passcodeNotSet:
 			return (.unavailable, nil)
 		default:

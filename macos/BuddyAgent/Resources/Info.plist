@@ -21,7 +21,7 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
-	<!-- Menu-bar only: no Dock tile, no main window. -->
+	<!-- Accessory at launch (no Dock tile). A window adopts the regular policy until it closes. -->
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>

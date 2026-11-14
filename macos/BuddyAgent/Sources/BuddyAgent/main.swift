@@ -1,8 +1,9 @@
 import AppKit
 
-/// Buddy Agent: a menu-bar-only process that owns Jamf integrations and mints
-/// bearers for the buddy CLI over a unix-domain socket. Config is served while
-/// locked; unlock gates minting. It never returns a secret value.
+/// Buddy Agent: a menu-bar minter that owns Jamf integrations and mints bearers
+/// for the buddy CLI over a unix-domain socket. The tray is a satellite; the
+/// Settings window is a normal key window while it is open. Config is served
+/// while locked; unlock gates minting. It never returns a secret value.
 final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 	private let state: AgentState
 	private let store: AgentStore
@@ -16,6 +17,8 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 	private var pendingOpenSettings = false
 	private var pendingShowHelp = false
 	private var pendingShowAbout = false
+	private var pendingRevealAuth: String?
+	private var pendingBearerAuth: String?
 	private var showSettingsObserver: UnsafeMutableRawPointer?
 	private var userRequestedQuit = false
 
@@ -69,7 +72,14 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 	}
 
 	func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-		userRequestedQuit ? .terminateNow : .terminateCancel
+		if userRequestedQuit { return .terminateNow }
+		// Dock Quit while a window is open (regular policy). ⌘Q is wired to
+		// close the window and does not come through here.
+		if NSApp.activationPolicy() == .regular {
+			userRequestedQuit = true
+			return .terminateNow
+		}
+		return .terminateCancel
 	}
 
 	func applicationWillTerminate(_ notification: Notification) {
@@ -122,9 +132,7 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 		guard let button = statusItem?.button else { return }
 		refreshUpdateCheck()
 		statusPanel.toggle(
-			relativeTo: button,
-			snapshot: AgentStatusMenu.snapshot(unlocked: state.unlocked, authCount: store.authCount),
-			delegate: self)
+			relativeTo: button, store: store, state: state, gate: gate, delegate: self)
 	}
 
 	func statusPanelWillOpen() {
@@ -138,24 +146,35 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 		if pendingStatusRefresh {
 			applyStatusItemRefresh()
 		}
-		if pendingOpenSettings {
-			pendingOpenSettings = false
-			let showHelp = pendingShowHelp
-			pendingShowHelp = false
-			DispatchQueue.main.async { [weak self] in
-				DispatchQueue.main.async { [weak self] in
-					self?.windows.show()
-					if showHelp {
-						DispatchQueue.main.async {
-							AgentHelp.postShowHelpNotification()
-						}
-					}
+		let openSettings = pendingOpenSettings
+		let showHelp = pendingShowHelp
+		let revealAuth = pendingRevealAuth
+		let bearerAuth = pendingBearerAuth
+		let showAbout = pendingShowAbout
+		pendingOpenSettings = false
+		pendingShowHelp = false
+		pendingRevealAuth = nil
+		pendingBearerAuth = nil
+		pendingShowAbout = false
+		guard openSettings || showAbout else { return }
+		// Let the panel finish ordering out before the window becomes key.
+		DispatchQueue.main.async { [weak self] in
+			guard let self else { return }
+			if openSettings {
+				self.windows.show()
+				if showHelp {
+					DispatchQueue.main.async { AgentHelp.postShowHelpNotification() }
+				}
+				if let revealAuth {
+					DispatchQueue.main.async { AgentRevealAuth.post(revealAuth) }
+				}
+				if let bearerAuth {
+					DispatchQueue.main.async { AgentRevealAuth.postBearer(bearerAuth) }
 				}
 			}
-		}
-		if pendingShowAbout {
-			pendingShowAbout = false
-			showAboutNow()
+			if showAbout {
+				self.showAboutNow()
+			}
 		}
 	}
 
@@ -215,6 +234,14 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 		presentSettingsWindow()
 	}
 
+	func openAuthFromPanel(_ name: String) {
+		presentSettingsWindow(revealAuth: name)
+	}
+
+	func openBearerFromPanel(_ name: String) {
+		presentSettingsWindow(bearerAuth: name)
+	}
+
 	private func offerSetupIfNeeded() {
 		let key = "BuddyAgentOfferedEmptySetup"
 		guard store.isEmpty, !UserDefaults.standard.bool(forKey: key) else { return }
@@ -250,18 +277,26 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 		presentSettingsWindow(showHelpAfter: true)
 	}
 
-	private func presentSettingsWindow(showHelpAfter: Bool = false) {
+	private func presentSettingsWindow(
+		showHelpAfter: Bool = false, revealAuth: String? = nil, bearerAuth: String? = nil
+	) {
 		if menuIsOpen {
 			pendingOpenSettings = true
-			if showHelpAfter { pendingShowHelp = true }
+			pendingShowHelp = showHelpAfter
+			pendingRevealAuth = revealAuth
+			pendingBearerAuth = bearerAuth
 			statusPanel.dismiss()
 			return
 		}
 		windows.show()
 		if showHelpAfter {
-			DispatchQueue.main.async {
-				AgentHelp.postShowHelpNotification()
-			}
+			DispatchQueue.main.async { AgentHelp.postShowHelpNotification() }
+		}
+		if let revealAuth {
+			DispatchQueue.main.async { AgentRevealAuth.post(revealAuth) }
+		}
+		if let bearerAuth {
+			DispatchQueue.main.async { AgentRevealAuth.postBearer(bearerAuth) }
 		}
 	}
 
@@ -275,8 +310,7 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 	}
 
 	private func showAboutNow() {
-		AgentAppActivation.activateIfAllowed()
-		NSApp.orderFrontStandardAboutPanel(options: [
+		AgentAppActivation.presentAbout(options: [
 			.applicationName: "Buddy Agent",
 			.applicationVersion: AgentBranding.revision,
 			.version: AgentBranding.buildTime,
