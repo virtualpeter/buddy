@@ -1011,7 +1011,8 @@ enum AgentConfigExport {
 		auths: [String: AgentAuth],
 		features: AgentFeatures,
 		channels: [String: ChannelPolicy],
-		includeAuths: Bool
+		includeAuths: Bool,
+		snapshot: Bool = false
 	) -> [String: Any] {
 		let orgMap = effectiveOrgs(workplaces: workplaces, orgs: orgs)
 		let implied = impliedWorkplaces(from: orgMap)
@@ -1021,11 +1022,13 @@ enum AgentConfigExport {
 		if !def.isEmpty {
 			doc["context"] = ["default": def.trimmed]
 		}
-		if let feat = encodeFeatures(features) {
+		if let feat = encodeFeatures(features, snapshot: snapshot) {
 			doc["features"] = feat
 		}
 		if let channelsObj = encodeChannels(channels) {
 			doc["channels"] = channelsObj
+		} else if snapshot {
+			doc["channels"] = [String: Any]()
 		}
 		let orgsObj = encodeOrgsMap(orgMap)
 		if !orgsObj.isEmpty {
@@ -1068,60 +1071,40 @@ enum AgentConfigExport {
 		return doc
 	}
 
-	static func credBackupPayload(
+	/// One setup document. Unchecked sections are omitted. Secrets are not in this map.
+	static func exportDocument(
 		defaultContext: String,
 		workplaces: [String: Workplace],
 		orgs: [String: OrgRoot],
 		auths: [String: AgentAuth],
 		features: AgentFeatures,
 		channels: [String: ChannelPolicy],
-		secrets: [String: String]
-	) throws -> [String: Any] {
-		let identity = identityDocument(
+		includeWorkplaces: Bool,
+		includeAuths: Bool,
+		includePolicy: Bool
+	) -> [String: Any] {
+		var doc = identityDocument(
 			defaultContext: defaultContext,
 			workplaces: workplaces,
 			orgs: orgs,
 			auths: auths,
 			features: features,
 			channels: channels,
-			includeAuths: false)
-		if identity.isEmpty && auths.isEmpty {
-			throw AgentBackupError.corrupt("nothing to backup")
+			includeAuths: includeAuths,
+			snapshot: includePolicy)
+		if !includeWorkplaces {
+			doc.removeValue(forKey: "context")
+			doc.removeValue(forKey: "orgs")
+			doc.removeValue(forKey: "contexts")
 		}
-		var payload: [String: Any] = [:]
-		if let ctx = identity["context"] as? [String: Any],
-			let def = ctx["default"] as? String, !def.isEmpty
-		{
-			payload["tenant"] = ["Default": def]
+		if !includeAuths {
+			doc.removeValue(forKey: "auths")
 		}
-		if let orgsObj = identity["orgs"] {
-			payload["orgs"] = orgsObj
+		if !includePolicy {
+			doc.removeValue(forKey: "features")
+			doc.removeValue(forKey: "channels")
 		}
-		if let contexts = identity["contexts"] as? [String: Any], !contexts.isEmpty {
-			payload["tenants"] = encodeBackupTenants(contexts)
-		}
-		var authOut: [String: Any] = [:]
-		for (name, row) in auths.sorted(by: { $0.key < $1.key }) {
-			var auth: [String: Any] = ["Type": row.type]
-			if !row.clientId.trimmed.isEmpty { auth["ClientID"] = row.clientId.trimmed }
-			if !row.username.trimmed.isEmpty { auth["Username"] = row.username.trimmed }
-			if !row.scope.trimmed.isEmpty { auth["Scope"] = row.scope.trimmed }
-			if !row.access.trimmed.isEmpty { auth["Access"] = row.access.trimmed }
-			if !row.contexts.isEmpty { auth["Tenants"] = row.contexts }
-			if let secret = secrets[name], !secret.isEmpty {
-				if row.type == "basic" {
-					auth["Password"] = secret
-				} else {
-					auth["ClientSecret"] = secret
-				}
-			}
-			authOut[name] = auth
-		}
-		if !authOut.isEmpty { payload["auths"] = authOut }
-		if payload["tenants"] == nil && payload["orgs"] == nil && payload["auths"] == nil {
-			throw AgentBackupError.corrupt("nothing to backup")
-		}
-		return payload
+		return doc
 	}
 
 	// MARK: org tree
@@ -1275,15 +1258,16 @@ enum AgentConfigExport {
 		return entry
 	}
 
-	static func encodeFeatures(_ features: AgentFeatures) -> [String: Any]? {
+	static func encodeFeatures(_ features: AgentFeatures, snapshot: Bool = false) -> [String: Any]? {
 		var out: [String: Any] = [:]
-		if features.classicInstanceOnly {
-			out["classic_instance_only"] = true
+		if features.classicInstanceOnly || snapshot {
+			out["classic_instance_only"] = features.classicInstanceOnly
 		}
 		if let check = features.checkUpdates {
 			out["check_updates"] = check
 		}
-		return out.isEmpty ? nil : out
+		if out.isEmpty { return nil }
+		return out
 	}
 
 	static func decodeFeatures(_ raw: [String: Any]?) -> AgentFeatures {
@@ -1346,27 +1330,6 @@ enum AgentConfigExport {
 	static func appendBuiltinList(_ dict: inout [String: Any], key: String, patterns: [String]) {
 		let items = AgentConfigLists.normalized(patterns)
 		if !items.isEmpty { dict[key] = items }
-	}
-
-	private static func encodeBackupTenants(_ contexts: [String: Any]) -> [String: Any] {
-		var out: [String: Any] = [:]
-		for (name, raw) in contexts.sorted(by: { $0.key < $1.key }) {
-			guard let entry = raw as? [String: Any] else { continue }
-			var row: [String: Any] = [:]
-			if let org = entry["org"] as? String, !org.isEmpty { row["Org"] = org }
-			if let region = entry["region"] as? String, !region.isEmpty { row["Region"] = region }
-			if let id = entry["environmentId"] as? String, !id.isEmpty {
-				row["EnvironmentID"] = id
-			}
-			if let url = entry["url"] as? String, !url.isEmpty { row["URL"] = url }
-			if let jamf = entry["jamfpro"] as? [String: Any] {
-				if let url = jamf["url"] as? String, !url.isEmpty { row["URL"] = url }
-				if let tid = jamf["tenantId"] as? String, !tid.isEmpty { row["TenantID"] = tid }
-			}
-			if let tid = entry["tenantId"] as? String, !tid.isEmpty { row["TenantID"] = tid }
-			out[name] = row
-		}
-		return out
 	}
 
 	private static func normURL(_ s: String) -> String {

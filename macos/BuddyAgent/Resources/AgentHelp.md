@@ -36,7 +36,7 @@ The menu-bar icon is a **closed padlock** when locked and an **open padlock** wh
 
 ### Setup tab
 
-**Workplaces** — Org tree matching `buddy cred list`: organization → environment → product-tenant. Select a row to add children. The pointer marks the default context; click a faint pointer to move it. The server URL is in the workplace editor, not on the row.
+**Workplaces** — Org tree matching `buddy cred list`: organization → environment → product-tenant. Select a row to add children. Click a workplace or auth row to edit it; delete is in that editor. The pointer marks the default context; click a faint pointer to move it. The server URL is in the workplace editor, not on the row.
 
 **Auths** — Listed under each workplace they link to. An auth linked to more than one workplace appears under each. Auths that do not name an existing workplace are grouped as “Not linked to a workplace”.
 
@@ -47,8 +47,9 @@ The menu-bar icon is a **closed padlock** when locked and an **open padlock** wh
 
 **Import / Export**
 
-- *Config only* — JSON from `buddy setup export --json` (no secrets; type secrets in the Agent)
-- *Config and secrets* — encrypted backup from `buddy cred backup` / `buddy cred restore` (same format; passphrase asked once)
+- **Import…** — opens a setup document (*.json is typical; older .creds backups work too), then the same parts as Export. A whole-file cred backup asks for its passphrase before the parts can be chosen. Sections missing from the file stay unchecked. Secrets, when present, need the file’s passphrase; Import stays off until that passphrase decrypts the block.
+- **Export…** — one setup document. Check workplaces, auths, policy, and secrets, then set the file name and folder in the same dialog. Secrets, when checked, are an encrypted block and the passphrase is required. Auths are included with secrets.
+- **Reset…** — deletes local Buddy state as if it had never been run, then quits. That includes the Agent config, last-good snapshot, Keychain secrets and config seal, CLI `~/.config/buddy` (config, vault, tokens, caches), saved Agent preferences, and Open at Login. Nothing is written back. Export a backup first if you might need the configuration.
 
 ### Policy tab
 
@@ -58,7 +59,7 @@ Buddy YAML policy the Agent serves (same keys as `config.yaml`):
 - `features.check_updates` — omitted (Automatic) checks Buddy and this Agent once a day and leaves the CLI off; `true` also checks the CLI; `false` checks nothing. An update is a link to the GitHub release, not a download.
 - `channels.cli|mcp|ide` — default workplace, readonly access, workplace allowlist, `deny_builtins` / `allow_builtins`
 
-Changes are held in a draft until you click **Save**; **Revert** discards unsaved edits. MDM-managed policy fields show a lock icon and cannot be edited here.
+Changes are held in a draft until you click **Save**; **Revert** discards unsaved edits. Locked fields show a lock icon and cannot be edited here.
 
 Per-workplace and per-auth deny/allow lists are edited in the Setup tab workplace and auth sheets (each sheet has its own **Save**).
 
@@ -70,7 +71,7 @@ Buddy still applies MCP’s runtime default deny of `jamf_*` unless you override
 
 ### Status tab
 
-Socket path, config file path, workplace and auth counts, **config integrity**, managed prefs (when MDM locks apply), peer-check mode, and presence mode. If macOS kept this process across a restart and the Keychain will not open, the Agent relaunches itself. Quit it from the menu bar only if Status still says the Keychain is recovering after that.
+Socket path, config file path, workplace and auth counts, **config integrity**, managed preferences, peer-check mode, and presence mode. If macOS kept this process across a restart and the Keychain will not open, the Agent relaunches itself. Quit it from the menu bar only if Status still says the Keychain is recovering after that.
 
 **Config integrity** — `ok` / `sealed` / `missing` / `tampered` / `unavailable` (unsigned dev builds cannot seal). The Agent HMAC-seals `agent-config.json` in Keychain when you save. Minting requires unlock and a matching seal. If the file was edited outside the Agent, Status stays the only way to reseal it: **Review changes…**, then Accept or Revert every changed line. Setup and Policy stay read-only until that review finishes. A save there does not clear tampering.
 
@@ -102,7 +103,7 @@ buddy agent force --off     # write features.force_agent: false
 BUDDY_NO_AGENT=1 buddy …    # ignore the Agent for this command
 ```
 
-An empty or missing `config.yaml` already uses this document when the Agent is running. `buddy agent enable` writes `features.use_agent: true` (never in the Agent document) so that layer stays in play with a local file and a missing Agent is a hard error. `buddy agent disable` writes `false`. `buddy agent force` writes `features.force_agent: true` (YAML, MDM, or `BUDDY_FORCE_AGENT`) — requires the Agent and ignores the rest of config.yaml; managed prefs still apply. `buddy agent force --off` writes `false`.
+An empty or missing `config.yaml` already uses this document when the Agent is running. `buddy agent enable` writes `features.use_agent: true` (never in the Agent document) so that layer stays in play with a local file and a missing Agent is a hard error. `buddy agent disable` writes `false`. `buddy agent force` writes `features.force_agent: true` — requires the Agent and ignores the rest of config.yaml. `buddy agent force --off` writes `false`.
 
 ## Storage
 
@@ -125,7 +126,7 @@ An empty or missing `config.yaml` already uses this document when the Agent is r
 
 **Config integrity missing or tampered** — Open Status. If the file differs from the last sealed copy, use **Review changes…** and Accept or Revert every changed line (unlock first). Setup and Policy stay read-only until that review reseals the config. If there is no last-good snapshot, restore the config from backup.
 
-**MDM locks on Policy or Setup** — Jamf managed preferences for `virtualpete.buddy.cli` override Agent fields at runtime; locked rows cannot be edited in the window.
+**Locked rows** — A lock icon means that workplace, auth, or policy field cannot be edited here.
 
 **Orange warnings on Status** — Read the label; unsigned peer check, config tamper, and dev-only env vars are called out there.
 

@@ -484,13 +484,28 @@ final class AgentStore: ObservableObject {
 			} else {
 				AgentConfigChangeLog.logPersistedWrite(source: changeSource, configPath: path, newData: data)
 			}
+			// Hold the outside-edit watcher through the directory events from this
+			// atomic write and the seal snapshot that follows. Releasing as soon
+			// as write() returns lets a debounced directory event treat our own
+			// save — including a wipe — as an outside edit.
 			configWriteSuppressionCount += 1
-			try data.write(to: path, options: [.atomic])
-			try? FileManager.default.setAttributes(
-				[.posixPermissions: 0o600], ofItemAtPath: path.path)
-			lastWrittenNormalizedDigest = AgentConfigLastGood.normalizedDigest(
-				String(data: data, encoding: .utf8) ?? "")
-			configWriteSuppressionCount -= 1
+			let releaseSuppression = { [weak self] in
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+					guard let self, self.configWriteSuppressionCount > 0 else { return }
+					self.configWriteSuppressionCount -= 1
+				}
+			}
+			do {
+				try data.write(to: path, options: [.atomic])
+				try? FileManager.default.setAttributes(
+					[.posixPermissions: 0o600], ofItemAtPath: path.path)
+				lastWrittenNormalizedDigest = AgentConfigLastGood.normalizedDigest(
+					String(data: data, encoding: .utf8) ?? "")
+			} catch {
+				releaseSuppression()
+				throw error
+			}
+			releaseSuppression()
 			if Self.configPersistRequiresUnlock {
 				if !sealAfterWrite {
 					return true
@@ -658,6 +673,11 @@ final class AgentStore: ObservableObject {
 				!ownWrite && AgentConfigLastGood.requiresLineReview(configPath: self.path)
 			let needsBackup = integrity == .tampered && !needsReview && !ownWrite
 			DispatchQueue.main.async {
+				if let digest = AgentConfigLastGood.normalizedFileDigest(at: self.path),
+					digest == self.lastWrittenNormalizedDigest
+				{
+					return
+				}
 				self.configDiagnostics = diagnostics
 				self.publishReviewFlags(review: needsReview, backup: needsBackup)
 				self.bumpConfigIntegrityGeneration()
@@ -842,7 +862,7 @@ final class AgentStore: ObservableObject {
 		let trimmed = name.trimmed
 		guard !trimmed.isEmpty else { return }
 		if isManagedWorkplace(trimmed) || (previousName.map(isManagedWorkplace) ?? false) {
-			setError("workplace \(trimmed) is managed by MDM")
+			setError("workplace \(trimmed) is locked")
 			return
 		}
 		if let prev = previousName?.trimmed, prev != trimmed {
@@ -880,7 +900,7 @@ final class AgentStore: ObservableObject {
 		if refuseConfigEdit() { return }
 		let trimmed = name.trimmed
 		guard !isManagedWorkplace(trimmed) else {
-			setError("workplace \(trimmed) is managed by MDM")
+			setError("workplace \(trimmed) is locked")
 			return
 		}
 		workplaces.removeValue(forKey: trimmed)
@@ -969,7 +989,7 @@ final class AgentStore: ObservableObject {
 		let trimmed = name.trimmed
 		guard !trimmed.isEmpty else { return }
 		if isManagedAuth(trimmed) || (previousName.map(isManagedAuth) ?? false) {
-			setError("auth \(trimmed) is managed by MDM")
+			setError("auth \(trimmed) is locked")
 			return
 		}
 		if let prev = previousName?.trimmed, prev != trimmed {
@@ -992,7 +1012,7 @@ final class AgentStore: ObservableObject {
 	func removeAuth(_ name: String) {
 		if refuseConfigEdit() { return }
 		guard !isManagedAuth(name) else {
-			setError("auth \(name) is managed by MDM")
+			setError("auth \(name) is locked")
 			return
 		}
 		AgentKeychain.deleteAll(auth: name)
@@ -1000,6 +1020,20 @@ final class AgentStore: ObservableObject {
 		markSecretsChanged()
 		save(allowEmpty: workplaces.isEmpty && auths.isEmpty)
 		AgentLog.shared.config("removed auth \(name)")
+	}
+
+	/// Deletes local Buddy state and does not write a replacement config or seal.
+	/// The caller quits so the next launch is a first run.
+	func eraseForFirstRun(presence: LAContext?) {
+		stopConfigFileMonitor()
+		AgentKeychain.deleteAllBuddyItems(context: presence)
+		AgentPaths.removeInstalledState()
+		if let id = Bundle.main.bundleIdentifier {
+			UserDefaults.standard.removePersistentDomain(forName: id)
+			UserDefaults.standard.synchronize()
+		}
+		_ = AgentLoginItem.setEnabled(false)
+		AgentLog.shared.config("erased local Buddy state; quitting without a new config seal")
 	}
 
 	func setSecret(_ value: String, forAuth name: String, kind: AgentKeychain.Kind, context: LAContext? = nil) {
@@ -1298,6 +1332,94 @@ final class AgentStore: ObservableObject {
 		try importDocument(root)
 	}
 
+	struct ImportApplyCounts {
+		var workplaces: Int
+		var auths: Int
+		var policy: Bool
+	}
+
+	/// Replaces each checked section with the file’s copy. Unchecked sections stay.
+	@discardableResult
+	func applyImportDocument(
+		_ document: [String: Any],
+		workplaces includeWorkplaces: Bool,
+		auths includeAuths: Bool,
+		policy includePolicy: Bool
+	) throws -> ImportApplyCounts {
+		if Thread.isMainThread {
+			return try applyImportDocumentOnMain(
+				document, workplaces: includeWorkplaces, auths: includeAuths, policy: includePolicy)
+		}
+		var counts = ImportApplyCounts(workplaces: 0, auths: 0, policy: false)
+		var failure: Error?
+		DispatchQueue.main.sync {
+			do {
+				counts = try applyImportDocumentOnMain(
+					document, workplaces: includeWorkplaces, auths: includeAuths, policy: includePolicy)
+			} catch {
+				failure = error
+			}
+		}
+		if let failure { throw failure }
+		return counts
+	}
+
+	private func applyImportDocumentOnMain(
+		_ document: [String: Any],
+		workplaces includeWorkplaces: Bool,
+		auths includeAuths: Bool,
+		policy includePolicy: Bool
+	) throws -> ImportApplyCounts {
+		if configEditBlockedNow() {
+			throw AgentStoreError.badImport(configEditBlockMessage())
+		}
+		guard includeWorkplaces || includeAuths || includePolicy else {
+			return ImportApplyCounts(workplaces: 0, auths: 0, policy: false)
+		}
+		if includeWorkplaces {
+			let orgMap = document["orgs"] as? [String: Any] ?? [:]
+			orgs = decodeOrgs(orgMap)
+			var contexts =
+				(document["contexts"] as? [String: Any]) ?? (document["tenants"] as? [String: Any]) ?? [:]
+			for (name, entry) in workplacesFromOrgs(orgMap) where contexts[name] == nil {
+				contexts[name] = entry
+			}
+			workplaces = [:]
+			workplaces = decodeWorkplaces(contexts)
+			let selection = (document["context"] as? [String: Any]) ?? (document["tenant"] as? [String: Any])
+			if let def = selection?["default"] as? String, !def.trimmed.isEmpty {
+				defaultContext = def.trimmed
+			} else if !workplaces.keys.contains(defaultContext) {
+				defaultContext = workplaces.keys.sorted().first ?? ""
+			}
+		}
+		if includeAuths {
+			let authMap = document["auths"] as? [String: Any] ?? [:]
+			let contexts =
+				(document["contexts"] as? [String: Any]) ?? (document["tenants"] as? [String: Any]) ?? [:]
+			auths = [:]
+			auths = decodeAuths(authMap, contexts: contexts)
+		}
+		if includePolicy {
+			if document["features"] != nil {
+				features = AgentConfigExport.decodeFeatures(document["features"] as? [String: Any])
+			}
+			if document["channels"] != nil {
+				channels = AgentConfigExport.decodeChannels(document["channels"] as? [String: Any])
+			}
+		}
+		syncOrgsFromWorkplaces()
+		guard save(changeSource: "import") else {
+			throw AgentStoreError.badImport(lastError ?? "could not save")
+		}
+		AgentLog.shared.config(
+			"imported setup (\(workplaces.count) workplaces, \(auths.count) auths)")
+		return ImportApplyCounts(
+			workplaces: includeWorkplaces ? workplaces.count : 0,
+			auths: includeAuths ? auths.count : 0,
+			policy: includePolicy)
+	}
+
 	@discardableResult
 	func importBackup(
 		_ data: Data, passphrase: String, presence: LAContext? = nil
@@ -1387,7 +1509,10 @@ final class AgentStore: ObservableObject {
 			if contexts[name] == nil { contexts[name] = entry }
 		}
 		let authMap = (root["auths"] as? [String: Any]) ?? [:]
-		if contexts.isEmpty && authMap.isEmpty && orgs.isEmpty {
+		let hasPolicy =
+			(root["features"] as? [String: Any])?.isEmpty == false
+			|| (root["channels"] as? [String: Any])?.isEmpty == false
+		if contexts.isEmpty && authMap.isEmpty && orgs.isEmpty && !hasPolicy {
 			throw AgentStoreError.badImport("no contexts or auths found")
 		}
 		var added = 0
@@ -1616,7 +1741,7 @@ final class AgentStore: ObservableObject {
 	// MARK: export
 
 	func exportSetupJSON() throws -> Data {
-		let doc = configDocument()
+		let doc = configDocument(snapshot: true)
 		guard !doc.isEmpty else {
 			throw AgentStoreError.exportFailed("nothing to export (no workplaces or auths)")
 		}
@@ -1648,9 +1773,13 @@ final class AgentStore: ObservableObject {
 	}
 
 	func credBackupData(
-		passphrase: String, presence: LAContext? = nil
+		passphrase: String, presence: LAContext? = nil,
+		includeWorkplaces: Bool = true,
+		includeAuths: Bool = true,
+		includePolicy: Bool = true,
+		includeSecrets: Bool = true
 	) throws -> (data: Data, result: AgentBackup.WriteResult) {
-		let secrets = secretsForBackup(presence: presence)
+		let secrets = includeSecrets ? secretsForBackup(presence: presence) : [:]
 		let packed = try AgentBackup.write(
 			defaultContext: defaultContext,
 			workplaces: workplaces,
@@ -1659,13 +1788,17 @@ final class AgentStore: ObservableObject {
 			features: features,
 			channels: channels,
 			secrets: secrets,
-			passphrase: passphrase)
+			passphrase: passphrase,
+			includeWorkplaces: includeWorkplaces,
+			includeAuths: includeAuths,
+			includePolicy: includePolicy,
+			includeSecrets: includeSecrets)
 		return (packed.data, packed.result)
 	}
 
 	// MARK: wire
 
-	func configDocument() -> [String: Any] {
+	func configDocument(snapshot: Bool = false) -> [String: Any] {
 		syncOrgsFromWorkplaces()
 		return AgentConfigExport.identityDocument(
 			defaultContext: defaultContext,
@@ -1674,7 +1807,8 @@ final class AgentStore: ObservableObject {
 			auths: auths,
 			features: features,
 			channels: channels,
-			includeAuths: true)
+			includeAuths: true,
+			snapshot: snapshot)
 	}
 
 	func integrationSummaries() -> [[String: Any]] {

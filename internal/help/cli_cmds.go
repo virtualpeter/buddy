@@ -252,7 +252,7 @@ ACS and GET /api/v1/policies are always instance).
 
 Usage:
   buddy [global-flags] cred <subcommand> [args...]
-  buddy [global-flags] cred backup <file> [--passphrase=] [-y]
+  buddy [global-flags] cred backup <file> [--passphrase=] [--no-workplaces] [--no-auths] [--no-policy] [--no-secrets] [-y]
   buddy [global-flags] cred restore <file> [--passphrase=] [-y]
 
 Subcommands:
@@ -282,8 +282,8 @@ Subcommands:
   erase secrets                     Wipe the vault, data key, leftover Keychain/file keys, token wrap/cache, and leftover Keychain items
   store                             Show vault path, data-key backend, and recovery wrap status
   migrate [auth]                    Move inline YAML secrets and old per-auth store items into the vault
-  backup <file>                     Encrypt contexts, auths (with secrets), and channels to a file (typed passphrase)
-  restore <file>                    Decrypt a backup; prompt once per auth (or -y)
+  backup <file>                     Write an Agent-style export (workplaces, auths, policy, and encrypted secrets)
+  restore <file>                    Read that export, or an older whole-file backup; prompt once per auth (or -y)
 
 Flags for 'status':
   --test                            Run auth test --all first (ForceRenew), then print the matrix
@@ -357,13 +357,27 @@ Flags for 'set passphrase':
   --passphrase=<pass>               User-held recovery passphrase (prefer interactive prompt; not stored in Keychain)
 
 Flags for 'backup' / 'restore':
-  --passphrase=<pass>               Encryption passphrase (required unless prompted; never defaults to Keychain)
+  --passphrase=<pass>               Encryption passphrase when secrets are included (required unless prompted; never defaults to Keychain)
+  --no-workplaces                   Omit workplaces, orgs, and the default context
+  --no-auths                        Omit auths (secrets are omitted too)
+  --no-policy                       Omit features and channels
+  --no-secrets                      Omit the encrypted secrets block and do not ask for a passphrase
   -y                                Overwrite backup file / restore all auths without prompting
 
 Notes for 'backup' / 'restore':
-  cred backup / restore always use a typed passphrase (--passphrase= or
-  interactive prompt). They do not read a machine-stored Keychain/file master.
-  Backup writes AES-256-GCM (PBKDF2-SHA256) JSON; auths include store secrets.
+  backup writes the same JSON document as a Buddy Agent export. The default
+  includes workplaces, auths, policy, and an encrypted secrets block
+  (AES-256-GCM, PBKDF2-SHA256). Identity stays in the clear; only secret
+  values are sealed. A typed passphrase (--passphrase= or a prompt) is
+  required when secrets are included. It does not read a machine-stored
+  Keychain/file master. --no-secrets writes the identity only.
+  Secrets held by the Buddy Agent stay there. cred backup cannot read them;
+  export from the Agent window when the backup must include those secrets.
+  On a Mac where Buddy Agent owns the configuration, or is running, cred
+  restore will not write secrets into the CLI vault. Import that file in the
+  Agent window instead. Linux, with no Agent, stores restored secrets in the vault.
+  restore reads that document. A passphrase is required only when a secrets
+  block is present. It also still reads an older whole-file cred backup.
   Restore applies contexts/channels, then prompts once per auth (and its
   secrets) unless -y. Enter/y writes that auth from the backup; n leaves the
   existing auth (or absence) in config. Auths not in the backup are kept. A

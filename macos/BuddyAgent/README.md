@@ -109,16 +109,7 @@ The window’s sidebar is four colored cards — Setup, Policy, Log, and Status.
 - **Setup** — add, edit, and delete workplaces and auths. Auths are listed under each workplace they link to; the server URL stays in the workplace editor. The secret
   field is write-only; a warning shows when a secret is missing, never the value. The
   key icon on an auth row mints or shows cached bearer metadata (when unlocked).
-  **Import from buddy** takes either file an existing setup can provide:
-  - *Config only* — the JSON from `buddy setup export --json`: workplaces and
-    auth names, no secrets, so each secret is still typed in here.
-  - *Config and secrets* — the encrypted file from `buddy cred backup`. The
-    Agent asks for that backup's passphrase, decrypts it in memory
-    (PBKDF2-SHA256 + AES-GCM, same envelope `buddy cred restore` reads), and
-    writes each secret straight into its own Keychain. The passphrase is used
-    once and never stored; the CLI is not involved.
-  **Export for buddy** (beside Import) writes the same two formats: identity JSON
-  for `buddy setup import`, or an encrypted cred backup for `buddy cred restore`.
+  **Import…** opens a setup document — `*.json` is typical, and older `.creds` backups still open — then applies the parts you check. A secrets block, or a whole-file cred backup, needs its passphrase; Import stays off until the passphrase decrypts it. **Export…** writes one setup document to the file name and folder you choose.
 - **Policy** — `features.classic_instance_only` and `channels` policy (draft until **Save**). MDM-locked fields are read-only. `features.use_agent` / `force_agent` are client-side only (buddy YAML, MDM, or env) and are never served on the wire. `force_agent` requires the Agent and ignores the rest of config.yaml; managed prefs still apply.
 - **Log** — Activity log (config, mint, buddy socket, keychain diagnostics); also
   in Unified Log.

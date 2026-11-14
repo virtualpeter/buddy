@@ -1494,14 +1494,18 @@ Examples:
 }
 
 func runCredBackup(cfg *buddy.Config, opts buddy.Opts, args []string) error {
-	path, passphrase, err := parseCredBackupArgs("backup", args)
+	path, passphrase, parts, err := parseCredBackupWriteArgs(args)
 	if err != nil {
 		return err
 	}
 	res, err := buddy.BackupCreds(cfg, buddy.CredBackupOpts{
-		Path:        path,
-		Passphrase:  passphrase,
-		SkipConfirm: opts.SkipConfirm,
+		Path:         path,
+		Passphrase:   passphrase,
+		SkipConfirm:  opts.SkipConfirm,
+		NoWorkplaces: parts.noWorkplaces,
+		NoAuths:      parts.noAuths,
+		NoPolicy:     parts.noPolicy,
+		NoSecrets:    parts.noSecrets,
 	})
 	if err != nil {
 		return err
@@ -1511,7 +1515,7 @@ func runCredBackup(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 	}
 	fmt.Printf("Wrote encrypted backup %s (%d tenant(s), %d auth(s))\n", res.Path, res.Tenants, res.Auths)
 	for _, m := range res.MissingSecrets {
-		fmt.Fprintf(os.Stderr, "warning: missing %s (not in config or store)\n", m)
+		fmt.Fprintf(os.Stderr, "warning: missing %s\n", m)
 	}
 	return nil
 }
@@ -1538,6 +1542,46 @@ func runCredRestore(cfg *buddy.Config, opts buddy.Opts, args []string) error {
 		fmt.Printf("Skipped %d auth(s)\n", res.Skipped)
 	}
 	return nil
+}
+
+type credBackupParts struct {
+	noWorkplaces bool
+	noAuths      bool
+	noPolicy     bool
+	noSecrets    bool
+}
+
+func parseCredBackupWriteArgs(args []string) (path, passphrase string, parts credBackupParts, err error) {
+	const usage = "usage: buddy cred backup <file> [--passphrase=] [--no-workplaces] [--no-auths] [--no-policy] [--no-secrets] [-y]"
+	var positional []string
+	for _, a := range args {
+		switch {
+		case a == clispec.SubHelp:
+			return "", "", parts, fmt.Errorf("%s", usage)
+		case strings.HasPrefix(a, "--passphrase="):
+			passphrase = strings.TrimPrefix(a, "--passphrase=")
+		case a == "--no-workplaces":
+			parts.noWorkplaces = true
+		case a == "--no-auths":
+			parts.noAuths = true
+		case a == "--no-policy":
+			parts.noPolicy = true
+		case a == "--no-secrets":
+			parts.noSecrets = true
+		case a == clispec.Short(clispec.ShortSkipConfirm):
+		case strings.HasPrefix(a, "-"):
+			return "", "", parts, fmt.Errorf("unknown flag %q; %s", a, usage)
+		default:
+			positional = append(positional, a)
+		}
+	}
+	if len(positional) != 1 {
+		return "", "", parts, fmt.Errorf("%s", usage)
+	}
+	if passphrase != "" && (parts.noSecrets || parts.noAuths) {
+		return "", "", parts, fmt.Errorf("--passphrase is only used when the backup includes secrets")
+	}
+	return positional[0], passphrase, parts, nil
 }
 
 func parseCredBackupArgs(verb string, args []string) (path, passphrase string, err error) {

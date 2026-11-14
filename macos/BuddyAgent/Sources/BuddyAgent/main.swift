@@ -61,6 +61,8 @@ final class AgentAppDelegate: NSObject, NSApplicationDelegate {
 		store.startConfigFileMonitor { [weak state] in state?.unlocked ?? false }
 		offerSetupIfNeeded()
 		registerShowSettingsObserver()
+		NotificationCenter.default.addObserver(
+			self, selector: #selector(quit), name: .agentQuitAfterReset, object: nil)
 		if store.isEmpty {
 			AgentIdleLock.applyEmptyConfigDefault()
 			state.refreshIdleLockTimer()

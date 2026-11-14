@@ -32,6 +32,7 @@ enum AgentErrorCode: String {
 /// Only `token` requires an unlocked Agent: config is identity, not secrets.
 /// With `allow_unlock` the Agent raises its presence prompt and the caller
 /// waits; without it, a locked Agent still answers `locked` immediately.
+/// No reply carries a secret value.
 struct AgentRequest: Decodable {
 	let op: String
 	let auth: String?

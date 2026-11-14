@@ -136,7 +136,7 @@ private struct SettingsSectionCard: View {
 private enum ConfigActiveSheet: Identifiable {
 	case workplace(WorkplaceEditDraft)
 	case auth(AuthEditDraft)
-	case backup(BackupPrompt)
+	case importFile(ImportFile)
 	case exportBackup
 	case bearer(BearerDetailsDraft)
 	case quickSetup
@@ -145,7 +145,7 @@ private enum ConfigActiveSheet: Identifiable {
 		switch self {
 		case .workplace(let draft): return "workplace-\(draft.id.uuidString)"
 		case .auth(let draft): return "auth-\(draft.id.uuidString)"
-		case .backup(let prompt): return "backup-\(prompt.id.uuidString)"
+		case .importFile(let file): return "import-\(file.id.uuidString)"
 		case .exportBackup: return "export-backup"
 		case .bearer(let draft): return "bearer-\(draft.authName)"
 		case .quickSetup: return "quick-setup"
@@ -186,30 +186,6 @@ private func showAgentAlert(
 	alert.runModal()
 }
 
-private struct DestructiveTrashButton: View {
-	let dialogTitle: String
-	let dialogMessage: String
-	let action: () -> Void
-	var disabled: Bool = false
-	var accessibilityLabel: String = "Delete"
-	@State private var showConfirm = false
-
-	var body: some View {
-		Button(role: .destructive) { showConfirm = true } label: {
-			Image(systemName: "trash")
-		}
-		.buttonStyle(.borderless)
-		.disabled(disabled)
-		.accessibilityLabel(accessibilityLabel)
-		.confirmationDialog(dialogTitle, isPresented: $showConfirm, titleVisibility: .visible) {
-			Button("Delete", role: .destructive, action: action)
-			Button("Cancel", role: .cancel) {}
-		} message: {
-			Text(dialogMessage)
-		}
-	}
-}
-
 struct ConfigView: View {
 	@ObservedObject var store: AgentStore
 	@ObservedObject var state: AgentState
@@ -222,6 +198,7 @@ struct ConfigView: View {
 	@State private var selectedWorkplace: String?
 	@State private var activeSheet: ConfigActiveSheet?
 	@State private var message: String?
+	@State private var showResetConfirm = false
 
 	var body: some View {
 		ScrollView(.vertical, showsIndicators: true) {
@@ -241,8 +218,7 @@ struct ConfigView: View {
 				if store.isEmpty {
 					EmptySetupBanner(
 						onQuickSetup: { presentSheet(.quickSetup) },
-						onImportBackup: { pickBackup() },
-						onImportConfig: { importConfig() })
+						onImport: { pickImport() })
 				}
 				workplacesSection
 				transferSection
@@ -289,7 +265,8 @@ struct ConfigView: View {
 		case .workplace: return NSSize(width: 480, height: 420)
 		case .auth: return NSSize(width: 480, height: 560)
 		case .quickSetup: return NSSize(width: 520, height: 620)
-		case .backup, .exportBackup: return NSSize(width: 420, height: 240)
+		case .importFile: return NSSize(width: 480, height: 520)
+		case .exportBackup: return NSSize(width: 480, height: 640)
 		case .bearer: return NSSize(width: 400, height: 280)
 		}
 	}
@@ -301,13 +278,13 @@ struct ConfigView: View {
 			WorkplaceEditor(store: store, state: state, gate: gate, draft: draft)
 		case .auth(let draft):
 			AuthEditor(store: store, state: state, gate: gate, draft: draft)
-		case .backup(let prompt):
-			BackupPassphraseSheet(url: prompt.url) { passphrase in
-				importBackup(prompt.url, passphrase: passphrase)
+		case .importFile(let file):
+			ImportSetupSheet(file: file) { parts, document, secrets in
+				importSelection(file, parts: parts, document: document, secrets: secrets)
 			}
 		case .exportBackup:
-			BackupExportPassphraseSheet { passphrase in
-				exportBackupFile(passphrase: passphrase)
+			ExportSetupSheet { parts, passphrase, destination in
+				exportSelection(parts, passphrase: passphrase, destination: destination)
 			}
 		case .bearer(let draft):
 			AuthTokenSheet(
@@ -374,18 +351,12 @@ struct ConfigView: View {
 							onSetDefault: { name in
 								commitConfig { store.setDefaultContext(name) }
 							},
-							onDelete: { name in
-								commitConfig { store.removeWorkplace(name) }
-							},
 							onShowBearer: { presentSheet(.bearer(BearerDetailsDraft(authName: $0))) },
 							onEditAuth: { name in
 								presentSheet(.auth(
 									AuthEditDraft(
 										name: name, previousName: name,
 										auth: store.auths[name] ?? AgentAuth())))
-							},
-							onDeleteAuth: { name in
-								commitConfig { store.removeAuth(name) }
 							})
 					}
 					if !unlinkedAuthNames.isEmpty {
@@ -406,8 +377,7 @@ struct ConfigView: View {
 										AuthEditDraft(
 											name: name, previousName: name,
 											auth: store.auths[name] ?? AgentAuth())))
-								},
-								onDelete: { commitConfig { store.removeAuth(name) } })
+								})
 						}
 					}
 				}
@@ -464,21 +434,27 @@ struct ConfigView: View {
 	private var transferSection: some View {
 		VStack(alignment: .leading, spacing: 6) {
 			HStack(spacing: 12) {
-				Menu("Import from buddy") {
-					Button("Config only (setup export --json)...") { importConfig() }
-					Button("Config and secrets (cred backup)...") { pickBackup() }
-				}
-				.menuStyle(.borderlessButton)
-				.disabled(store.configEditsBlocked)
-				Menu("Export for buddy") {
-					Button("Config only (setup export --json)...") { exportConfig() }
-					Button("Config and secrets (cred backup)...") { presentSheet(.exportBackup) }
-				}
-				.menuStyle(.borderlessButton)
+				Button("Import…") { pickImport() }
+					.disabled(store.configEditsBlocked)
+				Button("Export…") { presentSheet(.exportBackup) }
+					.disabled(store.configEditsBlocked)
+				Button("Reset…") { showResetConfirm = true }
 			}
 			.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+			.confirmationDialog(
+				"Reset Buddy Agent?",
+				isPresented: $showResetConfirm,
+				titleVisibility: .visible
+			) {
+				Button("Reset", role: .destructive) { resetAllConfig() }
+				Button("Cancel", role: .cancel) {}
+			} message: {
+				Text(
+					"This removes Buddy from this Mac as if it had never been run: the Agent config, its seal and secrets, and ~/.config/buddy (config, vault, and caches). The app then quits and does not write a new config. Export a backup first if you might need this configuration."
+				)
+			}
 			Text(
-				"Setup export is identity only. Cred backup also carries secrets — exporting one asks you to unlock."
+				"Import opens a setup JSON file, then applies the parts you check. Secrets in the file need their passphrase, and Import stays off until it matches. Export writes one setup document. Reset deletes local Buddy state and quits, so the next launch is a first run."
 			)
 			.font(.caption)
 			.foregroundStyle(.secondary)
@@ -507,53 +483,41 @@ struct ConfigView: View {
 		AgentLockUI.perform(gate: gate, state: state, action: action)
 	}
 
-	private func importConfig() {
-		guard
-			let url = chooseFile(
-				types: [.json], prompt: "Choose the JSON written by 'buddy setup export --json'")
-		else { return }
-		commitConfig {
-			do {
-				let added = try store.importExport(Data(contentsOf: url))
-				message =
-					"Imported \(added) item(s) from \(url.lastPathComponent). Add secrets before minting."
-				onImportFinished()
-			} catch {
-				message = "Import failed: \(error)"
-			}
+	private func pickImport() {
+		guard let url = chooseImportFile() else { return }
+		do {
+			let data = try Data(contentsOf: url)
+			let inspection = try AgentBackup.inspect(data)
+			presentSheet(.importFile(ImportFile(url: url, data: data, inspection: inspection)))
+		} catch {
+			message = "Import failed: \(error)"
+			showAgentAlert(title: "Import failed", message: String(describing: error), style: .critical)
 		}
 	}
 
-	private func pickBackup() {
-		guard
-			let url = chooseFile(
-				types: [.json, .data], prompt: "Choose the file written by 'buddy cred backup'")
-		else { return }
-		presentSheet(.backup(BackupPrompt(url: url)))
-	}
-
-	private func importBackup(_ url: URL, passphrase: String) {
+	private func importSelection(
+		_ file: ImportFile, parts: ExportParts, document: [String: Any], secrets: [String: String]
+	) {
 		commitConfig {
-			message = "Importing \(url.lastPathComponent)…"
+			message = "Importing \(file.url.lastPathComponent)…"
 			Task { @MainActor in
 				do {
-					let data = try Data(contentsOf: url)
-					let contents = try AgentBackup.read(data, passphrase: passphrase)
-					let added = try store.importDocumentForBackup(contents.document)
-					let secrets = contents.secrets
-					let fileName = url.lastPathComponent
-					if secrets.isEmpty && !store.auths.isEmpty {
-						showAgentAlert(
-							title: "Backup has no secrets",
-							message:
-								"\(fileName) decrypted successfully but contains no client secrets or passwords. Config was imported — re-type secrets in each auth, or restore from a backup that was exported while the Agent was unlocked."
-						)
+					let counts = try store.applyImportDocument(
+						document,
+						workplaces: parts.workplaces,
+						auths: parts.auths,
+						policy: parts.policy)
+					let fileName = file.url.lastPathComponent
+					guard parts.secrets else {
+						message = importNote(fileName: fileName, counts: counts, secrets: nil)
+						onImportFinished()
+						return
 					}
 					DispatchQueue.global(qos: .userInitiated).async { [gate, store] in
 						var presence: LAContext?
 						var unlockFailed = false
 						if !secrets.isEmpty, AgentKeychain.backend == .dataProtection {
-							switch gate.authorize(reason: "import secrets from your cred backup") {
+							switch gate.authorize(reason: "import secrets from your setup file") {
 							case .unlocked:
 								presence = gate.presenceContext
 							default:
@@ -562,36 +526,30 @@ struct ConfigView: View {
 						}
 						let result = store.importBackupSecrets(secrets, presence: presence)
 						DispatchQueue.main.async {
-							var parts: [String] = []
-							parts.append("Imported \(added) item(s) from \(fileName).")
-							if result.secrets > 0 {
-								parts.append("\(result.secrets) secret(s) stored in the keychain.")
-							}
-							if result.ephemeral > 0 {
-								parts.append(
-									"\(result.ephemeral) secret(s) are memory-only until quit — unlock and re-import if needed.")
-							}
-							if result.failed > 0 {
-								parts.append("\(result.failed) secret(s) did not land.")
-							}
-							message = parts.joined(separator: " ")
+							message = importNote(fileName: fileName, counts: counts, secrets: result)
 							if unlockFailed && !secrets.isEmpty {
 								showAgentAlert(
 									title: "Secrets not imported",
 									message:
-										"Config from \(fileName) was imported, but the unlock prompt was declined. Import the backup again to store secrets."
+										"The rest of \(fileName) was imported, but the unlock prompt was declined. Import again to store secrets."
 								)
 							} else if !secrets.isEmpty && result.secrets == 0 && result.ephemeral == 0 {
 								showAgentAlert(
 									title: "Secrets not imported",
 									message:
-										"None of the \(secrets.count) secret(s) in this backup could be stored. Try the import again, or enter secrets manually in each auth."
+										"None of the \(secrets.count) secret(s) in this file could be stored. Try the import again, or enter secrets manually in each auth."
 								)
 							} else if result.failed > 0 {
 								showAgentAlert(
 									title: "Some secrets missing",
 									message:
-										"\(result.failed) of \(secrets.count) secret(s) from the backup did not land in the Keychain. Check the Activity log and re-import or type secrets in Setup."
+										"\(result.failed) of \(secrets.count) secret(s) from the file did not land in the Keychain. Check the Activity log and re-import or type secrets in Setup."
+								)
+							} else if secrets.isEmpty {
+								showAgentAlert(
+									title: "File has no secrets",
+									message:
+										"\(fileName) opened, but it contains no client secrets or passwords. The other selected parts were imported."
 								)
 							}
 							onImportFinished()
@@ -605,127 +563,113 @@ struct ConfigView: View {
 		}
 	}
 
-	private func exportConfig() {
-		do {
-			let data = try store.exportSetupJSON()
-			guard
-				let url = chooseSaveFile(
-					name: "buddy-agent-export.json",
-					types: [.json],
-					prompt: "Save JSON for 'buddy setup import' or the Agent import picker")
-			else { return }
-			try writeExport(data, to: url)
-			message = "Exported identity to \(url.lastPathComponent) (no secrets)."
-		} catch {
-			message = "Export failed: \(error)"
+	private func importNote(
+		fileName: String, counts: AgentStore.ImportApplyCounts, secrets: AgentStore.BackupImportResult?
+	) -> String {
+		var parts: [String] = []
+		if counts.workplaces > 0 { parts.append("\(counts.workplaces) workplace(s)") }
+		if counts.auths > 0 { parts.append("\(counts.auths) auth(s)") }
+		if counts.policy { parts.append("policy") }
+		if let secrets {
+			if secrets.secrets > 0 { parts.append("\(secrets.secrets) secret(s)") }
+			if secrets.ephemeral > 0 { parts.append("\(secrets.ephemeral) memory-only secret(s)") }
+		}
+		if parts.isEmpty { return "Imported \(fileName)." }
+		return "Imported \(parts.joined(separator: ", ")) from \(fileName)."
+	}
+
+	private func resetAllConfig() {
+		AgentLockUI.perform(gate: gate, state: state, reason: "erase Buddy from this Mac") {
+			let presence = AgentKeychain.backend == .dataProtection ? gate.presenceContext : nil
+			store.eraseForFirstRun(presence: presence)
+			state.dropAllTokens()
+			NotificationCenter.default.post(name: .agentQuitAfterReset, object: nil)
 		}
 	}
 
-	private func exportBackupFile(passphrase: String) {
-		message = "Writing cred backup…"
-		Task { @MainActor in
-			DispatchQueue.global(qos: .userInitiated).async { [gate, store] in
-				var presence: LAContext?
-				if AgentKeychain.backend == .dataProtection {
-					switch gate.authorize(reason: "export secrets for your cred backup") {
-					case .unlocked:
-						presence = gate.presenceContext
-					case .declined:
-						DispatchQueue.main.async {
-							message = "Export cancelled — unlock is required to read secrets."
-							showAgentAlert(
-								title: "Unlock required",
-								message:
-									"Cred backups include secrets from the Keychain. Try exporting again and complete the unlock prompt, or use config-only export if you only need identity."
-							)
-						}
-						return
-					case .timedOut:
-						DispatchQueue.main.async {
-							message = "Export cancelled — unlock prompt timed out."
-							showAgentAlert(
-								title: "Unlock timed out",
-								message: "Try exporting again and complete the unlock prompt.")
-						}
-						return
-					case .unavailable:
-						DispatchQueue.main.async {
-							message = "Export cancelled — unlock is not available."
-							showAgentAlert(
-								title: "Unlock unavailable",
-								message:
-									"This Mac cannot authenticate for Keychain access. Use config-only export if you only need identity."
-							)
-						}
-						return
-					}
+	private func exportSelection(_ parts: ExportParts, passphrase: String, destination: URL) {
+		let withSecrets = parts.secrets
+		let url = destination
+		message = "Writing export…"
+		func save(_ presence: LAContext?) {
+			do {
+				let packed = try store.credBackupData(
+					passphrase: passphrase,
+					presence: presence,
+					includeWorkplaces: parts.workplaces,
+					includeAuths: parts.auths,
+					includePolicy: parts.policy,
+					includeSecrets: parts.secrets)
+				try writeExport(packed.data, to: url)
+				var note = ["Exported \(url.lastPathComponent)."]
+				var included: [String] = []
+				if parts.workplaces { included.append("workplaces") }
+				if parts.auths || parts.secrets { included.append("auths") }
+				if parts.policy { included.append("policy") }
+				if parts.secrets { included.append("encrypted secrets") }
+				if !included.isEmpty {
+					note.append("Includes \(included.joined(separator: ", ")).")
 				}
-				do {
-					let packed = try store.credBackupData(
-						passphrase: passphrase, presence: presence)
+				if !packed.result.missingSecrets.isEmpty {
+					note.append("Missing secrets: \(packed.result.missingSecrets.joined(separator: ", ")).")
+					showAgentAlert(
+						title: "Some secrets missing",
+						message:
+							"The file was written but these secrets could not be read: \(packed.result.missingSecrets.joined(separator: ", ")). Unlock and export again if you need them."
+					)
+				}
+				message = note.joined(separator: " ")
+			} catch {
+				message = "Export failed: \(error)"
+				showAgentAlert(title: "Export failed", message: String(describing: error), style: .critical)
+			}
+		}
+		guard withSecrets, AgentKeychain.backend == .dataProtection else {
+			save(nil)
+			return
+		}
+		Task { @MainActor in
+			DispatchQueue.global(qos: .userInitiated).async { [gate] in
+				switch gate.authorize(reason: "export secrets for your backup") {
+				case .unlocked:
+					let presence = gate.presenceContext
+					DispatchQueue.main.async { save(presence) }
+				case .declined:
 					DispatchQueue.main.async {
-						guard
-							let url = chooseSaveFile(
-								name: "buddy-agent.creds",
-								types: [.json, .data],
-								prompt: "Save encrypted backup for 'buddy cred restore' or Agent import")
-						else {
-							message = "Export cancelled."
-							return
-						}
-						do {
-							try writeExport(packed.data, to: url)
-							var parts = [
-								"Exported \(packed.result.auths) auth(s) to \(url.lastPathComponent).",
-							]
-							if !packed.result.missingSecrets.isEmpty {
-								parts.append(
-									"Missing secrets: \(packed.result.missingSecrets.joined(separator: ", ")).")
-								let allMissing =
-									packed.result.auths > 0
-									&& packed.result.missingSecrets.count == packed.result.auths
-								showAgentAlert(
-									title: allMissing ? "Backup has no secrets" : "Some secrets missing",
-									message: allMissing
-										? "The file was written but none of your auth secrets could be read. Export while unlocked, or secrets will be missing on restore."
-										: "The file was written but these secrets could not be read: \(packed.result.missingSecrets.joined(separator: ", ")). Unlock and export again if you need a full backup."
-								)
-							}
-							message = parts.joined(separator: " ")
-						} catch {
-							message = "Export failed: \(error)"
-							showAgentAlert(
-								title: "Export failed", message: String(describing: error), style: .critical)
-						}
-					}
-				} catch {
-					DispatchQueue.main.async {
-						message = "Export failed: \(error)"
+						message = "Export cancelled — unlock is required to read secrets."
 						showAgentAlert(
-							title: "Export failed", message: String(describing: error), style: .critical)
+							title: "Unlock required",
+							message: "Secrets stay in the Keychain. Complete the unlock prompt, or export without secrets.")
+					}
+				case .timedOut:
+					DispatchQueue.main.async {
+						message = "Export cancelled — unlock prompt timed out."
+						showAgentAlert(title: "Unlock timed out", message: "Try exporting again and complete the unlock prompt.")
+					}
+				case .unavailable:
+					DispatchQueue.main.async {
+						message = "Export cancelled — unlock is not available."
+						showAgentAlert(
+							title: "Unlock unavailable",
+							message: "This Mac cannot authenticate for Keychain access. Export without secrets if you only need the document.")
 					}
 				}
 			}
 		}
 	}
 
-	private func chooseFile(types: [UTType], prompt: String) -> URL? {
+	private func chooseImportFile() -> URL? {
 		let panel = NSOpenPanel()
-		panel.allowedContentTypes = types
+		// Empty enabled-types list: every file stays selectable. *.json is the
+		// usual name, not a Finder filter — older backups are often *.creds.
+		panel.allowedContentTypes = []
 		panel.allowsMultipleSelection = false
-		panel.message = prompt
+		panel.canChooseDirectories = false
+		panel.directoryURL = ExportSetupSheet.defaultFolder
+		panel.prompt = "Import"
+		panel.message = "Choose a setup document. *.json is typical; older .creds backups can be opened too."
 		guard panel.runModal() == .OK else { return nil }
 		return panel.url
-	}
-
-	private func chooseSaveFile(name: String, types: [UTType], prompt: String) -> URL? {
-		let panel = NSSavePanel()
-		panel.allowedContentTypes = types
-		panel.canCreateDirectories = true
-		panel.nameFieldStringValue = name
-		panel.message = prompt
-		guard panel.runModal() == .OK, let url = panel.url else { return nil }
-		return url
 	}
 
 	private func writeExport(_ data: Data, to url: URL) throws {
@@ -735,16 +679,17 @@ struct ConfigView: View {
 	}
 }
 
-private struct BackupPrompt: Identifiable {
+private struct ImportFile: Identifiable {
 	let id = UUID()
 	let url: URL
+	let data: Data
+	let inspection: AgentBackup.Inspection
 }
 
 /// Shown when no workplaces or auths exist yet — points people at the fastest path to try buddy.
 private struct EmptySetupBanner: View {
 	let onQuickSetup: () -> Void
-	let onImportBackup: () -> Void
-	let onImportConfig: () -> Void
+	let onImport: () -> Void
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 12) {
@@ -758,8 +703,7 @@ private struct EmptySetupBanner: View {
 			HStack(spacing: 12) {
 				Button("Quick setup…", action: onQuickSetup)
 					.buttonStyle(.borderedProminent)
-				Button("Import cred backup…", action: onImportBackup)
-				Button("Import config only…", action: onImportConfig)
+				Button("Import…", action: onImport)
 			}
 			Text(
 				"Or add workplaces and auths manually below. Saving while locked asks you to unlock. Run `buddy cred status` when a row shows secret stored."
@@ -1138,10 +1082,8 @@ private struct WorkplaceTreeList: View {
 	let onSelect: (String) -> Void
 	let onEdit: (WorkplaceTreeNode) -> Void
 	let onSetDefault: (String) -> Void
-	let onDelete: (String) -> Void
 	let onShowBearer: (String) -> Void
 	let onEditAuth: (String) -> Void
-	let onDeleteAuth: (String) -> Void
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 0) {
@@ -1155,8 +1097,7 @@ private struct WorkplaceTreeList: View {
 					isSelected: selectedWorkplace == node.name,
 					onSelect: { onSelect(node.name) },
 					onEdit: { onEdit(node) },
-					onSetDefault: { onSetDefault(node.name) },
-					onDelete: { onDelete(node.name) })
+					onSetDefault: { onSetDefault(node.name) })
 				let linked = authNames(forWorkplace: node.name)
 				if !linked.isEmpty {
 					VStack(alignment: .leading, spacing: 0) {
@@ -1168,8 +1109,7 @@ private struct WorkplaceTreeList: View {
 								name: name,
 								auth: store.auths[name] ?? AgentAuth(),
 								onShowBearer: { onShowBearer(name) },
-								onEdit: { onEditAuth(name) },
-								onDelete: { onDeleteAuth(name) })
+								onEdit: { onEditAuth(name) })
 						}
 					}
 					.padding(.leading, 46)
@@ -1184,10 +1124,8 @@ private struct WorkplaceTreeList: View {
 						onSelect: onSelect,
 						onEdit: onEdit,
 						onSetDefault: onSetDefault,
-						onDelete: onDelete,
 						onShowBearer: onShowBearer,
-						onEditAuth: onEditAuth,
-						onDeleteAuth: onDeleteAuth)
+						onEditAuth: onEditAuth)
 						.padding(.leading, 22)
 				}
 			}
@@ -1208,7 +1146,6 @@ private struct WorkplaceTreeRow: View {
 	let onSelect: () -> Void
 	let onEdit: () -> Void
 	let onSetDefault: () -> Void
-	let onDelete: () -> Void
 
 	private var isDefault: Bool {
 		store.defaultContext.trimmed == node.name
@@ -1218,7 +1155,10 @@ private struct WorkplaceTreeRow: View {
 		HStack(spacing: 8) {
 			DefaultContextButton(isDefault: isDefault, action: onSetDefault)
 			.disabled(store.configEditsBlocked)
-			Button(action: onSelect) {
+			Button {
+				onSelect()
+				onEdit()
+			} label: {
 				HStack(spacing: 8) {
 					WorkplaceKindBadge(kind: node.kind)
 					Text(node.name)
@@ -1230,26 +1170,16 @@ private struct WorkplaceTreeRow: View {
 							.foregroundStyle(.orange)
 							.accessibilityLabel(problem)
 					}
+					Spacer(minLength: 0)
+					Image(systemName: "chevron.right")
+						.font(.system(size: 11, weight: .semibold))
+						.foregroundStyle(.tertiary)
 				}
 				.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+				.contentShape(Rectangle())
 			}
 			.buttonStyle(.plain)
-			HStack(spacing: 2) {
-				Button(action: onEdit) {
-					Image(systemName: "pencil")
-				}
-				.buttonStyle(.borderless)
-				.disabled(store.configEditsBlocked)
-				.accessibilityLabel("Edit")
-				DestructiveTrashButton(
-					dialogTitle: "Delete workplace?",
-					dialogMessage:
-						"Remove “\(node.name)” from the Agent config? Auths may lose this context; empty auths are removed.",
-					action: onDelete,
-					disabled: store.configEditsBlocked || !node.canDelete,
-					accessibilityLabel: node.canDelete ? "Delete" : "Remove children first"
-				)
-			}
+			.accessibilityLabel("Edit \(node.name)")
 		}
 		.padding(.vertical, 6)
 		.padding(.horizontal, 8)
@@ -1288,7 +1218,6 @@ private struct WorkplaceAuthRow: View {
 	let auth: AgentAuth
 	let onShowBearer: () -> Void
 	let onEdit: () -> Void
-	let onDelete: () -> Void
 
 	private var caption: String {
 		var parts = [auth.type]
@@ -1320,18 +1249,14 @@ private struct WorkplaceAuthRow: View {
 							.accessibilityLabel(problem)
 					}
 					Spacer(minLength: 0)
+					Image(systemName: "chevron.right")
+						.font(.system(size: 11, weight: .semibold))
+						.foregroundStyle(.tertiary)
 				}
 				.contentShape(Rectangle())
 			}
 			.buttonStyle(.plain)
 			.accessibilityLabel("Edit \(name)")
-			DestructiveTrashButton(
-				dialogTitle: "Delete auth?",
-				dialogMessage:
-					"Remove “\(name)” from the Agent config? Keychain secrets for this auth will be deleted.",
-				action: onDelete,
-				disabled: store.configEditsBlocked
-			)
 		}
 		.padding(.vertical, 3)
 		.padding(.trailing, 8)
@@ -1516,7 +1441,7 @@ struct WorkplaceEditor: View {
 			Section {
 				Text(draft.isNew ? "New workplace" : draft.name).font(.title3)
 				if store.isManagedWorkplace(draft.name) || store.isManagedWorkplace(draft.previousName ?? "") {
-					Label("This workplace is managed by MDM.", systemImage: "lock.fill")
+					Label("This workplace is locked.", systemImage: "lock.fill")
 						.font(.callout)
 						.foregroundStyle(.secondary)
 				}
@@ -1580,7 +1505,8 @@ struct WorkplaceEditor: View {
 				HStack {
 					if !draft.isNew {
 						Button("Delete", role: .destructive) { showDeleteConfirm = true }
-							.disabled(!maySaveConfig)
+							.disabled(!maySaveConfig || !canDeleteWorkplace)
+							.help(canDeleteWorkplace ? "Delete this workplace" : "Remove children first")
 					}
 					Spacer()
 					Button("Cancel") { dismiss() }
@@ -1620,6 +1546,23 @@ struct WorkplaceEditor: View {
 
 	private var maySaveConfig: Bool {
 		!store.configEditsBlocked
+	}
+
+	/// Parents stay until their children are gone, same rule the tree row used to enforce.
+	private var canDeleteWorkplace: Bool {
+		guard let node = workplaceNode(named: deleteWorkplaceName) else { return true }
+		return node.canDelete
+	}
+
+	private func workplaceNode(named name: String) -> WorkplaceTreeNode? {
+		func walk(_ nodes: [WorkplaceTreeNode]) -> WorkplaceTreeNode? {
+			for node in nodes {
+				if node.name == name { return node }
+				if let hit = walk(node.children) { return hit }
+			}
+			return nil
+		}
+		return walk(store.configTree)
 	}
 
 	private var kindLabel: String {
@@ -1737,7 +1680,7 @@ struct AuthEditor: View {
 			Section {
 				Text(draft.name.isEmpty ? "New auth" : draft.name).font(.title3)
 				if store.isManagedAuth(draft.name) || store.isManagedAuth(draft.previousName ?? "") {
-					Label("This auth is managed by MDM.", systemImage: "lock.fill")
+					Label("This auth is locked.", systemImage: "lock.fill")
 						.font(.callout)
 						.foregroundStyle(.secondary)
 				}
@@ -1987,34 +1930,91 @@ struct AuthEditor: View {
 	}
 }
 
-struct BackupExportPassphraseSheet: View {
-	let onExport: (String) -> Void
+struct ExportParts {
+	var workplaces = true
+	var auths = true
+	var policy = true
+	var secrets = true
+}
 
-	@State private var passphrase: String = ""
-	@State private var confirm: String = ""
+struct ExportSetupSheet: View {
+	let onExport: (ExportParts, String, URL) -> Void
+
+	@State private var workplaces = true
+	@State private var auths = true
+	@State private var policy = true
+	@State private var secrets = true
+	@State private var passphrase = ""
+	@State private var confirm = ""
+	@State private var fileName = "buddy-export.json"
+	@State private var folder: URL = ExportSetupSheet.defaultFolder
 	@Environment(\.dismiss) private var dismiss
 
-	init(onExport: @escaping (String) -> Void) {
-		self.onExport = onExport
+	fileprivate static var defaultFolder: URL {
+		FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+			?? FileManager.default.homeDirectoryForCurrentUser
+	}
+
+	private var destinationURL: URL? {
+		let name = fileName.trimmed
+		if name.isEmpty || name == "." || name == ".." || name.contains("/") || name.contains(":") {
+			return nil
+		}
+		return folder.appendingPathComponent(name)
 	}
 
 	private var canSubmit: Bool {
-		!passphrase.isEmpty && passphrase == confirm
+		let name = fileName.trimmed
+		let any = workplaces || auths || policy || secrets
+		if !any || name.isEmpty || name == "." || name == ".." || name.contains("/") || name.contains(":") {
+			return false
+		}
+		if secrets {
+			return !passphrase.isEmpty && passphrase == confirm
+		}
+		return true
 	}
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: 12) {
-			Text("Export cred backup").font(.title3)
-			Text(
-				"Choose a passphrase for this file. You will need it for `buddy cred restore` or Agent import."
-			)
-			.font(.callout)
-			.foregroundStyle(.secondary)
-			SecureField("Passphrase", text: $passphrase)
-				.textContentType(.password)
-			SecureField("Confirm passphrase", text: $confirm)
-				.textContentType(.password)
+		VStack(alignment: .leading, spacing: 14) {
+			Text("Export").font(.title3)
+			Text("One setup document. Secrets, if included, are the only encrypted part.")
+				.font(.callout)
+				.foregroundStyle(.secondary)
+			VStack(alignment: .leading, spacing: 8) {
+				Toggle("Workplaces", isOn: $workplaces).toggleStyle(.checkbox)
+				Toggle("Auths", isOn: $auths).toggleStyle(.checkbox)
+				Toggle("Policy", isOn: $policy).toggleStyle(.checkbox)
+				Toggle("Secrets", isOn: $secrets).toggleStyle(.checkbox)
+			}
+			if secrets {
+				Text("You will need this passphrase to import the secrets.")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+				SecureField("Passphrase", text: $passphrase)
+					.textContentType(.password)
+				SecureField("Confirm passphrase", text: $confirm)
+					.textContentType(.password)
+			}
+			Text("Save as").font(.headline)
+			TextField("File name", text: $fileName)
 				.onSubmit(submit)
+			HStack(spacing: 8) {
+				Text(folder.path)
+					.font(.callout)
+					.foregroundStyle(.secondary)
+					.lineLimit(1)
+					.truncationMode(.middle)
+					.frame(maxWidth: .infinity, alignment: .leading)
+				Button("Choose…", action: chooseFolder)
+			}
+			if let destinationURL {
+				Text(destinationURL.path)
+					.font(.caption)
+					.foregroundStyle(.secondary)
+					.lineLimit(2)
+					.truncationMode(.middle)
+			}
 			HStack {
 				Spacer()
 				Button("Cancel") { dismiss() }
@@ -2024,50 +2024,270 @@ struct BackupExportPassphraseSheet: View {
 			}
 		}
 		.padding()
-		.frame(minWidth: 420)
+		.frame(width: 460, alignment: .top)
+		.frame(maxHeight: .infinity, alignment: .top)
+		.onChange(of: secrets) { on in
+			if on { auths = true }
+		}
+		.onChange(of: auths) { on in
+			if !on { secrets = false }
+		}
+	}
+
+	private func chooseFolder() {
+		let panel = NSOpenPanel()
+		panel.canChooseFiles = false
+		panel.canChooseDirectories = true
+		panel.canCreateDirectories = true
+		panel.allowsMultipleSelection = false
+		panel.directoryURL = folder
+		panel.prompt = "Choose"
+		panel.message = "Folder for the export"
+		let apply: (NSApplication.ModalResponse) -> Void = { response in
+			guard response == .OK, let url = panel.url else { return }
+			folder = url
+		}
+		if let window = NSApp.keyWindow {
+			panel.beginSheetModal(for: window, completionHandler: apply)
+		} else {
+			apply(panel.runModal())
+		}
 	}
 
 	private func submit() {
-		guard canSubmit else { return }
-		onExport(passphrase)
+		guard canSubmit, let destination = destinationURL else { return }
+		guard FileManager.default.fileExists(atPath: destination.path) else {
+			finish(destination)
+			return
+		}
+		let alert = NSAlert()
+		alert.messageText = "Replace existing file?"
+		alert.informativeText = destination.path
+		alert.addButton(withTitle: "Replace")
+		alert.addButton(withTitle: "Cancel")
+		let apply: (NSApplication.ModalResponse) -> Void = { response in
+			guard response == .alertFirstButtonReturn else { return }
+			finish(destination)
+		}
+		if let window = NSApp.keyWindow {
+			alert.beginSheetModal(for: window, completionHandler: apply)
+		} else {
+			apply(alert.runModal())
+		}
+	}
+
+	private func finish(_ destination: URL) {
+		let parts = ExportParts(
+			workplaces: workplaces, auths: auths, policy: policy, secrets: secrets)
+		let phrase = secrets ? passphrase : ""
 		passphrase = ""
 		confirm = ""
+		onExport(parts, phrase, destination)
 		dismiss()
 	}
 }
 
-struct BackupPassphraseSheet: View {
-	let url: URL
-	let onImport: (String) -> Void
+private struct ImportSetupSheet: View {
+	let file: ImportFile
+	let onImport: (ExportParts, [String: Any], [String: String]) -> Void
 
-	@State private var passphrase: String = ""
+	@State private var workplaces: Bool
+	@State private var auths: Bool
+	@State private var policy: Bool
+	@State private var secrets: Bool
+	@State private var hasWorkplaces: Bool
+	@State private var hasAuths: Bool
+	@State private var hasPolicy: Bool
+	@State private var hasSecrets: Bool
+	@State private var passphrase = ""
+	@State private var verifiedPhrase = ""
+	@State private var unlocked: AgentBackup.Contents?
+	@State private var checking = false
+	@State private var checkGeneration = 0
 	@Environment(\.dismiss) private var dismiss
 
+	init(file: ImportFile, onImport: @escaping (ExportParts, [String: Any], [String: String]) -> Void) {
+		self.file = file
+		self.onImport = onImport
+		let found = file.inspection
+		let open = !found.sealed
+		_hasWorkplaces = State(initialValue: open && found.hasWorkplaces)
+		_hasAuths = State(initialValue: open && found.hasAuths)
+		_hasPolicy = State(initialValue: open && found.hasPolicy)
+		_hasSecrets = State(initialValue: open && found.hasSecrets)
+		_workplaces = State(initialValue: open && found.hasWorkplaces)
+		_auths = State(initialValue: open && found.hasAuths)
+		_policy = State(initialValue: open && found.hasPolicy)
+		_secrets = State(initialValue: open && found.hasSecrets)
+	}
+
+	private var showPassphrase: Bool {
+		if file.inspection.sealed {
+			return unlocked == nil || hasSecrets
+		}
+		return file.inspection.hasSecrets
+	}
+
+	private var passphraseOK: Bool {
+		unlocked != nil && !passphrase.isEmpty && passphrase == verifiedPhrase
+	}
+
+	private var canImport: Bool {
+		let any =
+			(workplaces && hasWorkplaces) || (auths && hasAuths) || (policy && hasPolicy)
+			|| (secrets && hasSecrets)
+		if !any { return false }
+		if showPassphrase && !passphraseOK { return false }
+		return true
+	}
+
 	var body: some View {
-		VStack(alignment: .leading, spacing: 12) {
-			Text("Import \(url.lastPathComponent)").font(.title3)
-			Text("Type the passphrase used for this backup.")
-				.font(.callout)
-				.foregroundStyle(.secondary)
-			SecureField("Backup passphrase", text: $passphrase)
-				.textContentType(.password)
-				.onSubmit(submit)
+		VStack(alignment: .leading, spacing: 14) {
+			Text("Import \(file.url.lastPathComponent)").font(.title3)
+			Text(
+				file.inspection.sealed
+					? "This file is encrypted. Enter its passphrase to choose what to import."
+					: "Choose what to import from this setup document."
+			)
+			.font(.callout)
+			.foregroundStyle(.secondary)
+			VStack(alignment: .leading, spacing: 8) {
+				Toggle("Workplaces", isOn: $workplaces)
+					.toggleStyle(.checkbox)
+					.disabled(!hasWorkplaces)
+				Toggle("Auths", isOn: $auths)
+					.toggleStyle(.checkbox)
+					.disabled(!hasAuths)
+				Toggle("Policy", isOn: $policy)
+					.toggleStyle(.checkbox)
+					.disabled(!hasPolicy)
+				Toggle("Secrets", isOn: $secrets)
+					.toggleStyle(.checkbox)
+					.disabled(!hasSecrets)
+			}
+			if showPassphrase {
+				if !file.inspection.sealed || unlocked != nil {
+					Text("Passphrase for the secrets in this file.")
+						.font(.caption)
+						.foregroundStyle(.secondary)
+				}
+				HStack(spacing: 8) {
+					SecureField("Passphrase", text: $passphrase)
+						.textContentType(.password)
+						.onSubmit {
+							if canImport {
+								finish()
+							} else {
+								schedulePassphraseCheck(immediate: true)
+							}
+						}
+					if checking {
+						ProgressView().controlSize(.small)
+					}
+				}
+			}
 			HStack {
 				Spacer()
 				Button("Cancel") { dismiss() }
-				Button("Import", action: submit)
+				Button("Import", action: finish)
 					.keyboardShortcut(.defaultAction)
-					.disabled(passphrase.isEmpty)
+					.disabled(!canImport)
 			}
 		}
 		.padding()
-		.frame(minWidth: 420)
+		.frame(width: 460, alignment: .top)
+		.frame(maxHeight: .infinity, alignment: .top)
+		.onChange(of: passphrase) { _ in
+			unlocked = nil
+			verifiedPhrase = ""
+			if file.inspection.sealed {
+				hasWorkplaces = false
+				hasAuths = false
+				hasPolicy = false
+				hasSecrets = false
+				workplaces = false
+				auths = false
+				policy = false
+				secrets = false
+			}
+			schedulePassphraseCheck()
+		}
+		.onChange(of: secrets) { on in
+			if on && hasAuths { auths = true }
+		}
+		.onChange(of: auths) { on in
+			if !on { secrets = false }
+		}
+		.onDisappear {
+			checkGeneration += 1
+		}
 	}
 
-	private func submit() {
-		guard !passphrase.isEmpty else { return }
-		onImport(passphrase)
+	private func reveal(_ contents: AgentBackup.Contents) {
+		let found = AgentBackup.sections(in: contents.document, secrets: contents.secrets)
+		hasWorkplaces = found.hasWorkplaces
+		hasAuths = found.hasAuths
+		hasPolicy = found.hasPolicy
+		hasSecrets = found.hasSecrets
+		workplaces = found.hasWorkplaces
+		auths = found.hasAuths
+		policy = found.hasPolicy
+		secrets = found.hasSecrets
+	}
+
+	private func schedulePassphraseCheck(immediate: Bool = false) {
+		checkGeneration += 1
+		let generation = checkGeneration
+		let phrase = passphrase
+		let data = file.data
+		let delay: TimeInterval = immediate ? 0 : 0.3
+		guard showPassphrase, !phrase.isEmpty else {
+			checking = false
+			return
+		}
+		checking = true
+		DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) {
+			DispatchQueue.main.async {
+				guard generation == checkGeneration else { return }
+				checking = true
+				DispatchQueue.global(qos: .userInitiated).async {
+					let contents = try? AgentBackup.read(data, passphrase: phrase)
+					DispatchQueue.main.async {
+						guard generation == checkGeneration else { return }
+						checking = false
+						guard let contents else { return }
+						verifiedPhrase = phrase
+						unlocked = contents
+						if file.inspection.sealed {
+							reveal(contents)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	private func finish() {
+		guard canImport else { return }
+		let parts = ExportParts(
+			workplaces: workplaces && hasWorkplaces,
+			auths: auths && hasAuths,
+			policy: policy && hasPolicy,
+			secrets: secrets && hasSecrets)
+		let document: [String: Any]
+		let secretMap: [String: String]
+		if let unlocked {
+			document = unlocked.document
+			secretMap = parts.secrets ? unlocked.secrets : [:]
+		} else if let root = try? JSONSerialization.jsonObject(with: file.data) as? [String: Any] {
+			document = root
+			secretMap = [:]
+		} else {
+			return
+		}
 		passphrase = ""
+		verifiedPhrase = ""
+		onImport(parts, document, secretMap)
 		dismiss()
 	}
 }

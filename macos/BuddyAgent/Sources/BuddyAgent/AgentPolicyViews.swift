@@ -46,7 +46,7 @@ struct PolicyView: View {
 				}
 				if !store.managedPrefs.isEmpty {
 					Label(
-						"MDM locks: \(store.managedPrefs.summaryLine()). Buddy merges these over the Agent document at runtime.",
+						"Locked: \(store.managedPrefs.summaryLine()). These fields can't be edited here.",
 						systemImage: "lock.fill"
 					)
 					.font(.callout)
@@ -141,7 +141,7 @@ struct ConfigPolicySection: View {
 		VStack(alignment: .leading, spacing: 8) {
 			Text("Features").font(.headline)
 			Text(
-				"Served on the Agent config socket. An empty buddy config.yaml uses this document automatically. `features.use_agent` / `force_agent` are client-side (buddy YAML, MDM, or env) — not here. `force_agent` requires the Agent and ignores the rest of config.yaml; managed prefs still apply."
+				"Served on the Agent config socket. An empty buddy config.yaml uses this document automatically. `features.use_agent` and `force_agent` are not edited here."
 			)
 			.font(.caption)
 			.foregroundStyle(.secondary)

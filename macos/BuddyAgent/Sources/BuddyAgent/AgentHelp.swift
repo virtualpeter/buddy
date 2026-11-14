@@ -3,6 +3,7 @@ import SwiftUI
 
 extension Notification.Name {
 	static let agentShowHelp = Notification.Name("BuddyAgentShowHelp")
+	static let agentQuitAfterReset = Notification.Name("BuddyAgentQuitAfterReset")
 }
 
 /// Bundled `AgentHelp.md` and in-app help sheet.

@@ -10,6 +10,12 @@ import (
 	"buddy/internal/buddy/secrets"
 )
 
+func init() {
+	// cred restore refuses while a real Agent socket is up. Keep the suite
+	// on the CLI vault path unless a test turns the probe back on.
+	buddyAgentListening = func() (bool, error) { return false, nil }
+}
+
 func TestCredBackupRestoreRoundTrip(t *testing.T) {
 	prev := credBackupIter
 	credBackupIter = 10_000
@@ -107,9 +113,8 @@ func TestCredBackupWrongPassphrase(t *testing.T) {
 }
 
 // The Buddy Agent reads these files directly (AgentBackup.swift) to import an
-// existing setup with its secrets, so the decrypted payload keys are a wire
-// contract. The Swift reader matches them case-insensitively; renaming one
-// outright would still break it.
+// Buddy Agent import reads this document: clear identity plus one encrypted
+// secrets block. Renaming these keys breaks that import.
 func TestCredBackupPayloadKeysForAgentImport(t *testing.T) {
 	prev := credBackupIter
 	credBackupIter = 10_000
@@ -134,43 +139,122 @@ func TestCredBackupPayloadKeysForAgentImport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plain, err := decryptCredBackup(raw, "pw")
-	if err != nil {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(plain, &payload); err != nil {
-		t.Fatal(err)
-	}
-	for _, key := range []string{"tenant", "tenants", "auths"} {
-		if _, ok := payload[key]; !ok {
-			t.Fatalf("payload is missing %q: %v", key, payload)
+	for _, key := range []string{"context", "contexts", "auths", "features", "channels", "secrets"} {
+		if _, ok := doc[key]; !ok {
+			t.Fatalf("export is missing %q: %v", key, doc)
 		}
 	}
 	var selection map[string]string
-	if err := json.Unmarshal(payload["tenant"], &selection); err != nil {
+	if err := json.Unmarshal(doc["context"], &selection); err != nil {
 		t.Fatal(err)
 	}
-	if selection["Default"] != "sandbox" {
-		t.Fatalf("tenant selection = %v", selection)
+	if selection["default"] != "sandbox" {
+		t.Fatalf("context = %v", selection)
 	}
-	var tenants map[string]map[string]any
-	if err := json.Unmarshal(payload["tenants"], &tenants); err != nil {
+	var contexts map[string]map[string]any
+	if err := json.Unmarshal(doc["contexts"], &contexts); err != nil {
 		t.Fatal(err)
 	}
-	if tenants["sandbox"]["URL"] != "https://example.jamfcloud.com" {
-		t.Fatalf("tenant = %v", tenants["sandbox"])
+	if contexts["sandbox"]["url"] != "https://example.jamfcloud.com" {
+		t.Fatalf("context = %v", contexts["sandbox"])
 	}
 	var auths map[string]map[string]any
-	if err := json.Unmarshal(payload["auths"], &auths); err != nil {
+	if err := json.Unmarshal(doc["auths"], &auths); err != nil {
 		t.Fatal(err)
 	}
 	got := auths["sandbox-cli"]
-	if got["Type"] != "oauth" || got["ClientID"] != "cid" || got["ClientSecret"] != "inline" {
+	if got["type"] != "oauth" || got["clientId"] != "cid" || got["clientSecret"] != nil {
 		t.Fatalf("auth = %v", got)
 	}
-	if list, _ := got["Tenants"].([]any); len(list) != 1 || list[0] != "sandbox" {
-		t.Fatalf("auth tenants = %v", got["Tenants"])
+	if list, _ := got["contexts"].([]any); len(list) != 1 || list[0] != "sandbox" {
+		t.Fatalf("auth contexts = %v", got["contexts"])
+	}
+	plain, err := decryptCredBackup(doc["secrets"], "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var secretMap map[string]string
+	if err := json.Unmarshal(plain, &secretMap); err != nil {
+		t.Fatal(err)
+	}
+	if secretMap["sandbox-cli"] != "inline" {
+		t.Fatalf("secrets = %v", secretMap)
+	}
+
+	plainPath := filepath.Join(dir, "nosecrets.json")
+	if _, err := BackupCreds(cfg, CredBackupOpts{Path: plainPath, NoSecrets: true, SkipConfirm: true}); err != nil {
+		t.Fatal(err)
+	}
+	plainRaw, err := os.ReadFile(plainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plainRaw), "inline") || strings.Contains(string(plainRaw), `"secrets"`) {
+		t.Fatalf("secrets leaked into identity export: %s", plainRaw)
+	}
+}
+
+func TestCredRestoreRefusesWhenAgentOwnsSecrets(t *testing.T) {
+	prev := credBackupIter
+	credBackupIter = 10_000
+	t.Cleanup(func() { credBackupIter = prev })
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, filepath.Join(dir, "no-managed.plist"))
+	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	env, err := encryptCredBackup([]byte(`{"sandbox-cli":"s3cret"}`), "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	envRaw, err := json.Marshal(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := map[string]any{
+		"context": map[string]string{"default": "sandbox"},
+		"contexts": map[string]any{
+			"sandbox": map[string]any{"url": "https://example.jamfcloud.com"},
+		},
+		"auths": map[string]any{
+			"sandbox-cli": map[string]any{
+				"type": "oauth", "clientId": "cid", "contexts": []string{"sandbox"},
+			},
+		},
+		"secrets": json.RawMessage(envRaw),
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "export.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	on := true
+	owned := &Config{Features: FeatureFlags{UseAgent: &on}}
+	if _, err := RestoreCreds(owned, CredBackupOpts{Path: path, Passphrase: "pw", SkipConfirm: true}); err == nil {
+		t.Fatal("expected restore to refuse while Buddy Agent owns configuration")
+	}
+	if ok, _ := HasCredentialSecret("sandbox-cli", secrets.KindClientSecret); ok {
+		t.Fatal("secret was stored in the CLI vault")
+	}
+
+	prevListen := buddyAgentListening
+	buddyAgentListening = func() (bool, error) { return true, nil }
+	t.Cleanup(func() { buddyAgentListening = prevListen })
+	local := &Config{}
+	if _, err := RestoreCreds(local, CredBackupOpts{Path: path, Passphrase: "pw", SkipConfirm: true}); err == nil {
+		t.Fatal("expected restore to refuse while Buddy Agent is running")
+	}
+	if ok, _ := HasCredentialSecret("sandbox-cli", secrets.KindClientSecret); ok {
+		t.Fatal("secret was stored in the CLI vault")
 	}
 }
 
@@ -517,5 +601,124 @@ func TestResolveBackupPassphraseIgnoresDEK(t *testing.T) {
 	}
 	if pass != "explicit" {
 		t.Fatalf("pass = %q", pass)
+	}
+}
+
+func TestCredRestoreAgentExport(t *testing.T) {
+	prev := credBackupIter
+	credBackupIter = 10_000
+	t.Cleanup(func() { credBackupIter = prev })
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(EnvManagedPlist, filepath.Join(dir, "no-managed.plist"))
+	secrets.SetStore(&mockSecretStore{values: map[string]string{}})
+	t.Cleanup(func() { secrets.SetStore(nil) })
+
+	env, err := encryptCredBackup([]byte(`{"sandbox-cli":"s3cret"}`), "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	envRaw, err := json.Marshal(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := map[string]any{
+		"context": map[string]string{"default": "sandbox"},
+		"orgs": map[string]any{
+			"example": map[string]any{
+				"environments": map[string]any{
+					"sandbox": map[string]any{
+						"id":     "env-1",
+						"region": "us",
+						"tenants": map[string]any{
+							"pro": map[string]any{
+								"tenantId": "ten-1",
+								"url":      "https://example.jamfcloud.com",
+							},
+						},
+					},
+				},
+			},
+		},
+		"auths": map[string]any{
+			"sandbox-cli": map[string]any{
+				"type":     "oauth",
+				"clientId": "cid",
+				"contexts": []string{"pro"},
+			},
+		},
+		"features": map[string]any{
+			"classic_instance_only": false,
+			"check_updates":         true,
+		},
+		"channels": map[string]any{},
+		"secrets":  json.RawMessage(envRaw),
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "s3cret") {
+		t.Fatal("secret in plaintext export")
+	}
+	path := filepath.Join(dir, "buddy-export.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	classic := true
+	cfg := &Config{Features: FeatureFlags{ClassicInstanceOnly: &classic}}
+	got, err := RestoreCreds(cfg, CredBackupOpts{Path: path, Passphrase: "correct horse", SkipConfirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Auths != 1 || got.Stored != 1 {
+		t.Fatalf("restore %+v", got)
+	}
+	if cfg.Tenant.Default != "sandbox" {
+		t.Fatalf("default context %q", cfg.Tenant.Default)
+	}
+	pro := cfg.Tenants["pro"]
+	if pro.URL != "https://example.jamfcloud.com" || pro.TenantID != "ten-1" || pro.Org != "example" {
+		t.Fatalf("product tenant %+v", pro)
+	}
+	envWP := cfg.Tenants["sandbox"]
+	if envWP.Region != "us" || envWP.EnvironmentID != "env-1" {
+		t.Fatalf("environment %+v", envWP)
+	}
+	auth := cfg.Auths["sandbox-cli"]
+	if auth.ClientID != "cid" || auth.ClientSecret != "" || len(auth.Tenants) != 1 || auth.Tenants[0] != "pro" {
+		t.Fatalf("auth %+v", auth)
+	}
+	if cfg.Features.ClassicInstanceOnly == nil || *cfg.Features.ClassicInstanceOnly {
+		t.Fatalf("classic_instance_only %+v", cfg.Features.ClassicInstanceOnly)
+	}
+	if cfg.Features.CheckUpdates == nil || !*cfg.Features.CheckUpdates {
+		t.Fatalf("check_updates %+v", cfg.Features.CheckUpdates)
+	}
+	ok, err := HasCredentialSecret("sandbox-cli", secrets.KindClientSecret)
+	if err != nil || !ok {
+		t.Fatalf("secret stored? %v %v", ok, err)
+	}
+
+	plainDoc := map[string]any{
+		"context": map[string]string{"default": "sandbox"},
+		"orgs":    doc["orgs"],
+		"auths":   doc["auths"],
+	}
+	plainRaw, err := json.Marshal(plainDoc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainPath := filepath.Join(dir, "identity.json")
+	if err := os.WriteFile(plainPath, plainRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	again := &Config{}
+	if _, err := RestoreCreds(again, CredBackupOpts{Path: plainPath, SkipConfirm: true}); err != nil {
+		t.Fatal(err)
+	}
+	if again.Auths["sandbox-cli"].ClientID != "cid" || again.Tenants["pro"].URL == "" {
+		t.Fatalf("identity-only restore auths=%+v pro=%+v", again.Auths["sandbox-cli"], again.Tenants["pro"])
 	}
 }

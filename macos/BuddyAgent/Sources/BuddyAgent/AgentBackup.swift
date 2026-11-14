@@ -3,14 +3,9 @@ import CryptoKit
 import Foundation
 import Security
 
-/// Reader for the encrypted file `buddy cred backup` writes: a JSON envelope
-/// (`buddy: cred-backup`) whose body is AES-256-GCM sealed under a
-/// PBKDF2-SHA256 key. Unlike the identity-only `buddy setup export --json`,
-/// a backup carries the secrets too, so importing one fills the Agent's
-/// Keychain without retyping every client secret.
-///
-/// The passphrase is the one typed at `buddy cred backup` time; it is never
-/// stored, and the decrypted payload never leaves this process.
+/// Setup document shared by both Agent exports. Config-only is this JSON.
+/// Cred backup is the same document plus an encrypted `secrets` block.
+/// Older `buddy cred backup` files are still a single encrypted envelope.
 enum AgentBackup {
 	/// What an imported backup contributes: a document shaped like the
 	/// `setup export --json` identity file, plus one secret per auth.
@@ -19,12 +14,90 @@ enum AgentBackup {
 		var secrets: [String: String]
 	}
 
+	/// What a setup file contains before any passphrase is tried.
+	struct Inspection {
+		var sealed: Bool
+		var hasWorkplaces: Bool
+		var hasAuths: Bool
+		var hasPolicy: Bool
+		var hasSecrets: Bool
+	}
+
+	/// Reads the cleartext shape of a setup JSON file. A legacy whole-file
+	/// cred backup is `sealed` and its sections stay unknown until `read`.
+	static func inspect(_ raw: Data) throws -> Inspection {
+		guard let root = try JSONSerialization.jsonObject(with: raw) as? [String: Any] else {
+			throw AgentBackupError.corrupt("file is not a JSON object")
+		}
+		if (root["buddy"] as? String) == kind {
+			return Inspection(
+				sealed: true, hasWorkplaces: false, hasAuths: false, hasPolicy: false, hasSecrets: false)
+		}
+		let found = sections(in: root, secrets: [:])
+		var inspection = found
+		inspection.hasSecrets = root["secrets"] is [String: Any]
+		if !inspection.hasWorkplaces && !inspection.hasAuths && !inspection.hasPolicy && !inspection.hasSecrets {
+			throw AgentBackupError.corrupt("no workplaces, auths, policy, or secrets")
+		}
+		return inspection
+	}
+
+	/// Sections present in an already-decoded setup document.
+	static func sections(in document: [String: Any], secrets: [String: String]) -> Inspection {
+		let selection = (document["context"] as? [String: Any]) ?? (document["tenant"] as? [String: Any])
+		let hasDefault = (selection?["default"] as? String)?.trimmed.isEmpty == false
+		let hasWorkplaces =
+			!(document["orgs"] as? [String: Any] ?? [:]).isEmpty
+			|| !(document["contexts"] as? [String: Any] ?? [:]).isEmpty
+			|| !(document["tenants"] as? [String: Any] ?? [:]).isEmpty
+			|| hasDefault
+		let hasAuths = !(document["auths"] as? [String: Any] ?? [:]).isEmpty
+		let hasPolicy = document["features"] != nil || document["channels"] != nil
+		return Inspection(
+			sealed: false,
+			hasWorkplaces: hasWorkplaces,
+			hasAuths: hasAuths,
+			hasPolicy: hasPolicy,
+			hasSecrets: !secrets.isEmpty)
+	}
+
 	static func read(_ raw: Data, passphrase: String) throws -> Contents {
-		let plain = try decrypt(raw, passphrase: passphrase)
-		guard let payload = try JSONSerialization.jsonObject(with: plain) as? [String: Any] else {
+		guard let root = try JSONSerialization.jsonObject(with: raw) as? [String: Any] else {
 			throw AgentBackupError.corrupt("payload is not an object")
 		}
-		return normalise(payload)
+		// Older files are one envelope around a Go cred-backup payload.
+		if (root["buddy"] as? String) == kind {
+			let plain = try decrypt(raw, passphrase: passphrase)
+			guard let payload = try JSONSerialization.jsonObject(with: plain) as? [String: Any] else {
+				throw AgentBackupError.corrupt("payload is not an object")
+			}
+			return normalise(payload)
+		}
+		// Same document as config-only export. Secrets, when present, are one block.
+		var document = root
+		var secrets: [String: String] = [:]
+		if let block = root["secrets"] as? [String: Any] {
+			let blockData = try JSONSerialization.data(withJSONObject: block)
+			let plain = try decrypt(blockData, passphrase: passphrase)
+			secrets = decodeSecretMap(plain)
+			document.removeValue(forKey: "secrets")
+		}
+		return Contents(document: document, secrets: secrets)
+	}
+
+	private static func decodeSecretMap(_ plain: Data) -> [String: String] {
+		guard let obj = try? JSONSerialization.jsonObject(with: plain) else { return [:] }
+		if let typed = obj as? [String: String] {
+			return typed.filter { !$0.value.trimmed.isEmpty }
+		}
+		guard let raw = obj as? [String: Any] else { return [:] }
+		var out: [String: String] = [:]
+		for (name, value) in raw {
+			if let secret = value as? String, !secret.trimmed.isEmpty {
+				out[name] = secret
+			}
+		}
+		return out
 	}
 
 	/// Same PBKDF2 iteration count as `buddy cred backup` (600_000).
@@ -35,9 +108,9 @@ enum AgentBackup {
 		var missingSecrets: [String]
 	}
 
-	/// Builds a `buddy cred backup` payload and encrypts it. Auth secrets use
-	/// Go struct field names (`ClientSecret`, `Password`, …) so `cred restore`
-	/// and Agent import both understand the file.
+	/// Builds the same document as a config-only export, plus an encrypted
+	/// `secrets` block. Identity and policy stay in the clear; only secret
+	/// values are sealed.
 	static func write(
 		defaultContext: String,
 		workplaces: [String: Workplace],
@@ -46,24 +119,48 @@ enum AgentBackup {
 		features: AgentFeatures,
 		channels: [String: ChannelPolicy],
 		secrets: [String: String],
-		passphrase: String
+		passphrase: String,
+		includeWorkplaces: Bool = true,
+		includeAuths: Bool = true,
+		includePolicy: Bool = true,
+		includeSecrets: Bool = true
 	) throws -> (data: Data, result: WriteResult) {
-		let payload = try backupPayload(
+		let authsInFile = includeAuths || includeSecrets
+		var doc = AgentConfigExport.exportDocument(
 			defaultContext: defaultContext,
 			workplaces: workplaces,
 			orgs: orgs,
 			auths: auths,
 			features: features,
 			channels: channels,
-			secrets: secrets)
-		let plain = try JSONSerialization.data(withJSONObject: payload)
-		let data = try encrypt(plain, passphrase: passphrase)
-		let missing = auths.keys.sorted().compactMap { name -> String? in
-			guard let auth = auths[name], auth.type != "command" else { return nil }
-			if secrets[name] != nil { return nil }
-			return auth.type == "basic" ? "\(name) password" : "\(name) client-secret"
+			includeWorkplaces: includeWorkplaces,
+			includeAuths: authsInFile,
+			includePolicy: includePolicy)
+		let secretMap = includeSecrets ? secrets.filter { !$0.value.trimmed.isEmpty } : [:]
+		if includeSecrets {
+			let plain = try JSONSerialization.data(withJSONObject: secretMap)
+			let envelopeData = try encrypt(plain, passphrase: passphrase)
+			guard let envelope = try JSONSerialization.jsonObject(with: envelopeData) as? [String: Any] else {
+				throw AgentBackupError.corrupt("secrets block is not an object")
+			}
+			doc["secrets"] = envelope
 		}
-		return (data, WriteResult(auths: auths.count, missingSecrets: missing))
+		if doc.isEmpty {
+			throw AgentBackupError.corrupt("nothing to export")
+		}
+		guard JSONSerialization.isValidJSONObject(doc) else {
+			throw AgentBackupError.corrupt("backup document is not JSON-serializable")
+		}
+		var data = try JSONSerialization.data(withJSONObject: doc, options: [.prettyPrinted, .sortedKeys])
+		data.append(0x0A)
+		let missing = includeSecrets
+			? auths.keys.sorted().compactMap { name -> String? in
+				guard let auth = auths[name], auth.type != "command" else { return nil }
+				if secretMap[name] != nil { return nil }
+				return auth.type == "basic" ? "\(name) password" : "\(name) client-secret"
+			}
+			: []
+		return (data, WriteResult(auths: authsInFile ? auths.count : 0, missingSecrets: missing))
 	}
 
 	// MARK: envelope
@@ -169,32 +266,11 @@ enum AgentBackup {
 		return derived
 	}
 
-	// MARK: payload
+	// MARK: legacy payload
 
-	private static func backupPayload(
-		defaultContext: String,
-		workplaces: [String: Workplace],
-		orgs: [String: OrgRoot],
-		auths: [String: AgentAuth],
-		features: AgentFeatures,
-		channels: [String: ChannelPolicy],
-		secrets: [String: String]
-	) throws -> [String: Any] {
-		try AgentConfigExport.credBackupPayload(
-			defaultContext: defaultContext,
-			workplaces: workplaces,
-			orgs: orgs,
-			auths: auths,
-			features: features,
-			channels: channels,
-			secrets: secrets)
-	}
-
-	/// The backup body is Go structs marshalled without json tags, so its keys
-	/// are field names (`ClientSecret`, `URL`, …) while the orgs tree and the
-	/// top level use lowercase. Lookups here are case-insensitive so either
-	/// spelling works, and the result is the lowercase shape the identity
-	/// import already understands.
+	/// Older `buddy cred backup` bodies are Go structs marshalled without json
+	/// tags, so keys are field names (`ClientSecret`, `URL`, …). Lookups are
+	/// case-insensitive, and the result is the lowercase identity document.
 	static func normalise(_ payload: [String: Any]) -> Contents {
 		var contexts: [String: Any] = [:]
 		for (name, raw) in payload.dict("tenants") ?? payload.dict("contexts") ?? [:] {

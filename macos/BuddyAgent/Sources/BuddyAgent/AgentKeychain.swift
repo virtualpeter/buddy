@@ -426,6 +426,156 @@ enum AgentKeychain {
 		}
 	}
 
+	/// Services that hold Buddy generic passwords: the Agent, the unsigned CLI,
+	/// and the signed CLI.
+	static let buddyServices = [service, "buddy", "virtualpete.buddy.cli"]
+
+	/// Deletes every generic-password item on those services, in both the data
+	/// protection keychain and the login keychain. In-memory copies are dropped.
+	static func deleteAllBuddyItems(context: LAContext?) {
+		for name in buddyServices {
+			if name == service, keychainAccessGroup != nil {
+				deleteServiceItems(name, dataProtection: true, includeAccessGroup: true, context: context)
+			}
+			deleteServiceItems(name, dataProtection: true, includeAccessGroup: false, context: context)
+			deleteServiceItems(name, dataProtection: false, includeAccessGroup: false, context: context)
+			deleteLoginServiceViaSecurity(name)
+		}
+		forgetMemory()
+	}
+
+	private static func deleteServiceItems(
+		_ name: String, dataProtection: Bool, includeAccessGroup: Bool, context: LAContext?
+	) {
+		var query: [CFString: Any] = [
+			kSecClass: kSecClassGenericPassword,
+			kSecAttrService: name,
+			kSecUseDataProtectionKeychain: dataProtection,
+			kSecUseAuthenticationUI: kSecUseAuthenticationUIFail,
+		]
+		if includeAccessGroup, let accessGroup = keychainAccessGroup {
+			query[kSecAttrAccessGroup] = accessGroup
+		}
+		if let context {
+			query[kSecUseAuthenticationContext] = context
+		}
+		let status = SecItemDelete(query as CFDictionary)
+		switch status {
+		case errSecSuccess:
+			log("deleted Keychain items for \(name) (data protection \(dataProtection))")
+		case errSecItemNotFound:
+			break
+		default:
+			log(
+				"Keychain refused to delete \(name) (data protection \(dataProtection), OSStatus \(status)\(statusNote(status)))"
+			)
+		}
+	}
+
+	/// Login-keychain items written by `security` (the unsigned CLI) are not always
+	/// visible to SecItem when this app has a keychain access group. List accounts
+	/// first so a refused item does not hide the rest of the service.
+	private static func deleteLoginServiceViaSecurity(_ name: String) {
+		guard let dump = runSecurity(["dump-keychain"]) else { return }
+		let accounts = loginKeychainAccounts(in: dump.output, service: name)
+		for account in accounts {
+			var removed = 0
+			for _ in 0..<20 {
+				switch deleteLoginItem(service: name, account: account) {
+				case .deleted:
+					removed += 1
+					continue
+				case .notFound:
+					break
+				case .refused:
+					log("login Keychain refused to delete \(name) account \(account)")
+					break
+				}
+				break
+			}
+			if removed > 0 {
+				log("deleted \(removed) login Keychain item(s) for \(name) account \(account)")
+			}
+		}
+	}
+
+	private enum LoginDelete {
+		case deleted
+		case notFound
+		case refused
+	}
+
+	private static func deleteLoginItem(service: String, account: String) -> LoginDelete {
+		guard let result = runSecurity(["delete-generic-password", "-s", service, "-a", account]) else {
+			return .refused
+		}
+		if result.status == 0 { return .deleted }
+		let text = result.output.lowercased()
+		if text.contains("could not be found") || text.contains("item not found") {
+			return .notFound
+		}
+		return .refused
+	}
+
+	/// Accounts on generic-password items whose service matches `service`.
+	static func loginKeychainAccounts(in dump: String, service: String) -> [String] {
+		let svcBlob = "\"svce\"<blob>=\"\(service)\""
+		let svcHex = "0x00000007 <blob>=\"\(service)\""
+		let acctPrefix = "\"acct\"<blob>=\""
+		var accounts: [String] = []
+		var seen = Set<String>()
+		var inGenp = false
+		var isService = false
+		var acct = ""
+		func flush() {
+			if inGenp, isService, !acct.isEmpty, seen.insert(acct).inserted {
+				accounts.append(acct)
+			}
+			acct = ""
+			isService = false
+			inGenp = false
+		}
+		for line in dump.split(separator: "\n", omittingEmptySubsequences: false) {
+			let trim = line.trimmingCharacters(in: .whitespaces)
+			if trim.hasPrefix("class:") {
+				flush()
+				inGenp = trim.contains("\"genp\"")
+				continue
+			}
+			guard inGenp else { continue }
+			if trim.contains(svcBlob) || trim.contains(svcHex) {
+				isService = true
+			}
+			if let range = trim.range(of: acctPrefix) {
+				let rest = trim[range.upperBound...]
+				if let end = rest.firstIndex(of: "\"") {
+					acct = String(rest[..<end])
+				}
+			}
+		}
+		flush()
+		return accounts
+	}
+
+	private static func runSecurity(_ arguments: [String]) -> (status: Int32, output: String)? {
+		let process = Process()
+		process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+		process.arguments = arguments
+		let pipe = Pipe()
+		process.standardOutput = pipe
+		process.standardError = pipe
+		process.standardInput = FileHandle.nullDevice
+		do {
+			try process.run()
+		} catch {
+			log("could not run security \(arguments.joined(separator: " ")): \(error)")
+			return nil
+		}
+		let data = pipe.fileHandleForReading.readDataToEndOfFile()
+		process.waitUntilExit()
+		return (process.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+	}
+
 	/// Drops in-memory copies (Lock / Quit). Keychain items stay.
 	static func forgetMemory() {
 		lock.lock()

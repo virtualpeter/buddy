@@ -208,6 +208,13 @@ final class AgentState: ObservableObject {
 		notify()
 	}
 
+	func dropAllTokens() {
+		lock.lock()
+		tokens.removeAll()
+		lock.unlock()
+		notify()
+	}
+
 	private func notify() {
 		DispatchQueue.main.async {
 			self.objectWillChange.send()
