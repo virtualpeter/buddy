@@ -2,6 +2,12 @@
 
 buddy did not keep a changelog before v12. This page is the user-facing list of notable changes per tagged release. Version strings come from git tags (`git describe`). Maintainers add a section with `make tag`.
 
+## v12.4.0
+
+- refactor Import/Export and add Reset
+- Liquid Glass refactor of agent
+- Limit GitHub release notes to the current tag section.
+
 ## v12.3.0
 
 - Match script commands and builtins on id, name, or download filename.
