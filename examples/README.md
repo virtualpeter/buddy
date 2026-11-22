@@ -16,6 +16,7 @@ Arguments after `--` appear in the global `args` list inside the script.
 | File | Purpose |
 |------|---------|
 | [bump-release.buddy](bump-release.buddy) | Illustrative workflow: resolve a policy by trigger, then update package install params (adjust IDs and names to your Jamf instance). |
+| [script-sync.buddy](script-sync.buddy) | Sync a directory of script files with Jamf (`status`, `down`, `up`). Match is the download filename. |
 | [demochange.buddy](demochange.buddy) | Easiest change-batch starter: edit the SETUP constants, then `plan_change` / optional `run_change`. Howto: [docs/change-batches.md](../docs/change-batches.md). |
 | [app-desired.buddy](app-desired.buddy) | Desired-state app config (`app_reconcile`); generate with `buddy app import`. Cookbook: [docs/apps](../docs/generated/human/apps.md). |
 | [change-batch-santa.buddy](change-batch-santa.buddy) | Same change-record flow with Santa-shaped triggers/package patterns (tenant-specific). Howto: [docs/change-batches.md](../docs/change-batches.md). |

@@ -285,6 +285,8 @@ func makeBuiltins(credName string, logger *slog.Logger, trace bool) starlark.Str
 	putBuiltin(dict, "script_put", scriptPutBuiltin(credName, logger))
 	putBuiltin(dict, "script_delete", scriptDelete(credName, logger))
 	putBuiltin(dict, "script_check", scriptCheckBuiltin(credName, logger))
+	putBuiltin(dict, "scripts_check", scriptsCheckBuiltin(credName, logger))
+	putBuiltin(dict, "script_diff", scriptDiffBuiltin(credName, logger))
 	putBuiltin(dict, "script_download", scriptDownloadBuiltin(credName, logger))
 	putBuiltin(dict, "script_rename", scriptRenameBuiltin(credName, logger))
 	putBuiltin(dict, "script_history", scriptHistoryBuiltin(credName, logger))
@@ -2131,8 +2133,9 @@ func scriptDetailValue(s *buddy.ScriptDetail) (starlark.Value, error) {
 func scriptUpdate(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var scriptID, file, name starlark.String
+		var create starlark.Bool
 		var sess sessionArgs
-		if err := starlark.UnpackArgs("script_update", args, kwargs, "id?", &scriptID, "file", &file, "name?", &name,
+		if err := starlark.UnpackArgs("script_update", args, kwargs, "id?", &scriptID, "file", &file, "name?", &name, "create?", &create,
 			"tenant?", &sess.Tenant,
 			"surface?", &sess.Surface,
 			"auth?", &sess.Auth); err != nil {
@@ -2140,6 +2143,9 @@ func scriptUpdate(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		}
 		if scriptID != "" && name != "" {
 			return nil, fmt.Errorf("script_update: pass either id= or name=, not both")
+		}
+		if create && (scriptID != "" || name != "") {
+			return nil, fmt.Errorf("script_update: create= applies when the script is chosen by the file")
 		}
 		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
 		if sessErr != nil {
@@ -2154,7 +2160,7 @@ func scriptUpdate(credName string, logger *slog.Logger) func(*starlark.Thread, *
 		case name != "":
 			_, err = buddy.ScriptUpdateByName(c, scriptOpts, string(name), string(file), logger)
 		default:
-			_, err = buddy.ScriptUpdateByFile(c, scriptOpts, string(file), logger)
+			_, err = buddy.ScriptUpdateByFile(c, scriptOpts, string(file), bool(create), logger)
 		}
 		if err != nil {
 			return resultErr(err.Error())

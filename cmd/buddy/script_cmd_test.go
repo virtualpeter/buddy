@@ -38,6 +38,14 @@ func TestScriptCheckAndRenameAreCommands(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "file") || strings.Contains(err.Error(), "unknown script subcommand") {
 		t.Fatalf("check: %v", err)
 	}
+	err = runJamfScript("", buddy.Opts{}, []string{"diff"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "file") || strings.Contains(err.Error(), "unknown script subcommand") {
+		t.Fatalf("diff: %v", err)
+	}
+	err = runJamfScript("", buddy.Opts{}, []string{"di"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "file") || strings.Contains(err.Error(), "unknown script subcommand") {
+		t.Fatalf("di: %v", err)
+	}
 	err = runJamfScript("", buddy.Opts{}, []string{"rename"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "script or new name") || strings.Contains(err.Error(), "unknown script subcommand") {
 		t.Fatalf("rename: %v", err)

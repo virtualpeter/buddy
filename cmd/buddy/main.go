@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -2722,7 +2723,7 @@ func runClientSet(credName string, opts buddy.Opts, args []string, log *slog.Log
 }
 
 func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Logger) error {
-	scriptSubs := []string{clispec.SubList, clispec.SubGet, "history", clispec.SubCreate, clispec.SubUpload, clispec.SubUpdate, clispec.SubCheck, clispec.SubDownload, clispec.SubRename, clispec.SubDelete, clispec.SubPut, clispec.SubClone, "copy", "migrate", clispec.SubSet, clispec.SubHelp}
+	scriptSubs := []string{clispec.SubList, clispec.SubGet, "history", clispec.SubCreate, clispec.SubUpload, clispec.SubUpdate, clispec.SubCheck, clispec.SubDiff, clispec.SubDownload, clispec.SubRename, clispec.SubDelete, clispec.SubPut, clispec.SubClone, "copy", "migrate", clispec.SubSet, clispec.SubHelp}
 	if err := resolveArg0("script", args, scriptSubs); err != nil {
 		return err
 	}
@@ -2862,7 +2863,7 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 		var id string
 		var err error
 		if len(positional) == 1 {
-			id, err = buddy.ScriptUpdateByFile(credName, opts, positional[0], log)
+			id, err = buddy.ScriptUpdateByFile(credName, opts, positional[0], false, log)
 		} else if buddy.ScriptTokenIsID(positional[0]) {
 			id = strings.TrimSpace(positional[0])
 			err = buddy.ScriptUpdate(credName, opts, id, positional[1], log)
@@ -2892,6 +2893,26 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 			}
 		}
 		return buddy.ScriptCheckPrint(credName, args[0], id, log)
+
+	case clispec.SubDiff:
+		if len(args) < 1 {
+			return missingArg("file", clispec.UsageHelp(clispec.CmdScript))
+		}
+		if len(args) > 2 {
+			return fmt.Errorf("unexpected arguments after script: %v", args[2:])
+		}
+		ref := ""
+		if len(args) == 2 {
+			ref = strings.TrimSpace(args[1])
+			if ref == "" {
+				return missingArg("script", clispec.UsageHelp(clispec.CmdScript))
+			}
+		}
+		err := buddy.ScriptDiffPrint(credName, args[0], ref, log)
+		if errors.Is(err, buddy.ErrScriptDiffers) {
+			os.Exit(1)
+		}
+		return err
 
 	case clispec.SubRename:
 		if len(args) < 2 {
@@ -2934,7 +2955,7 @@ func runJamfScript(credName string, opts buddy.Opts, args []string, log *slog.Lo
 		return runJamfScriptSet(credName, opts, args, log)
 
 	default:
-		return errUnknownSubcommand("script", subcommand, []string{clispec.SubList, clispec.SubGet, "history", clispec.SubCreate, clispec.SubUpload, clispec.SubUpdate, clispec.SubCheck, clispec.SubDownload, clispec.SubRename, clispec.SubDelete, clispec.SubPut, clispec.SubClone, "copy", "migrate", clispec.SubSet})
+		return errUnknownSubcommand("script", subcommand, []string{clispec.SubList, clispec.SubGet, "history", clispec.SubCreate, clispec.SubUpload, clispec.SubUpdate, clispec.SubCheck, clispec.SubDiff, clispec.SubDownload, clispec.SubRename, clispec.SubDelete, clispec.SubPut, clispec.SubClone, "copy", "migrate", clispec.SubSet})
 	}
 }
 

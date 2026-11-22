@@ -4,6 +4,7 @@ go 1.27.3
 
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0
+	github.com/aymanbagabas/go-udiff v0.4.2
 	github.com/beevik/etree v1.8.1
 	github.com/itchyny/gojq v0.12.19
 	github.com/modelcontextprotocol/go-sdk v1.8.0

@@ -11,22 +11,26 @@ const ScriptsBuiltinsSection = `SCRIPT (Jamf Pro scripts)
       Params: filter?: bare term → name=="*term*", or full RSQL. page?: int (omit = all);
         page_size?: int (default 200). localFilename is the download name.
   script(id=?) | script(name=?) | script(file=?, tenant?, surface?, auth?)
-      Does: Load one script by id, exact name, or a local file's download name.
+      Does: Load one script by id, exact name, or local filename.
       → value: dict (full Jamf JSON: id, name, categoryId, scriptContents, …)
-      Params: pass exactly one of id=, name=, or file=. name= is exact and case-insensitive.
-        file= is an existing path matched by script_local_filename. Zero or several
+      Params: pass exactly one of id=, name=, or file=. name= is an exact Jamf name, or a
+        local filename when no script has that exact name. restart-jamf-agent.sh finds
+        Restart Jamf Agent!. file= matches by the download name of its basename, so
+        notes.py finds notes.py. The file does not have to exist. Zero or several
         download-name hits raise and list ids.
   script_local_filename(name)
       Does: Return the download filename for a Jamf script name. No API call.
       → value: str
-      Params: name: str. Install Chrome.SH → install-chrome.sh. notes.py → notes-py.sh.
+      Params: name: str. Install Chrome.SH → Install-Chrome.SH. notes.py → notes.py.
+        Letter case is kept. A lookup still matches that name in any case.
   script_local_stem(filename)
       Does: Return the stem of a download filename. No API call.
       → value: str
-      Params: filename: str. install-chrome.sh → install-chrome.
-      Notes: The basename must already be a download name, so
+      Params: filename: str. install-chrome.sh → install-chrome. notes.py → notes.
+      Notes: The basename must already be a download name. For a .sh name,
         script_local_filename(script_local_stem(filename)) is that filename again.
-        A name with spaces, or notes.py, raises. This is the stem, not the original Jamf name.
+        notes.py is a download name; its stem is notes, and script_local_filename("notes")
+        is notes.sh. A name with spaces raises. This is the stem, not the original Jamf name.
   script_contents(id, tenant?, surface?, auth?)
       Does: Return the raw script body only.
       → value: str
@@ -43,11 +47,14 @@ const ScriptsBuiltinsSection = `SCRIPT (Jamf Pro scripts)
         downloads to script_local_filename(name). Jamf POST returns {id, href}.
         The builtin returns the posted script with id applied (plus any extra Script fields in the
         POST body). No follow-up GET.
-  script_update(id?, file, name?, tenant?, surface?, auth?)
+  script_update(id?, file, name?, create?=False, tenant?, surface?, auth?)
       Does: Replace a script's body from a local file.
       → None
       Params: file: str (filesystem path, required). Pass id= or name= to choose the script.
-        Omit both to update the script that owns that download filename. name= is the exact Jamf name.
+        Omit both to update the script that owns that download filename. name= is an exact
+        Jamf name or a local filename. The file's basename is slugged the same way.
+        create?: bool. With no id= or name=, a missing script is created and named from
+        the basename. Default false still raises when the script is absent.
   script_put(id, dict, tenant?, surface?, auth?)
       Does: Fetch the script, merge known keys from dict, and PUT the record.
       → value: dict (updated script; PUT body confirms the write)
@@ -56,29 +63,50 @@ const ScriptsBuiltinsSection = `SCRIPT (Jamf Pro scripts)
   script_check(file, id?, tenant?, surface?, auth?)
       Does: SHA-256 the local file against the script body.
       → value: dict {ok, class, id, name, file, sha256, localSha256}
-      Params: file: str. id?: str/int. Omit id to resolve the download filename.
+      Params: file: str. id?: str/int. Omit id to resolve the download name of the basename.
       Notes: class is match, mismatch, or missing. Missing is ok=False and does not raise.
-        Several owners raise. Bytes are compared as stored.
+        Several owners raise. Bytes are compared as stored. notes.py matches notes.py.
+  scripts_check(dir, tenant?, surface?, auth?)
+      Does: Compare each file in a directory with the Jamf script that downloads as that filename.
+      → value: list of {class, path, file, id, name}
+      Params: dir: str. Subdirectories are skipped.
+      Notes: class is match, mismatch, missing (local file, no Jamf script), or remote-only
+        (Jamf script, no local file). path is empty for remote-only. id and name are empty
+        when missing. Rows are sorted by file, then id. A local file whose download name
+        is owned by several scripts raises. Two local files that slug to one name raise.
+        Remote-only rows are still listed when they share a name. Bytes are compared as stored.
+  script_diff(file, id?, name?, tenant?, surface?, auth?)
+      Does: Diff a local file against the script body.
+      → value: dict {ok, class, id, name, file, diff}
+      Params: file: str. Pass id= or name=, not both. Omit both to resolve the file's
+        download name. name= is an exact Jamf name or a local filename. id= is a script id.
+      Notes: class is match, differ, or missing. diff is the same text as the diff command,
+        with the Jamf body as the first file and the local file as the second. Empty on
+        match and missing. Missing is ok=False and does not raise. Several owners raise.
+        Bytes are compared as stored.
   script_download(id?, path?, name?, tenant?, surface?, auth?)
       Does: Write a script body to a local file.
       → value: str (path written)
-      Params: pass exactly one of id= or name=. path?: str. Omit path to use the download filename.
+      Params: pass exactly one of id= or name=. name= is an exact Jamf name or a local
+        filename. path?: str. Omit path to use the download filename.
   script_rename(id?, name, file?, from?, tenant?, surface?, auth?)
       Does: Rename a script. name is the new Jamf name.
       → None
-      Params: pass exactly one of id=, file=, or from=. from= is the exact current Jamf name.
+      Params: pass exactly one of id=, file=, or from=. from= is the exact current Jamf name
+        or a local filename.
         file= is a local download file and is renamed to the new download name.
       Notes: Refuses an existing name or a download filename owned by another script.
         file= also refuses when the destination path already exists.
   script_history(id?, name?, file?, limit?, tenant?, surface?, auth?)
       Does: Return recent audit history for one script.
       → value: list of {id, username, date, note, details}
-      Params: pass exactly one of id=, name=, or file=. limit?: int (default 20).
+      Params: pass exactly one of id=, name=, or file=. name= is an exact Jamf name or a
+        local filename. limit?: int (default 20).
   script_delete(id=?) | script_delete(ids=?) | script_delete(name=?) | script_delete(file=?, tenant?, surface?, auth?)
       Does: Delete one or more Jamf Pro scripts (DELETE /api/v1/scripts/{id}).
       → None
-      Params: pass exactly one of id= (one script), ids= (one ID or a list), name= (exact name),
-        or file= (local download file). IDs are str/int. A file argument does not delete the local file.
+      Params: pass exactly one of id= (one script), ids= (one ID or a list), name= (exact name
+        or local filename), or file= (local file). IDs are str/int. A file argument does not delete the local file.
         tenant?/surface?/auth?: omit for process defaults.
   script_clone(id, name, category_id?, tenant?, surface?, auth?)
       Does: Clone a script in the same session (alias of script_copy without to_*).
@@ -113,8 +141,9 @@ Subcommands:
   create <name> <file>
   upload|update <file> [--name=<new-name>]          Replace the script that downloads as this filename
   upload|update <script-id>|<name> <file> [--name=<new-name>]
-                                                    Replace by id or exact name
+                                                    Replace by id, exact name, or local filename
   check <file> [<script-id>]                        SHA-256 the local file against the script body
+  diff <file> [<script>]                            Diff the local file against the script body
   download <script-id>|<name> [outfile]             Save script body (default: download name)
   rename <script> <new-name>                        Rename by id, exact name, or local file
   delete <script> [<script>...]                     Delete by id, exact name, or local file
@@ -161,20 +190,33 @@ Flags for 'migrate':
   --to-auth=<auth>
 
 Notes:
-  <script> is an id, an exact name, or a local file whose name is the download filename.
-  get id prints only the id. When the argument is an existing file, it is matched by
-  download name; otherwise it is an exact name, including a numeric string.
-  Download names are lowercase. Spaces and punctuation become hyphens, and .sh is
-  the extension. A Jamf name that already ends in .sh keeps it: Install Chrome.SH
-  downloads as install-chrome.sh. Restart Jamf Agent! downloads as restart-jamf-agent.sh.
+  <script> is an id, an exact Jamf name, or a local filename.
+  The local filename is the download name from list. restart-jamf-agent.sh finds
+  Restart Jamf Agent! with or without that file in the working directory.
+  An existing file matches by slugging its basename, so Install Chrome.SH finds
+  Install-Chrome.SH. A trailing two-character extension is kept: notes.py stays notes.py.
+  Letter case is kept. A lookup matches the download name in any case, so
+  tabninekiller.sh finds TabNineKiller.sh.
+  get id prints only the id. An existing file matches by download name. Any other
+  get id token is an exact name, then a local filename. A numeric string that is
+  not an existing file stays an exact name.
+  Download names keep letter case. Spaces and punctuation become hyphens. A trailing
+  two-character extension is kept (.sh, .py), in its own case. Anything else gets .sh.
+  Install Chrome.SH downloads as Install-Chrome.SH. notes.py downloads as notes.py.
+  Restart Jamf Agent! downloads as Restart-Jamf-Agent.sh. A .sh that is not at the
+  end stays punctuation.
   create <file> accepts only that form and stores the filename as the Jamf name.
   create fails when the name or that download name is already used. upload and update
   are the same and fail when no script owns the file. check prints the id and exits
-  0 only when the SHA-256 values match. rename of a local file also renames that file.
+  0 only when the SHA-256 values match. diff prints the same text as the diff command
+  and exits 0 only when the bytes match. The Jamf body is the first file. < lines are
+  Jamf and > lines are the local file. The optional script is an id, an exact name, or
+  a local filename.
+  rename of a local file also renames that file.
   delete leaves the local file in place. More than one match is an error.
   list's Local Filename column is that download filename. --json adds localFilename to each summary.
   A file lookup asks Jamf for names containing the filename's tokens, then compares
-  download names. When that page has no match it lists every script once.
+  download names. When that page has no match, or Jamf rejects the filter, it lists every script once.
 
 Examples:
   buddy script list --filter=Chrome
@@ -186,6 +228,7 @@ Examples:
   buddy script create "Install Chrome" install-chrome.sh
   buddy script update install-chrome.sh
   buddy script check install-chrome.sh
+  buddy script diff restart-jamf-agent.sh
   buddy script put 7 script.json
   buddy script clone 7 "Install Chrome copy"
   buddy script copy 7 --name="Install Chrome" --to-tenant=sandbox

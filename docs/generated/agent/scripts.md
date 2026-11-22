@@ -12,6 +12,8 @@ keywords:
   - script_clone
   - script_delete
   - script_check
+  - scripts_check
+  - script_diff
   - script_download
   - script_rename
   - script_history
@@ -32,9 +34,11 @@ Jamf Pro scripts — list summaries vs full body, create/update/delete, and copy
 ## Facts
 
 - List: `scripts(filter?)` · `buddy script list` — Summaries `{id, name, categoryId, categoryName, localFilename}`. Omit page to fetch every page. `--page` fetches one page.
-- Load: `script(id=…)` / `script(name=…)` / `script(file=…)` / `script_contents(id=…)` · `buddy script get` / `get contents` / `get id` — `script()` and the get commands accept an id, an exact name, or a local download file. `script_contents(id)` returns the body for an id.
+- Load: `script(id=…)` / `script(name=…)` / `script(file=…)` / `script_contents(id=…)` · `buddy script get` / `get contents` / `get id` — `script()` and the get commands accept an id, an exact name, or a local filename. The local filename matches with or without the file on disk. `script_contents(id)` returns the body for an id.
 - Create / update: `script_create` / `script_put` / `script_update` · `buddy script create` / `upload|update` / `put` — CLI create reads a file. `script_create` takes the body as a string. Both accept os requirements and parameter4–parameter11, and both refuse a taken name or download filename. `upload` and `update` replace the script that owns the file. `put` merges known JSON keys onto the current record.
-- Check: `script_check(file, id?)` · `buddy script check <file> [<script-id>]` — SHA-256 of the local file against the script body. `missing` is ok=False. Exit 0 only on a match.
+- Check: `script_check(file, id?)` · `buddy script check <file> [<script-id>]` — SHA-256 of the local file against the script body. The file basename is slugged to its download name. `missing` is ok=False. Exit 0 only on a match.
+- Directory check: `scripts_check(dir)` — Compare every file in a directory with Jamf by download filename. Rows are `match`, `mismatch`, `missing`, or `remote-only`.
+- Diff: `script_diff(file, id?, name?)` · `buddy script diff <file> [<script>]` — Same text as the diff command. The Jamf body is the first file and the local file is the second. Exit 0 only when the bytes match.
 - Download / rename / history: `script_download` / `script_rename` / `script_history` · `buddy script download` / `rename` / `history` — Download writes the download filename when path is omitted. Rename of a local file also renames that file. History accepts an id, exact name, or local file.
 - Delete: `script_delete(id=…)` / `script_delete(ids=…)` / `script_delete(name=…)` / `script_delete(file=…)` · `buddy script delete` — One mode per call. The local file is left in place.
 - Copy / migrate: `script_copy` / `script_clone` / `script_migrate` · `buddy script copy` / `clone` / `migrate` — The builtins take a source id. The CLI accepts an id, exact name, or local file. Clone stays in the same session. Copy and migrate remap category by name. Migrate upserts by exact name.
@@ -85,7 +89,7 @@ Returns: dict
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "file": {
-      "description": "local path matched by download filename",
+      "description": "local path; basename is matched as a download filename",
       "type": "string"
     },
     "id": {
@@ -93,7 +97,7 @@ Returns: dict
       "type": "string"
     },
     "name": {
-      "description": "exact Jamf name",
+      "description": "exact Jamf name, or a local filename when that exact name is absent",
       "type": "string"
     }
   },
@@ -185,6 +189,68 @@ Returns: dict {ok, class, id, name, file, sha256, localSha256}
 
 - class is match, mismatch, or missing. missing is ok=False and does not raise.
 
+### scripts_check
+
+Compare a directory of files with Jamf scripts
+
+Returns: list of {class, path, file, id, name}
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "dir": {
+      "description": "directory of script files",
+      "type": "string"
+    }
+  },
+  "required": [
+    "dir"
+  ],
+  "title": "scripts_check",
+  "type": "object"
+}
+```
+
+- class is match, mismatch, missing, or remote-only. Subdirectories are skipped. A local file owned by several scripts raises. Two local files that slug to one name raise.
+
+### script_diff
+
+Diff a local file against a script body
+
+Returns: dict {ok, class, id, name, file, diff}
+
+#### Parameters (JSON Schema)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "file": {
+      "description": "local file",
+      "type": "string"
+    },
+    "id": {
+      "description": "script id",
+      "type": "string"
+    },
+    "name": {
+      "description": "exact Jamf name or local filename",
+      "type": "string"
+    }
+  },
+  "required": [
+    "file"
+  ],
+  "title": "script_diff",
+  "type": "object"
+}
+```
+
+- Pass id= or name=, not both. Omit both to use the file's download name. class is match, differ, or missing. diff is the same text as the diff command, empty on match and missing. < lines are the Jamf body. > lines are the local file.
+
 ### script_download
 
 Write a script body to a local file
@@ -202,7 +268,7 @@ Returns: str
       "type": "string"
     },
     "name": {
-      "description": "exact Jamf name",
+      "description": "exact Jamf name or local filename",
       "type": "string"
     },
     "path": {
@@ -234,7 +300,7 @@ Returns: None
       "type": "string"
     },
     "from": {
-      "description": "exact current Jamf name",
+      "description": "exact current Jamf name or local filename",
       "type": "string"
     },
     "id": {
@@ -281,7 +347,7 @@ Returns: list of {id, username, date, note, details}
       "type": "integer"
     },
     "name": {
-      "description": "exact Jamf name",
+      "description": "exact Jamf name or local filename",
       "type": "string"
     }
   },
@@ -368,7 +434,7 @@ Returns: None
       "type": "string"
     },
     "name": {
-      "description": "exact Jamf name",
+      "description": "exact Jamf name or local filename",
       "type": "string"
     }
   },

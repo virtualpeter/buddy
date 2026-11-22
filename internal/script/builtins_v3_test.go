@@ -33,7 +33,7 @@ func TestV3BuiltinNamesPresent(t *testing.T) {
 	for _, name := range []string{
 		"policies", "policy", "policy_xml", "policy_set",
 		"packages", "package", "packages_scan", "scripts", "script", "script_create", "script_delete",
-		"script_local_filename", "script_local_stem", "script_check", "script_download", "script_rename", "script_history",
+		"script_local_filename", "script_local_stem", "script_check", "scripts_check", "script_diff", "script_download", "script_rename", "script_history",
 		"extension_attributes", "extension_attribute", "extension_attribute_create", "extension_attribute_delete",
 		"extension_attribute_contents", "extension_attribute_copy", "extension_attribute_dependencies",
 		"computer_extension_attributes", "computer_set_extension_attribute",
@@ -162,19 +162,20 @@ func TestIDListFromStarlark(t *testing.T) {
 
 func TestScriptLocalConverters(t *testing.T) {
 	got, err := scriptLocalFilenameBuiltin(nil, nil, starlark.Tuple{starlark.String("Install Chrome.SH")}, nil)
-	if err != nil || got != starlark.String("install-chrome.sh") {
+	if err != nil || got != starlark.String("Install-Chrome.SH") {
 		t.Fatalf("filename=%v err=%v", got, err)
 	}
 	got, err = scriptLocalFilenameBuiltin(nil, nil, starlark.Tuple{starlark.String("notes.py")}, nil)
-	if err != nil || got != starlark.String("notes-py.sh") {
+	if err != nil || got != starlark.String("notes.py") {
 		t.Fatalf("notes.py=%v err=%v", got, err)
 	}
 	got, err = scriptLocalStemBuiltin(nil, nil, starlark.Tuple{starlark.String("install-chrome.sh")}, nil)
 	if err != nil || got != starlark.String("install-chrome") {
 		t.Fatalf("stem=%v err=%v", got, err)
 	}
-	if _, err := scriptLocalStemBuiltin(nil, nil, starlark.Tuple{starlark.String("notes.py")}, nil); err == nil {
-		t.Fatal("notes.py should raise")
+	got, err = scriptLocalStemBuiltin(nil, nil, starlark.Tuple{starlark.String("notes.py")}, nil)
+	if err != nil || got != starlark.String("notes") {
+		t.Fatalf("notes.py stem=%v err=%v", got, err)
 	}
 }
 

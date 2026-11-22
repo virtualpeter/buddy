@@ -76,6 +76,7 @@ const (
 	SubDirect        = "direct"
 	SubRefresh       = "refresh"
 	SubCheck         = "check"
+	SubDiff          = "diff"
 	SubDownload      = "download"
 	SubRename        = "rename"
 )

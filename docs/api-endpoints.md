@@ -192,7 +192,7 @@ Base path: `/api/v1/scripts`
 
 | Method | Endpoint | Used by | Purpose |
 |--------|----------|---------|---------|
-| `GET` | `/api/v1/scripts` | `ScriptSearch`, `ScriptList`, download-name lookup | List scripts. Omit `page` / `--page` to fetch every page. A bare filter becomes `name=="*term*"`. A download-name lookup uses `name=="*tok*tok*"` and, when that page has no download-name hit, lists once with no filter |
+| `GET` | `/api/v1/scripts` | `ScriptSearch`, `ScriptList`, download-name lookup | List scripts. Omit `page` / `--page` to fetch every page. A bare filter becomes `name=="*term*"`. A download-name lookup uses `name=="*tok*tok*"` and, when that page has no download-name hit or Jamf rejects the filter, lists once with no filter |
 | `GET` | `/api/v1/scripts/{id}` | `scriptGetFull`, `ScriptGet`, `ScriptGetContents`, `ScriptUpdate`, `ScriptPutFields` | Fetch the full script record, including `scriptContents` |
 | `POST` | `/api/v1/scripts` | `ScriptCreate`, `ScriptPostDetail` (clone/copy/migrate) | Create a script |
 | `PUT` | `/api/v1/scripts/{id}` | `scriptPut`, `ScriptUpdate`, `ScriptPutFields`, rename | Fetch-then-PUT. `put` merges known keys and leaves the rest |
@@ -203,11 +203,12 @@ Base path: `/api/v1/scripts`
 
 - Script `id` values are strings (numeric, e.g. `"42"`), consistent with packages, roles, and clients.
 - `priority` values in the v1 API are uppercase: `BEFORE`, `AFTER`, `AT_REBOOT` (Classic API used `Before`, `After`, `At Reboot`).
-- `ScriptCreate` reads the body from a local file. `script_create` sends the string it was given. Both accept `osRequirements` and `parameter4`–`parameter11`, and both refuse an existing exact name or a download filename another script already owns.
+- `ScriptCreate` reads the body from a local file. `script_create` sends the string it was given. Both accept `osRequirements` and `parameter4`–`parameter11`, and both refuse an existing exact name or a download filename another script already owns. `script_update(..., create=True)` posts that same way when the file’s download name has no script; the Jamf name is the basename. The default `create=False` still raises.
+- `scripts_check(dir)` lists the files in one directory (not subdirectories), matches each by download filename, and returns `match`, `mismatch`, `missing`, or `remote-only`. A local file owned by several scripts raises. It does not write.
 - `script_put` and `buddy script put` fetch the record and merge known keys (`name`, `categoryId`, `info`, `notes`, `osRequirements`, `priority`, `parameter4`–`parameter11`, `scriptContents`), then PUT. Omitted keys stay as they are.
 - `ScriptSet*` uses the same fetch-then-PUT pattern for one field. `set name` accepts an id, an exact name, or a local download file, same as `rename`.
 - List rows omit `scriptContents`. `scripts()` and `buddy script list --json` add `localFilename`, the download name. Load a body with `script(id=…)`, `script(name=…)`, `script(file=…)`, or `script_contents(id)`.
-- A local file is matched when its basename equals that download name. The list filter is `name=="*tok*tok*"` from the lowercase stem (`restart-jamf-agent.sh` → `*restart*jamf*agent*`). When that page has no download-name hit, buddy lists once with no filter. `get id` prints only the id: an existing file matches by download name, and any other token, including a numeric string, is an exact name.
+- A script argument is an id, an exact Jamf name, or a local filename. The local filename matches with or without the file on disk (`restart-jamf-agent.sh` finds `Restart Jamf Agent!`). An existing file is matched by slugging its basename (`Install Chrome.SH` finds `Install-Chrome.SH`; a trailing two-character extension is kept, so `notes.py` stays `notes.py`). Letter case is kept. The match itself ignores case, so `tabninekiller.sh` finds `TabNineKiller.sh`. The list filter is `name=="*tok*tok*"` from the lowercase stem. When that page has no download-name hit, or Jamf rejects the filter, buddy lists once with no filter. `get id` prints only the id: an existing file matches by download name, and any other token, including a numeric string, is an exact name and then a local filename.
 
 ---
 
@@ -716,16 +717,16 @@ buddy script list [--filter=<term|rsql>] [--page=<n>] [--page-size=<n>]
   └─ GET /api/v1/scripts                     (page-size=200; bare → name=="*term*"; omit --page to fetch every page)
 
 buddy script get <script>
-  └─ GET /api/v1/scripts/{id}                (id, exact name, or local download file)
+  └─ GET /api/v1/scripts/{id}                (id, exact name, or local filename)
 
 buddy script get contents <script>
   └─ GET /api/v1/scripts/{id}
 
 buddy script get id <script>
-  └─ GET /api/v1/scripts                     (existing file: download name; any other token, including digits: exact name)
+  └─ GET /api/v1/scripts                     (existing file: download name; any other token, including digits: exact name, then local filename)
 
 buddy script history <script>
-  └─ GET /api/v1/scripts/{id}/history        (id, exact name, or local file; sort=date:desc&page-size=20)
+  └─ GET /api/v1/scripts/{id}/history        (id, exact name, or local filename; sort=date:desc&page-size=20)
 
 buddy script create <file> [--os-requirements=] [--parameter4= … --parameter11=]
 buddy script create <name> <file> [flags]
@@ -734,16 +735,20 @@ buddy script create <name> <file> [flags]
 
 buddy script upload|update <file>
 buddy script upload|update <id>|<name> <file>
-  └─ GET /api/v1/scripts                     (download name, exact name, or id)
+  └─ GET /api/v1/scripts                     (download name of the file, or id / exact name / local filename)
   └─ GET /api/v1/scripts/{id}                (fetch current)
   └─ PUT /api/v1/scripts/{id}                (replace scriptContents)
 
 buddy script check <file> [<id>]
-  └─ GET /api/v1/scripts                     (download name, unless an id is given)
+  └─ GET /api/v1/scripts                     (download name of the basename, unless an id is given)
   └─ GET /api/v1/scripts/{id}                (hash scriptContents against the local file)
 
+buddy script diff <file> [<script>]
+  └─ GET /api/v1/scripts                     (download name, or id / exact name / local filename)
+  └─ GET /api/v1/scripts/{id}                (diff text of scriptContents against the local file)
+
 buddy script download <id>|<name> [outfile]
-  └─ GET /api/v1/scripts/{id}                (name is resolved with an exact-name list first)
+  └─ GET /api/v1/scripts/{id}                (id, exact name, or local filename)
 
 buddy script rename <script> <new-name>
   └─ GET /api/v1/scripts                     (resolve id, name, or download name; refuse a taken name)

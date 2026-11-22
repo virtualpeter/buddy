@@ -387,7 +387,7 @@ func scriptBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, 
 		case fileSet:
 			s, err = buddy.ScriptResolve(c, string(file), logger)
 		case nameSet:
-			s, err = buddy.ScriptFetchByName(c, string(name), logger)
+			s, err = buddy.ScriptResolveName(c, string(name), logger)
 		default:
 			var id string
 			id, err = starlarkIDString(idVal, "id")

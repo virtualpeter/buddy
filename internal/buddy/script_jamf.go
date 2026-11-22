@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -190,14 +192,10 @@ func ScriptList(credName, filter string, asJSON bool, opts PageOpts, logger *slo
 		}
 		return printJSONValue(rows)
 	}
-	fmt.Printf("%-8s  %-40s  %-40s  %s\n", "ID", "Name", "Local Filename", "Category")
-	fmt.Printf("%-8s  %-40s  %-40s  %s\n", "--------", "----------------------------------------", "----------------------------------------", "--------------------")
+	fmt.Printf("%-8s  %-50s  %s\n", "ID", "Name", "Local Filename")
+	fmt.Printf("%-8s  %-50s  %s\n", "--------", "--------------------------------------------------", "----------------------------------------")
 	for _, s := range scripts {
-		cat := s.CategoryName
-		if cat == "" {
-			cat = s.CategoryID
-		}
-		fmt.Printf("%-8s  %-40s  %-40s  %s\n", s.ID, truncatePkg(s.Name, 40), scriptFilename(s.Name), cat)
+		fmt.Printf("%-8s  %-50s  %s\n", s.ID, truncatePkg(s.Name, 50), scriptFilename(s.Name))
 	}
 	fmt.Printf("\n%d script(s)\n", len(scripts))
 	return nil
@@ -263,7 +261,8 @@ func ScriptResolve(credName, ref string, logger *slog.Logger) (*ScriptDetail, er
 }
 
 // ScriptLookupID prints-style resolution for `get id`: an existing file matches
-// by download name; anything else is an exact Jamf name, including a numeric string.
+// by download name. Anything else is an exact Jamf name, then a local filename.
+// A numeric string that is not an existing file stays an exact name.
 func ScriptLookupID(credName, ref string, logger *slog.Logger) (string, error) {
 	ref = strings.TrimSpace(ref)
 	info, err := os.Stat(ref)
@@ -277,7 +276,12 @@ func ScriptLookupID(credName, ref string, logger *slog.Logger) (string, error) {
 		}
 		return resolved.ID, nil
 	}
-	return ScriptGetID(credName, ref, logger)
+	_ = logger
+	hit, err := scriptHitByNameOrFilename(credName, ref)
+	if err != nil {
+		return "", err
+	}
+	return hit.ID, nil
 }
 
 // ScriptPutJSONFile reads a JSON object and applies it to the script identified by ref.
@@ -740,21 +744,26 @@ func ScriptSetInfo(credName, id string, opts Opts, value string, logger *slog.Lo
 }
 
 // scriptFilename derives a safe local filename from a Jamf script name.
-// A trailing ".sh" (any case) is kept as the extension: the stem is lowercased,
-// runs of non-alphanumeric characters collapse to one hyphen, and ".sh" is
-// reattached. A name with no ".sh" is slugged the same way and then ".sh" is
-// appended. "Restart Jamf Agent!" → "restart-jamf-agent.sh".
-// "install-chrome.sh" and "Install Chrome.SH" → "install-chrome.sh".
-// "notes.py" → "notes-py.sh".
+// Letter case is kept. A trailing two-character extension (.sh, .py, either
+// case) is kept as written. Runs of other characters collapse to one hyphen.
+// A name with no such extension gets ".sh".
+// "Restart Jamf Agent!" → "Restart-Jamf-Agent.sh".
+// "Install Chrome.SH" → "Install-Chrome.SH".
+// "notes.py" → "notes.py". ".sh" in the middle stays punctuation:
+// "Beta.sh NO JAMF" → "Beta-sh-NO-JAMF.sh".
+// Lookups compare this name case-insensitively, so tabninekiller.sh still
+// finds TabNineKiller.sh.
 func scriptFilename(name string) string {
 	name = strings.TrimSpace(name)
-	if strings.HasSuffix(strings.ToLower(name), ".sh") {
-		name = strings.TrimSpace(name[:len(name)-len(".sh")])
+	ext := ".sh"
+	if e := scriptTrailingExt(name); e != "" {
+		ext = e
+		name = strings.TrimSpace(name[:len(name)-len(e)])
 	}
 	var b strings.Builder
 	prevHyphen := false
-	for _, r := range strings.ToLower(name) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
 			b.WriteRune(r)
 			prevHyphen = false
 		} else if !prevHyphen {
@@ -766,7 +775,25 @@ func scriptFilename(name string) string {
 	if slug == "" {
 		slug = "script"
 	}
-	return slug + ".sh"
+	return slug + ext
+}
+
+// scriptTrailingExt is the ".xx" suffix, in the name's own case, when name
+// ends in a dot and exactly two ASCII letters or digits. ".zsh" and a ".sh"
+// that is not at the end are not extensions.
+func scriptTrailingExt(name string) string {
+	if len(name) < 3 || name[len(name)-3] != '.' {
+		return ""
+	}
+	a, b := name[len(name)-2], name[len(name)-1]
+	if !scriptExtChar(a) || !scriptExtChar(b) {
+		return ""
+	}
+	return name[len(name)-3:]
+}
+
+func scriptExtChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
 // ScriptFilename is the local download name for a Jamf script name.
@@ -781,7 +808,7 @@ func ScriptLocalStem(filename string) (string, error) {
 	if !ScriptFileIsDownloadName(base) {
 		return "", fmt.Errorf("script file %q is not a download name", filename)
 	}
-	return strings.TrimSuffix(base, ".sh"), nil
+	return strings.TrimSuffix(base, scriptTrailingExt(base)), nil
 }
 
 // ScriptFileIsDownloadName reports whether file's base name is already a download name.
@@ -849,8 +876,8 @@ func scriptHitsByExactName(credName, name string) ([]scriptNameHit, error) {
 
 func scriptDownloadNameFilter(filename string) (string, bool) {
 	stem := filename
-	if strings.HasSuffix(strings.ToLower(filename), ".sh") {
-		stem = filename[:len(filename)-len(".sh")]
+	if ext := scriptTrailingExt(filename); ext != "" {
+		stem = filename[:len(filename)-len(ext)]
 	}
 	var tokens []string
 	for _, part := range strings.Split(strings.ToLower(stem), "-") {
@@ -878,10 +905,13 @@ func scriptDownloadNameFilter(filename string) (string, bool) {
 	return filter, true
 }
 
+// scriptHitsMatchingDownloadName is the match after the RSQL candidate query.
+// The filter (name=="*notes*py*") only limits which rows Jamf returns.
+// Equality is on the full download name, so notes.py does not match notes.sh.
 func scriptHitsMatchingDownloadName(recs []ScriptRecord, filename string) []scriptNameHit {
 	var hits []scriptNameHit
 	for _, s := range recs {
-		if scriptFilename(s.Name) == filename {
+		if strings.EqualFold(scriptFilename(s.Name), filename) {
 			hits = append(hits, scriptNameHit{ID: s.ID, Name: s.Name})
 		}
 	}
@@ -892,9 +922,11 @@ func scriptHitsByDownloadName(credName, filename string) ([]scriptNameHit, error
 	if filter, ok := scriptDownloadNameFilter(filename); ok {
 		recs, err := ScriptSearch(credName, filter, PageOpts{Page: PageAll}, nil)
 		if err != nil {
-			return nil, err
-		}
-		if hits := scriptHitsMatchingDownloadName(recs, filename); len(hits) > 0 {
+			// A rejected wildcard filter still has the unfiltered list below.
+			if !jamfErrorHasStatus(err, http.StatusBadRequest) {
+				return nil, err
+			}
+		} else if hits := scriptHitsMatchingDownloadName(recs, filename); len(hits) > 0 {
 			return hits, nil
 		}
 	}
@@ -903,6 +935,108 @@ func scriptHitsByDownloadName(credName, filename string) ([]scriptNameHit, error
 		return nil, err
 	}
 	return scriptHitsMatchingDownloadName(recs, filename), nil
+}
+
+// scriptHitsByFileName finds scripts whose download name is scriptFilename of
+// ref's basename. notes.py stays notes.py. Install Chrome.SH matches
+// Install-Chrome.SH. Comparison ignores case. A basename that is already a
+// download name is unchanged.
+func scriptHitsByFileName(credName, ref string) ([]scriptNameHit, error) {
+	base := filepath.Base(strings.TrimSpace(ref))
+	if base == "" || base == "." || base == ".." {
+		return nil, fmt.Errorf("script file name is required")
+	}
+	return scriptHitsByDownloadName(credName, scriptFilename(base))
+}
+
+func noScriptForFile(ref string) string {
+	base := filepath.Base(strings.TrimSpace(ref))
+	filename := scriptFilename(base)
+	if filename == base {
+		return fmt.Sprintf("no script downloads as %q", filename)
+	}
+	return fmt.Sprintf("no script downloads as %q (from %q)", filename, base)
+}
+
+// scriptFilenameQuery is the download name to try when token is not an exact
+// Jamf name. Download names are used as themselves. Any other basename with an
+// extension, or a path, is slugged. A bare name such as "Restart Jamf Agent!"
+// is left to the exact-name lookup.
+func scriptFilenameQuery(token string) (string, bool) {
+	token = strings.TrimSpace(token)
+	base := filepath.Base(token)
+	if base == "" || base == "." || base == ".." {
+		return "", false
+	}
+	if ScriptFileIsDownloadName(base) {
+		return base, true
+	}
+	if strings.Contains(base, ".") || base != token {
+		return scriptFilename(base), true
+	}
+	return "", false
+}
+
+// scriptHitByNameOrFilename resolves an exact Jamf name. When that misses and
+// the token is a local filename, it resolves the download name instead.
+func scriptHitByNameOrFilename(credName, token string) (scriptNameHit, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return scriptNameHit{}, fmt.Errorf("script name is required")
+	}
+	hits, err := scriptHitsByExactName(credName, token)
+	if err != nil {
+		return scriptNameHit{}, err
+	}
+	if len(hits) > 1 {
+		return scriptNameHit{}, fmt.Errorf("multiple scripts found with name %q: %s", token, formatScriptHits(hits))
+	}
+	if len(hits) == 1 {
+		return hits[0], nil
+	}
+	filename, ok := scriptFilenameQuery(token)
+	if !ok {
+		return scriptNameHit{}, fmt.Errorf("no script found with name %q", token)
+	}
+	hits, err = scriptHitsByDownloadName(credName, filename)
+	if err != nil {
+		return scriptNameHit{}, err
+	}
+	none := fmt.Sprintf("no script downloads as %q", filename)
+	if filename != token {
+		none = fmt.Sprintf("no script found with name %q or download name %q", token, filename)
+	}
+	return scriptOneHit(hits, none, fmt.Sprintf("multiple scripts download as %q: %s", filename, formatScriptHits(hits)))
+}
+
+func isNoScriptName(err error) bool {
+	return err != nil && strings.HasPrefix(err.Error(), "no script found with name ")
+}
+
+// ScriptResolveName loads one script by exact name. A local filename is used
+// when no script has that exact name, so restart-jamf-agent.sh finds
+// Restart Jamf Agent!. notes.py finds the script that downloads as notes.py.
+func ScriptResolveName(credName, name string, logger *slog.Logger) (*ScriptDetail, error) {
+	s, err := ScriptFetchByName(credName, name, logger)
+	if err == nil || !isNoScriptName(err) {
+		return s, err
+	}
+	filename, ok := scriptFilenameQuery(name)
+	if !ok {
+		return nil, err
+	}
+	hits, herr := scriptHitsByDownloadName(credName, filename)
+	if herr != nil {
+		return nil, herr
+	}
+	if len(hits) == 0 {
+		return nil, err
+	}
+	hit, herr := scriptOneHit(hits, err.Error(), fmt.Sprintf("multiple scripts download as %q: %s", filename, formatScriptHits(hits)))
+	if herr != nil {
+		return nil, herr
+	}
+	return scriptGetFull(credName, hit.ID)
 }
 
 func scriptOneHit(hits []scriptNameHit, none, many string) (scriptNameHit, error) {
@@ -976,8 +1110,9 @@ type scriptRef struct {
 	LocalPath string
 }
 
-// resolveScriptRef resolves one CLI identity: an existing file (by download
-// name), otherwise a numeric id, otherwise an exact Jamf name.
+// resolveScriptRef resolves one CLI identity: an existing file (by the download
+// name of its basename), otherwise a numeric id, otherwise an exact Jamf name,
+// otherwise a local filename such as restart-jamf-agent.sh.
 func resolveScriptRef(credName, ref string) (scriptRef, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
@@ -988,14 +1123,14 @@ func resolveScriptRef(credName, ref string) (scriptRef, error) {
 		return scriptRef{}, err
 	}
 	if err == nil && !info.IsDir() {
-		base := filepath.Base(ref)
-		hits, err := scriptHitsByDownloadName(credName, base)
+		hits, err := scriptHitsByFileName(credName, ref)
 		if err != nil {
 			return scriptRef{}, err
 		}
+		filename := scriptFilename(filepath.Base(ref))
 		hit, err := scriptOneHit(hits,
-			fmt.Sprintf("no script downloads as %q", base),
-			fmt.Sprintf("multiple scripts download as %q: %s", base, formatScriptHits(hits)),
+			noScriptForFile(ref),
+			fmt.Sprintf("multiple scripts download as %q: %s", filename, formatScriptHits(hits)),
 		)
 		if err != nil {
 			return scriptRef{}, err
@@ -1005,14 +1140,7 @@ func resolveScriptRef(credName, ref string) (scriptRef, error) {
 	if scriptTokenIsID(ref) {
 		return scriptRef{ID: ref}, nil
 	}
-	hits, err := scriptHitsByExactName(credName, ref)
-	if err != nil {
-		return scriptRef{}, err
-	}
-	hit, err := scriptOneHit(hits,
-		fmt.Sprintf("no script found with name %q", ref),
-		fmt.Sprintf("multiple scripts found with name %q: %s", ref, formatScriptHits(hits)),
-	)
+	hit, err := scriptHitByNameOrFilename(credName, ref)
 	if err != nil {
 		return scriptRef{}, err
 	}
@@ -1027,31 +1155,47 @@ func scriptIDFromNameOrID(credName, idOrName string) (string, error) {
 	if scriptTokenIsID(idOrName) {
 		return idOrName, nil
 	}
-	hits, err := scriptHitsByExactName(credName, idOrName)
-	if err != nil {
-		return "", err
-	}
-	hit, err := scriptOneHit(hits,
-		fmt.Sprintf("no script found with name %q", idOrName),
-		fmt.Sprintf("multiple scripts found with name %q: %s", idOrName, formatScriptHits(hits)),
-	)
+	hit, err := scriptHitByNameOrFilename(credName, idOrName)
 	if err != nil {
 		return "", err
 	}
 	return hit.ID, nil
 }
 
-// ScriptUpdateByFile replaces the unique script that downloads as file's base name.
-// It returns that script id. No owner tells the caller to create; several owners is an error.
-func ScriptUpdateByFile(credName string, opts Opts, file string, logger *slog.Logger) (string, error) {
-	base := filepath.Base(file)
-	hits, err := scriptHitsByDownloadName(credName, base)
+// ScriptUpdateByFile replaces the unique script that downloads as file's basename
+// after it is slugged to a download name. It returns that script id. No owner
+// tells the caller to create unless create is set; several owners is an error.
+// create posts a new script whose Jamf name is the basename and whose body is the file.
+func ScriptUpdateByFile(credName string, opts Opts, file string, create bool, logger *slog.Logger) (string, error) {
+	hits, err := scriptHitsByFileName(credName, file)
 	if err != nil {
 		return "", err
 	}
+	filename := scriptFilename(filepath.Base(file))
+	if len(hits) == 0 {
+		if !create {
+			return "", fmt.Errorf("%s; use buddy script create", noScriptForFile(file))
+		}
+		base := filepath.Base(file)
+		if err := ScriptCreate(credName, opts, base, file, "", "", "", "", ScriptCreateExtra{}, logger); err != nil {
+			return "", err
+		}
+		created, err := scriptHitsByExactName(credName, base)
+		if err != nil {
+			return "", err
+		}
+		hit, err := scriptOneHit(created,
+			fmt.Sprintf("created script %q but it was not found", base),
+			fmt.Sprintf("multiple scripts found with name %q: %s", base, formatScriptHits(created)),
+		)
+		if err != nil {
+			return "", err
+		}
+		return hit.ID, nil
+	}
 	hit, err := scriptOneHit(hits,
-		fmt.Sprintf("no script downloads as %q; use buddy script create", base),
-		fmt.Sprintf("multiple scripts download as %q: %s", base, formatScriptHits(hits)),
+		noScriptForFile(file)+"; use buddy script create",
+		fmt.Sprintf("multiple scripts download as %q: %s", filename, formatScriptHits(hits)),
 	)
 	if err != nil {
 		return "", err
@@ -1062,17 +1206,14 @@ func ScriptUpdateByFile(credName string, opts Opts, file string, logger *slog.Lo
 	return hit.ID, nil
 }
 
-// ScriptUpdateByName replaces the unique script with this exact name.
+// ScriptUpdateByName replaces the unique script with this exact name, or the
+// script whose download name is this local filename.
 func ScriptUpdateByName(credName string, opts Opts, name, file string, logger *slog.Logger) (string, error) {
-	hits, err := scriptHitsByExactName(credName, name)
+	hit, err := scriptHitByNameOrFilename(credName, name)
 	if err != nil {
-		return "", err
-	}
-	hit, err := scriptOneHit(hits,
-		fmt.Sprintf("no script found with name %q; use buddy script create", name),
-		fmt.Sprintf("multiple scripts found with name %q: %s", name, formatScriptHits(hits)),
-	)
-	if err != nil {
+		if strings.Contains(err.Error(), "no script") {
+			return "", fmt.Errorf("%s; use buddy script create", err.Error())
+		}
 		return "", err
 	}
 	if err := ScriptUpdate(credName, opts, hit.ID, file, logger); err != nil {
@@ -1176,10 +1317,98 @@ func ScriptDeleteRefs(credName string, opts Opts, refs []string, logger *slog.Lo
 
 // ScriptCheckClass is the read-only comparison of a local file to a script body.
 const (
-	ScriptCheckMatch    = "match"
-	ScriptCheckMismatch = "mismatch"
-	ScriptCheckMissing  = "missing"
+	ScriptCheckMatch      = "match"
+	ScriptCheckMismatch   = "mismatch"
+	ScriptCheckMissing    = "missing"
+	ScriptCheckRemoteOnly = "remote-only"
 )
+
+// ScriptDirCheck is one row from ScriptsCheck.
+type ScriptDirCheck struct {
+	Class string
+	Path  string
+	File  string
+	ID    string
+	Name  string
+}
+
+// ScriptsCheck compares the files in dir with Jamf scripts by download filename.
+// Subdirectories are skipped. Rows are sorted by file, then id. A local file
+// owned by several scripts is an error. remote-only rows have an empty path.
+func ScriptsCheck(credName, dir string, logger *slog.Logger) ([]ScriptDirCheck, error) {
+	_ = logger
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read script dir %q: %w", dir, err)
+	}
+	scripts, err := ScriptSearch(credName, "", PageOpts{Page: PageAll}, nil)
+	if err != nil {
+		return nil, err
+	}
+	byName := map[string][]scriptNameHit{}
+	for _, s := range scripts {
+		key := strings.ToLower(scriptFilename(s.Name))
+		byName[key] = append(byName[key], scriptNameHit{ID: s.ID, Name: s.Name})
+	}
+	localKey := map[string]string{}
+	var names []string
+	for _, ent := range entries {
+		if ent.IsDir() {
+			continue
+		}
+		base := ent.Name()
+		key := strings.ToLower(scriptFilename(base))
+		if prev, ok := localKey[key]; ok {
+			return nil, fmt.Errorf("multiple local files download as %q: %s, %s", scriptFilename(base), prev, base)
+		}
+		localKey[key] = base
+		names = append(names, base)
+	}
+	var rows []ScriptDirCheck
+	for _, base := range names {
+		key := strings.ToLower(scriptFilename(base))
+		path := filepath.Join(dir, base)
+		hits := byName[key]
+		if len(hits) > 1 {
+			return nil, fmt.Errorf("multiple scripts download as %q: %s", scriptFilename(base), formatScriptHits(hits))
+		}
+		if len(hits) == 0 {
+			rows = append(rows, ScriptDirCheck{Class: ScriptCheckMissing, Path: path, File: base})
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read script file %q: %w", path, err)
+		}
+		full, err := scriptGetFull(credName, hits[0].ID)
+		if err != nil {
+			return nil, err
+		}
+		class := ScriptCheckMismatch
+		if sha256Hex(data) == sha256Hex([]byte(full.ScriptContents)) {
+			class = ScriptCheckMatch
+		}
+		rows = append(rows, ScriptDirCheck{
+			Class: class, Path: path, File: base, ID: hits[0].ID, Name: hits[0].Name,
+		})
+	}
+	for _, s := range scripts {
+		key := strings.ToLower(scriptFilename(s.Name))
+		if _, ok := localKey[key]; ok {
+			continue
+		}
+		rows = append(rows, ScriptDirCheck{
+			Class: ScriptCheckRemoteOnly, File: scriptFilename(s.Name), ID: s.ID, Name: s.Name,
+		})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].File != rows[j].File {
+			return rows[i].File < rows[j].File
+		}
+		return rows[i].ID < rows[j].ID
+	})
+	return rows, nil
+}
 
 // ScriptCheckResult is the report from ScriptCheck.
 type ScriptCheckResult struct {
@@ -1193,8 +1422,9 @@ type ScriptCheckResult struct {
 }
 
 // ScriptCheck hashes file and the Jamf script body. id empty resolves file by
-// download name. A missing script is Class missing, not an API error. More than
-// one download-name owner is an error. Bytes are compared as stored.
+// the download name of its basename (notes.py stays notes.py). A missing script
+// is Class missing, not an API error. More than one download-name owner is an
+// error. Bytes are compared as stored.
 func ScriptCheck(credName, file, id string, logger *slog.Logger) (ScriptCheckResult, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -1214,12 +1444,13 @@ func ScriptCheck(credName, file, id string, logger *slog.Logger) (ScriptCheckRes
 		}
 		s = got
 	} else {
-		hits, err := scriptHitsByDownloadName(credName, base)
+		hits, err := scriptHitsByFileName(credName, file)
 		if err != nil {
 			return ScriptCheckResult{}, err
 		}
 		if len(hits) > 1 {
-			return ScriptCheckResult{}, fmt.Errorf("multiple scripts download as %q: %s", base, formatScriptHits(hits))
+			filename := scriptFilename(base)
+			return ScriptCheckResult{}, fmt.Errorf("multiple scripts download as %q: %s", filename, formatScriptHits(hits))
 		}
 		if len(hits) == 0 {
 			return ScriptCheckResult{Class: ScriptCheckMissing, File: base, LocalSHA256: local}, nil
@@ -1286,8 +1517,8 @@ func scriptIsNotFound(err error) bool {
 }
 
 // ScriptDownload fetches a script and writes its contents to a local file.
-// idOrName is a numeric script id or an exact Jamf name. If outfile is empty,
-// the filename is derived from the script's name via scriptFilename.
+// idOrName is a numeric script id, an exact Jamf name, or a local filename.
+// If outfile is empty, the filename is derived from the script's name via scriptFilename.
 func ScriptDownload(credName, idOrName, outfile string, logger *slog.Logger) (string, error) {
 	id, err := scriptIDFromNameOrID(credName, idOrName)
 	if err != nil {

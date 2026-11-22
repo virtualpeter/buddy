@@ -29,6 +29,39 @@ func scriptLocalStemBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starla
 	return resultOK(starlark.String(stem)), nil
 }
 
+func scriptsCheckBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var dir starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("scripts_check", args, kwargs, "dir", &dir,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		rows, err := buddy.ScriptsCheck(sessionPin, string(dir), logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		list := starlark.NewList(nil)
+		for _, row := range rows {
+			d := new(starlark.Dict)
+			_ = d.SetKey(starlark.String("class"), starlark.String(row.Class))
+			_ = d.SetKey(starlark.String("path"), starlark.String(row.Path))
+			_ = d.SetKey(starlark.String("file"), starlark.String(row.File))
+			_ = d.SetKey(starlark.String("id"), starlark.String(row.ID))
+			_ = d.SetKey(starlark.String("name"), starlark.String(row.Name))
+			_ = list.Append(d)
+		}
+		return resultOK(list), nil
+	}
+}
+
 func scriptCheckBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var file, id starlark.String
@@ -56,6 +89,43 @@ func scriptCheckBuiltin(credName string, logger *slog.Logger) func(*starlark.Thr
 		_ = d.SetKey(starlark.String("file"), starlark.String(res.File))
 		_ = d.SetKey(starlark.String("sha256"), starlark.String(res.SHA256))
 		_ = d.SetKey(starlark.String("localSha256"), starlark.String(res.LocalSHA256))
+		return resultOK(d), nil
+	}
+}
+
+func scriptDiffBuiltin(credName string, logger *slog.Logger) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		var file, id, name starlark.String
+		var sess sessionArgs
+		if err := starlark.UnpackArgs("script_diff", args, kwargs, "file", &file, "id?", &id, "name?", &name,
+			"tenant?", &sess.Tenant,
+			"surface?", &sess.Surface,
+			"auth?", &sess.Auth); err != nil {
+			return nil, err
+		}
+		if id != "" && name != "" {
+			return nil, fmt.Errorf("script_diff: pass either id= or name=, not both")
+		}
+		ref := string(id)
+		if name != "" {
+			ref = string(name)
+		}
+		sessionPin, restoreSession, sessErr := beginSession(thread, credName, sess)
+		if sessErr != nil {
+			return resultErr(sessErr.Error())
+		}
+		defer restoreSession()
+		res, err := buddy.ScriptDiff(sessionPin, string(file), ref, logger)
+		if err != nil {
+			return resultErr(err.Error())
+		}
+		d := new(starlark.Dict)
+		_ = d.SetKey(starlark.String("ok"), starlark.Bool(res.OK))
+		_ = d.SetKey(starlark.String("class"), starlark.String(res.Class))
+		_ = d.SetKey(starlark.String("id"), starlark.String(res.ID))
+		_ = d.SetKey(starlark.String("name"), starlark.String(res.Name))
+		_ = d.SetKey(starlark.String("file"), starlark.String(res.File))
+		_ = d.SetKey(starlark.String("diff"), starlark.String(res.Diff))
 		return resultOK(d), nil
 	}
 }

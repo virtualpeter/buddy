@@ -1,0 +1,60 @@
+#!/usr/bin/env buddy
+# Sync the files in one directory with Jamf scripts.
+#
+#   buddy examples/script-sync.buddy -- status scripts
+#   buddy examples/script-sync.buddy -- down scripts
+#   buddy examples/script-sync.buddy -- up scripts
+#
+# A file matches the Jamf script that downloads under that filename.
+# status only prints. down copies Jamf over local files that differ.
+# up copies local files over Jamf, and creates a script for a file Jamf
+# does not have. The new Jamf name is the filename.
+# Neither direction deletes something that exists only on the other side.
+# -y accepts the confirmation.
+
+def usage():
+    print("usage: buddy examples/script-sync.buddy -- status|down|up <dir>")
+
+def applies(direction, row):
+    if direction == "down" and row["class"] == "mismatch":
+        return True
+    if direction == "up" and (row["class"] == "mismatch" or row["class"] == "missing"):
+        return True
+    return False
+
+def show(row):
+    who = row["id"]
+    if row["name"] != "":
+        who = "%s  %s" % (row["id"], row["name"])
+    print("%-12s  %-40s  %s" % (row["class"], row["file"], who))
+
+def main():
+    if len(args) != 2:
+        usage()
+        return None
+    direction = str(args[0])
+    directory = str(args[1])
+    if direction != "status" and direction != "down" and direction != "up":
+        usage()
+        return None
+    rows = scripts_check(directory)
+    n = 0
+    for row in rows:
+        show(row)
+        if applies(direction, row):
+            n += 1
+    if direction == "status" or n == 0:
+        return rows
+    if not confirm("Apply %s to %d file(s)?" % (direction, n)):
+        return rows
+    for row in rows:
+        if not applies(direction, row):
+            continue
+        if direction == "down":
+            script_download(id=row["id"], path=row["path"])
+            continue
+        if row["class"] == "missing":
+            script_update(file=row["path"], create=True)
+            continue
+        script_update(file=row["path"])
+    return rows
