@@ -2,6 +2,11 @@
 
 buddy did not keep a changelog before v12. This page is the user-facing list of notable changes per tagged release. Version strings come from git tags (`git describe`). Maintainers add a section with `make tag`.
 
+## v12.5.0
+
+- Add script diff and directory sync, keeping case and short extensions in download names.
+- Stuart was offended by the giant thumb
+
 ## v12.4.0
 
 - refactor Import/Export and add Reset
