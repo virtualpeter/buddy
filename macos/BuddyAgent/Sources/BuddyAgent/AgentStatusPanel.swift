@@ -108,6 +108,8 @@ final class AgentStatusPanelController: NSObject {
 		delegate?.quit()
 	}
 
+	fileprivate var isPanelVisible: Bool { panel?.isVisible == true }
+
 	/// The embedded Touch ID view only receives the sensor while this panel is key.
 	fileprivate func focusForTouchID() {
 		guard let panel, panel.isVisible else { return }
@@ -319,7 +321,24 @@ private struct AgentStatusMenuSession: View {
 			if !state.unlocked { beginLockedUnlock() }
 		}
 		.onChange(of: query) { _ in controller.scheduleMeasure() }
-		.onChange(of: state.unlocked) { _ in controller.scheduleMeasure() }
+		.onChange(of: state.unlocked) { unlocked in
+			controller.scheduleMeasure()
+			if unlocked {
+				listening = false
+				passwordPrompt = false
+				touchContext = nil
+				controller.cancelEmbedded = nil
+			} else {
+				controller.cancelEmbedded?()
+				controller.cancelEmbedded = nil
+				listening = false
+				passwordPrompt = false
+				touchContext = nil
+				fastFailures = 0
+				controller.focusForTouchID()
+				beginLockedUnlock()
+			}
+		}
 		.onChange(of: store.authCount) { _ in controller.scheduleMeasure() }
 	}
 
@@ -438,7 +457,7 @@ private struct AgentStatusMenuSession: View {
 	private var lockIcon: some View {
 		ZStack(alignment: .bottomTrailing) {
 			Group {
-				if let icon = AgentBranding.menuIcon(size: 68) {
+				if let icon = AgentBranding.menuIcon(size: Self.iconSide) {
 					Image(nsImage: icon)
 						.resizable()
 						.interpolation(.high)
@@ -447,34 +466,45 @@ private struct AgentStatusMenuSession: View {
 						.font(.system(size: 32))
 				}
 			}
-			.frame(width: 68, height: 68)
+			.frame(width: Self.iconSide, height: Self.iconSide)
 			.clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
 			touchBadge
-				.offset(x: 8, y: 8)
+				.offset(x: Self.touchBadgeShift.width, y: Self.touchBadgeShift.height)
 		}
-		.padding(.trailing, 10)
-		.padding(.bottom, 10)
+		.padding(.trailing, Self.touchBadgeShift.width + 4)
+		.padding(.bottom, Self.touchBadgeShift.height + 4)
 		.accessibilityHidden(true)
 	}
 
 	@ViewBuilder
 	private var touchBadge: some View {
-		if let touchContext {
-			EmbeddedTouchID(context: touchContext) {
-				controller.focusForTouchID()
-				evaluateEmbedded(touchContext)
+		ZStack {
+			if let touchContext {
+				EmbeddedTouchID(context: touchContext) {
+					controller.focusForTouchID()
+					evaluateEmbedded(touchContext)
+				}
+				.id(ObjectIdentifier(touchContext))
 			}
-			.id(ObjectIdentifier(touchContext))
-			.frame(width: 36, height: 36)
-		} else {
+			Circle().fill(.white)
 			Image(systemName: "touchid")
-				.font(.system(size: 18))
-				.foregroundStyle(Color(red: 0.94, green: 0.23, blue: 0.29))
-				.frame(width: 34, height: 34)
-				.background(Color.white, in: Circle())
-				.shadow(color: .black.opacity(0.22), radius: 1.5, y: 0.5)
+				.font(.system(size: Self.touchBadgeSide * 0.76, weight: .black))
+				.foregroundStyle(Self.touchRed)
 		}
+		.frame(width: Self.touchBadgeSide, height: Self.touchBadgeSide)
+		.clipShape(Circle())
+		.shadow(color: .black.opacity(0.22), radius: 1.5, y: 0.5)
 	}
+
+	/// Square that tightly bounds the app squircle.
+	private static let iconSide: CGFloat = 68
+	/// Disc is about 70% of that square, matching the Passwords badge. The shift
+	/// keeps its center just inside the squircle corner so the rounded corner
+	/// does not leave the disc floating below the icon.
+	private static let touchBadgeSide: CGFloat = 48
+	private static let touchBadgeShift = CGSize(width: 18, height: 13)
+	/// Passwords Touch ID red, sampled from the locked menu badge.
+	private static let touchRed = Color(red: 0.922, green: 0.267, blue: 0.353)
 
 	private var searchField: some View {
 		let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -636,17 +666,20 @@ private struct AgentStatusMenuSession: View {
 			return
 		}
 		// A real cancel or timeout: keep the panel listening for the next finger.
-		// A failure that returns immediately is the view not being ready; retry twice.
+		// A failure that returns immediately is the view not being ready. While the
+		// tray is still open and locked, keep replacing the context. Once it is
+		// closed, stop after two of those early failures.
 		let immediate = Date().timeIntervalSince(started) < 0.35
 		if immediate {
 			fastFailures += 1
-			if fastFailures >= 2 {
+			let keepTrying = !state.unlocked && controller.isPanelVisible
+			if !keepTrying, fastFailures >= 2 {
 				listening = false
 				return
 			}
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-				guard listening else { return }
-				beginEmbedded()
+				guard listening, !self.state.unlocked, self.controller.isPanelVisible else { return }
+				self.beginEmbedded()
 			}
 			return
 		}
@@ -705,7 +738,7 @@ private final class EmbeddedTouchContainer: NSView {
 	private var started = false
 
 	init(authContext: LAContext) {
-		super.init(frame: NSRect(x: 0, y: 0, width: 36, height: 36))
+		super.init(frame: NSRect(x: 0, y: 0, width: 48, height: 48))
 		let auth = LAAuthenticationView(context: authContext, controlSize: .large)
 		auth.translatesAutoresizingMaskIntoConstraints = false
 		addSubview(auth)
@@ -723,6 +756,7 @@ private final class EmbeddedTouchContainer: NSView {
 		super.viewDidMoveToWindow()
 		guard window != nil, !started else { return }
 		started = true
+		// onReady makes the panel key, then starts evaluation.
 		DispatchQueue.main.async { [weak self] in
 			self?.onReady?()
 		}
